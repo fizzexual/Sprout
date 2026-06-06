@@ -1,3 +1,7 @@
+# ==============================================================================
+# Git Line Endings Configuration
+# ==============================================================================
+
 # Keep line endings consistent across machines (stored as LF in the repo).
 * text=auto
 
@@ -5,6 +9,15 @@
 *.cmd text eol=crlf
 *.ps1 text eol=crlf
 
-# Sprout source files — mark them as real source so GitHub counts them
-# in the repository's language stats.
-*.sprout text linguist-detectable=true
+# ==============================================================================
+# GitHub Linguist Override (The Sprout Flex)
+# ==============================================================================
+
+# Explicitly register .sprout files as a distinct language and make it detectable
+*.sprout linguist-language=Sprout
+*.sprout linguist-detectable=true
+
+# Ignore the compiler engine and tests in the language statistics bar chart 
+# so that the repository shows Sprout as the primary language.
+src/**/*.ts linguist-vendored
+test/**/*.ts linguist-vendored
