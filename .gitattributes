@@ -1,0 +1,10 @@
+# Keep line endings consistent across machines (stored as LF in the repo).
+* text=auto
+
+# Windows scripts must keep CRLF endings to run correctly.
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Sprout source files — mark them as real source so GitHub counts them
+# in the repository's language stats.
+*.sprout text linguist-detectable=true
