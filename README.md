@@ -66,6 +66,21 @@ Sprout programs use the **`.sprout`** extension. There are more to try in
 > Don't want to install anything? You can always run it directly:
 > `node src/cli.ts run examples/hello.sprout`
 
+### Double-click to run (Windows)
+
+Make `.sprout` files runnable straight from Explorer — double-click one and it
+runs, showing its output in a window:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\install-file-association.ps1
+```
+
+This is per-user only (no admin needed) and reversible:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\uninstall-file-association.ps1
+```
+
 ## Tests
 
 Sprout has a test suite that runs real programs and checks their output, using
