@@ -94,6 +94,42 @@ test("a comment with ~ is ignored", () => {
   assert.deepEqual(run('~ this is a note\nshow "ok"  ~ and so is this'), ["ok"]);
 });
 
+test("a task gives back a value", () => {
+  assert.deepEqual(run("task add(a, b):\n    give a + b\nshow add(2, 3)"), ["5"]);
+});
+
+test("a task can be called as a procedure (no give)", () => {
+  assert.deepEqual(run('task hi(name):\n    show "hi " + name\nhi("sam")'), ["hi sam"]);
+});
+
+test("recursion works (factorial)", () => {
+  const src = "task fact(n):\n    when n <= 1:\n        give 1\n    give n * fact(n - 1)\nshow fact(5)";
+  assert.deepEqual(run(src), ["120"]);
+});
+
+test("tasks can be called before they are defined", () => {
+  assert.deepEqual(run("show twice(4)\ntask twice(n):\n    give n * 2"), ["8"]);
+});
+
+test("a task without give hands back nothing", () => {
+  assert.deepEqual(run('task noop():\n    show "ran"\nmake r = noop()\nshow r'), ["ran", "nothing"]);
+});
+
+test("variables inside a task stay local", () => {
+  const e = runErr("task f():\n    make secret = 1\n    give secret\nmake x = f()\nshow secret");
+  assert.equal(e.kind, "Name");
+});
+
+test("error: wrong number of arguments to a task", () => {
+  const e = runErr("task f(a):\n    give a\nshow f(1, 2)");
+  assert.equal(e.kind, "Type");
+});
+
+test("error: give outside a task", () => {
+  const e = runErr("give 5");
+  assert.equal(e.kind, "Runtime");
+});
+
 test("error: unknown name suggests the closest one", () => {
   const e = runErr('make name = "x"\nshow nme');
   assert.equal(e.kind, "Name");

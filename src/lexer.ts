@@ -21,6 +21,8 @@ const KEYWORDS: Record<string, TokenType> = {
   not: "NOT",
   yes: "YES",
   no: "NO",
+  task: "TASK",
+  give: "GIVE",
 };
 
 const SINGLE: Record<string, TokenType> = {

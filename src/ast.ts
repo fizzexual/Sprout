@@ -30,4 +30,8 @@ export type Stmt =
   | { type: "RepeatWhile"; cond: Expr; body: Stmt[]; line: number }
   // repeat N times:
   | { type: "RepeatTimes"; count: Expr; body: Stmt[]; line: number }
+  // task name(params):  (define a function)
+  | { type: "Task"; name: string; params: string[]; body: Stmt[]; line: number; col: number }
+  // give expr  (return a value from a task)
+  | { type: "Give"; value: Expr | undefined; line: number; col: number }
   | { type: "ExprStmt"; expr: Expr; line: number };

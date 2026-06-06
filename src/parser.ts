@@ -90,6 +90,8 @@ class Parser {
       case "SHOW": return this.showStmt();
       case "WHEN": return this.whenStmt();
       case "REPEAT": return this.repeatStmt();
+      case "TASK": return this.taskStmt();
+      case "GIVE": return this.giveStmt();
       default:
         // A friendly nudge if someone writes `x = 5` without make/set.
         if (t.type === "IDENT" && this.peekNext()?.type === "EQ") {
@@ -160,6 +162,34 @@ class Parser {
     this.expect("TIMES", "I expected 'times' or 'while' after 'repeat'.", "Like: repeat 3 times:  or  repeat while x < 10:");
     const body = this.block();
     return { type: "RepeatTimes", count, body, line: kw.line };
+  }
+
+  // task greet(name, other):
+  private taskStmt(): Stmt {
+    const kw = this.advance(); // TASK
+    const name = this.expect("IDENT", "I expected a name after 'task'.", "Like: task greet(name):");
+    this.expect("LPAREN", `I expected '(' after '${name.value}'.`, "Like: task greet(name):");
+    const params: string[] = [];
+    if (!this.check("RPAREN")) {
+      do {
+        const p = this.expect("IDENT", "I expected an input name here.", "Like: task greet(name):");
+        params.push(p.value);
+      } while (this.match("COMMA"));
+    }
+    this.expect("RPAREN", "I expected ')' to close the inputs.");
+    const body = this.block();
+    return { type: "Task", name: name.value, params, body, line: kw.line, col: kw.col };
+  }
+
+  // give expr   (or just `give` to hand back nothing)
+  private giveStmt(): Stmt {
+    const kw = this.advance(); // GIVE
+    let value: Expr | undefined;
+    if (!this.check("NEWLINE") && !this.check("DEDENT") && !this.isAtEnd()) {
+      value = this.expression();
+    }
+    this.endStatement();
+    return { type: "Give", value, line: kw.line, col: kw.col };
   }
 
   private exprStmt(): Stmt {

@@ -9,6 +9,7 @@
   "scripts": {
     "sprout": "node src/cli.ts",
     "repl": "node src/cli.ts repl",
+    "play": "node playground/server.ts",
     "test": "node --test test/sprout.test.ts",
     "hello": "node src/cli.ts run examples/hello.sprout",
     "fizzbuzz": "node src/cli.ts run examples/fizzbuzz.sprout",

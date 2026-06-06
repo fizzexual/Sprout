@@ -65,7 +65,8 @@ sprout repl                         # interactive prompt
 ```
 
 Sprout programs use the **`.sprout`** extension. There are more to try in
-[`examples/`](examples): `hello`, `fizzbuzz`, `triangle`, `math`, and `primes`.
+[`examples/`](examples): `hello`, `fizzbuzz`, `triangle`, `math`, `primes`, and
+`functions`.
 
 > Don't want to install anything? You can always run it directly:
 > `node src/cli.ts run examples/hello.sprout`
@@ -85,6 +86,19 @@ This is per-user only (no admin needed) and reversible:
 powershell -ExecutionPolicy Bypass -File tools\uninstall-file-association.ps1
 ```
 
+## Playground (a GUI in your browser)
+
+Sprout comes with a little playground — a code editor with a **Run** button and
+live output, served by a zero-dependency Node server:
+
+```bash
+npm run play      # then open http://localhost:3000
+```
+
+Type a program, hit **Run** (or <kbd>Ctrl</kbd>+<kbd>Enter</kbd>), and see the
+output instantly. There's a dropdown of examples to start from, and runaway
+loops are stopped automatically.
+
 ## Tests
 
 Sprout has a test suite that runs real programs and checks their output, using
@@ -94,7 +108,7 @@ Node's built-in test runner — still **no dependencies**:
 npm test          # or: node --test test/sprout.test.ts
 ```
 
-## The language so far (v0.1)
+## The language so far (v0.2)
 
 | Feature | Sprout |
 | --- | --- |
@@ -107,6 +121,7 @@ npm test          # or: node --test test/sprout.test.ts
 | Logic | `and`, `or`, `not` |
 | Conditions | `when` / `orwhen` / `otherwise` |
 | Loops | `repeat while cond:` and `repeat N times:` |
+| Tasks (functions) | `task greet(name):` … `give value` (with recursion) |
 | Booleans | `yes` / `no` |
 | Built-in functions | `sqrt(16)`, `max(3, 9)`, `length("hi")`, `upper(s)` |
 | Comments | `~ like this` |
@@ -140,10 +155,11 @@ output
 ## Roadmap
 
 - [x] **v0.1** — original syntax (`make`/`set`/`show`/`when`/`repeat`), math, text, built-ins, tests, kind errors
-- [ ] **v0.2** — functions: `task greet(name):` and `give` (return)
+- [x] **v0.2** — functions: `task greet(name):` and `give` (return), plus recursion
+- [x] **GUI** — a browser playground (`npm run play`)
 - [ ] **v0.3** — lists & a `for each` loop
-- [ ] **v0.4** — `ask` for input + a small standard library
-- [ ] **v0.5** — a browser playground (try Sprout with one click)
+- [ ] **v0.4** — `ask` for input + a bigger standard library
+- [ ] **v0.5** — host the playground online (try Sprout with one click)
 - [ ] **v0.6** — an editor extension (syntax highlighting + inline errors)
 
 ---

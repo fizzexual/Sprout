@@ -9,6 +9,7 @@ export type TokenType =
   | "WHEN" | "ORWHEN" | "OTHERWISE"
   | "REPEAT" | "WHILE" | "TIMES"
   | "AND" | "OR" | "NOT" | "YES" | "NO"
+  | "TASK" | "GIVE"
   // operators
   | "PLUS" | "MINUS" | "STAR" | "SLASH" | "PERCENT"
   | "EQ" | "EQEQ" | "BANGEQ" | "LT" | "LTE" | "GT" | "GTE"

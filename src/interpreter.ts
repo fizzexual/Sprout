@@ -2,92 +2,157 @@
 //
 // This is a "tree-walking" interpreter: the simplest kind. For each node we
 // either evaluate it to a value (expressions) or perform its effect
-// (statements). Values are plain JS numbers, strings, and booleans.
+// (statements). Values are plain JS numbers, strings, booleans, and `nothing`.
 
 import { LangError } from "./errors.ts";
 import type { Expr, Stmt } from "./ast.ts";
 import type { Value } from "./values.ts";
-import { isTruthy, stringify, typeName } from "./values.ts";
+import { isTruthy, NONE, stringify, typeName } from "./values.ts";
 import { BUILTIN_NAMES, callBuiltin, isBuiltin } from "./builtins.ts";
 
-// Where `say` sends its output. The CLI prints to the console; tests and the
-// (future) browser playground capture it instead.
+// Where `show` sends its output. The CLI prints to the console; tests and the
+// playground capture it instead.
 export type OutputSink = (line: string) => void;
 
-// For now Sprout has a single global scope. (Functions, which will add their
-// own scopes, come in a later slice.) This matches Python's beginner-friendly
-// rule that variables made inside an if/while are still visible afterwards.
+interface FuncDef {
+  params: string[];
+  body: Stmt[];
+}
+
+// A scope: a set of variables, with a link to the scope that contains it.
+// Top-level code uses the global scope; each task call gets a fresh frame
+// whose parent is the global scope.
 class Environment {
   private vars = new Map<string, Value>();
+  parent: Environment | undefined;
+
+  constructor(parent?: Environment) {
+    this.parent = parent;
+  }
 
   define(name: string, value: Value): void {
     this.vars.set(name, value);
   }
   has(name: string): boolean {
-    return this.vars.has(name);
+    return this.vars.has(name) || (this.parent ? this.parent.has(name) : false);
   }
   get(name: string): Value {
-    return this.vars.get(name) as Value;
+    if (this.vars.has(name)) return this.vars.get(name) as Value;
+    if (this.parent) return this.parent.get(name);
+    return NONE;
   }
-  names(): string[] {
-    return [...this.vars.keys()];
+  // Update an existing variable wherever it lives. Returns false if not found.
+  assign(name: string, value: Value): boolean {
+    if (this.vars.has(name)) {
+      this.vars.set(name, value);
+      return true;
+    }
+    if (this.parent) return this.parent.assign(name, value);
+    return false;
+  }
+  visibleNames(): string[] {
+    const names = new Set<string>();
+    let env: Environment | undefined = this;
+    while (env) {
+      for (const k of env.vars.keys()) names.add(k);
+      env = env.parent;
+    }
+    return [...names];
+  }
+}
+
+// Thrown to unwind out of a running task when `give` executes.
+class ReturnSignal {
+  value: Value;
+  constructor(value: Value) {
+    this.value = value;
   }
 }
 
 export class Interpreter {
   source: string;
-  private env = new Environment();
   private out: OutputSink;
+  private maxSteps: number;
+  private steps = 0;
+  private globals = new Environment();
+  private functions = new Map<string, FuncDef>();
 
-  constructor(source: string, out: OutputSink = (line) => console.log(line)) {
+  constructor(
+    source: string,
+    out: OutputSink = (line) => console.log(line),
+    options: { maxSteps?: number } = {},
+  ) {
     this.source = source;
     this.out = out;
+    this.maxSteps = options.maxSteps ?? Infinity;
   }
 
   run(program: Stmt[]): void {
-    for (const stmt of program) this.execute(stmt);
+    // Hoist top-level task definitions so they can be called from anywhere,
+    // even before the line that defines them.
+    for (const stmt of program) {
+      if (stmt.type === "Task") this.functions.set(stmt.name, { params: stmt.params, body: stmt.body });
+    }
+    try {
+      for (const stmt of program) this.execute(stmt, this.globals);
+    } catch (e) {
+      if (e instanceof ReturnSignal) {
+        throw new LangError("Runtime", "'give' only works inside a task.", 1, 1, "Move it inside a 'task ...:' block.");
+      }
+      throw e;
+    }
   }
 
-  private execute(stmt: Stmt): void {
+  private execute(stmt: Stmt, env: Environment): void {
+    if (++this.steps > this.maxSteps) {
+      throw new LangError(
+        "Runtime",
+        "This program ran for too long — maybe an endless loop?",
+        stmt.line,
+        1,
+        "Check that a 'repeat while' condition eventually becomes false.",
+      );
+    }
+
     switch (stmt.type) {
       case "Make": {
-        this.env.define(stmt.name, this.evaluate(stmt.value));
+        env.define(stmt.name, this.evaluate(stmt.value, env));
         return;
       }
       case "Set": {
-        if (!this.env.has(stmt.name)) {
+        const value = this.evaluate(stmt.value, env);
+        if (!env.assign(stmt.name, value)) {
           throw new LangError(
             "Name",
             `You're trying to change '${stmt.name}', but it was never created.`,
             stmt.line,
             stmt.col,
-            this.nameHint(stmt.name) ?? `Create it first with: make ${stmt.name} = ...`,
+            this.nameHint(stmt.name, env) ?? `Create it first with: make ${stmt.name} = ...`,
           );
         }
-        this.env.define(stmt.name, this.evaluate(stmt.value));
         return;
       }
       case "Show": {
-        const parts = stmt.values.map((v) => stringify(this.evaluate(v)));
+        const parts = stmt.values.map((v) => stringify(this.evaluate(v, env)));
         this.out(parts.join(" "));
         return;
       }
       case "When": {
         for (const branch of stmt.branches) {
-          if (isTruthy(this.evaluate(branch.cond))) {
-            this.runBlock(branch.body);
+          if (isTruthy(this.evaluate(branch.cond, env))) {
+            this.runBlock(branch.body, env);
             return;
           }
         }
-        if (stmt.otherwiseBody) this.runBlock(stmt.otherwiseBody);
+        if (stmt.otherwiseBody) this.runBlock(stmt.otherwiseBody, env);
         return;
       }
       case "RepeatWhile": {
-        while (isTruthy(this.evaluate(stmt.cond))) this.runBlock(stmt.body);
+        while (isTruthy(this.evaluate(stmt.cond, env))) this.runBlock(stmt.body, env);
         return;
       }
       case "RepeatTimes": {
-        const n = this.evaluate(stmt.count);
+        const n = this.evaluate(stmt.count, env);
         if (typeof n !== "number") {
           throw new LangError(
             "Type",
@@ -98,40 +163,56 @@ export class Interpreter {
           );
         }
         const count = Math.floor(n);
-        for (let k = 0; k < count; k++) this.runBlock(stmt.body);
+        for (let k = 0; k < count; k++) this.runBlock(stmt.body, env);
         return;
       }
+      case "Task": {
+        if (env !== this.globals) {
+          throw new LangError(
+            "Syntax",
+            "For now, tasks must be defined at the top level, not inside another block.",
+            stmt.line,
+            stmt.col,
+            "Move this 'task' out to the left margin.",
+          );
+        }
+        this.functions.set(stmt.name, { params: stmt.params, body: stmt.body });
+        return;
+      }
+      case "Give": {
+        throw new ReturnSignal(stmt.value ? this.evaluate(stmt.value, env) : NONE);
+      }
       case "ExprStmt": {
-        this.evaluate(stmt.expr);
+        this.evaluate(stmt.expr, env);
         return;
       }
     }
   }
 
-  private runBlock(stmts: Stmt[]): void {
-    for (const stmt of stmts) this.execute(stmt);
+  private runBlock(stmts: Stmt[], env: Environment): void {
+    for (const stmt of stmts) this.execute(stmt, env);
   }
 
-  private evaluate(expr: Expr): Value {
+  private evaluate(expr: Expr, env: Environment): Value {
     switch (expr.type) {
       case "Number": return expr.value;
       case "String": return expr.value;
       case "Bool": return expr.value;
       case "Identifier": {
-        if (!this.env.has(expr.name)) {
+        if (!env.has(expr.name)) {
           throw new LangError(
             "Name",
             `I don't know what '${expr.name}' is.`,
             expr.line,
             expr.col,
-            this.nameHint(expr.name) ?? `Create it first with: let ${expr.name} = ...`,
+            this.nameHint(expr.name, env) ?? `Create it first with: make ${expr.name} = ...`,
           );
         }
-        return this.env.get(expr.name);
+        return env.get(expr.name);
       }
       case "Unary": {
         if (expr.op === "-") {
-          const v = this.evaluate(expr.operand);
+          const v = this.evaluate(expr.operand, env);
           if (typeof v !== "number") {
             throw new LangError(
               "Type",
@@ -142,38 +223,76 @@ export class Interpreter {
           }
           return -v;
         }
-        return !isTruthy(this.evaluate(expr.operand));
+        return !isTruthy(this.evaluate(expr.operand, env));
       }
       case "Logical": {
-        const left = this.evaluate(expr.left);
+        const left = this.evaluate(expr.left, env);
         if (expr.op === "and") {
           if (!isTruthy(left)) return false;
-          return isTruthy(this.evaluate(expr.right));
+          return isTruthy(this.evaluate(expr.right, env));
         }
         if (isTruthy(left)) return true;
-        return isTruthy(this.evaluate(expr.right));
+        return isTruthy(this.evaluate(expr.right, env));
       }
-      case "Binary": return this.binary(expr);
-      case "Call": {
-        const args = expr.args.map((a) => this.evaluate(a));
-        if (!isBuiltin(expr.name)) {
-          const near = closest(expr.name, BUILTIN_NAMES);
-          throw new LangError(
-            "Name",
-            `I don't know a function called '${expr.name}'.`,
-            expr.line,
-            expr.col,
-            near ? `Did you mean '${near}'?` : "Built-in functions include: sqrt, round, max, min, length, upper, lower.",
-          );
-        }
-        return callBuiltin(expr.name, args, { line: expr.line, col: expr.col });
-      }
+      case "Binary": return this.binary(expr, env);
+      case "Call": return this.call(expr, env);
     }
   }
 
-  private binary(expr: Expr & { type: "Binary" }): Value {
-    const l = this.evaluate(expr.left);
-    const r = this.evaluate(expr.right);
+  private call(expr: Expr & { type: "Call" }, env: Environment): Value {
+    const args = expr.args.map((a) => this.evaluate(a, env));
+
+    const fn = this.functions.get(expr.name);
+    if (fn) return this.callTask(expr.name, fn, args, expr);
+
+    if (isBuiltin(expr.name)) return callBuiltin(expr.name, args, { line: expr.line, col: expr.col });
+
+    const near = closest(expr.name, [...this.functions.keys(), ...BUILTIN_NAMES]);
+    throw new LangError(
+      "Name",
+      `I don't know a task called '${expr.name}'.`,
+      expr.line,
+      expr.col,
+      near ? `Did you mean '${near}'?` : `Define it with: task ${expr.name}(...):`,
+    );
+  }
+
+  private callTask(name: string, fn: FuncDef, args: Value[], site: Expr): Value {
+    if (args.length !== fn.params.length) {
+      const need = fn.params.length;
+      throw new LangError(
+        "Type",
+        `The task '${name}' needs ${need} ${need === 1 ? "value" : "values"} (${fn.params.join(", ") || "none"}), but you gave ${args.length}.`,
+        site.line,
+        site.col,
+        `Like: ${name}(${fn.params.join(", ")})`,
+      );
+    }
+
+    const frame = new Environment(this.globals);
+    for (let i = 0; i < fn.params.length; i++) frame.define(fn.params[i], args[i]);
+
+    try {
+      this.runBlock(fn.body, frame);
+    } catch (e) {
+      if (e instanceof ReturnSignal) return e.value;
+      if (e instanceof RangeError) {
+        throw new LangError(
+          "Runtime",
+          `The task '${name}' called itself too many times (no stopping point?).`,
+          site.line,
+          site.col,
+          "A task that calls itself needs a 'when' that eventually stops.",
+        );
+      }
+      throw e;
+    }
+    return NONE; // the task finished without giving anything back
+  }
+
+  private binary(expr: Expr & { type: "Binary" }, env: Environment): Value {
+    const l = this.evaluate(expr.left, env);
+    const r = this.evaluate(expr.right, env);
     const op = expr.op;
 
     if (op === "+") {
@@ -230,8 +349,8 @@ export class Interpreter {
     );
   }
 
-  private nameHint(name: string): string | undefined {
-    const near = closest(name, this.env.names());
+  private nameHint(name: string, env: Environment): string | undefined {
+    const near = closest(name, env.visibleNames());
     return near ? `Did you mean '${near}'?` : undefined;
   }
 }

@@ -1,21 +1,27 @@
 // values.ts — the runtime values of Sprout and the helpers that work on them.
 // Shared by the interpreter and the built-in functions.
 
-export type Value = number | string | boolean;
+// "nothing" — what a task gives back when it has no `give`.
+export class NoneType {}
+export const NONE: NoneType = new NoneType();
+
+export type Value = number | string | boolean | NoneType;
 
 // Turn a value into the text Sprout shows the user.
 export function stringify(v: Value): string {
   if (typeof v === "string") return v;
   if (typeof v === "boolean") return v ? "yes" : "no";
+  if (v instanceof NoneType) return "nothing";
   if (Object.is(v, -0)) return "0";
   return String(v);
 }
 
-// Sprout's notion of "truthy" for conditions: 0, "", and false are false.
+// Sprout's notion of "truthy" for conditions: 0, "", no, and nothing are false.
 export function isTruthy(v: Value): boolean {
   if (typeof v === "boolean") return v;
   if (typeof v === "number") return v !== 0;
   if (typeof v === "string") return v.length > 0;
+  if (v instanceof NoneType) return false;
   return true;
 }
 
@@ -23,5 +29,6 @@ export function isTruthy(v: Value): boolean {
 export function typeName(v: Value): string {
   if (typeof v === "number") return "a number";
   if (typeof v === "string") return "text";
-  return "a true/false value";
+  if (typeof v === "boolean") return "a yes/no value";
+  return "nothing";
 }
