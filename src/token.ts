@@ -5,8 +5,10 @@ export type TokenType =
   // literals & names
   | "NUMBER" | "STRING" | "IDENT"
   // keywords
-  | "LET" | "SAY" | "IF" | "ELIF" | "ELSE" | "WHILE" | "REPEAT" | "TIMES"
-  | "AND" | "OR" | "NOT" | "TRUE" | "FALSE"
+  | "MAKE" | "SET" | "SHOW"
+  | "WHEN" | "ORWHEN" | "OTHERWISE"
+  | "REPEAT" | "WHILE" | "TIMES"
+  | "AND" | "OR" | "NOT" | "YES" | "NO"
   // operators
   | "PLUS" | "MINUS" | "STAR" | "SLASH" | "PERCENT"
   | "EQ" | "EQEQ" | "BANGEQ" | "LT" | "LTE" | "GT" | "GTE"

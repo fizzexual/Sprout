@@ -1,15 +1,15 @@
-# Sprout's built-in functions.
+~ Sprout's built-in functions.
 
-say "abs(-4)    =", abs(-4)
-say "round(3.7) =", round(3.7)
-say "floor(3.7) =", floor(3.7)
-say "ceil(3.2)  =", ceil(3.2)
-say "sqrt(144)  =", sqrt(144)
-say "max(2,9,5) =", max(2, 9, 5)
-say "min(2,9,5) =", min(2, 9, 5)
+show "abs(-4)    =", abs(-4)
+show "round(3.7) =", round(3.7)
+show "floor(3.7) =", floor(3.7)
+show "ceil(3.2)  =", ceil(3.2)
+show "sqrt(144)  =", sqrt(144)
+show "max(2,9,5) =", max(2, 9, 5)
+show "min(2,9,5) =", min(2, 9, 5)
 
-say ""
-let word = "Sprout"
-say word, "has", length(word), "letters"
-say "shout: " + upper(word)
-say "quiet: " + lower(word)
+show ""
+make word = "Sprout"
+show word, "has", length(word), "letters"
+show "shout: " + upper(word)
+show "quiet: " + lower(word)

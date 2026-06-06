@@ -74,7 +74,7 @@ class Parser {
           "This line is indented but isn't inside a block.",
           tok.line,
           1,
-          "Only indent lines that belong under an 'if', 'while', or 'repeat'.",
+          "Only indent lines that belong under a 'when', 'repeat', or similar.",
         );
       }
       stmts.push(this.statement());
@@ -85,71 +85,81 @@ class Parser {
   private statement(): Stmt {
     const t = this.peek();
     switch (t.type) {
-      case "LET": return this.letStmt();
-      case "SAY": return this.sayStmt();
-      case "IF": return this.ifStmt();
-      case "WHILE": return this.whileStmt();
+      case "MAKE": return this.makeStmt();
+      case "SET": return this.setStmt();
+      case "SHOW": return this.showStmt();
+      case "WHEN": return this.whenStmt();
       case "REPEAT": return this.repeatStmt();
       default:
-        if (t.type === "IDENT" && this.peekNext()?.type === "EQ") return this.assignStmt();
+        // A friendly nudge if someone writes `x = 5` without make/set.
+        if (t.type === "IDENT" && this.peekNext()?.type === "EQ") {
+          throw new LangError(
+            "Syntax",
+            `To change '${t.value}', start the line with 'set' (or 'make' to create it).`,
+            t.line,
+            t.col,
+            `Like: set ${t.value} = ...`,
+          );
+        }
         return this.exprStmt();
     }
   }
 
-  private letStmt(): Stmt {
-    const kw = this.advance(); // LET
-    const name = this.expect("IDENT", "I expected a name after 'let'.", "Like: let score = 0");
-    this.expect("EQ", `I expected an '=' after '${name.value}'.`, `Like: let ${name.value} = 0`);
+  private makeStmt(): Stmt {
+    const kw = this.advance(); // MAKE
+    const name = this.expect("IDENT", "I expected a name after 'make'.", "Like: make score = 0");
+    this.expect("EQ", `I expected an '=' after '${name.value}'.`, `Like: make ${name.value} = 0`);
     const value = this.expression();
     this.endStatement();
-    return { type: "Let", name: name.value, value, line: kw.line, col: kw.col };
+    return { type: "Make", name: name.value, value, line: kw.line, col: kw.col };
   }
 
-  private assignStmt(): Stmt {
-    const name = this.advance(); // IDENT
-    this.expect("EQ", "I expected an '=' here.");
+  private setStmt(): Stmt {
+    const kw = this.advance(); // SET
+    const name = this.expect("IDENT", "I expected a name after 'set'.", "Like: set score = score + 1");
+    this.expect("EQ", `I expected an '=' after '${name.value}'.`, `Like: set ${name.value} = ...`);
     const value = this.expression();
     this.endStatement();
-    return { type: "Assign", name: name.value, value, line: name.line, col: name.col };
+    return { type: "Set", name: name.value, value, line: kw.line, col: kw.col };
   }
 
-  private sayStmt(): Stmt {
-    const kw = this.advance(); // SAY
+  private showStmt(): Stmt {
+    const kw = this.advance(); // SHOW
     const values: Expr[] = [this.expression()];
     while (this.match("COMMA")) values.push(this.expression());
     this.endStatement();
-    return { type: "Say", values, line: kw.line };
+    return { type: "Show", values, line: kw.line };
   }
 
-  private ifStmt(): Stmt {
-    const kw = this.advance(); // IF
+  private whenStmt(): Stmt {
+    const kw = this.advance(); // WHEN
     const branches: Branch[] = [];
     branches.push({ cond: this.expression(), body: this.block() });
-    while (this.check("ELIF")) {
+    while (this.check("ORWHEN")) {
       this.advance();
       branches.push({ cond: this.expression(), body: this.block() });
     }
-    let elseBody: Stmt[] | undefined;
-    if (this.check("ELSE")) {
+    let otherwiseBody: Stmt[] | undefined;
+    if (this.check("OTHERWISE")) {
       this.advance();
-      elseBody = this.block();
+      otherwiseBody = this.block();
     }
-    return { type: "If", branches, elseBody, line: kw.line };
+    return { type: "When", branches, otherwiseBody, line: kw.line };
   }
 
-  private whileStmt(): Stmt {
-    const kw = this.advance(); // WHILE
-    const cond = this.expression();
-    const body = this.block();
-    return { type: "While", cond, body, line: kw.line };
-  }
-
+  // repeat while cond:   OR   repeat N times:
   private repeatStmt(): Stmt {
     const kw = this.advance(); // REPEAT
+    if (this.check("WHILE")) {
+      this.advance();
+      const cond = this.expression();
+      const body = this.block();
+      return { type: "RepeatWhile", cond, body, line: kw.line };
+    }
     const count = this.expression();
-    this.expect("TIMES", "I expected the word 'times' here.", "Like: repeat 3 times:");
+    this.expect("TIMES", "I expected 'times' or 'while' after 'repeat'.", "Like: repeat 3 times:  or  repeat while x < 10:");
     const body = this.block();
-    return { type: "Repeat", count, body, line: kw.line };
+    return { type: "RepeatTimes", count, body, line: kw.line };
   }
 
   private exprStmt(): Stmt {
@@ -177,7 +187,7 @@ class Parser {
 
   // A block is ':' then an indented group of statements.
   private block(): Stmt[] {
-    this.expect("COLON", "I expected a ':' to start the block.", "Like: if score > 0:");
+    this.expect("COLON", "I expected a ':' to start the block.", "Like: when score > 0:");
     this.expect("NEWLINE", "The block should begin on the next line.");
     this.expect(
       "INDENT",
@@ -293,8 +303,8 @@ class Parser {
     const t = this.peek();
     if (this.match("NUMBER")) return { type: "Number", value: Number(t.value), line: t.line, col: t.col };
     if (this.match("STRING")) return { type: "String", value: t.value, line: t.line, col: t.col };
-    if (this.match("TRUE")) return { type: "Bool", value: true, line: t.line, col: t.col };
-    if (this.match("FALSE")) return { type: "Bool", value: false, line: t.line, col: t.col };
+    if (this.match("YES")) return { type: "Bool", value: true, line: t.line, col: t.col };
+    if (this.match("NO")) return { type: "Bool", value: false, line: t.line, col: t.col };
     if (this.check("IDENT")) {
       const nameTok = this.advance();
       if (this.check("LPAREN")) return this.finishCall(nameTok);
@@ -320,7 +330,7 @@ class Parser {
       `I didn't expect '${t.value || t.type}' here.`,
       t.line,
       t.col,
-      "I was looking for a value — a number, some text, true/false, or a name.",
+      "I was looking for a value — a number, some text, yes/no, or a name.",
     );
   }
 }

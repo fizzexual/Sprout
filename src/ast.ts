@@ -18,10 +18,16 @@ export interface Branch {
 }
 
 export type Stmt =
-  | { type: "Let"; name: string; value: Expr; line: number; col: number }
-  | { type: "Assign"; name: string; value: Expr; line: number; col: number }
-  | { type: "Say"; values: Expr[]; line: number }
-  | { type: "If"; branches: Branch[]; elseBody: Stmt[] | undefined; line: number }
-  | { type: "While"; cond: Expr; body: Stmt[]; line: number }
-  | { type: "Repeat"; count: Expr; body: Stmt[]; line: number }
+  // make x = expr   (create a variable)
+  | { type: "Make"; name: string; value: Expr; line: number; col: number }
+  // set x = expr    (change an existing variable)
+  | { type: "Set"; name: string; value: Expr; line: number; col: number }
+  // show a, b, c    (print)
+  | { type: "Show"; values: Expr[]; line: number }
+  // when / orwhen / otherwise
+  | { type: "When"; branches: Branch[]; otherwiseBody: Stmt[] | undefined; line: number }
+  // repeat while cond:
+  | { type: "RepeatWhile"; cond: Expr; body: Stmt[]; line: number }
+  // repeat N times:
+  | { type: "RepeatTimes"; count: Expr; body: Stmt[]; line: number }
   | { type: "ExprStmt"; expr: Expr; line: number };

@@ -1,20 +1,20 @@
-# Your very first Sprout program! 🌱
-# Run it with:  sprout run examples/hello.spr
+~ Your very first Sprout program!
+~ Run it with:  sprout run examples/hello.sprout
 
-say "Hello, world!"
+show "Hello, world!"
 
-let name = "friend"
-say "Nice to meet you, " + name + "!"
+make name = "friend"
+show "Nice to meet you, " + name + "!"
 
-# Numbers and math
-let a = 7
-let b = 6
-say a, "+", b, "=", a + b
-say a, "times", b, "=", a * b
+~ Numbers and math
+make a = 7
+make b = 6
+show a, "+", b, "=", a + b
+show a, "times", b, "=", a * b
 
-# true / false
-let sunny = true
-if sunny:
-    say "Let's go outside."
-else:
-    say "Let's stay in."
+~ yes / no
+make sunny = yes
+when sunny:
+    show "Let's go outside."
+otherwise:
+    show "Let's stay in."

@@ -6,7 +6,7 @@ export type Value = number | string | boolean;
 // Turn a value into the text Sprout shows the user.
 export function stringify(v: Value): string {
   if (typeof v === "string") return v;
-  if (typeof v === "boolean") return v ? "true" : "false";
+  if (typeof v === "boolean") return v ? "yes" : "no";
   if (Object.is(v, -0)) return "0";
   return String(v);
 }

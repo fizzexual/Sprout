@@ -50,48 +50,48 @@ export class Interpreter {
 
   private execute(stmt: Stmt): void {
     switch (stmt.type) {
-      case "Let": {
+      case "Make": {
         this.env.define(stmt.name, this.evaluate(stmt.value));
         return;
       }
-      case "Assign": {
+      case "Set": {
         if (!this.env.has(stmt.name)) {
           throw new LangError(
             "Name",
             `You're trying to change '${stmt.name}', but it was never created.`,
             stmt.line,
             stmt.col,
-            this.nameHint(stmt.name) ?? `Create it first with: let ${stmt.name} = ...`,
+            this.nameHint(stmt.name) ?? `Create it first with: make ${stmt.name} = ...`,
           );
         }
         this.env.define(stmt.name, this.evaluate(stmt.value));
         return;
       }
-      case "Say": {
+      case "Show": {
         const parts = stmt.values.map((v) => stringify(this.evaluate(v)));
         this.out(parts.join(" "));
         return;
       }
-      case "If": {
+      case "When": {
         for (const branch of stmt.branches) {
           if (isTruthy(this.evaluate(branch.cond))) {
             this.runBlock(branch.body);
             return;
           }
         }
-        if (stmt.elseBody) this.runBlock(stmt.elseBody);
+        if (stmt.otherwiseBody) this.runBlock(stmt.otherwiseBody);
         return;
       }
-      case "While": {
+      case "RepeatWhile": {
         while (isTruthy(this.evaluate(stmt.cond))) this.runBlock(stmt.body);
         return;
       }
-      case "Repeat": {
+      case "RepeatTimes": {
         const n = this.evaluate(stmt.count);
         if (typeof n !== "number") {
           throw new LangError(
             "Type",
-            `'repeat' needs a number of times, but got ${typeName(n)}.`,
+            `'repeat ... times' needs a number, but got ${typeName(n)}.`,
             stmt.line,
             1,
             "Like: repeat 3 times:",

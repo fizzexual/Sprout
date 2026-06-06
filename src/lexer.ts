@@ -7,19 +7,20 @@ import { LangError } from "./errors.ts";
 import type { Token, TokenType } from "./token.ts";
 
 const KEYWORDS: Record<string, TokenType> = {
-  let: "LET",
-  say: "SAY",
-  if: "IF",
-  elif: "ELIF",
-  else: "ELSE",
-  while: "WHILE",
+  make: "MAKE",
+  set: "SET",
+  show: "SHOW",
+  when: "WHEN",
+  orwhen: "ORWHEN",
+  otherwise: "OTHERWISE",
   repeat: "REPEAT",
+  while: "WHILE",
   times: "TIMES",
   and: "AND",
   or: "OR",
   not: "NOT",
-  true: "TRUE",
-  false: "FALSE",
+  yes: "YES",
+  no: "NO",
 };
 
 const SINGLE: Record<string, TokenType> = {
@@ -67,7 +68,7 @@ export function tokenize(source: string): Token[] {
 
     // Blank lines and comment-only lines are ignored completely: they don't
     // start a NEWLINE and don't change the indentation level.
-    if (rest.length === 0 || rest[0] === "#") continue;
+    if (rest.length === 0 || rest[0] === "~") continue;
 
     // Compare this line's indentation against the stack.
     const indent = i;
@@ -103,7 +104,7 @@ export function tokenize(source: string): Token[] {
         continue;
       }
 
-      if (c === "#") break; // trailing comment
+      if (c === "~") break; // trailing comment
 
       // Numbers: 123 or 3.14
       if (isDigit(c)) {

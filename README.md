@@ -11,10 +11,11 @@ most languages throw cryptic errors, Sprout points at the exact spot and
 explains the problem in plain English.
 
 ```
-🌱 Oops — name problem on line 3:
+🌱 Oops — name problem on line 2:
 
-  3 | say "Hi, " + nme
-                   ^
+  2 | show "Hi, " + nme
+    |               ^
+
   I don't know what 'nme' is.
 
   💡 Did you mean 'name'?
@@ -22,22 +23,25 @@ explains the problem in plain English.
 
 ## A taste
 
-```sprout
-let name = "world"
-say "Hello, " + name + "!"
+Sprout has its **own** vocabulary — it doesn't borrow `let`, `print`, or `if`
+from anyone:
 
-# Count to 20 — FizzBuzz
-let n = 1
-while n <= 20:
-    if n % 15 == 0:
-        say "FizzBuzz"
-    elif n % 3 == 0:
-        say "Fizz"
-    elif n % 5 == 0:
-        say "Buzz"
-    else:
-        say n
-    n = n + 1
+```sprout
+make name = "world"
+show "Hello, " + name + "!"
+
+~ Count to 20 — FizzBuzz
+make n = 1
+repeat while n <= 20:
+    when n % 15 == 0:
+        show "FizzBuzz"
+    orwhen n % 3 == 0:
+        show "Fizz"
+    orwhen n % 5 == 0:
+        show "Buzz"
+    otherwise:
+        show n
+    set n = n + 1
 ```
 
 ## Install the `sprout` command
@@ -92,18 +96,20 @@ npm test          # or: node --test test/sprout.test.ts
 
 ## The language so far (v0.1)
 
-| Feature | Example |
+| Feature | Sprout |
 | --- | --- |
-| Variables | `let score = 0` then `score = score + 1` |
-| Printing | `say "hi", name, 1 + 2` |
+| Create a variable | `make score = 0` |
+| Change a variable | `set score = score + 1` |
+| Print | `show "hi", name, 1 + 2` |
 | Math | `+ - * / %` and parentheses |
 | Text | `"a" + "b"`, joins with anything |
 | Comparisons | `== != < <= > >=` |
 | Logic | `and`, `or`, `not` |
-| Conditions | `if` / `elif` / `else` |
-| Loops | `while cond:` and `repeat N times:` |
+| Conditions | `when` / `orwhen` / `otherwise` |
+| Loops | `repeat while cond:` and `repeat N times:` |
+| Booleans | `yes` / `no` |
 | Built-in functions | `sqrt(16)`, `max(3, 9)`, `length("hi")`, `upper(s)` |
-| Comments | `# like this` |
+| Comments | `~ like this` |
 | Kind errors | points at the spot, suggests fixes |
 
 **Built-ins so far:** `abs` · `round` · `floor` · `ceil` · `sqrt` · `min` · `max` · `length` · `upper` · `lower` · `random`
@@ -133,8 +139,8 @@ output
 
 ## Roadmap
 
-- [x] **v0.1** — variables, math, text, `if`/`while`/`repeat`, built-ins, tests, kind errors
-- [ ] **v0.2** — functions (`function greet(name):`) and `return`
+- [x] **v0.1** — original syntax (`make`/`set`/`show`/`when`/`repeat`), math, text, built-ins, tests, kind errors
+- [ ] **v0.2** — functions: `task greet(name):` and `give` (return)
 - [ ] **v0.3** — lists & a `for each` loop
 - [ ] **v0.4** — `ask` for input + a small standard library
 - [ ] **v0.5** — a browser playground (try Sprout with one click)
