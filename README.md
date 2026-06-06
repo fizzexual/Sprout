@@ -65,8 +65,8 @@ sprout repl                         # interactive prompt
 ```
 
 Sprout programs use the **`.sprout`** extension. There are more to try in
-[`examples/`](examples): `hello`, `fizzbuzz`, `triangle`, `math`, `primes`, and
-`functions`.
+[`examples/`](examples): `hello`, `fizzbuzz`, `triangle`, `math`, `primes`,
+`functions`, and the GUI apps `gui-counter` & `gui-greeter`.
 
 > Don't want to install anything? You can always run it directly:
 > `node src/cli.ts run examples/hello.sprout`
@@ -99,6 +99,34 @@ Type a program, hit **Run** (or <kbd>Ctrl</kbd>+<kbd>Enter</kbd>), and see the
 output instantly. There's a dropdown of examples to start from, and runaway
 loops are stopped automatically.
 
+## Build a GUI 🪟
+
+Sprout can make real graphical apps — written entirely in Sprout. A `button`
+runs a `task` when clicked, `label` updates what's on screen, and `field` reads
+what the user typed.
+
+```sprout
+make count = 0
+
+task add():
+    set count = count + 1
+    label("display", "Count: " + count)
+
+window("Counter")
+label("display", "Count: 0")
+button("Add one", "add")
+```
+
+Run it and a window opens in your browser:
+
+```bash
+sprout gui examples/gui-counter.sprout
+```
+
+GUI building blocks: `window(title)`, `label(id, text)` (call again to update
+it), `button(text, taskName)`, `field(id, hint)`, and `textof(id)`. There's also
+`examples/gui-greeter.sprout` to try.
+
 ## Tests
 
 Sprout has a test suite that runs real programs and checks their output, using
@@ -122,6 +150,7 @@ npm test          # or: node --test test/sprout.test.ts
 | Conditions | `when` / `orwhen` / `otherwise` |
 | Loops | `repeat while cond:` and `repeat N times:` |
 | Tasks (functions) | `task greet(name):` … `give value` (with recursion) |
+| GUI apps | `window` · `label` · `button` · `field` · `textof` (run with `sprout gui`) |
 | Booleans | `yes` / `no` |
 | Built-in functions | `sqrt(16)`, `max(3, 9)`, `length("hi")`, `upper(s)` |
 | Comments | `~ like this` |
@@ -156,7 +185,8 @@ output
 
 - [x] **v0.1** — original syntax (`make`/`set`/`show`/`when`/`repeat`), math, text, built-ins, tests, kind errors
 - [x] **v0.2** — functions: `task greet(name):` and `give` (return), plus recursion
-- [x] **GUI** — a browser playground (`npm run play`)
+- [x] **GUI apps** — build real windows from a `.sprout` file (`sprout gui ...`)
+- [x] **Playground** — edit & run Sprout in the browser (`npm run play`)
 - [ ] **v0.3** — lists & a `for each` loop
 - [ ] **v0.4** — `ask` for input + a bigger standard library
 - [ ] **v0.5** — host the playground online (try Sprout with one click)

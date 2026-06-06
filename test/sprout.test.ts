@@ -17,6 +17,13 @@ function run(src: string): string[] {
   return out;
 }
 
+// Run a snippet and return the interpreter (to inspect its GUI model).
+function runApp(src: string): Interpreter {
+  const interp = new Interpreter(src, () => {});
+  interp.run(parse(tokenize(src)));
+  return interp;
+}
+
 // Run a snippet that should fail, and return the error it raised.
 function runErr(src: string): LangError {
   try {
@@ -128,6 +135,38 @@ test("error: wrong number of arguments to a task", () => {
 test("error: give outside a task", () => {
   const e = runErr("give 5");
   assert.equal(e.kind, "Runtime");
+});
+
+test("gui: a program builds a window with widgets", () => {
+  const interp = runApp('window("Counter")\nlabel("d", "Count: 0")\nbutton("Add", "add")\ntask add():\n    label("d", "x")');
+  const gui = interp.getGui();
+  assert.equal(gui.used, true);
+  assert.equal(gui.title, "Counter");
+  assert.equal(gui.widgets.length, 2);
+  assert.equal(gui.widgets[0].kind, "label");
+  assert.equal(gui.widgets[1].kind, "button");
+  assert.equal(gui.widgets[1].onClick, "add");
+});
+
+test("gui: clicking a button runs its task and updates a label", () => {
+  const interp = runApp('make n = 0\nwindow("C")\nlabel("d", "0")\nbutton("Add", "add")\ntask add():\n    set n = n + 1\n    label("d", "" + n)');
+  interp.clickButton("add");
+  interp.clickButton("add");
+  const display = interp.getGui().widgets.find((w) => w.id === "d");
+  assert.equal(display?.text, "2");
+});
+
+test("gui: textof reads a field's value", () => {
+  const interp = runApp('window("G")\nfield("name", "name")\nlabel("hi", "Hello!")\nbutton("Go", "greet")\ntask greet():\n    label("hi", "Hello, " + textof("name") + "!")');
+  interp.setFieldValues({ name: "Sam" });
+  interp.clickButton("greet");
+  const hi = interp.getGui().widgets.find((w) => w.id === "hi");
+  assert.equal(hi?.text, "Hello, Sam!");
+});
+
+test("a plain program is not a GUI app", () => {
+  const interp = runApp('show "hi"');
+  assert.equal(interp.isGuiApp(), false);
 });
 
 test("error: unknown name suggests the closest one", () => {

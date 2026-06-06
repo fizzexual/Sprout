@@ -9,6 +9,8 @@ import type { Expr, Stmt } from "./ast.ts";
 import type { Value } from "./values.ts";
 import { isTruthy, NONE, stringify, typeName } from "./values.ts";
 import { BUILTIN_NAMES, callBuiltin, isBuiltin } from "./builtins.ts";
+import { callGuiBuiltin, GUI_BUILTINS, isGuiBuiltin, newGui } from "./gui.ts";
+import type { GuiModel } from "./gui.ts";
 
 // Where `show` sends its output. The CLI prints to the console; tests and the
 // playground capture it instead.
@@ -76,6 +78,7 @@ export class Interpreter {
   private steps = 0;
   private globals = new Environment();
   private functions = new Map<string, FuncDef>();
+  private gui: GuiModel = newGui();
 
   constructor(
     source: string,
@@ -98,6 +101,59 @@ export class Interpreter {
     } catch (e) {
       if (e instanceof ReturnSignal) {
         throw new LangError("Runtime", "'give' only works inside a task.", 1, 1, "Move it inside a 'task ...:' block.");
+      }
+      throw e;
+    }
+  }
+
+  // --- GUI support (used by gui-server.ts) ---------------------------------
+
+  isGuiApp(): boolean {
+    return this.gui.used;
+  }
+
+  getGui(): GuiModel {
+    return this.gui;
+  }
+
+  setFieldValues(values: Record<string, string>): void {
+    for (const w of this.gui.widgets) {
+      if (w.kind === "field" && Object.prototype.hasOwnProperty.call(values, w.id)) {
+        w.text = values[w.id];
+      }
+    }
+  }
+
+  // Run a button's task (which takes no inputs), keeping all program state
+  // alive between clicks.
+  clickButton(taskName: string): void {
+    const fn = this.functions.get(taskName);
+    if (!fn) {
+      throw new LangError(
+        "Name",
+        `This button runs a task called '${taskName}', but there's no such task.`,
+        1,
+        1,
+        `Define it with: task ${taskName}():`,
+      );
+    }
+    if (fn.params.length !== 0) {
+      throw new LangError(
+        "Type",
+        `A button's task ('${taskName}') shouldn't take any inputs.`,
+        1,
+        1,
+        `Write it as: task ${taskName}():`,
+      );
+    }
+    this.steps = 0;
+    const frame = new Environment(this.globals);
+    try {
+      this.runBlock(fn.body, frame);
+    } catch (e) {
+      if (e instanceof ReturnSignal) return;
+      if (e instanceof RangeError) {
+        throw new LangError("Runtime", `The task '${taskName}' called itself too many times.`, 1, 1);
       }
       throw e;
     }
@@ -245,9 +301,10 @@ export class Interpreter {
     const fn = this.functions.get(expr.name);
     if (fn) return this.callTask(expr.name, fn, args, expr);
 
+    if (isGuiBuiltin(expr.name)) return callGuiBuiltin(this.gui, expr.name, args, { line: expr.line, col: expr.col });
     if (isBuiltin(expr.name)) return callBuiltin(expr.name, args, { line: expr.line, col: expr.col });
 
-    const near = closest(expr.name, [...this.functions.keys(), ...BUILTIN_NAMES]);
+    const near = closest(expr.name, [...this.functions.keys(), ...GUI_BUILTINS, ...BUILTIN_NAMES]);
     throw new LangError(
       "Name",
       `I don't know a task called '${expr.name}'.`,

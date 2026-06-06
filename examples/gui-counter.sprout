@@ -1,0 +1,17 @@
+~ A clickable counter — your first Sprout GUI app!
+~ Run it with:  sprout gui examples/gui-counter.sprout
+
+make count = 0
+
+task add():
+    set count = count + 1
+    label("display", "Count: " + count)
+
+task reset():
+    set count = 0
+    label("display", "Count: 0")
+
+window("Counter")
+label("display", "Count: 0")
+button("Add one", "add")
+button("Reset", "reset")

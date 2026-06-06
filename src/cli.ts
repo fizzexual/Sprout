@@ -7,10 +7,11 @@ import { tokenize } from "./lexer.ts";
 import { parse } from "./parser.ts";
 import { Interpreter } from "./interpreter.ts";
 import { LangError, formatError } from "./errors.ts";
+import { startGuiServer } from "./gui-server.ts";
 
 const VERSION = "Sprout v0.1.0";
 
-function runFile(path: string): void {
+function runFile(path: string, forceGui = false): void {
   let source = "";
   try {
     source = readFileSync(path, "utf8");
@@ -23,6 +24,10 @@ function runFile(path: string): void {
   try {
     const program = parse(tokenize(source));
     interp.run(program);
+    // If the program built a GUI (or `sprout gui` was used), open the window.
+    if (forceGui || interp.isGuiApp()) {
+      startGuiServer(interp, { open: true });
+    }
   } catch (err) {
     if (err instanceof LangError) {
       console.error("\n" + formatError(err, source) + "\n");
@@ -84,6 +89,7 @@ function usage(): void {
       "Usage:",
       "  sprout <file.sprout>       run a Sprout program",
       "  sprout run <file.sprout>   run a Sprout program",
+      "  sprout gui <file.sprout>   run a Sprout GUI app in your browser",
       "  sprout repl                start the interactive prompt",
       "  sprout version             show the version",
       "",
@@ -94,6 +100,8 @@ function usage(): void {
 const args = process.argv.slice(2);
 if (args[0] === "run" && args[1]) {
   runFile(args[1]);
+} else if (args[0] === "gui" && args[1]) {
+  runFile(args[1], true);
 } else if (args[0] === "version" || args[0] === "--version" || args[0] === "-v") {
   console.log(VERSION);
 } else if (args[0] === "repl" || args.length === 0) {
