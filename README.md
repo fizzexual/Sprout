@@ -101,7 +101,7 @@ loops are stopped automatically.
 
 ## Build a GUI 🪟
 
-Sprout can make real graphical apps — written entirely in Sprout. A `button`
+Sprout can make real **native windows** — written entirely in Sprout. A `button`
 runs a `task` when clicked, `label` updates what's on screen, and `field` reads
 what the user typed.
 
@@ -117,15 +117,46 @@ label("display", "Count: 0")
 button("Add one", "add")
 ```
 
-Run it and a window opens in your browser:
+Open it as a native window (Windows — uses the built-in .NET, no installs):
 
 ```bash
 sprout gui examples/gui-counter.sprout
 ```
 
+…or run the *same program* as a website:
+
+```bash
+sprout serve examples/gui-counter.sprout
+```
+
 GUI building blocks: `window(title)`, `label(id, text)` (call again to update
-it), `button(text, taskName)`, `field(id, hint)`, and `textof(id)`. There's also
-`examples/gui-greeter.sprout` to try.
+it), `button(text, taskName)`, `field(id, hint)`, and `textof(id)`. Try
+`examples/gui-greeter.sprout` too.
+
+## Style it with Bloom 🌸
+
+**Bloom** is Sprout's own styling language — its version of CSS. Put a `.bloom`
+file next to your program (same name) and it's loaded automatically, styling
+both the native window and the website.
+
+```bloom
+~ gui-counter.bloom
+window:
+    background: #1a1030
+    text: #f0e9ff
+    font: Segoe UI 14
+
+#display:
+    size: 26
+    text: #c9a8ff
+
+button:
+    background: #8a5cff
+    rounded: 12
+```
+
+Style by widget kind (`window`, `label`, `button`, `field`) or by one widget's
+id (`#display`).
 
 ## Tests
 
@@ -136,7 +167,7 @@ Node's built-in test runner — still **no dependencies**:
 npm test          # or: node --test test/sprout.test.ts
 ```
 
-## The language so far (v0.2)
+## The language so far (v0.3)
 
 | Feature | Sprout |
 | --- | --- |
@@ -150,7 +181,9 @@ npm test          # or: node --test test/sprout.test.ts
 | Conditions | `when` / `orwhen` / `otherwise` |
 | Loops | `repeat while cond:` and `repeat N times:` |
 | Tasks (functions) | `task greet(name):` … `give value` (with recursion) |
-| GUI apps | `window` · `label` · `button` · `field` · `textof` (run with `sprout gui`) |
+| GUI apps (native) | `window` · `label` · `button` · `field` · `textof` — `sprout gui` |
+| Websites (server) | the same app in a browser — `sprout serve` |
+| Styling (Bloom) | a `.bloom` file styles the window *and* the website |
 | Booleans | `yes` / `no` |
 | Built-in functions | `sqrt(16)`, `max(3, 9)`, `length("hi")`, `upper(s)` |
 | Comments | `~ like this` |
@@ -185,12 +218,14 @@ output
 
 - [x] **v0.1** — original syntax (`make`/`set`/`show`/`when`/`repeat`), math, text, built-ins, tests, kind errors
 - [x] **v0.2** — functions: `task greet(name):` and `give` (return), plus recursion
-- [x] **GUI apps** — build real windows from a `.sprout` file (`sprout gui ...`)
+- [x] **GUI apps** — real **native windows** from a `.sprout` file (`sprout gui ...`)
+- [x] **Server** — run the same app as a website (`sprout serve ...`)
+- [x] **Bloom** — Sprout's own styling language, `.bloom` files
 - [x] **Playground** — edit & run Sprout in the browser (`npm run play`)
-- [ ] **v0.3** — lists & a `for each` loop
-- [ ] **v0.4** — `ask` for input + a bigger standard library
-- [ ] **v0.5** — host the playground online (try Sprout with one click)
-- [ ] **v0.6** — an editor extension (syntax highlighting + inline errors)
+- [ ] **next** — lists & a `for each` loop
+- [ ] **next** — `ask` for input + a bigger standard library
+- [ ] **next** — more widgets (checkboxes, sliders, images, layout rows)
+- [ ] **next** — an editor extension (syntax highlighting + inline errors)
 
 ---
 

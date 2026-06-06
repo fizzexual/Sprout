@@ -43,3 +43,14 @@ export function formatError(err: LangError, source: string): string {
   }
   return out.join("\n");
 }
+
+// Render a friendly message that isn't tied to a source location — used to turn
+// raw Node/system errors into Sprout's voice instead of a stack trace.
+export function formatMessage(message: string, hint?: string): string {
+  const out = [`🌱 Oops — ${message}`];
+  if (hint) {
+    out.push("");
+    out.push(`  💡 ${hint}`);
+  }
+  return out.join("\n");
+}

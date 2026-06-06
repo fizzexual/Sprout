@@ -8,6 +8,7 @@ import { tokenize } from "../src/lexer.ts";
 import { parse } from "../src/parser.ts";
 import { Interpreter } from "../src/interpreter.ts";
 import { LangError } from "../src/errors.ts";
+import { parseBloom, styleFor, windowStyle } from "../src/bloom.ts";
 
 // Run a snippet and capture everything `show` prints.
 function run(src: string): string[] {
@@ -167,6 +168,24 @@ test("gui: textof reads a field's value", () => {
 test("a plain program is not a GUI app", () => {
   const interp = runApp('show "hi"');
   assert.equal(interp.isGuiApp(), false);
+});
+
+test("bloom: parses selectors and properties", () => {
+  const t = parseBloom("window:\n    background: #111\n    font: Segoe UI 14\nbutton:\n    background: #7bd88f");
+  assert.equal(windowStyle(t).background, "#111");
+  assert.equal(windowStyle(t).font, "Segoe UI 14");
+  assert.equal(t.selectors["button"].background, "#7bd88f");
+});
+
+test("bloom: id styles override kind styles", () => {
+  const t = parseBloom("label:\n    text: #fff\n#title:\n    text: #f00");
+  assert.equal(styleFor(t, "label", "title").text, "#f00");
+  assert.equal(styleFor(t, "label", "other").text, "#fff");
+});
+
+test("bloom: comments with ~ are ignored", () => {
+  const t = parseBloom("~ a note\nbutton:\n    rounded: 12  ~ trailing note");
+  assert.equal(t.selectors["button"].rounded, "12");
 });
 
 test("error: unknown name suggests the closest one", () => {

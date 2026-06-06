@@ -1,39 +1,89 @@
 #!/usr/bin/env node
-// cli.ts — the `sprout` command. Runs a file, or starts an interactive prompt.
+// cli.ts — the `sprout` command.
+//
+//   sprout <file.sprout>        run a program (opens a window if it's a GUI app)
+//   sprout run <file.sprout>    same as above
+//   sprout gui <file.sprout>    open it as a native window
+//   sprout serve <file.sprout>  run it as a website
+//   sprout repl                 interactive prompt
+//   sprout version
 
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { createInterface } from "node:readline";
+import { extname } from "node:path";
+
 import { tokenize } from "./lexer.ts";
 import { parse } from "./parser.ts";
 import { Interpreter } from "./interpreter.ts";
-import { LangError, formatError } from "./errors.ts";
-import { startGuiServer } from "./gui-server.ts";
+import { LangError, formatError, formatMessage } from "./errors.ts";
+import { startNativeGui } from "./gui-native.ts";
+import { startWebServer } from "./serve.ts";
+import { defaultTheme, parseBloom } from "./bloom.ts";
+import type { Theme } from "./bloom.ts";
 
-const VERSION = "Sprout v0.1.0";
+const VERSION = "Sprout v0.3.0";
 
-function runFile(path: string, forceGui = false): void {
+// Turn any unexpected (non-Sprout) error into a friendly message instead of a
+// raw Node stack trace.
+function fatal(err: unknown): never {
+  if (err instanceof LangError) console.error("\n" + formatError(err, "") + "\n");
+  else console.error("\n" + formatMessage(err instanceof Error ? err.message : String(err)) + "\n");
+  process.exit(1);
+}
+function fail(message: string, hint?: string): never {
+  console.error("\n" + formatMessage(message, hint) + "\n");
+  process.exit(1);
+}
+process.on("uncaughtException", fatal);
+process.on("unhandledRejection", fatal);
+
+// Load the Bloom theme sitting next to a program (same name, .bloom), or the
+// built-in default if there isn't one.
+function loadTheme(path: string): Theme {
+  const bloomPath = path.slice(0, path.length - extname(path).length) + ".bloom";
+  try {
+    if (existsSync(bloomPath)) return parseBloom(readFileSync(bloomPath, "utf8"));
+  } catch {
+    /* fall back to the default theme */
+  }
+  return defaultTheme();
+}
+
+type RunMode = "auto" | "gui" | "serve";
+
+function runFile(path: string, mode: RunMode): void {
   let source = "";
   try {
     source = readFileSync(path, "utf8");
   } catch {
-    console.error(`I couldn't open the file: ${path}`);
-    process.exit(1);
+    fail(`I couldn't open the file: ${path}`, "Check the name and that the file is there.");
   }
 
   const interp = new Interpreter(source);
   try {
-    const program = parse(tokenize(source));
-    interp.run(program);
-    // If the program built a GUI (or `sprout gui` was used), open the window.
-    if (forceGui || interp.isGuiApp()) {
-      startGuiServer(interp, { open: true });
-    }
+    interp.run(parse(tokenize(source)));
   } catch (err) {
     if (err instanceof LangError) {
       console.error("\n" + formatError(err, source) + "\n");
       process.exit(1);
     }
-    throw err;
+    fatal(err);
+  }
+
+  const theme = loadTheme(path);
+  try {
+    if (mode === "serve") {
+      startWebServer(interp, theme, { open: true });
+    } else if (mode === "gui" || (mode === "auto" && interp.isGuiApp())) {
+      startNativeGui(interp, theme);
+    }
+    // Otherwise it's a plain console program — nothing more to do.
+  } catch (err) {
+    if (err instanceof LangError) {
+      console.error("\n" + formatError(err, source) + "\n");
+      process.exit(1);
+    }
+    fatal(err);
   }
 }
 
@@ -64,7 +114,6 @@ function repl(): void {
   rl.on("line", (line) => {
     const blockOpen = buffer.length > 0;
     const startsBlock = line.trimEnd().endsWith(":");
-
     if (line.trim() === "") {
       if (buffer.length) {
         const src = buffer.join("\n");
@@ -87,28 +136,34 @@ function usage(): void {
       "🌱 Sprout — a small, friendly programming language.",
       "",
       "Usage:",
-      "  sprout <file.sprout>       run a Sprout program",
-      "  sprout run <file.sprout>   run a Sprout program",
-      "  sprout gui <file.sprout>   run a Sprout GUI app in your browser",
-      "  sprout repl                start the interactive prompt",
-      "  sprout version             show the version",
+      "  sprout <file.sprout>        run a program (opens a window if it's a GUI app)",
+      "  sprout run <file.sprout>    run a program",
+      "  sprout gui <file.sprout>    open it as a native window",
+      "  sprout serve <file.sprout>  run it as a website",
+      "  sprout repl                 start the interactive prompt",
+      "  sprout version              show the version",
       "",
     ].join("\n"),
   );
 }
 
 const args = process.argv.slice(2);
-if (args[0] === "run" && args[1]) {
-  runFile(args[1]);
-} else if (args[0] === "gui" && args[1]) {
-  runFile(args[1], true);
-} else if (args[0] === "version" || args[0] === "--version" || args[0] === "-v") {
-  console.log(VERSION);
-} else if (args[0] === "repl" || args.length === 0) {
-  repl();
-} else if (args[0] && args[0].endsWith(".sprout")) {
-  // Python-style shortcut: `sprout hello.sprout`
-  runFile(args[0]);
-} else {
-  usage();
+try {
+  if (args[0] === "run" && args[1]) {
+    runFile(args[1], "auto");
+  } else if (args[0] === "gui" && args[1]) {
+    runFile(args[1], "gui");
+  } else if (args[0] === "serve" && args[1]) {
+    runFile(args[1], "serve");
+  } else if (args[0] === "version" || args[0] === "--version" || args[0] === "-v") {
+    console.log(VERSION);
+  } else if (args[0] === "repl" || args.length === 0) {
+    repl();
+  } else if (args[0] && args[0].endsWith(".sprout")) {
+    runFile(args[0], "auto");
+  } else {
+    usage();
+  }
+} catch (err) {
+  fatal(err);
 }
