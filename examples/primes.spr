@@ -1,0 +1,16 @@
+# Print every prime number up to 30.
+# A number is prime if nothing divides it evenly except 1 and itself.
+
+say "Primes up to 30:"
+
+let n = 2
+while n <= 30:
+    let isPrime = true
+    let d = 2
+    while d * d <= n:
+        if n % d == 0:
+            isPrime = false
+        d = d + 1
+    if isPrime:
+        say n
+    n = n + 1

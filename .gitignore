@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.log
+logs.txt
+.DS_Store
+
+# Local editor / tooling state
+.claude/
+

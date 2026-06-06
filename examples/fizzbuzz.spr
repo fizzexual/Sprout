@@ -1,0 +1,14 @@
+# The classic FizzBuzz, in Sprout.
+# Count to 20: multiples of 3 -> Fizz, of 5 -> Buzz, of both -> FizzBuzz.
+
+let n = 1
+while n <= 20:
+    if n % 15 == 0:
+        say "FizzBuzz"
+    elif n % 3 == 0:
+        say "Fizz"
+    elif n % 5 == 0:
+        say "Buzz"
+    else:
+        say n
+    n = n + 1

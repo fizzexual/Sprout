@@ -1,0 +1,32 @@
+{
+  "name": "sprout-lang",
+  "version": "0.1.0",
+  "description": "Sprout — a small, friendly programming language built from scratch. Designed to be the kindest language to learn programming with.",
+  "type": "module",
+  "bin": {
+    "sprout": "src/cli.ts"
+  },
+  "scripts": {
+    "sprout": "node src/cli.ts",
+    "repl": "node src/cli.ts repl",
+    "test": "node --test test/sprout.test.ts",
+    "hello": "node src/cli.ts run examples/hello.spr",
+    "fizzbuzz": "node src/cli.ts run examples/fizzbuzz.spr",
+    "triangle": "node src/cli.ts run examples/triangle.spr",
+    "math": "node src/cli.ts run examples/math.spr",
+    "primes": "node src/cli.ts run examples/primes.spr"
+  },
+  "keywords": [
+    "programming-language",
+    "interpreter",
+    "compiler",
+    "lexer",
+    "parser",
+    "beginner-friendly",
+    "from-scratch"
+  ],
+  "engines": {
+    "node": ">=23.6.0"
+  },
+  "license": "MIT"
+}

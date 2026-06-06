@@ -1,0 +1,19 @@
+# Draw a little triangle of stars using loops and text.
+
+let row = 1
+while row <= 6:
+    let stars = ""
+    let i = 0
+    while i < row:
+        stars = stars + "*"
+        i = i + 1
+    say stars
+    row = row + 1
+
+say ""
+say "Countdown:"
+let count = 5
+repeat 5 times:
+    say count
+    count = count - 1
+say "Liftoff! 🚀"
