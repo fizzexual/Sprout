@@ -40,20 +40,31 @@ while n <= 20:
     n = n + 1
 ```
 
-## Run it
+## Install the `sprout` command
 
-Sprout runs on **Node 23.6+** with zero install — Node executes the
-TypeScript source directly.
+Sprout needs **Node 23.6+** (it runs the TypeScript source directly — no build
+step). Link the `sprout` command so you can use it anywhere, just like `python`:
 
 ```bash
-node src/cli.ts run examples/hello.spr
-node src/cli.ts run examples/fizzbuzz.spr
-node src/cli.ts run examples/primes.spr
-node src/cli.ts repl          # interactive prompt
+git clone https://github.com/fizzexual/Sprout-.git
+cd Sprout-
+npm link          # creates the global `sprout` command
 ```
 
-There are more programs to try in [`examples/`](examples): `hello`, `fizzbuzz`,
-`triangle`, `math`, and `primes`.
+Then:
+
+```bash
+sprout version
+sprout examples/hello.sprout        # run a program (Python-style)
+sprout run examples/primes.sprout   # the same, but explicit
+sprout repl                         # interactive prompt
+```
+
+Sprout programs use the **`.sprout`** extension. There are more to try in
+[`examples/`](examples): `hello`, `fizzbuzz`, `triangle`, `math`, and `primes`.
+
+> Don't want to install anything? You can always run it directly:
+> `node src/cli.ts run examples/hello.sprout`
 
 ## Tests
 

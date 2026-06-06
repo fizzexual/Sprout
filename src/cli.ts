@@ -82,9 +82,10 @@ function usage(): void {
       "🌱 Sprout — a small, friendly programming language.",
       "",
       "Usage:",
-      "  sprout run <file.spr>   run a Sprout program",
-      "  sprout repl             start the interactive prompt",
-      "  sprout version          show the version",
+      "  sprout <file.sprout>       run a Sprout program",
+      "  sprout run <file.sprout>   run a Sprout program",
+      "  sprout repl                start the interactive prompt",
+      "  sprout version             show the version",
       "",
     ].join("\n"),
   );
@@ -97,6 +98,9 @@ if (args[0] === "run" && args[1]) {
   console.log(VERSION);
 } else if (args[0] === "repl" || args.length === 0) {
   repl();
+} else if (args[0] && args[0].endsWith(".sprout")) {
+  // Python-style shortcut: `sprout hello.sprout`
+  runFile(args[0]);
 } else {
   usage();
 }

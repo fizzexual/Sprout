@@ -10,11 +10,11 @@
     "sprout": "node src/cli.ts",
     "repl": "node src/cli.ts repl",
     "test": "node --test test/sprout.test.ts",
-    "hello": "node src/cli.ts run examples/hello.spr",
-    "fizzbuzz": "node src/cli.ts run examples/fizzbuzz.spr",
-    "triangle": "node src/cli.ts run examples/triangle.spr",
-    "math": "node src/cli.ts run examples/math.spr",
-    "primes": "node src/cli.ts run examples/primes.spr"
+    "hello": "node src/cli.ts run examples/hello.sprout",
+    "fizzbuzz": "node src/cli.ts run examples/fizzbuzz.sprout",
+    "triangle": "node src/cli.ts run examples/triangle.sprout",
+    "math": "node src/cli.ts run examples/math.sprout",
+    "primes": "node src/cli.ts run examples/primes.sprout"
   },
   "keywords": [
     "programming-language",
