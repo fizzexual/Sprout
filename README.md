@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="images/sprout.png" width="100" alt="Sprout" />
+  <img src="images/banner.png" alt="Sprout — grow code, gently" width="100%" />
 </p>
 
 # 🌱 Sprout
