@@ -196,6 +196,19 @@ function runSetup(e: Extension): void {
   }
 }
 
+// winget installs tools onto the *persistent* PATH, which a running process
+// can't see. Pull the latest PATH from the registry so a just-installed tool is
+// found immediately — no need to open a fresh terminal.
+function refreshEnvPath(): void {
+  if (process.platform !== "win32") return;
+  try {
+    const r = spawnSync("powershell.exe", ["-NoProfile", "-Command",
+      "[Environment]::ExpandEnvironmentVariables(([Environment]::GetEnvironmentVariable('Path','Machine')) + ';' + ([Environment]::GetEnvironmentVariable('Path','User')))"],
+      { encoding: "utf8", timeout: 10000 });
+    if (r.status === 0 && r.stdout && r.stdout.trim()) process.env.PATH = r.stdout.trim();
+  } catch { /* keep the current PATH */ }
+}
+
 // --- the app ------------------------------------------------------------------
 export function modulesCommand(): Promise<void> {
   const stdin = process.stdin;
@@ -233,10 +246,15 @@ export function modulesCommand(): Promise<void> {
       out(SHOW + ALT_OFF);
       console.log("\n  Setting up " + e.name + "…\n");
       try { runSetup(e); } catch { /* shown via stdio */ }
+      refreshEnvPath();
       toolCache.clear();
       out(ALT_ON + HIDE);
       stdin.setRawMode!(true);
-      state.message = [T.green("✓ done setting up " + e.name + ".")];
+      const miss = extMissing(e);
+      state.message = miss.length === 0
+        ? [T.green("✓ " + e.name + " is ready! 🎵  type ") + T.cyan("test") + T.green(" to confirm")]
+        : [T.yellow("set up " + e.name + ", but still missing: " + miss.join(", ")),
+           T.dim("  a freshly-installed tool can need a brand-new terminal — close this and re-run sprout modules")];
       draw();
     };
 
