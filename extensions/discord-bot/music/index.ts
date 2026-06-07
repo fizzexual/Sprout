@@ -43,6 +43,11 @@ export function isPlaylist(s: string): boolean {
   return isUrl(s) && /[?&]list=/.test(s);
 }
 
+// YouTube "player clients" to try, in order. android_vr serves opus WITHOUT the
+// nsig puzzle (so it doesn't crash) and needs no login; default is the fallback.
+// Trying several means we rarely need a signed-in account / cookies.
+const YT_CLIENTS = "android_vr,default";
+
 export function formatQueue(current: Track | null, queue: Track[]): string {
   if (!current && queue.length === 0) return "The queue is empty. Add a song with `!play <link>`.";
   const lines: string[] = [];
@@ -528,7 +533,8 @@ function resolve(query: string): Promise<{ title: string; url: string; thumbnail
     let err = "";
     let started = false;
     try {
-      const p = spawn("yt-dlp", [...cookiesArgs(), "--no-warnings", "-f", "bestaudio", "--skip-download",
+      const p = spawn("yt-dlp", [...cookiesArgs(), "--no-warnings", "--extractor-args", "youtube:player_client=" + YT_CLIENTS,
+        "-f", "bestaudio", "--skip-download",
         "--print", "%(webpage_url)s", "--print", "%(thumbnail)s", "--print", "%(channel)s",
         "--print", "%(duration_string)s", "--print", "%(title)s", target], { stdio: ["ignore", "pipe", "pipe"] });
       started = true;
@@ -588,11 +594,11 @@ function streamFor(url: string, onError: (msg: string) => void, opts: { startSec
     // index at the END of the file, so ffmpeg would have to seek — which a pipe
     // can't do — and it reads nothing. That's the classic "joins but silent".)
     const format = "bestaudio[ext=webm]/bestaudio[acodec=opus]/bestaudio";
-    // Force YouTube's Android-VR client: it serves opus WITHOUT the "n challenge"
-    // (nsig) puzzle that the default clients now require. Without this, yt-dlp can't
-    // solve nsig (no JS runtime), the stream gets throttled or 403s, and yt-dlp dies
-    // mid-download — the bot "plays" for a second then goes silent/idle.
-    const ytArgs = [...cookiesArgs(), "-q", "--no-playlist", "--extractor-args", "youtube:player_client=android_vr", "-f", format, "-o", "-", url];
+    // Try several YouTube clients (YT_CLIENTS). android_vr serves opus WITHOUT the
+    // "n challenge" (nsig) puzzle — so yt-dlp can't crash mid-download solving it —
+    // and needs no login; default is the fallback. Trying several is what lets this
+    // work without a signed-in account most of the time.
+    const ytArgs = [...cookiesArgs(), "-q", "--no-playlist", "--extractor-args", "youtube:player_client=" + YT_CLIENTS, "-f", format, "-o", "-", url];
     // Build ffmpeg args. -ss AFTER -i is output-seeking (decodes from the start and
     // discards) — reliable on a pipe — used to resume at the current spot after a
     // speed change. -af atempo changes speed without changing pitch (valid 0.5–2.0).
@@ -600,7 +606,7 @@ function streamFor(url: string, onError: (msg: string) => void, opts: { startSec
     if (opts.startSec && opts.startSec > 0) ffArgs.push("-ss", String(Math.floor(opts.startSec)));
     if (opts.speed && opts.speed !== 1) ffArgs.push("-af", `atempo=${opts.speed}`);
     ffArgs.push("-ar", "48000", "-ac", "2", "-f", "s16le", "pipe:1");
-    mlog(`yt-dlp(android_vr) -> ffmpeg(PCM 48k stereo${opts.speed && opts.speed !== 1 ? `, ${opts.speed}×` : ""}${opts.startSec ? `, from ${Math.floor(opts.startSec)}s` : ""}) for ${url}`);
+    mlog(`yt-dlp(${YT_CLIENTS}) -> ffmpeg(PCM 48k stereo${opts.speed && opts.speed !== 1 ? `, ${opts.speed}×` : ""}${opts.startSec ? `, from ${Math.floor(opts.startSec)}s` : ""}) for ${url}`);
     const ytdlp = spawn("yt-dlp", ytArgs, { stdio: ["ignore", "pipe", "pipe"] });
     // Decode to raw PCM (s16le, 48kHz, stereo) — @discordjs/voice encodes the opus.
     const ffmpeg = spawn("ffmpeg", ffArgs, { stdio: ["pipe", "pipe", "pipe"] });
