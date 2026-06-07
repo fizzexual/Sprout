@@ -1,7 +1,8 @@
 # The Sprout installer
 
-**[Download `SproutSetup.exe`](dist/SproutSetup.exe)** and run it — that's how you
-get a *working* Sprout on Windows.
+**[Download `SproutSetup.exe`](https://github.com/fizzexual/Sprout-/releases/latest/download/SproutSetup.exe)**
+from the [latest release](https://github.com/fizzexual/Sprout-/releases/latest) and run it —
+that's how you get a *working* Sprout on Windows.
 
 > This GitHub repo is the **source** — clone it to read or change how Sprout
 > works. It is **not registered on your PC** until the installer sets it up. Run
@@ -30,24 +31,28 @@ If Sprout is already installed, the wizard greets you with three choices:
 So the flow is: we improve the source here → bump [`VERSION`](../VERSION) → next
 time you open the installer it offers to **update**.
 
-## Building the installer (for maintainers)
+## Building & publishing (for maintainers)
 
-The committed `dist/SproutSetup.exe` is built from
-[`sprout-setup.iss`](sprout-setup.iss) with [Inno Setup](https://jrsoftware.org).
-Rebuild it after changing the installer:
+`SproutSetup.exe` is **not committed** — it's built and published to
+[GitHub Releases](https://github.com/fizzexual/Sprout-/releases) automatically by
+[`.github/workflows/release.yml`](../.github/workflows/release.yml). Bump
+[`VERSION`](../VERSION) (or change anything under `installer/`) and push: the CI
+compiles [`sprout-setup.iss`](sprout-setup.iss) with Inno Setup on a Windows
+runner and attaches the new `SproutSetup.exe` to a `vX.Y.Z` release.
+
+To build one locally (e.g. to test):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\build-installer.ps1
 ```
 
-That installs Inno Setup (via winget) if needed and compiles the `.iss`. The
-installer only needs rebuilding when the **installer itself** changes — it always
-downloads the latest **source** at install time, so normal Sprout changes don't
-need a new `.exe`.
+The installer only needs rebuilding when the **installer itself** changes — it
+always downloads the latest **source** at install time, so normal Sprout changes
+don't need a new `.exe`.
 
 | File | Purpose |
 | --- | --- |
 | `sprout-setup.iss` | the Inno Setup wizard (UI, components, download, update logic) |
-| `sprout-extract.ps1` | unpacks the downloaded source, keeping the chosen libraries |
+| `sprout-extract.ps1` | downloads + unpacks the source, keeping the chosen libraries |
 | `sprout.cmd` | the global `sprout` command installed onto your PATH |
-| `dist/SproutSetup.exe` | the built installer you share with people |
+| `dist/SproutSetup.exe` | the built installer (git-ignored; published to Releases) |

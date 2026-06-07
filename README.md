@@ -55,7 +55,8 @@ repeat while n <= 20:
 
 ### The easy way (Windows): the installer 🪄
 
-**[Download `SproutSetup.exe`](installer/dist/SproutSetup.exe)** and run the
+**[Download `SproutSetup.exe`](https://github.com/fizzexual/Sprout-/releases/latest/download/SproutSetup.exe)**
+(from the [latest release](https://github.com/fizzexual/Sprout-/releases/latest)) and run the
 wizard. It lets you pick the folder and which libraries you want, **downloads the
 latest Sprout from this repo**, and registers the `sprout` command, file types,
 and Start-menu shortcuts. Run it again any time to **Update / Repair / Uninstall**.
@@ -270,7 +271,7 @@ output
 - [x] **Wiki** — full Sprout + Bloom docs in [`wiki/`](wiki)
 - [x] **Libraries** — `use "..."`; first one is [`discord-bot`](libraries/discord-bot)
 - [x] **Extensions + slash commands** — `use "discord-bot/music"` plays YouTube in voice; bots answer `/commands`
-- [x] **Windows installer** — a [`SproutSetup.exe`](installer/dist/SproutSetup.exe) wizard: pick libraries, downloads from the repo, Update/Repair/Uninstall
+- [x] **Windows installer** — a [`SproutSetup.exe`](https://github.com/fizzexual/Sprout-/releases/latest) wizard (auto-published to Releases): pick libraries, downloads from the repo, Update/Repair/Uninstall
 - [x] **`sprout modules`** — an interactive terminal to install / uninstall / test libraries
 - [ ] **next** — lists & a `for each` loop
 - [ ] **next** — `ask` for input + more widgets (checkboxes, sliders, images)
