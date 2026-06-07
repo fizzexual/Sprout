@@ -278,20 +278,34 @@ export function modulesCommand(): Promise<void> {
     };
 
     // Run an installer outside the alt-screen, then come back.
-    const installAndReturn = (e: Extension): void => {
+    // One-shot install of an extension: if its code isn't here yet, download its
+    // library (which brings the extension), then set up its tools. Works the same
+    // for  install music  and  install discord-bot/music.
+    const installExtensionFull = (f: Found): void => {
       stdin.setRawMode!(false);
       out(SHOW + ALT_OFF);
-      console.log("\n  Setting up " + e.name + "…\n");
-      try { runSetup(e); } catch { /* shown via stdio */ }
+      let haveCode = extPresent(f.mod.name, f.ext.name);
+      if (!haveCode) {
+        console.log("\n  Downloading the " + f.mod.name + " library (it brings " + f.ext.name + ")…\n");
+        try { haveCode = downloadLibrary(f.mod.name); } catch { haveCode = false; }
+      }
+      if (haveCode && extMissing(f.ext).length > 0) {
+        console.log("\n  Setting up " + f.ext.name + "…\n");
+        try { runSetup(f.ext); } catch { /* shown via stdio */ }
+      }
       refreshEnvPath();
       toolCache.clear();
       out(ALT_ON + HIDE);
       stdin.setRawMode!(true);
-      const miss = extMissing(e);
-      state.message = miss.length === 0
-        ? [T.green("✓ " + e.name + " is ready! 🎵  type ") + T.cyan("test") + T.green(" to confirm")]
-        : [T.yellow("set up " + e.name + ", but still missing: " + miss.join(", ")),
-           T.dim("  a freshly-installed tool can need a brand-new terminal — close this and re-run sprout modules")];
+      if (!haveCode) {
+        state.message = [T.red("couldn't download " + f.ext.name + ".") + T.dim("  check your internet and try again")];
+      } else {
+        const miss = extMissing(f.ext);
+        state.message = miss.length === 0
+          ? [T.green("✓ " + f.ext.name + " is ready! 🎵  type ") + T.cyan("test") + T.green(" to confirm")]
+          : [T.yellow("set up " + f.ext.name + ", but still missing: " + miss.join(", ")),
+             T.dim("  a freshly-installed tool can need a brand-new terminal — close this and re-run sprout modules")];
+      }
       draw();
     };
 
@@ -346,17 +360,14 @@ export function modulesCommand(): Promise<void> {
         return;
       }
       if (verb === "install" || verb === "add") {
-        const f = findExtension(arg);
+        const f = findExtension(arg); // accepts "music" or "discord-bot/music"
         if (f) {
-          // The extension's CODE has to be here before we can set up its tools — a
-          // present library may still be missing this extension (e.g. after an
-          // uninstall). Don't claim "already set up" when the code isn't installed.
-          if (!extPresent(f.mod.name, f.ext.name)) {
-            state.message = [T.yellow(f.ext.name + " isn't installed yet.") + T.dim("  get it with ") + T.cyan("libinstall " + f.mod.name) + T.dim(" (its library brings the extension)")];
+          // Already set up only if BOTH the code is present AND its tools are ready.
+          if (extPresent(f.mod.name, f.ext.name) && extMissing(f.ext).length === 0) {
+            state.message = [T.green(f.ext.name + " is already set up. 🌱")];
             return;
           }
-          if (extMissing(f.ext).length === 0) { state.message = [T.green(f.ext.name + " is already set up. 🌱")]; return; }
-          installAndReturn(f.ext);
+          installExtensionFull(f); // downloads the code if needed, then sets up tools
           return;
         }
         const lib = findLibrary(arg);
