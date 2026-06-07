@@ -348,6 +348,13 @@ export function modulesCommand(): Promise<void> {
       if (verb === "install" || verb === "add") {
         const f = findExtension(arg);
         if (f) {
+          // The extension's CODE has to be here before we can set up its tools — a
+          // present library may still be missing this extension (e.g. after an
+          // uninstall). Don't claim "already set up" when the code isn't installed.
+          if (!extPresent(f.mod.name, f.ext.name)) {
+            state.message = [T.yellow(f.ext.name + " isn't installed yet.") + T.dim("  get it with ") + T.cyan("libinstall " + f.mod.name) + T.dim(" (its library brings the extension)")];
+            return;
+          }
           if (extMissing(f.ext).length === 0) { state.message = [T.green(f.ext.name + " is already set up. 🌱")]; return; }
           installAndReturn(f.ext);
           return;
