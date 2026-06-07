@@ -203,27 +203,34 @@ function joinVoice(state: BotState, guildId: string, channelId: string): Promise
     let sessionId = "";
     let token = "";
     let endpoint = "";
-    let done = false;
+    let player: VoicePlayer | null = null;
+    let timedOut = false;
     const offState = onGateway(state, "VOICE_STATE_UPDATE", (d) => {
-      if (d.guild_id === guildId && d.user_id === state.selfId) { sessionId = String(d.session_id || ""); vdebug("got voice session id"); finish(); }
+      if (d.guild_id === guildId && d.user_id === state.selfId && d.session_id) { sessionId = String(d.session_id); vdebug("got voice session id"); maybeConnect(); }
     });
     const offServer = onGateway(state, "VOICE_SERVER_UPDATE", (d) => {
-      if (d.guild_id === guildId) { token = String(d.token || ""); endpoint = String(d.endpoint || ""); vdebug(`got voice server (endpoint ${endpoint})`); finish(); }
+      if (d.guild_id === guildId && d.endpoint) {
+        token = String(d.token || ""); endpoint = String(d.endpoint);
+        vdebug(`got voice server (endpoint ${endpoint})`);
+        if (player) player.updateServer(endpoint, token); // refreshed server — feed it in
+        else maybeConnect();
+      }
     });
-    const finish = (): void => {
-      if (done || !sessionId || !token || !endpoint) return;
-      done = true;
-      offState(); offServer();
-      const player = connectVoice({
+    const cleanup = (): void => { offState(); offServer(); };
+    const maybeConnect = (): void => {
+      if (player || timedOut || !sessionId || !token || !endpoint) return;
+      const inner = connectVoice({
         endpoint, token, guildId, userId: state.selfId, sessionId,
         onError: (m) => console.error("🌱 " + m),
       });
+      // Keep the gateway listeners alive for the connection's life; remove on destroy.
+      player = { ...inner, destroy: () => { cleanup(); inner.destroy(); } };
       resolve(player);
     };
     vdebug(`joining voice channel ${channelId} in guild ${guildId}`);
     gatewaySend(state, 4, { guild_id: guildId, channel_id: channelId, self_mute: false, self_deaf: false });
     setTimeout(() => {
-      if (!done) { offState(); offServer(); vdebug("voice join timed out (no VOICE_SERVER_UPDATE)"); reject(new Error("voice join timed out")); }
+      if (!player) { timedOut = true; cleanup(); vdebug("voice join timed out (no VOICE_SERVER_UPDATE)"); reject(new Error("voice join timed out")); }
     }, 15000);
   });
 }

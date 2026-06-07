@@ -154,6 +154,7 @@ export interface VoicePlayer {
   playOgg(stream: NodeJS.ReadableStream): void;
   stop(): void;            // stop the current track (keep the connection)
   destroy(): void;         // leave the channel, tear everything down
+  updateServer(endpoint: string, token: string): void;  // a refreshed VOICE_SERVER_UPDATE
   onFinish(cb: () => void): void;
   isPlaying(): boolean;
 }
@@ -183,13 +184,19 @@ const VOICE_DEBUG = process.env.SPROUT_VOICE_DEBUG === "1" || process.env.SPROUT
 function vverbose(msg: string): void { if (VOICE_DEBUG) console.log(`🎙️  [voice] ${msg}`); }
 
 export function connectVoice(params: VoiceParams): VoicePlayer {
-  // Voice gateway v8 — the current version. (v4 was rejected with close 4006.)
-  // v8 tags each server message with a `seq`; heartbeats must echo the latest as
-  // `seq_ack`, which we track below.
-  const url = `wss://${params.endpoint.replace(/:\d+$/, "")}/?v=8`;
-  const ws = new WebSocket(url);
+  // Voice gateway v8 — the current version. v8 tags each server message with a
+  // `seq`; heartbeats echo the latest as `seq_ack`. Discord frequently closes the
+  // first attempt with 4006 ("session no longer valid") because the voice server
+  // hasn't learned our session yet — so we reconnect/re-identify until it sticks.
+  let endpoint = params.endpoint;
+  let token = params.token;
+  const wsUrl = (): string => `wss://${endpoint.replace(/:\d+$/, "")}/?v=8`;
   const udp: UdpSocket = createSocket("udp4");
-  vlog(`connecting to ${url}`);
+  let ws: WebSocket | null = null;
+  let destroyed = false;
+  let attempts = 0;
+  const MAX_ATTEMPTS = 6;
+  const FATAL = new Set([1000, 4004, 4011, 4012, 4014, 4016]); // closes we don't retry
 
   let heartbeat: ReturnType<typeof setInterval> | null = null;
   let mode = "";
@@ -211,7 +218,7 @@ export function connectVoice(params: VoiceParams): VoicePlayer {
   const fail = (m: string): void => params.onError?.(m);
 
   const sendVoice = (op: number, d: unknown): void => {
-    try { ws.send(JSON.stringify({ op, d })); } catch { /* socket closing */ }
+    try { ws?.send(JSON.stringify({ op, d })); } catch { /* socket closing */ }
   };
 
   const setSpeaking = (on: boolean): void => {
@@ -265,12 +272,19 @@ export function connectVoice(params: VoiceParams): VoicePlayer {
   // v8 tags each server message with a sequence number; heartbeats echo the latest.
   let lastSeq = -1;
 
-  // --- voice websocket lifecycle ---
-  ws.addEventListener("open", () => {
-    const sid = params.sessionId ? `${params.sessionId.slice(0, 4)}…(${params.sessionId.length})` : "MISSING";
-    vlog(`websocket open — identifying (user=${params.userId || "MISSING"}, session=${sid}, token=${params.token ? `present(${params.token.length})` : "MISSING"})`);
-    sendVoice(0, { server_id: params.guildId, user_id: params.userId, session_id: params.sessionId, token: params.token });
-  });
+  // --- voice websocket lifecycle (re-runnable, so we can retry close 4006) ---
+  const connectWs = (): void => {
+    // reset per-connection state for a fresh handshake
+    secretKey = null; ssrc = 0; sequence = 0; timestamp = 0; nonce = 0; speaking = false; mode = ""; lastSeq = -1;
+    if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
+    vlog(`connecting to ${wsUrl()}${attempts ? `  (retry ${attempts}/${MAX_ATTEMPTS})` : ""}`);
+    ws = new WebSocket(wsUrl());
+
+    ws.addEventListener("open", () => {
+      const sid = params.sessionId ? `${params.sessionId.slice(0, 4)}…(${params.sessionId.length})` : "MISSING";
+      vlog(`websocket open — identifying (user=${params.userId || "MISSING"}, session=${sid}, token=${token ? `present(${token.length})` : "MISSING"})`);
+      sendVoice(0, { server_id: params.guildId, user_id: params.userId, session_id: params.sessionId, token });
+    });
 
   ws.addEventListener("message", (ev: { data: unknown }) => {
     let msg: { op: number; d: Record<string, unknown>; seq?: number };
@@ -299,17 +313,33 @@ export function connectVoice(params: VoiceParams): VoicePlayer {
       // SESSION DESCRIPTION: we have the secret key, ready to send audio
       const d = msg.d as { secret_key: number[] };
       secretKey = Buffer.from(d.secret_key);
+      attempts = 0; // handshake succeeded — reset the retry budget
       vlog(`session description — secret key (${secretKey.length} bytes). Audio loop starting.`);
       startSendLoop();
       params.onReady?.();
     }
   });
 
-  ws.addEventListener("error", () => fail("The voice connection had a problem."));
-  ws.addEventListener("close", (ev: { code: number }) => {
-    vlog(`websocket closed (code ${ev.code})`);
-    if (heartbeat) clearInterval(heartbeat);
-  });
+    ws.addEventListener("error", () => vverbose("websocket error event"));
+    ws.addEventListener("close", (ev: { code: number; reason?: string }) => {
+      if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
+      vlog(`websocket closed (code ${ev.code}${ev.reason ? `: ${ev.reason}` : ""})`);
+      if (destroyed) return;
+      if (FATAL.has(ev.code)) {
+        if (ev.code === 4004) fail("Discord rejected the voice token (4004).");
+        else if (ev.code === 4016) fail("This voice server needs an encryption mode Sprout can't do (4016).");
+        return;
+      }
+      // Recoverable (4006 session race, 4009 timeout, 4015 server crash, …): retry.
+      attempts++;
+      if (attempts > MAX_ATTEMPTS) { fail(`Couldn't connect to voice after ${MAX_ATTEMPTS} tries (last close ${ev.code}).`); return; }
+      const wait = Math.min(400 * attempts, 2500);
+      vlog(`reconnecting in ${wait}ms (close ${ev.code}, attempt ${attempts}/${MAX_ATTEMPTS})`);
+      setTimeout(() => { if (!destroyed) connectWs(); }, wait);
+    });
+  };
+
+  connectWs();
 
   return {
     playOgg(stream) {
@@ -346,11 +376,17 @@ export function connectVoice(params: VoiceParams): VoicePlayer {
       streaming = false;
       setSpeaking(false);
     },
+    updateServer(newEndpoint: string, newToken: string) {
+      if (newEndpoint) endpoint = newEndpoint;
+      if (newToken) token = newToken;
+      vverbose("voice server info updated");
+    },
     destroy() {
+      destroyed = true;
       streaming = false;
       if (sendTimer) clearInterval(sendTimer);
       if (heartbeat) clearInterval(heartbeat);
-      try { ws.close(); } catch { /* already closed */ }
+      try { ws?.close(); } catch { /* already closed */ }
       try { udp.close(); } catch { /* already closed */ }
     },
     onFinish(cb) { finishCbs.push(cb); },
