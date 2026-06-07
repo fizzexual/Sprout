@@ -23,6 +23,7 @@ import { emptyTheme, parseBloom } from "./bloom.ts";
 import type { Theme } from "./bloom.ts";
 import { fileStorage } from "./storage.ts";
 import { nodeNet } from "./net.ts";
+import { fileSecrets } from "./secrets.ts";
 import { describeJson } from "./explore.ts";
 
 const VERSION = "Sprout v0.3.0";
@@ -96,9 +97,15 @@ async function runFile(path: string, mode: RunMode): Promise<void> {
     fail(`I couldn't open the file: ${path}`, "Check the name and that the file is there.");
   }
 
-  // `remember`/`recall` persist to a JSON file next to the program.
+  // `remember`/`recall` persist to a JSON file next to the program; `secret(...)`
+  // reads from the environment or a git-ignored ".env" file next to the program.
   const dataPath = join(dirname(path), basename(path, extname(path)) + ".data.json");
-  const interp = new Interpreter(source, undefined, { storage: fileStorage(dataPath), net: nodeNet() });
+  const envPath = join(dirname(path), ".env");
+  const interp = new Interpreter(source, undefined, {
+    storage: fileStorage(dataPath),
+    net: nodeNet(),
+    secrets: fileSecrets(envPath),
+  });
 
   // Parse, then verify the WHOLE program before running any of it.
   let program: ReturnType<typeof parse>;

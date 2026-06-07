@@ -75,6 +75,38 @@ sprout api https://api.github.com/repos/fizzexual/Sprout-
 It connects and prints every field with its path — so you know exactly what to
 `jsonpick`. See [`examples/internet.sprout`](../examples/internet.sprout).
 
+## Secrets (secret)
+
+A token or password must **never** be typed into your `.sprout` file — if you
+share the file or push it to GitHub, the whole world can see it. `secret("NAME")`
+fetches it from somewhere safe instead.
+
+| Function | What it does |
+| --- | --- |
+| `secret("NAME")` | read a secret value, never written in your code |
+
+It looks in two places, in order:
+
+1. an **environment variable** called `NAME` (nothing on disk — the safest), then
+2. a **`.env`** file next to your program:
+
+```
+~ .env  — this file is git-ignored, so it never reaches GitHub
+DISCORD_TOKEN = your-real-token
+```
+
+Then your program just says:
+
+```sprout
+use "discord-bot"
+bot(secret("DISCORD_TOKEN"))     ~ the token itself is nowhere in the code
+```
+
+If the secret is missing, Sprout tells you kindly and shows you exactly where to
+put it. There's a ready-made template at
+[`examples/.env.example`](../examples/.env.example) — copy it to `.env` and fill
+in your value.
+
 ## Errors are friendly
 
 Giving a builtin the wrong kind of value, or the wrong number of values, tells

@@ -16,6 +16,7 @@ import { BUILTIN_NAMES } from "./builtins.ts";
 import { GUI_BUILTINS } from "./gui.ts";
 import { PERSIST_BUILTINS } from "./storage.ts";
 import { NET_BUILTINS } from "./net.ts";
+import { SECRET_BUILTINS } from "./secrets.ts";
 
 const BUILTIN_ARITY: Record<string, [number, number]> = {
   abs: [1, 1], round: [1, 1], floor: [1, 1], ceil: [1, 1], sqrt: [1, 1],
@@ -31,6 +32,9 @@ const PERSIST_ARITY: Record<string, [number, number]> = {
 const NET_ARITY: Record<string, [number, number]> = {
   get: [1, 1], post: [2, 2],
 };
+const SECRET_ARITY: Record<string, [number, number]> = {
+  secret: [1, 1],
+};
 
 // Returns every problem found (empty array = the program is good to run).
 export function check(program: Stmt[], extra: Set<string> = new Set<string>()): LangError[] {
@@ -38,7 +42,7 @@ export function check(program: Stmt[], extra: Set<string> = new Set<string>()): 
 
   const taskArity = new Map<string, number>();
   for (const s of program) if (s.type === "Task") taskArity.set(s.name, s.params.length);
-  const callable = new Set<string>([...taskArity.keys(), ...BUILTIN_NAMES, ...GUI_BUILTINS, ...PERSIST_BUILTINS, ...NET_BUILTINS]);
+  const callable = new Set<string>([...taskArity.keys(), ...BUILTIN_NAMES, ...GUI_BUILTINS, ...PERSIST_BUILTINS, ...NET_BUILTINS, ...SECRET_BUILTINS]);
 
   const globalVars = collectVars(program);
 
@@ -127,6 +131,7 @@ export function check(program: Stmt[], extra: Set<string> = new Set<string>()): 
     else if (e.name in GUI_ARITY) arity = GUI_ARITY[e.name];
     else if (e.name in PERSIST_ARITY) arity = PERSIST_ARITY[e.name];
     else if (e.name in NET_ARITY) arity = NET_ARITY[e.name];
+    else if (e.name in SECRET_ARITY) arity = SECRET_ARITY[e.name];
     else {
       errors.push(new LangError("Name", `I don't know a task called '${e.name}'.`, e.line, e.col, nearestHint(e.name, callable) ?? `Define it with: task ${e.name}(...):`));
       return;

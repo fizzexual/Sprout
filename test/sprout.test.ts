@@ -11,6 +11,7 @@ import { LangError } from "../src/errors.ts";
 import { parseBloom, styleFor, windowStyle } from "../src/bloom.ts";
 import { check } from "../src/checker.ts";
 import { memoryStorage } from "../src/storage.ts";
+import { memorySecrets, parseEnv } from "../src/secrets.ts";
 import { create as discordBot } from "../libraries/discord-bot/index.ts";
 
 function problems(src: string): LangError[] {
@@ -345,6 +346,34 @@ test("discord-bot library exposes its builtins", () => {
   assert.equal(lib.isActive(), true);
   lib.builtins.on_message(["handle"]);
   assert.equal(lib.builtins.message([]), "");
+});
+
+test("secret() reads from the injected source", () => {
+  const out: string[] = [];
+  const src = 'show secret("TOKEN")';
+  const interp = new Interpreter(src, (l) => out.push(l), { secrets: memorySecrets({ TOKEN: "abc123" }) });
+  interp.run(parse(tokenize(src)));
+  assert.deepEqual(out, ["abc123"]);
+});
+
+test("secret() gives a friendly error when it's missing", () => {
+  const src = 'show secret("NOPE")';
+  const interp = new Interpreter(src, () => {}, { secrets: memorySecrets({}) });
+  assert.throws(() => interp.run(parse(tokenize(src))), /couldn't find a secret called 'NOPE'/);
+});
+
+test("checker knows secret arity", () => {
+  assert.equal(problems("show secret()")[0].kind, "Type");
+  assert.equal(problems('show secret("A", "B")')[0].kind, "Type");
+  assert.deepEqual(problems('show secret("TOKEN")'), []);
+});
+
+test("parseEnv reads KEY = value lines, comments, and quotes", () => {
+  const env = parseEnv('~ a comment\n# another\nDISCORD_TOKEN = abc\nQUOTED = "x y"\nEMPTY=\n');
+  assert.equal(env.DISCORD_TOKEN, "abc");
+  assert.equal(env.QUOTED, "x y");
+  assert.equal(env.EMPTY, "");
+  assert.equal("a comment" in env, false);
 });
 
 test("nothing is a value you can write and compare", () => {

@@ -6,17 +6,25 @@ built-in WebSocket to talk to Discord.
 ## Setup
 
 1. Go to <https://discord.com/developers/applications> → **New Application** → **Bot**.
-2. Copy the bot's **Token**. Under **Bot**, turn ON **Message Content Intent**.
+2. Copy the bot's **Token**. Under **Bot**, turn ON **Message Content Intent**
+   (without it Discord disconnects the bot with code `4014`).
 3. Invite it to your server: **OAuth2 → URL Generator** → scope **`bot`** →
    pick **Send Messages** → open the generated link.
-4. Paste your token into `bot("...")`.
+4. Put your token in a **`.env`** file next to your program (never in the code):
+
+   ```
+   DISCORD_TOKEN = your-real-token
+   ```
+
+   `.env` is git-ignored, so your token never reaches GitHub. Read it with
+   [`secret(...)`](../../wiki/builtins.md#secrets-secret).
 
 ## Example
 
 ```sprout
 use "discord-bot"
 
-bot("YOUR-TOKEN")
+bot(secret("DISCORD_TOKEN"))
 on_message("handle")
 
 task handle():

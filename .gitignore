@@ -7,6 +7,12 @@ logs.txt
 # Data saved by Sprout programs (remember/recall)
 *.data.json
 
+# Secrets read by secret("NAME") — these stay on your computer, never on GitHub.
+# (.env.example is a safe, token-free template and IS committed.)
+.env
+*.env
+!*.env.example
+
 # Packaged VS Code extension
 *.vsix
 

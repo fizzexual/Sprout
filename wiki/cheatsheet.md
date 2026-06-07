@@ -41,6 +41,7 @@ length(text) upper(text) lower(text)      random()
 remember("key", value)   recall("key", default)   ~ save/load between runs
 get("url")   post("url", body)   jsonpick(text, "key")          ~ internet
 get_api_points(text)   explore(text)                          ~ what does an API offer?
+secret("NAME")                          ~ a token from .env / the environment
 ```
 
 ## GUI / Server

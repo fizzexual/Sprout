@@ -4,13 +4,17 @@
 ~   1. Go to https://discord.com/developers/applications -> New Application -> Bot.
 ~   2. Copy the bot's TOKEN. Under "Bot", turn ON "Message Content Intent".
 ~   3. Invite it: OAuth2 -> URL Generator -> scope "bot" -> open the link.
-~   4. Paste your token into bot("...") below.
+~   4. Make a file called  .env  next to this one, with a single line:
+~          DISCORD_TOKEN = your-real-token-here
+~      (.env is git-ignored, so your token never reaches GitHub.)
 ~   5. Run it:  sprout run examples/discord-bot.sprout
 ~   6. In your server, type:  !ping   !hello   !sprout
+~
+~ Notice the token is NOWHERE in this file -- secret("...") fetches it safely.
 
 use "discord-bot"
 
-bot("PUT-YOUR-BOT-TOKEN-HERE")
+bot(secret("DISCORD_TOKEN"))
 on_message("handle")
 
 task handle():

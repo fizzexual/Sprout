@@ -224,6 +224,7 @@ npm test          # or: node --test test/sprout.test.ts
 | Hidden backend | server logic never reaches the browser — only button tasks can run |
 | Saves data | `remember` / `recall` — data persists between runs, no database |
 | Internet | `get` / `post` + `jsonpick` — call any API; `sprout api <url>` discovers one |
+| Secrets | `secret("DISCORD_TOKEN")` — tokens live in a git-ignored `.env`, never in code |
 | Verified first | the whole program is checked before it runs (`sprout check`) |
 | Libraries | `use "discord-bot"` — add powers like a real Discord bot |
 | Styling (Bloom) | `style "theme.bloom"` — or raw output if omitted |
@@ -267,6 +268,7 @@ output
 - [x] **Bloom** — Sprout's styling language; `style "..."`, raw if omitted
 - [x] **Saves data** — `remember` / `recall`, persists between runs
 - [x] **Internet** — `get` / `post` / `jsonpick`; `sprout api <url>` to explore one
+- [x] **Secrets** — `secret("NAME")` from a git-ignored `.env`; never hardcode a token
 - [x] **Verify before running** — whole-program check (`sprout check`)
 - [x] **VS Code extension** — highlighting, snippets, run commands
 - [x] **Playground** — edit & run Sprout in the browser (`npm run play`)

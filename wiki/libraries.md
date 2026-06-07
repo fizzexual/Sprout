@@ -16,7 +16,7 @@ After that, the library's functions work just like the built-in ones.
 ```sprout
 use "discord-bot"
 
-bot("YOUR-TOKEN")
+bot(secret("DISCORD_TOKEN"))     ~ token lives in .env, never in your code
 on_message("handle")
 
 task handle():
@@ -25,6 +25,10 @@ task handle():
     orwhen message() == "!hello":
         reply("Hi, " + author() + "!")
 ```
+
+Your token goes in a git-ignored `.env` file next to the program
+(`DISCORD_TOKEN = ...`) and [`secret(...)`](builtins.md#secrets-secret) reads it
+— so it never reaches GitHub.
 
 | Function | What it does |
 | --- | --- |

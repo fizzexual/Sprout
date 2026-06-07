@@ -15,6 +15,8 @@ import { memoryStorage, PERSIST_BUILTINS } from "./storage.ts";
 import type { Storage } from "./storage.ts";
 import { NET_BUILTINS, noNet } from "./net.ts";
 import type { Net } from "./net.ts";
+import { SECRET_BUILTINS, noSecrets, missingSecret } from "./secrets.ts";
+import type { Secrets } from "./secrets.ts";
 
 // Where `show` sends its output. The CLI prints to the console; tests and the
 // playground capture it instead.
@@ -87,11 +89,12 @@ export class Interpreter {
   private store: Storage;
   private data: Record<string, Value>;
   private net: Net;
+  private secrets: Secrets;
 
   constructor(
     source: string,
     out: OutputSink = (line) => console.log(line),
-    options: { maxSteps?: number; storage?: Storage; net?: Net } = {},
+    options: { maxSteps?: number; storage?: Storage; net?: Net; secrets?: Secrets } = {},
   ) {
     this.source = source;
     this.out = out;
@@ -99,6 +102,7 @@ export class Interpreter {
     this.store = options.storage ?? memoryStorage();
     this.data = this.store.load();
     this.net = options.net ?? noNet();
+    this.secrets = options.secrets ?? noSecrets();
   }
 
   run(program: Stmt[]): void {
@@ -357,10 +361,11 @@ export class Interpreter {
     if (isGuiBuiltin(expr.name)) return callGuiBuiltin(this.gui, expr.name, args, { line: expr.line, col: expr.col });
     if (PERSIST_BUILTINS.includes(expr.name)) return this.persist(expr.name, args, expr);
     if (NET_BUILTINS.includes(expr.name)) return this.netCall(expr.name, args, expr);
+    if (SECRET_BUILTINS.includes(expr.name)) return this.secretCall(args, expr);
     if (this.libBuiltins.has(expr.name)) return this.libBuiltins.get(expr.name)!(args, { line: expr.line, col: expr.col });
     if (isBuiltin(expr.name)) return callBuiltin(expr.name, args, { line: expr.line, col: expr.col });
 
-    const near = closest(expr.name, [...this.functions.keys(), ...this.libBuiltins.keys(), ...GUI_BUILTINS, ...PERSIST_BUILTINS, ...NET_BUILTINS, ...BUILTIN_NAMES]);
+    const near = closest(expr.name, [...this.functions.keys(), ...this.libBuiltins.keys(), ...GUI_BUILTINS, ...PERSIST_BUILTINS, ...NET_BUILTINS, ...SECRET_BUILTINS, ...BUILTIN_NAMES]);
     throw new LangError(
       "Name",
       `I don't know a task called '${expr.name}'.`,
@@ -383,6 +388,18 @@ export class Interpreter {
       if (e instanceof LangError) throw e;
       throw new LangError("Runtime", `I couldn't reach ${url}.`, site.line, site.col, e instanceof Error ? e.message : undefined);
     }
+  }
+
+  // secret("NAME") — read a token from the environment or a .env file, so it's
+  // never written into the program itself.
+  private secretCall(args: Value[], site: Expr): Value {
+    const name = args[0];
+    if (typeof name !== "string") {
+      throw new LangError("Type", "'secret' needs the secret's name in quotes.", site.line, site.col, 'Like: secret("DISCORD_TOKEN")');
+    }
+    const value = this.secrets.get(name);
+    if (value === null) throw missingSecret(name, site.line, site.col);
+    return value;
   }
 
   // remember("key", value)  /  recall("key", default?)
