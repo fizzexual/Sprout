@@ -132,17 +132,54 @@ requested by: yes
 footer: Sprout 🌱 music
 `;
 
-// Make sure  <programDir>/music/now-playing.bloom  exists (without ever clobbering
-// the user's edits), and return its path.
+const DEFAULT_SETTINGS = `~ settings.bloom — how the music bot fetches songs from YouTube.
+~
+~ YouTube may say "Sign in to confirm you're not a bot". To get past it, give
+~ yt-dlp your YouTube login. Pick ONE, then restart the bot:
+~
+~ 1) A cookies FILE (most reliable). In your browser add the extension
+~    "Get cookies.txt LOCALLY", open youtube.com while logged in, export, then:
+~      cookies file: C:\\Users\\you\\Downloads\\youtube.com_cookies.txt
+~
+~ 2) Straight from a browser — but CLOSE the browser first, and note Chrome/Edge
+~    often fail (new cookie encryption); Firefox works best:
+~      cookies browser: firefox     (or edge, brave, opera, vivaldi, chromium)
+~
+~ Leave both blank to fetch without cookies (fine until YouTube blocks you).
+
+cookies file:
+cookies browser:
+`;
+
+// The music config folder next to the running program. Set by create(); used by
+// cookiesArgs() so the yt-dlp helpers (module-level) can read the cookie setting.
+let musicDir = "";
+
+// Make sure  <programDir>/music/  has its config files (without ever clobbering the
+// user's edits), and return the now-playing card's path.
 function ensureMusicConfig(programDir: string): string {
   if (!programDir) return ""; // no known program dir (e.g. tests) — fall back to built-in defaults
   const folder = join(programDir, "music");
-  const file = join(folder, "now-playing.bloom");
+  const card = join(folder, "now-playing.bloom");
+  const settings = join(folder, "settings.bloom");
   try {
     if (!existsSync(folder)) mkdirSync(folder, { recursive: true });
-    if (!existsSync(file)) writeFileSync(file, DEFAULT_CONFIG, "utf8");
+    if (!existsSync(card)) writeFileSync(card, DEFAULT_CONFIG, "utf8");
+    if (!existsSync(settings)) writeFileSync(settings, DEFAULT_SETTINGS, "utf8");
   } catch { /* read-only filesystem — we just fall back to the built-in defaults */ }
-  return file;
+  return card;
+}
+
+// yt-dlp args to authenticate with the user's YouTube cookies (from
+// music/settings.bloom). This is what gets past "confirm you're not a bot".
+function cookiesArgs(): string[] {
+  if (!musicDir) return [];
+  const cfg = readMusicConfig(join(musicDir, "settings.bloom"));
+  const file = (cfg["cookies file"] || "").trim();
+  if (file) return ["--cookies", file];
+  const browser = (cfg["cookies browser"] || "").trim().toLowerCase();
+  if (browser) return ["--cookies-from-browser", browser];
+  return [];
 }
 
 // Read the Bloom-style "key: value" config (with ~ comments). Read fresh each
@@ -185,6 +222,7 @@ export function create(interp: Interpreter, library: { api: DiscordApi }) {
   // Drop an editable "music/" design folder next to the user's program. They own
   // the look of the Now-Playing card; we read it fresh on every song.
   const configFile = ensureMusicConfig(interp?.programDir ?? "");
+  musicDir = interp?.programDir ? join(interp.programDir, "music") : "";
 
   const musicOf = (guildId: string): GuildMusic => {
     let gm = guilds.get(guildId);
@@ -228,7 +266,10 @@ export function create(interp: Interpreter, library: { api: DiscordApi }) {
     reply("🔎 Looking that up…");
     const found = await resolve(query);
     mlog(found ? `resolved: ${found.title}` : "resolve returned nothing (yt-dlp missing or failed)");
-    if (!found) { reply("I couldn't find that (is **yt-dlp** installed?). Try a direct YouTube link."); return; }
+    if (!found) {
+      reply("I couldn't fetch that. If YouTube is asking to **confirm you're not a bot**, open **music/settings.bloom** and set up cookies (a `cookies file:` is most reliable), then restart me. Otherwise check the link / that **yt-dlp** is installed.");
+      return;
+    }
 
     gm.queue.push({ ...found, requestedBy: authorId, textChannelId, voiceChannelId: voiceChannel, guildId });
 
@@ -484,18 +525,24 @@ function resolve(query: string): Promise<{ title: string; url: string; thumbnail
   const target = isUrl(query) ? query : `ytsearch1:${query}`;
   return new Promise((res) => {
     let out = "";
+    let err = "";
     let started = false;
     try {
-      const p = spawn("yt-dlp", ["--no-warnings", "-f", "bestaudio", "--skip-download",
+      const p = spawn("yt-dlp", [...cookiesArgs(), "--no-warnings", "-f", "bestaudio", "--skip-download",
         "--print", "%(webpage_url)s", "--print", "%(thumbnail)s", "--print", "%(channel)s",
-        "--print", "%(duration_string)s", "--print", "%(title)s", target], { stdio: ["ignore", "pipe", "ignore"] });
+        "--print", "%(duration_string)s", "--print", "%(title)s", target], { stdio: ["ignore", "pipe", "pipe"] });
       started = true;
       p.stdout.on("data", (c: Buffer) => { out += c.toString(); });
+      p.stderr.on("data", (c: Buffer) => { err += c.toString(); });
       p.on("error", () => res(null));
       p.on("close", () => {
         const lines = out.split("\n").map((l) => l.trim());
         while (lines.length && lines[lines.length - 1] === "") lines.pop();
-        if (lines.length < 5) { res(null); return; }
+        if (lines.length < 5) {
+          if (/not a bot|Sign in to confirm/i.test(err)) mlog("YouTube wants a sign-in (anti-bot). Set 'cookies browser' in music/settings.bloom, then restart.");
+          else if (err.trim()) mlog("yt-dlp: " + err.trim().slice(-200));
+          res(null); return;
+        }
         const [url, thumbnail, channel, duration, ...titleParts] = lines;
         res({ title: titleParts.join(" ").trim() || "Unknown", url, thumbnail, channel, duration });
       });
@@ -512,7 +559,7 @@ function resolvePlaylist(url: string): Promise<{ title: string; entries: Array<{
   return new Promise((res) => {
     let out = "";
     try {
-      const p = spawn("yt-dlp", ["--no-warnings", "--flat-playlist", "--playlist-end", "100",
+      const p = spawn("yt-dlp", [...cookiesArgs(), "--no-warnings", "--flat-playlist", "--playlist-end", "100",
         "--print", "%(playlist_title)s|||%(id)s|||%(url)s|||%(title)s", url], { stdio: ["ignore", "pipe", "ignore"] });
       p.stdout.on("data", (c: Buffer) => { out += c.toString(); });
       p.on("error", () => res(null));
@@ -545,7 +592,7 @@ function streamFor(url: string, onError: (msg: string) => void, opts: { startSec
     // (nsig) puzzle that the default clients now require. Without this, yt-dlp can't
     // solve nsig (no JS runtime), the stream gets throttled or 403s, and yt-dlp dies
     // mid-download — the bot "plays" for a second then goes silent/idle.
-    const ytArgs = ["-q", "--no-playlist", "--extractor-args", "youtube:player_client=android_vr", "-f", format, "-o", "-", url];
+    const ytArgs = [...cookiesArgs(), "-q", "--no-playlist", "--extractor-args", "youtube:player_client=android_vr", "-f", format, "-o", "-", url];
     // Build ffmpeg args. -ss AFTER -i is output-seeking (decodes from the start and
     // discards) — reliable on a pipe — used to resume at the current spot after a
     // speed change. -af atempo changes speed without changing pitch (valid 0.5–2.0).
