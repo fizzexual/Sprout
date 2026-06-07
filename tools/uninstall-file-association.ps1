@@ -7,6 +7,7 @@ $ErrorActionPreference = 'SilentlyContinue'
 Remove-Item -Path 'HKCU:\Software\Classes\.sprout' -Recurse -Force
 Remove-Item -Path 'HKCU:\Software\Classes\Sprout.Program' -Recurse -Force
 Remove-Item -Path 'HKCU:\Software\Classes\.bloom' -Recurse -Force
+Remove-Item -Path 'HKCU:\Software\Classes\Bloom.File' -Recurse -Force
 Remove-Item -Path 'HKCU:\Software\Classes\Botanica.Editor' -Recurse -Force
 Remove-Item -LiteralPath 'HKCU:\Software\Classes\*\shell\Botanica' -Recurse -Force
 Remove-Item -LiteralPath 'HKCU:\Software\Classes\Directory\shell\Botanica' -Recurse -Force

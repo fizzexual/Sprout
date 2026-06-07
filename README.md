@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="images/sprout.png" width="100" alt="Sprout" />
+</p>
+
 # 🌱 Sprout
 
 **A small, friendly programming language — built completely from scratch.**
@@ -134,7 +138,7 @@ again to update it), `button(text, taskName)`, `field(id, hint)`, and
 `textof(id)`. Try `examples/gui-greeter.sprout` too (it has no `style`, so it
 shows the raw look).
 
-## Style it with Bloom 🌸
+## Style it with Bloom &nbsp;<img src="images/bloom.png" width="24" align="top">
 
 **Bloom** is Sprout's own styling language — its version of CSS. Point at a
 `.bloom` file from your program with `style`:
@@ -167,7 +171,7 @@ Style by widget kind (`window`, `label`, `button`, `field`) or by one widget's
 id (`#display`). The same Bloom file styles **both** the native window and the
 website. **No `style`? You get raw, unstyled output — like HTML with no CSS.**
 
-## Botanica — the editor 🪴
+## Botanica — the editor &nbsp;<img src="images/botanica.png" width="26" align="top">
 
 **Botanica** is Sprout's own code editor — a real desktop app built on the same
 stack as VS Code (**Electron + Monaco**). File explorer, tabs, Sprout/Bloom

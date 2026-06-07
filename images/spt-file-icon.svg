@@ -1,0 +1,13 @@
+<svg width="200" height="240" viewBox="0 0 200 240" xmlns="http://www.w3.org/2000/svg" role="img">
+<title>Sprout file icon</title>
+<desc>A document outlined in green with a folded top-right corner and a green sprout centered inside.</desc>
+<path d="M34 12 L132 12 L180 60 L180 228 L34 228 Z" fill="none" stroke="#15a34a" stroke-width="6" stroke-linejoin="round"/>
+<path d="M132 12 L132 60 L180 60" fill="none" stroke="#15a34a" stroke-width="6" stroke-linejoin="round" stroke-linecap="round"/>
+<g transform="translate(106,150)">
+<path d="M0 38 C 0 6, -1 -16, 0 -40" fill="none" stroke="#15803d" stroke-width="9.5" stroke-linecap="round"/>
+<path d="M0 -20 C -8 -44, -28 -57, -54 -62 C -52 -38, -34 -18, -3 -8 C -1 -12, 0 -16, 0 -20 Z" fill="#22c55e"/>
+<path d="M-26 -44 C -18 -42, -10 -36, -6 -28" fill="none" stroke="#15803d" stroke-width="2.4" stroke-linecap="round" opacity="0.55"/>
+<path d="M0 -28 C 8 -54, 30 -69, 58 -75 C 55 -49, 34 -26, 2 -16 C 1 -20, 0 -24, 0 -28 Z" fill="#16a34a"/>
+<path d="M30 -57 C 20 -52, 11 -44, 6 -34" fill="none" stroke="#0f5132" stroke-width="2.4" stroke-linecap="round" opacity="0.5"/>
+</g>
+</svg>

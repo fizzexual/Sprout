@@ -1,53 +1,61 @@
-# Registers the .sprout file type so double-clicking a .sprout file runs it.
+# Registers the .sprout and .bloom file types, their icons, and the Botanica
+# editor. Per-user only (HKCU) - no administrator rights needed. Reversible
+# with uninstall-file-association.ps1.
 #
-# Per-user only (writes to HKCU) - no administrator rights needed, and fully
-# reversible with uninstall-file-association.ps1.
-#
-# Run it once:   powershell -ExecutionPolicy Bypass -File tools\install-file-association.ps1
+#   powershell -ExecutionPolicy Bypass -File tools\install-file-association.ps1
 
 $ErrorActionPreference = 'Stop'
 
 $launcher = Join-Path $PSScriptRoot 'sprout-run.cmd'
 if (-not (Test-Path $launcher)) { throw "Can't find the launcher at: $launcher" }
 
-# .sprout  ->  Sprout.Program
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$imagesDir = Join-Path $repoRoot 'images'
+$sproutIcon = Join-Path $imagesDir 'sprout.ico'
+$bloomIcon = Join-Path $imagesDir 'bloom.ico'
+$botanicaIcon = Join-Path $imagesDir 'botanica.ico'
+$botanicaLauncher = Join-Path $repoRoot 'botanica\launch.cmd'
+$botanicaCmd = "`"$botanicaLauncher`" `"%1`""
+
+# --- .sprout -> Sprout.Program (runs on double-click; shows the Sprout icon) ---
 New-Item -Path 'HKCU:\Software\Classes\.sprout' -Force | Out-Null
 Set-ItemProperty -Path 'HKCU:\Software\Classes\.sprout' -Name '(default)' -Value 'Sprout.Program'
 
-# Sprout.Program  ->  friendly name + open command
 New-Item -Path 'HKCU:\Software\Classes\Sprout.Program' -Force | Out-Null
 Set-ItemProperty -Path 'HKCU:\Software\Classes\Sprout.Program' -Name '(default)' -Value 'Sprout Program'
-
+New-Item -Path 'HKCU:\Software\Classes\Sprout.Program\DefaultIcon' -Force | Out-Null
+Set-ItemProperty -Path 'HKCU:\Software\Classes\Sprout.Program\DefaultIcon' -Name '(default)' -Value $sproutIcon
 New-Item -Path 'HKCU:\Software\Classes\Sprout.Program\shell\open\command' -Force | Out-Null
-Set-ItemProperty -Path 'HKCU:\Software\Classes\Sprout.Program\shell\open\command' `
-  -Name '(default)' -Value ("`"$launcher`" `"%1`"")
+Set-ItemProperty -Path 'HKCU:\Software\Classes\Sprout.Program\shell\open\command' -Name '(default)' -Value ("`"$launcher`" `"%1`"")
 
-# --- Botanica (the Sprout code editor — an Electron app in ../botanica) ---
-$botanicaLauncher = Join-Path (Split-Path -Parent $PSScriptRoot) 'botanica\launch.cmd'
-$botanicaCmd = "`"$botanicaLauncher`" `"%1`""
-
+# --- Botanica (the editor) ProgId + its logo ---
 New-Item -Path 'HKCU:\Software\Classes\Botanica.Editor' -Force | Out-Null
 Set-ItemProperty -Path 'HKCU:\Software\Classes\Botanica.Editor' -Name '(default)' -Value 'Botanica'
+New-Item -Path 'HKCU:\Software\Classes\Botanica.Editor\DefaultIcon' -Force | Out-Null
+Set-ItemProperty -Path 'HKCU:\Software\Classes\Botanica.Editor\DefaultIcon' -Name '(default)' -Value $botanicaIcon
 New-Item -Path 'HKCU:\Software\Classes\Botanica.Editor\shell\open\command' -Force | Out-Null
 Set-ItemProperty -Path 'HKCU:\Software\Classes\Botanica.Editor\shell\open\command' -Name '(default)' -Value $botanicaCmd
 
-# Offer Botanica under right-click "Open with" for .sprout and .bloom files.
+# --- .bloom -> Bloom.File (shows as type "Bloom" with the flower icon; opens in Botanica) ---
+New-Item -Path 'HKCU:\Software\Classes\Bloom.File' -Force | Out-Null
+Set-ItemProperty -Path 'HKCU:\Software\Classes\Bloom.File' -Name '(default)' -Value 'Bloom'
+New-Item -Path 'HKCU:\Software\Classes\Bloom.File\DefaultIcon' -Force | Out-Null
+Set-ItemProperty -Path 'HKCU:\Software\Classes\Bloom.File\DefaultIcon' -Name '(default)' -Value $bloomIcon
+New-Item -Path 'HKCU:\Software\Classes\Bloom.File\shell\open\command' -Force | Out-Null
+Set-ItemProperty -Path 'HKCU:\Software\Classes\Bloom.File\shell\open\command' -Name '(default)' -Value $botanicaCmd
+
+New-Item -Path 'HKCU:\Software\Classes\.bloom' -Force | Out-Null
+Set-ItemProperty -Path 'HKCU:\Software\Classes\.bloom' -Name '(default)' -Value 'Bloom.File'
+
+# Offer Botanica under right-click "Open with" for both extensions.
 New-Item -Path 'HKCU:\Software\Classes\.sprout\OpenWithProgids' -Force | Out-Null
 Set-ItemProperty -Path 'HKCU:\Software\Classes\.sprout\OpenWithProgids' -Name 'Botanica.Editor' -Value ''
-
-# .bloom is a stylesheet: double-clicking it opens Botanica (there's nothing to "run").
-New-Item -Path 'HKCU:\Software\Classes\.bloom' -Force | Out-Null
-Set-ItemProperty -Path 'HKCU:\Software\Classes\.bloom' -Name '(default)' -Value 'Botanica.Editor'
 New-Item -Path 'HKCU:\Software\Classes\.bloom\OpenWithProgids' -Force | Out-Null
 Set-ItemProperty -Path 'HKCU:\Software\Classes\.bloom\OpenWithProgids' -Name 'Botanica.Editor' -Value ''
 
-# --- "Open with Botanica" directly in the right-click menu (with icon) ---
-# Built via a .reg import: reg.exe handles the literal '*' (all-files) key, which
-# PowerShell's own cmdlets treat as a wildcard.
-$botanicaDir = Split-Path -Parent $botanicaLauncher
-$botanicaIcon = Join-Path $botanicaDir 'icon.ico'
-& (Join-Path $botanicaDir 'make-icon.ps1') -Out $botanicaIcon | Out-Null
-
+# --- "Open with Botanica" directly in the right-click menu (with the logo) ---
+# Imported via a .reg file: reg.exe handles the literal '*' (all-files) key,
+# which PowerShell's own cmdlets treat as a wildcard.
 $icoEsc = $botanicaIcon -replace '\\', '\\'
 $launchEsc = $botanicaLauncher -replace '\\', '\\'
 function botanicaVerbReg($root, $arg) {
@@ -71,12 +79,12 @@ Set-Content -LiteralPath $regFile -Value $regText -Encoding Unicode
 reg import $regFile | Out-Null
 Remove-Item -LiteralPath $regFile -Force
 
-# Tell Explorer the associations changed (so it takes effect right away).
+# Tell Explorer the associations changed (so they take effect right away).
 Add-Type -Namespace Win32 -Name Shell -MemberDefinition `
   '[DllImport("shell32.dll")] public static extern void SHChangeNotify(int eventId, int flags, IntPtr item1, IntPtr item2);'
 [Win32.Shell]::SHChangeNotify(0x08000000, 0, [IntPtr]::Zero, [IntPtr]::Zero)
 
 Write-Host "Done!" -ForegroundColor Green
-Write-Host "  - Double-click a .sprout file to run it."
-Write-Host "  - Right-click a .sprout/.bloom -> Open with -> Botanica to edit it."
-Write-Host "Launcher: $launcher"
+Write-Host "  - .sprout files show the Sprout icon and run on double-click."
+Write-Host "  - .bloom files show as 'Bloom' with the flower icon, and open in Botanica."
+Write-Host "  - Right-click any file or folder -> Open with Botanica."
