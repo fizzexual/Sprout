@@ -22,6 +22,7 @@ import { startWebServer } from "./serve.ts";
 import { emptyTheme, parseBloom } from "./bloom.ts";
 import type { Theme } from "./bloom.ts";
 import { fileStorage } from "./storage.ts";
+import { nodeNet } from "./net.ts";
 
 const VERSION = "Sprout v0.3.0";
 
@@ -62,7 +63,7 @@ function runFile(path: string, mode: RunMode): void {
 
   // `remember`/`recall` persist to a JSON file next to the program.
   const dataPath = join(dirname(path), basename(path, extname(path)) + ".data.json");
-  const interp = new Interpreter(source, undefined, { storage: fileStorage(dataPath) });
+  const interp = new Interpreter(source, undefined, { storage: fileStorage(dataPath), net: nodeNet() });
 
   // Parse, then verify the WHOLE program before running any of it.
   let program: ReturnType<typeof parse>;

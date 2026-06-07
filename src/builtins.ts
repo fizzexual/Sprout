@@ -6,7 +6,7 @@
 
 import { LangError } from "./errors.ts";
 import type { Value } from "./values.ts";
-import { typeName } from "./values.ts";
+import { NONE, typeName } from "./values.ts";
 
 export interface CallSite {
   line: number;
@@ -16,7 +16,7 @@ export interface CallSite {
 export const BUILTIN_NAMES = [
   "abs", "round", "floor", "ceil", "sqrt",
   "min", "max",
-  "length", "upper", "lower",
+  "length", "upper", "lower", "jsonpick",
   "random",
 ];
 
@@ -50,6 +50,27 @@ export function callBuiltin(name: string, args: Value[], site: CallSite): Value 
     case "upper": exactly(name, args, 1, site); return text(args[0], name, 0, site).toUpperCase();
     case "lower": exactly(name, args, 1, site); return text(args[0], name, 0, site).toLowerCase();
     case "random": exactly(name, args, 0, site); return Math.random();
+    case "jsonpick": {
+      exactly(name, args, 2, site);
+      const src = text(args[0], name, 0, site);
+      const path = text(args[1], name, 1, site);
+      let cur: unknown;
+      try {
+        cur = JSON.parse(src);
+      } catch {
+        return NONE;
+      }
+      for (const part of path.split(".")) {
+        if (cur !== null && typeof cur === "object" && part in (cur as Record<string, unknown>)) {
+          cur = (cur as Record<string, unknown>)[part];
+        } else {
+          return NONE;
+        }
+      }
+      if (typeof cur === "number" || typeof cur === "string" || typeof cur === "boolean") return cur;
+      if (cur === null || cur === undefined) return NONE;
+      return JSON.stringify(cur);
+    }
     default:
       // Unreachable: callers check isBuiltin() first.
       throw new LangError("Name", `I don't know a function called '${name}'.`, site.line, site.col);
@@ -114,6 +135,7 @@ function ordinal(i: number): string {
 function exampleCall(name: string): string {
   if (name === "min" || name === "max") return `${name}(3, 9, 5)`;
   if (name === "length" || name === "upper" || name === "lower") return `${name}("hello")`;
+  if (name === "jsonpick") return 'jsonpick(text, "key")';
   if (name === "random") return "random()";
   return `${name}(16)`;
 }

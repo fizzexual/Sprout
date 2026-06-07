@@ -48,6 +48,23 @@ The data lives in a small JSON file next to your program. See
 [`examples/savecounter.sprout`](../examples/savecounter.sprout) — a counter that
 remembers its value after you close it.
 
+## Talking to the internet (get / post)
+
+Call any web address and use what comes back — no libraries, no setup.
+
+| Function | What it does |
+| --- | --- |
+| `get("https://...")` | fetch a page or API and return its text |
+| `post("https://...", body)` | send data and return the reply |
+| `jsonpick(text, "key")` | pull a value out of a JSON reply (use `"a.b"` for nested keys) |
+
+```sprout
+make info = get("https://api.github.com/repos/fizzexual/Sprout-")
+show "Stars:", jsonpick(info, "stargazers_count")
+```
+
+See [`examples/internet.sprout`](../examples/internet.sprout).
+
 ## Errors are friendly
 
 Giving a builtin the wrong kind of value, or the wrong number of values, tells

@@ -267,6 +267,31 @@ test("checker knows remember/recall arity", () => {
   assert.equal(problems('remember("k")')[0].kind, "Type");
 });
 
+test("get returns the response text (mocked net)", () => {
+  const net = { get: () => '{"fact":"cats purr"}', post: () => "" };
+  const out: string[] = [];
+  const src = 'show get("http://x")';
+  new Interpreter(src, (l) => out.push(l), { net }).run(parse(tokenize(src)));
+  assert.match(out[0], /cats purr/);
+});
+
+test("get without internet gives a friendly error", () => {
+  let kind = "";
+  try { run('show get("http://x")'); } catch (e) { if (e instanceof LangError) kind = e.kind; }
+  assert.equal(kind, "Runtime");
+});
+
+test("jsonpick reads a value out of JSON (nested)", () => {
+  assert.deepEqual(run('show jsonpick("{\\"a\\":{\\"b\\":42}}", "a.b")'), ["42"]);
+  assert.deepEqual(run('show jsonpick("{\\"a\\":1}", "missing")'), ["nothing"]);
+});
+
+test("checker knows get/post/jsonpick arity", () => {
+  assert.equal(problems("show get()")[0].kind, "Type");
+  assert.equal(problems('post("u")')[0].kind, "Type");
+  assert.equal(problems('show jsonpick("x")')[0].kind, "Type");
+});
+
 test("security: only a button's task can be triggered", () => {
   const src = 'task danger():\n    show "boom"\ntask ok():\n    label("d", "hi")\nwindow("X")\nlabel("d", "")\nbutton("Go", "ok")';
   const interp = runApp(src);

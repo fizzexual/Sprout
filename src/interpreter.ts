@@ -13,6 +13,8 @@ import { callGuiBuiltin, GUI_BUILTINS, isGuiBuiltin, newGui } from "./gui.ts";
 import type { GuiModel } from "./gui.ts";
 import { memoryStorage, PERSIST_BUILTINS } from "./storage.ts";
 import type { Storage } from "./storage.ts";
+import { NET_BUILTINS, noNet } from "./net.ts";
+import type { Net } from "./net.ts";
 
 // Where `show` sends its output. The CLI prints to the console; tests and the
 // playground capture it instead.
@@ -83,17 +85,19 @@ export class Interpreter {
   private gui: GuiModel = newGui();
   private store: Storage;
   private data: Record<string, Value>;
+  private net: Net;
 
   constructor(
     source: string,
     out: OutputSink = (line) => console.log(line),
-    options: { maxSteps?: number; storage?: Storage } = {},
+    options: { maxSteps?: number; storage?: Storage; net?: Net } = {},
   ) {
     this.source = source;
     this.out = out;
     this.maxSteps = options.maxSteps ?? Infinity;
     this.store = options.storage ?? memoryStorage();
     this.data = this.store.load();
+    this.net = options.net ?? noNet();
   }
 
   run(program: Stmt[]): void {
@@ -322,9 +326,10 @@ export class Interpreter {
 
     if (isGuiBuiltin(expr.name)) return callGuiBuiltin(this.gui, expr.name, args, { line: expr.line, col: expr.col });
     if (PERSIST_BUILTINS.includes(expr.name)) return this.persist(expr.name, args, expr);
+    if (NET_BUILTINS.includes(expr.name)) return this.netCall(expr.name, args, expr);
     if (isBuiltin(expr.name)) return callBuiltin(expr.name, args, { line: expr.line, col: expr.col });
 
-    const near = closest(expr.name, [...this.functions.keys(), ...GUI_BUILTINS, ...PERSIST_BUILTINS, ...BUILTIN_NAMES]);
+    const near = closest(expr.name, [...this.functions.keys(), ...GUI_BUILTINS, ...PERSIST_BUILTINS, ...NET_BUILTINS, ...BUILTIN_NAMES]);
     throw new LangError(
       "Name",
       `I don't know a task called '${expr.name}'.`,
@@ -332,6 +337,21 @@ export class Interpreter {
       expr.col,
       near ? `Did you mean '${near}'?` : `Define it with: task ${expr.name}(...):`,
     );
+  }
+
+  // get("url")  /  post("url", body)
+  private netCall(name: string, args: Value[], site: Expr): Value {
+    const url = args[0];
+    if (typeof url !== "string") {
+      throw new LangError("Type", `'${name}' needs a web address in quotes.`, site.line, site.col, `Like: ${name}("https://example.com")`);
+    }
+    try {
+      if (name === "get") return this.net.get(url);
+      return this.net.post(url, args.length > 1 ? stringify(args[1]) : "");
+    } catch (e) {
+      if (e instanceof LangError) throw e;
+      throw new LangError("Runtime", `I couldn't reach ${url}.`, site.line, site.col, e instanceof Error ? e.message : undefined);
+    }
   }
 
   // remember("key", value)  /  recall("key", default?)

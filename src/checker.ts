@@ -15,10 +15,11 @@ import type { Expr, Stmt } from "./ast.ts";
 import { BUILTIN_NAMES } from "./builtins.ts";
 import { GUI_BUILTINS } from "./gui.ts";
 import { PERSIST_BUILTINS } from "./storage.ts";
+import { NET_BUILTINS } from "./net.ts";
 
 const BUILTIN_ARITY: Record<string, [number, number]> = {
   abs: [1, 1], round: [1, 1], floor: [1, 1], ceil: [1, 1], sqrt: [1, 1],
-  length: [1, 1], upper: [1, 1], lower: [1, 1], random: [0, 0],
+  length: [1, 1], upper: [1, 1], lower: [1, 1], jsonpick: [2, 2], random: [0, 0],
   min: [1, Infinity], max: [1, Infinity],
 };
 const GUI_ARITY: Record<string, [number, number]> = {
@@ -27,6 +28,9 @@ const GUI_ARITY: Record<string, [number, number]> = {
 const PERSIST_ARITY: Record<string, [number, number]> = {
   remember: [2, 2], recall: [1, 2],
 };
+const NET_ARITY: Record<string, [number, number]> = {
+  get: [1, 1], post: [2, 2],
+};
 
 // Returns every problem found (empty array = the program is good to run).
 export function check(program: Stmt[]): LangError[] {
@@ -34,7 +38,7 @@ export function check(program: Stmt[]): LangError[] {
 
   const taskArity = new Map<string, number>();
   for (const s of program) if (s.type === "Task") taskArity.set(s.name, s.params.length);
-  const callable = new Set<string>([...taskArity.keys(), ...BUILTIN_NAMES, ...GUI_BUILTINS, ...PERSIST_BUILTINS]);
+  const callable = new Set<string>([...taskArity.keys(), ...BUILTIN_NAMES, ...GUI_BUILTINS, ...PERSIST_BUILTINS, ...NET_BUILTINS]);
 
   const globalVars = collectVars(program);
 
@@ -119,6 +123,7 @@ export function check(program: Stmt[]): LangError[] {
     else if (e.name in BUILTIN_ARITY) arity = BUILTIN_ARITY[e.name];
     else if (e.name in GUI_ARITY) arity = GUI_ARITY[e.name];
     else if (e.name in PERSIST_ARITY) arity = PERSIST_ARITY[e.name];
+    else if (e.name in NET_ARITY) arity = NET_ARITY[e.name];
     else {
       errors.push(new LangError("Name", `I don't know a task called '${e.name}'.`, e.line, e.col, nearestHint(e.name, callable) ?? `Define it with: task ${e.name}(...):`));
       return;
