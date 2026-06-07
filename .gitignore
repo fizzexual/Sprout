@@ -1,5 +1,9 @@
 node_modules/
 dist/
+# ...but DO ship the built installer so people can download + run it.
+!installer/dist/
+installer/dist/*
+!installer/dist/SproutSetup.exe
 *.log
 logs.txt
 .DS_Store

@@ -51,10 +51,23 @@ repeat while n <= 20:
     set n = n + 1
 ```
 
-## Install the `sprout` command
+## Install Sprout
 
-Sprout needs **Node 23.6+** (it runs the TypeScript source directly — no build
-step). Link the `sprout` command so you can use it anywhere, just like `python`:
+### The easy way (Windows): the installer 🪄
+
+**[Download `SproutSetup.exe`](installer/dist/SproutSetup.exe)** and run the
+wizard. It lets you pick the folder and which libraries you want, **downloads the
+latest Sprout from this repo**, and registers the `sprout` command, file types,
+and Start-menu shortcuts. Run it again any time to **Update / Repair / Uninstall**.
+
+> **This repo is the source code, not the installed product.** Cloning it lets
+> you read and change how Sprout works, but it isn't registered on your PC until
+> the installer sets it up. (You still need **Node 23.6+** installed.)
+
+### The manual / developer way
+
+Sprout runs its TypeScript source directly — no build step. Link the `sprout`
+command yourself so you can use it anywhere, just like `python`:
 
 ```bash
 git clone https://github.com/fizzexual/Sprout-.git
@@ -278,6 +291,7 @@ output
 - [x] **Wiki** — full Sprout + Bloom docs in [`wiki/`](wiki)
 - [x] **Libraries** — `use "..."`; first one is [`discord-bot`](libraries/discord-bot)
 - [x] **Extensions + slash commands** — `use "discord-bot/music"` plays YouTube in voice; bots answer `/commands`
+- [x] **Windows installer** — a [`SproutSetup.exe`](installer/dist/SproutSetup.exe) wizard: pick libraries, downloads from the repo, Update/Repair/Uninstall
 - [ ] **next** — lists & a `for each` loop
 - [ ] **next** — `ask` for input + more widgets (checkboxes, sliders, images)
 
