@@ -75,8 +75,9 @@ Sprout programs use the **`.sprout`** extension. There are more to try in
 [`examples/`](examples): `hello`, `fizzbuzz`, `triangle`, `math`, `primes`,
 `functions`, the GUI apps `gui-counter` & `gui-greeter`, the website
 `server_example`, `savecounter` (remembers its value), `internet` (calls a live
-web API), `api-explorer` (lists every field an API offers), and `repo-stats`
-(a GUI that fetches live GitHub stats).
+web API), `api-explorer` (lists every field an API offers), `repo-stats`
+(a GUI that fetches live GitHub stats), and `discord-bot` (a chat bot, built
+with the [`discord-bot` library](libraries/discord-bot)).
 
 > Don't want to install anything? You can always run it directly:
 > `node src/cli.ts run examples/hello.sprout`
@@ -224,6 +225,7 @@ npm test          # or: node --test test/sprout.test.ts
 | Saves data | `remember` / `recall` — data persists between runs, no database |
 | Internet | `get` / `post` + `jsonpick` — call any API; `sprout api <url>` discovers one |
 | Verified first | the whole program is checked before it runs (`sprout check`) |
+| Libraries | `use "discord-bot"` — add powers like a real Discord bot |
 | Styling (Bloom) | `style "theme.bloom"` — or raw output if omitted |
 | Editor | **VS Code extension** — highlighting, snippets, Run buttons (`vscode-extension/`) |
 | Booleans | `yes` / `no` |
@@ -269,6 +271,7 @@ output
 - [x] **VS Code extension** — highlighting, snippets, run commands
 - [x] **Playground** — edit & run Sprout in the browser (`npm run play`)
 - [x] **Wiki** — full Sprout + Bloom docs in [`wiki/`](wiki)
+- [x] **Libraries** — `use "..."`; first one is [`discord-bot`](libraries/discord-bot)
 - [ ] **next** — lists & a `for each` loop
 - [ ] **next** — `ask` for input + more widgets (checkboxes, sliders, images)
 

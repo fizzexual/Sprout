@@ -1,0 +1,22 @@
+~ A Discord bot, written in Sprout! 🤖
+~
+~ Setup:
+~   1. Go to https://discord.com/developers/applications -> New Application -> Bot.
+~   2. Copy the bot's TOKEN. Under "Bot", turn ON "Message Content Intent".
+~   3. Invite it: OAuth2 -> URL Generator -> scope "bot" -> open the link.
+~   4. Paste your token into bot("...") below.
+~   5. Run it:  sprout run examples/discord-bot.sprout
+~   6. In your server, type:  !ping   !hello   !sprout
+
+use "discord-bot"
+
+bot("PUT-YOUR-BOT-TOKEN-HERE")
+on_message("handle")
+
+task handle():
+    when message() == "!ping":
+        reply("pong! 🏓")
+    orwhen message() == "!hello":
+        reply("Hi, " + author() + "! 🌱")
+    orwhen message() == "!sprout":
+        reply("I'm a Discord bot written in the Sprout language.")

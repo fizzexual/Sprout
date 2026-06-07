@@ -25,6 +25,7 @@ const KEYWORDS: Record<string, TokenType> = {
   task: "TASK",
   give: "GIVE",
   style: "STYLE",
+  use: "USE",
 };
 
 const SINGLE: Record<string, TokenType> = {

@@ -9,6 +9,7 @@ Everything about the **Sprout** language and its styling language **Bloom**.
 - **[Built-in Functions](builtins.md)** — `sqrt`, `max`, `length`, `upper`, and friends
 - **[GUI & Servers](gui-and-servers.md)** — build native windows and websites in Sprout
 - **[Bloom Styling](bloom-syntax.md)** — Sprout's own CSS
+- **[Libraries](libraries.md)** — add powers like `discord-bot`
 - **[Cheat Sheet](cheatsheet.md)** — the whole language on one page
 
 ## The 30-second tour

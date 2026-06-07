@@ -33,7 +33,7 @@ const NET_ARITY: Record<string, [number, number]> = {
 };
 
 // Returns every problem found (empty array = the program is good to run).
-export function check(program: Stmt[]): LangError[] {
+export function check(program: Stmt[], extra: Set<string> = new Set<string>()): LangError[] {
   const errors: LangError[] = [];
 
   const taskArity = new Map<string, number>();
@@ -91,6 +91,8 @@ export function check(program: Stmt[]): LangError[] {
       case "Style":
         checkExpr(st.value, vars);
         return;
+      case "Use":
+        return;
       case "ExprStmt":
         checkExpr(st.expr, vars);
         return;
@@ -118,6 +120,7 @@ export function check(program: Stmt[]): LangError[] {
   }
 
   function checkCall(e: Expr & { type: "Call" }): void {
+    if (extra.has(e.name)) return; // a library builtin — its library handles name + arity
     let arity: [number, number] | undefined;
     if (taskArity.has(e.name)) arity = [taskArity.get(e.name)!, taskArity.get(e.name)!];
     else if (e.name in BUILTIN_ARITY) arity = BUILTIN_ARITY[e.name];

@@ -52,9 +52,43 @@ function loadTheme(stylePath: string | undefined, sproutPath: string): Theme {
   return parseBloom(readFileSync(resolved, "utf8"));
 }
 
+interface LoadedLibrary {
+  names: string[];
+  isActive(): boolean;
+  start(): void;
+}
+
+// Load the libraries a program `use`s, registering their builtins on the
+// interpreter. Returns the loaded libraries + the set of names they add.
+async function loadLibraries(program: ReturnType<typeof parse>, interp: Interpreter): Promise<{ libs: LoadedLibrary[]; names: Set<string> }> {
+  const libs: LoadedLibrary[] = [];
+  const names = new Set<string>();
+  for (const stmt of program) {
+    if (stmt.type !== "Use") continue;
+    const libName = stmt.name;
+    if (!/^[a-z0-9-]+$/.test(libName)) {
+      fail(`'${libName}' isn't a valid library name.`, "Library names use lowercase letters, numbers, and dashes.");
+    }
+    let mod: { create?: (i: Interpreter) => LoadedLibrary & { builtins: Record<string, unknown> } } | undefined;
+    try {
+      mod = await import(new URL(`../libraries/${libName}/index.ts`, import.meta.url).href);
+    } catch {
+      fail(`I don't know a library called '${libName}'.`, "Check the spelling, or look in the libraries/ folder.");
+    }
+    if (!mod || typeof mod.create !== "function") {
+      fail(`The library '${libName}' isn't set up correctly (no 'create').`);
+    }
+    const lib = mod!.create!(interp);
+    interp.registerLibraryBuiltins(lib.builtins as never);
+    for (const n of lib.names) names.add(n);
+    libs.push(lib);
+  }
+  return { libs, names };
+}
+
 type RunMode = "auto" | "gui" | "serve";
 
-function runFile(path: string, mode: RunMode): void {
+async function runFile(path: string, mode: RunMode): Promise<void> {
   let source = "";
   try {
     source = readFileSync(path, "utf8");
@@ -78,7 +112,9 @@ function runFile(path: string, mode: RunMode): void {
     fatal(err);
   }
 
-  const problems = check(program);
+  const { libs, names: libNames } = await loadLibraries(program, interp);
+
+  const problems = check(program, libNames);
   if (problems.length > 0) {
     for (const p of problems) console.error("\n" + formatError(p, source));
     console.error(`\nFound ${problems.length} problem(s) — fix these and try again.\n`);
@@ -94,6 +130,13 @@ function runFile(path: string, mode: RunMode): void {
     }
     fatal(err);
   }
+
+  // A library may take over (e.g. a Discord bot keeps listening for messages).
+  let runtimeStarted = false;
+  for (const lib of libs) {
+    if (lib.isActive()) { lib.start(); runtimeStarted = true; }
+  }
+  if (runtimeStarted) return;
 
   const gui = interp.getGui();
   const theme = loadTheme(gui.stylePath, path);
@@ -118,7 +161,7 @@ function runFile(path: string, mode: RunMode): void {
 }
 
 // `sprout check <file>` — verify a program without running it.
-function checkFile(path: string): void {
+async function checkFile(path: string): Promise<void> {
   let source = "";
   try {
     source = readFileSync(path, "utf8");
@@ -135,7 +178,10 @@ function checkFile(path: string): void {
     }
     fatal(err);
   }
-  const problems = check(program);
+  const interp = new Interpreter(source);
+  const { names: libNames } = await loadLibraries(program, interp);
+
+  const problems = check(program, libNames);
   if (problems.length === 0) {
     console.log("✓ Looks good — no problems found.");
     return;
@@ -224,13 +270,13 @@ function usage(): void {
 const args = process.argv.slice(2);
 try {
   if (args[0] === "run" && args[1]) {
-    runFile(args[1], "auto");
+    await runFile(args[1], "auto");
   } else if (args[0] === "gui" && args[1]) {
-    runFile(args[1], "gui");
+    await runFile(args[1], "gui");
   } else if (args[0] === "serve" && args[1]) {
-    runFile(args[1], "serve");
+    await runFile(args[1], "serve");
   } else if (args[0] === "check" && args[1]) {
-    checkFile(args[1]);
+    await checkFile(args[1]);
   } else if (args[0] === "api" && args[1]) {
     apiCommand(args[1]);
   } else if (args[0] === "version" || args[0] === "--version" || args[0] === "-v") {
@@ -238,7 +284,7 @@ try {
   } else if (args[0] === "repl" || args.length === 0) {
     repl();
   } else if (args[0] && args[0].endsWith(".sprout")) {
-    runFile(args[0], "auto");
+    await runFile(args[0], "auto");
   } else {
     usage();
   }

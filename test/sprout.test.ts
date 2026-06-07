@@ -11,6 +11,7 @@ import { LangError } from "../src/errors.ts";
 import { parseBloom, styleFor, windowStyle } from "../src/bloom.ts";
 import { check } from "../src/checker.ts";
 import { memoryStorage } from "../src/storage.ts";
+import { create as discordBot } from "../libraries/discord-bot/index.ts";
 
 function problems(src: string): LangError[] {
   return check(parse(tokenize(src)));
@@ -311,6 +312,39 @@ test("get_api_points lists the field names of a JSON reply", () => {
 
 test("checker knows get_api_points arity", () => {
   assert.equal(problems("show get_api_points()")[0].kind, "Type");
+});
+
+test("library builtins can be registered and called", () => {
+  const out: string[] = [];
+  const src = 'show greet("world")';
+  const interp = new Interpreter(src, (l) => out.push(l));
+  interp.registerLibraryBuiltins({ greet: (args) => "hi " + args[0] });
+  interp.run(parse(tokenize(src)));
+  assert.deepEqual(out, ["hi world"]);
+});
+
+test("runTask runs a top-level task by name", () => {
+  const out: string[] = [];
+  const src = 'task go():\n    show "ran"';
+  const interp = new Interpreter(src, (l) => out.push(l));
+  interp.run(parse(tokenize(src)));
+  interp.runTask("go");
+  assert.deepEqual(out, ["ran"]);
+});
+
+test('use "..." parses as a Use statement', () => {
+  const prog = parse(tokenize('use "discord-bot"\nshow "ok"'));
+  assert.equal(prog[0].type, "Use");
+});
+
+test("discord-bot library exposes its builtins", () => {
+  const lib = discordBot({} as never);
+  assert.ok(lib.names.includes("on_message"));
+  assert.equal(lib.isActive(), false);
+  lib.builtins.bot(["TOKEN"]);
+  assert.equal(lib.isActive(), true);
+  lib.builtins.on_message(["handle"]);
+  assert.equal(lib.builtins.message([]), "");
 });
 
 test("nothing is a value you can write and compare", () => {

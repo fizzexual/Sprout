@@ -37,4 +37,6 @@ export type Stmt =
   | { type: "Give"; value: Expr | undefined; line: number; col: number }
   // style "theme.bloom"  (attach a Bloom stylesheet)
   | { type: "Style"; value: Expr; line: number; col: number }
+  // use "library"  (load a library)
+  | { type: "Use"; name: string; line: number; col: number }
   | { type: "ExprStmt"; expr: Expr; line: number };

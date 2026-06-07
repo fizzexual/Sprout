@@ -93,6 +93,7 @@ class Parser {
       case "TASK": return this.taskStmt();
       case "GIVE": return this.giveStmt();
       case "STYLE": return this.styleStmt();
+      case "USE": return this.useStmt();
       default:
         // A friendly nudge if someone writes `x = 5` without make/set.
         if (t.type === "IDENT" && this.peekNext()?.type === "EQ") {
@@ -199,6 +200,14 @@ class Parser {
     const value = this.expression();
     this.endStatement();
     return { type: "Style", value, line: kw.line, col: kw.col };
+  }
+
+  // use "discord-bot"
+  private useStmt(): Stmt {
+    const kw = this.advance(); // USE
+    const name = this.expect("STRING", "I expected a library name in quotes after 'use'.", 'Like: use "discord-bot"');
+    this.endStatement();
+    return { type: "Use", name: name.value, line: kw.line, col: kw.col };
   }
 
   private exprStmt(): Stmt {

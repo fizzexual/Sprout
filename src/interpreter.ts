@@ -82,6 +82,7 @@ export class Interpreter {
   private steps = 0;
   private globals = new Environment();
   private functions = new Map<string, FuncDef>();
+  private libBuiltins = new Map<string, (args: Value[], site: { line: number; col: number }) => Value>();
   private gui: GuiModel = newGui();
   private store: Storage;
   private data: Record<string, Value>;
@@ -117,6 +118,30 @@ export class Interpreter {
   }
 
   // --- GUI support (used by gui-server.ts) ---------------------------------
+
+  // --- Library support (used by the CLI's library loader) ---
+
+  registerLibraryBuiltins(map: Record<string, (args: Value[], site: { line: number; col: number }) => Value>): void {
+    for (const [name, fn] of Object.entries(map)) this.libBuiltins.set(name, fn);
+  }
+
+  // Run a top-level task by name (no inputs) — used by libraries to dispatch
+  // events (e.g. a Discord message) to the program's handler task.
+  runTask(name: string): void {
+    const fn = this.functions.get(name);
+    if (!fn) {
+      throw new LangError("Name", `There's no task called '${name}'.`, 1, 1, `Define it with: task ${name}():`);
+    }
+    this.steps = 0;
+    const frame = new Environment(this.globals);
+    try {
+      this.runBlock(fn.body, frame);
+    } catch (e) {
+      if (e instanceof ReturnSignal) return;
+      if (e instanceof RangeError) throw new LangError("Runtime", `The task '${name}' went too deep.`, 1, 1);
+      throw e;
+    }
+  }
 
   isGuiApp(): boolean {
     return this.gui.used;
@@ -261,6 +286,10 @@ export class Interpreter {
         if (typeof v === "string") this.gui.stylePath = v;
         return;
       }
+      case "Use": {
+        // Libraries are loaded by the CLI before running; nothing to do here.
+        return;
+      }
       case "ExprStmt": {
         this.evaluate(stmt.expr, env);
         return;
@@ -328,9 +357,10 @@ export class Interpreter {
     if (isGuiBuiltin(expr.name)) return callGuiBuiltin(this.gui, expr.name, args, { line: expr.line, col: expr.col });
     if (PERSIST_BUILTINS.includes(expr.name)) return this.persist(expr.name, args, expr);
     if (NET_BUILTINS.includes(expr.name)) return this.netCall(expr.name, args, expr);
+    if (this.libBuiltins.has(expr.name)) return this.libBuiltins.get(expr.name)!(args, { line: expr.line, col: expr.col });
     if (isBuiltin(expr.name)) return callBuiltin(expr.name, args, { line: expr.line, col: expr.col });
 
-    const near = closest(expr.name, [...this.functions.keys(), ...GUI_BUILTINS, ...PERSIST_BUILTINS, ...NET_BUILTINS, ...BUILTIN_NAMES]);
+    const near = closest(expr.name, [...this.functions.keys(), ...this.libBuiltins.keys(), ...GUI_BUILTINS, ...PERSIST_BUILTINS, ...NET_BUILTINS, ...BUILTIN_NAMES]);
     throw new LangError(
       "Name",
       `I don't know a task called '${expr.name}'.`,
