@@ -82,34 +82,25 @@ SCALE (many servers, no shared IP rate-limit): run a Lavalink server and set
 'lavalink host:' in music/settings.bloom — the bot then offloads ALL audio
 (extraction + voice) to it, and you grow by adding Lavalink nodes.`,
       },
-      PH("moderation", "Auto-mod, kick / ban / timeout"),
-      PH("welcome", "Welcome cards for new members"),
-      PH("economy", "Coins, shop, daily rewards & games"),
+      // Placeholders = the genuinely HARD integrations (like music's voice/DAVE/
+      // yt-dlp saga), not things a dev can already do with the basics.
+      PH("tts", "Make the bot speak — text-to-speech in voice"),
+      PH("transcribe", "Live captions — turn voice into text"),
+      PH("voice-ai", "Talk to the bot in voice; it answers in voice"),
+      PH("soundboard", "Instant sound effects in voice"),
     ],
   },
   {
-    name: "twitch-bot",
-    description: "Make a Twitch chat bot",
+    name: "whatsapp-bot",
+    description: "A WhatsApp bot — the tricky unofficial multi-device protocol",
     placeholder: true,
-    extensions: [PH("alerts", "Follow / sub / raid alerts"), PH("commands", "!commands, timers, counters")],
+    extensions: [PH("media", "Send & receive images and voice notes")],
   },
   {
-    name: "ai",
-    description: "Talk to an AI — chat & images",
+    name: "browser",
+    description: "Drive a real headless browser",
     placeholder: true,
-    extensions: [PH("chat", "Ask an AI in plain language"), PH("image", "Generate images from a prompt")],
-  },
-  {
-    name: "web",
-    description: "Fetch & scrape the web",
-    placeholder: true,
-    extensions: [PH("scrape", "Pull text & links from a page")],
-  },
-  {
-    name: "games",
-    description: "Drop-in mini-games for your bot",
-    placeholder: true,
-    extensions: [PH("trivia", "Trivia quiz with scoreboards")],
+    extensions: [PH("scrape", "Read pages that need JavaScript"), PH("screenshot", "Capture any web page as an image")],
   },
 ];
 

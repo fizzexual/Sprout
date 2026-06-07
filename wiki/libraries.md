@@ -127,17 +127,20 @@ Full details: [extensions/discord-bot/music](../extensions/discord-bot/music).
 ## Coming soon 🔜
 
 Run `sprout modules` → `browse` to see where Sprout is headed. These are
-**placeholders** today — the planned shape of the ecosystem:
+**placeholders** today, and they're deliberately the **genuinely hard** things —
+the kind where Sprout's whole value is "we did the painful part for you" (like
+music's voice + DAVE + yt-dlp + Lavalink saga). Easy stuff — moderation, welcome
+messages, simple commands — you can already build yourself with the discord-bot
+basics, so it's not here.
 
-| Library | Extensions |
-| --- | --- |
-| **discord-bot** ✅ | `music` ✅ · `moderation` 🔜 · `welcome` 🔜 · `economy` 🔜 |
-| **twitch-bot** 🔜 | `alerts` · `commands` |
-| **ai** 🔜 | `chat` · `image` |
-| **web** 🔜 | `scrape` |
-| **games** 🔜 | `trivia` |
+| Library | Extensions (planned) | Why it's hard |
+| --- | --- | --- |
+| **discord-bot** ✅ | `music` ✅ · `tts` · `transcribe` · `voice-ai` · `soundboard` | voice + DAVE E2EE + audio/AI pipelines |
+| **whatsapp-bot** 🔜 | `media` | the unofficial multi-device protocol |
+| **browser** 🔜 | `scrape` · `screenshot` | driving a real headless browser |
 
-Each would be a great first contribution — the contracts are tiny (see below).
+Each is a meaty integration — but the *contract* a library plugs into is tiny
+(see below).
 
 ## Adding your own
 
