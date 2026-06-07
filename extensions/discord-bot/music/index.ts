@@ -17,7 +17,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Interpreter } from "../../../src/interpreter.ts";
-import type { DiscordApi, CommandContext, SlashContext } from "../../../libraries/discord-bot/index.ts";
+import type { DiscordApi, CommandContext, SlashContext, ButtonContext } from "../../../libraries/discord-bot/index.ts";
 
 export interface Track { title: string; url: string; thumbnail: string; channel: string; duration: string; requestedBy: string; textChannelId: string; voiceChannelId: string; guildId: string; }
 
@@ -27,6 +27,8 @@ interface GuildMusic {
   queue: Track[];
   current: Track | null;
   procs: { kill(): void } | null;
+  volume: number;           // 1.0 = 100% (live-adjustable via the 🔉/🔊 buttons)
+  resource: any | null;     // current audio resource, kept so we can change volume live
 }
 
 // --- pure helpers (unit-tested) ----------------------------------------------
@@ -82,6 +84,22 @@ export function playlistEmbed(title: string, count: number, requestedBy: string,
     fields,
     footer: { text: cfg.footer || "Sprout 🌱 music" },
   };
+}
+
+// The row of control buttons shown under the Now-Playing card. Discord button:
+// type 2; style 2 = grey, 4 = red. custom_id is what the click sends back.
+export function controllerComponents(): unknown[] {
+  const btn = (id: string, emoji: string, style = 2): Record<string, unknown> => ({ type: 2, style, custom_id: id, emoji: { name: emoji } });
+  return [{
+    type: 1, // action row
+    components: [
+      btn("music:playpause", "⏯️"),
+      btn("music:skip", "⏭️"),
+      btn("music:stop", "⏹️", 4),
+      btn("music:voldown", "🔉"),
+      btn("music:volup", "🔊"),
+    ],
+  }];
 }
 
 // --- the editable design folder ("music/" next to the user's program) ---------
@@ -159,7 +177,7 @@ export function create(interp: Interpreter, library: { api: DiscordApi }) {
 
   const musicOf = (guildId: string): GuildMusic => {
     let gm = guilds.get(guildId);
-    if (!gm) { gm = { connection: null, player: null, queue: [], current: null, procs: null }; guilds.set(guildId, gm); }
+    if (!gm) { gm = { connection: null, player: null, queue: [], current: null, procs: null, volume: 1, resource: null }; guilds.set(guildId, gm); }
     return gm;
   };
 
@@ -309,7 +327,10 @@ export function create(interp: Interpreter, library: { api: DiscordApi }) {
     // encoder subtly-broken packets — encrypted fine by DAVE, but silent to listeners.
     let resource: any;
     try {
-      resource = V.createAudioResource(piped.stream, { inputType: V.StreamType.Raw });
+      // inlineVolume lets the 🔉/🔊 buttons change loudness live (a VolumeTransformer).
+      resource = V.createAudioResource(piped.stream, { inputType: V.StreamType.Raw, inlineVolume: true });
+      if (resource.volume) resource.volume.setVolume(gm.volume);
+      gm.resource = resource;
     } catch (e) {
       // Without an opus encoder, prism-media throws here (before playback) — which
       // used to look like mysterious silence. Say so out loud instead.
@@ -327,7 +348,7 @@ export function create(interp: Interpreter, library: { api: DiscordApi }) {
     // music/now-playing.bloom (read fresh so edits apply on the next song). Real
     // bots can't stream video to voice (that needs a ToS-breaking selfbot), so this
     // is the safe way to "watch" what's playing.
-    api.sendEmbed(track.textChannelId, nowPlayingEmbed(track, readMusicConfig(configFile)));
+    api.sendEmbed(track.textChannelId, nowPlayingEmbed(track, readMusicConfig(configFile)), controllerComponents());
   }
 
   function skip(guildId: string, reply: (t: string) => void): void {
@@ -355,6 +376,15 @@ export function create(interp: Interpreter, library: { api: DiscordApi }) {
     guilds.delete(guildId);
   }
 
+  // Live volume change (the 🔉/🔊 buttons). 1.0 = 100%, clamped to 10%–200%.
+  function changeVolume(guildId: string, factor: number, channelId: string): void {
+    const gm = guilds.get(guildId);
+    if (!gm || !gm.current) { api.send(channelId, "Nothing is playing."); return; }
+    gm.volume = Math.max(0.1, Math.min(2, Math.round(gm.volume * factor * 100) / 100));
+    try { gm.resource?.volume?.setVolume(gm.volume); } catch { /* no inline volume on this resource */ }
+    api.send(channelId, `🔊 Volume: **${Math.round(gm.volume * 100)}%**`);
+  }
+
   // --- wire up Discord commands (prefix + slash) ---
   api.onCommand("play", (ctx: CommandContext) => void play(ctx.guildId, ctx.authorId, ctx.args, ctx.channelId, ctx.reply));
   api.onCommand("skip", (ctx: CommandContext) => skip(ctx.guildId, ctx.reply));
@@ -369,6 +399,18 @@ export function create(interp: Interpreter, library: { api: DiscordApi }) {
     [{ name: "song", description: "A YouTube link or search words", type: 3, required: true }]);
   api.onSlash("skip", "Skip the current song", (ctx: SlashContext) => skip(ctx.guildId, ctx.reply));
   api.onSlash("stop", "Stop the music and leave", (ctx: SlashContext) => stop(ctx.guildId, ctx.reply));
+
+  // --- the controller buttons under the Now-Playing card ---
+  api.onButton("music:playpause", (ctx: ButtonContext) => {
+    const gm = guilds.get(ctx.guildId);
+    if (!gm || !gm.player) return;
+    if (gm.player.state?.status === "paused") { gm.player.unpause(); api.send(ctx.channelId, "▶️ Resumed."); }
+    else { gm.player.pause(); api.send(ctx.channelId, "⏸️ Paused."); }
+  });
+  api.onButton("music:skip", (ctx: ButtonContext) => skip(ctx.guildId, (t) => api.send(ctx.channelId, t)));
+  api.onButton("music:stop", (ctx: ButtonContext) => stop(ctx.guildId, (t) => api.send(ctx.channelId, t)));
+  api.onButton("music:voldown", (ctx: ButtonContext) => changeVolume(ctx.guildId, 0.8, ctx.channelId));
+  api.onButton("music:volup", (ctx: ButtonContext) => changeVolume(ctx.guildId, 1.25, ctx.channelId));
 
   return { names: [], builtins: {} };
 }

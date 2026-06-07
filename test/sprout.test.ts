@@ -473,11 +473,14 @@ test("music extension registers its commands on the discord api", () => {
   const commands: string[] = [];
   const slashes: string[] = [];
   const slashOptions: Record<string, Array<{ name: string }>> = {};
+  const buttons: string[] = [];
   const fakeApi = {
     interp: null,
     onCommand: (w: string) => commands.push(w),
     onSlash: (n: string, _d: string, _h: unknown, opts: Array<{ name: string }> = []) => { slashes.push(n); slashOptions[n] = opts; },
+    onButton: (id: string) => buttons.push(id),
     send: () => {},
+    sendEmbed: () => {},
     voiceChannelOf: () => null,
     voiceAdapterCreator: () => () => ({ sendPayload: () => true, destroy: () => {} }),
     log: () => {},
@@ -486,6 +489,7 @@ test("music extension registers its commands on the discord api", () => {
   assert.deepEqual(commands.sort(), ["play", "queue", "skip", "stop"]);
   assert.ok(slashes.includes("play"));
   assert.equal(slashOptions.play[0].name, "song");   // /play has a "song" text field
+  assert.ok(buttons.includes("music:playpause") && buttons.includes("music:volup")); // controller buttons
 });
 
 test("discord-bot library exposes an extension api", () => {

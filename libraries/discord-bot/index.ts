@@ -53,6 +53,15 @@ export interface SlashContext {
 // A slash command's typed inputs (type 3 = string). Discord shows them as fields.
 export interface SlashOption { name: string; description: string; type: number; required: boolean; }
 
+// What a button-click handler receives (for message buttons like the music controls).
+export interface ButtonContext {
+  customId: string;        // the button's custom_id, e.g. "music:skip"
+  author: string;
+  authorId: string;
+  channelId: string;
+  guildId: string;
+}
+
 interface PrefixCommand { word: string; handler: (ctx: CommandContext) => void; }
 interface SlashCommand { name: string; description: string; options: SlashOption[]; handler: (ctx: SlashContext) => void; }
 
@@ -71,6 +80,7 @@ interface BotState {
   voiceStates: Map<string, Map<string, string>>;             // guildId -> (userId -> channelId)
   voiceAdapters: Map<string, VoiceAdapterMethods>;           // guildId -> @discordjs/voice adapter
   listeners: Map<string, Array<(d: Record<string, unknown>) => void>>;
+  buttonHandlers: Map<string, (ctx: ButtonContext) => void>; // custom_id -> handler (for message buttons)
 }
 
 // What an extension receives as its second argument: hooks into the live bot.
@@ -79,7 +89,8 @@ export interface DiscordApi {
   onCommand(word: string, handler: (ctx: CommandContext) => void): void;
   onSlash(name: string, description: string, handler: (ctx: SlashContext) => void, options?: SlashOption[]): void;
   send(channelId: string, text: string): void;
-  sendEmbed(channelId: string, embed: Record<string, unknown>): void;
+  sendEmbed(channelId: string, embed: Record<string, unknown>, components?: unknown[]): void;
+  onButton(customId: string, handler: (ctx: ButtonContext) => void): void;
   voiceChannelOf(guildId: string, userId: string): string | null;
   // A @discordjs/voice gateway adapter wired to THIS bot's gateway (for the music
   // extension): it sends voice payloads over our websocket and receives the
@@ -106,6 +117,7 @@ export function create(interp: Interpreter) {
     voiceStates: new Map(),
     voiceAdapters: new Map(),
     listeners: new Map(),
+    buttonHandlers: new Map(),
   };
 
   // reply() goes wherever we are right now: a slash command answers the
@@ -147,7 +159,8 @@ export function create(interp: Interpreter) {
     onCommand: (word, handler) => { state.prefixCommands.set(word.toLowerCase(), { word: word.toLowerCase(), handler }); },
     onSlash: (name, description, handler, options = []) => { state.slashCommands.set(name, { name, description, options, handler }); },
     send: (channelId, text) => send(state, channelId, text),
-    sendEmbed: (channelId, embed) => sendEmbed(state, channelId, embed),
+    sendEmbed: (channelId, embed, components) => sendEmbed(state, channelId, embed, components),
+    onButton: (customId, handler) => { state.buttonHandlers.set(customId, handler); },
     voiceChannelOf: (guildId, userId) => state.voiceStates.get(guildId)?.get(userId) ?? null,
     voiceAdapterCreator: (guildId) => (methods) => {
       state.voiceAdapters.set(guildId, methods);
@@ -188,13 +201,21 @@ function send(state: BotState, channelId: string, content: string): void {
   void rest(state, "POST", `/channels/${channelId}/messages`, { content });
 }
 
-function sendEmbed(state: BotState, channelId: string, embed: Record<string, unknown>): void {
+function sendEmbed(state: BotState, channelId: string, embed: Record<string, unknown>, components?: unknown[]): void {
   if (!channelId || !embed) return;
-  void rest(state, "POST", `/channels/${channelId}/messages`, { embeds: [embed] });
+  const body: Record<string, unknown> = { embeds: [embed] };
+  if (components && components.length) body.components = components;
+  void rest(state, "POST", `/channels/${channelId}/messages`, body);
 }
 
 function interactionRespond(state: BotState, id: string, token: string, content: string): void {
   void rest(state, "POST", `/interactions/${id}/${token}/callback`, { type: 4, data: { content } }, false);
+}
+
+// Acknowledge a button click with no visible change (type 6), so Discord doesn't
+// show "This interaction failed" — the actual effect happens in the handler.
+function interactionAck(state: BotState, id: string, token: string): void {
+  void rest(state, "POST", `/interactions/${id}/${token}/callback`, { type: 6 }, false);
 }
 
 function registerGuildCommands(state: BotState, guildId: string): void {
@@ -335,13 +356,34 @@ function runPrefixCommand(
 }
 
 function handleInteraction(state: BotState, d: Record<string, unknown>): void {
-  if (Number(d.type) !== 2) return; // only application commands
-  const data = (d.data as { name?: string; options?: Array<{ name: string; value: unknown }> }) || {};
-  const cmd = state.slashCommands.get(String(data.name || ""));
+  const itype = Number(d.type);
   const id = String(d.id || "");
   const token = String(d.token || "");
   const member = d.member as { user?: { id?: string; username?: string } } | undefined;
   const user = (member && member.user) || (d.user as { id?: string; username?: string }) || {};
+
+  // A button (message component) click.
+  if (itype === 3) {
+    const customId = String((d.data as { custom_id?: string })?.custom_id || "");
+    interactionAck(state, id, token); // ACK first (within 3s) so the click doesn't fail
+    const handler = state.buttonHandlers.get(customId);
+    if (handler) {
+      try {
+        handler({
+          customId,
+          author: String(user.username || ""),
+          authorId: String(user.id || ""),
+          channelId: String(d.channel_id || ""),
+          guildId: String(d.guild_id || ""),
+        });
+      } catch (e) { console.error(e instanceof Error ? e.message : String(e)); }
+    }
+    return;
+  }
+
+  if (itype !== 2) return; // only application (slash) commands below
+  const data = (d.data as { name?: string; options?: Array<{ name: string; value: unknown }> }) || {};
+  const cmd = state.slashCommands.get(String(data.name || ""));
   const options = data.options || [];
   const ctx: SlashContext = {
     name: String(data.name || ""),
