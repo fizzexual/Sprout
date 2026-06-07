@@ -82,7 +82,6 @@ const
   EnvKey = 'Environment';
 
 var
-  DownloadPage: TDownloadWizardPage;
   MaintPage: TInputOptionWizardPage;
   IsUpgrade: Boolean;
   InstalledVersion: String;
@@ -174,8 +173,6 @@ end;
 
 procedure InitializeWizard;
 begin
-  DownloadPage := CreateDownloadPage(SetupMessage(msgWizardPreparing), 'Downloading the latest Sprout from GitHub...', nil);
-
   if IsUpgrade then
   begin
     RepoVersion := TryGetRepoVersion;
@@ -220,40 +217,21 @@ begin
       exit;
     end;
   end;
-
-  { Download the source zip when leaving the Ready page. }
-  if CurPageID = wpReady then
-  begin
-    DownloadPage.Clear;
-    DownloadPage.Add('{#SourceZipUrl}', 'sprout-src.zip', '');
-    DownloadPage.Show;
-    try
-      try
-        DownloadPage.Download;
-        Result := True;
-      except
-        SuppressibleMsgBox(AddPeriod(GetExceptionMessage), mbCriticalError, MB_OK, IDOK);
-        Result := False;
-      end;
-    finally
-      DownloadPage.Hide;
-    end;
-  end;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
-var ResultCode: Integer; PS, Zip, Ver: String;
+var ResultCode: Integer; PS, Ver: String;
 begin
   if CurStep = ssPostInstall then
   begin
-    { Unpack the downloaded source into the app folder, keeping the chosen libraries. }
+    { Download + unpack the source into the app folder, keeping the chosen libraries. }
     ExtractTemporaryFile('sprout-extract.ps1');
     PS := ExpandConstant('{tmp}\sprout-extract.ps1');
-    Zip := ExpandConstant('{tmp}\sprout-src.zip');
+    WizardForm.StatusLabel.Caption := 'Downloading and unpacking Sprout from GitHub...';
     if not Exec('powershell.exe',
-        '-NoProfile -ExecutionPolicy Bypass -File "' + PS + '" -Zip "' + Zip + '" -Dest "' + ExpandConstant('{app}') + '" -Keep "' + BuildKeepList + '"',
+        '-NoProfile -ExecutionPolicy Bypass -File "' + PS + '" -Url "{#SourceZipUrl}" -Dest "' + ExpandConstant('{app}') + '" -Keep "' + BuildKeepList + '"',
         '', SW_HIDE, ewWaitUntilTerminated, ResultCode) or (ResultCode <> 0) then
-      SuppressibleMsgBox('Sprout was set up, but unpacking the source reported a problem.', mbError, MB_OK, IDOK);
+      SuppressibleMsgBox('Setup finished, but downloading the Sprout source had a problem.' + #13#10 + 'See the log: ' + ExpandConstant('{app}\sprout-install.log'), mbError, MB_OK, IDOK);
 
     { Record the installed version (read from the downloaded VERSION file). }
     Ver := ReadVersionFile(ExpandConstant('{app}\VERSION'));

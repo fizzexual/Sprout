@@ -1,41 +1,56 @@
-# sprout-extract.ps1 - unpack a downloaded Sprout source zip into the install
-# folder, keeping only the libraries the user chose. Called by the Inno Setup
-# installer; can also be run by hand for testing.
+# sprout-extract.ps1 - download the Sprout source and unpack it into the install
+# folder, keeping only the libraries the user chose. Writes a log to
+# <Dest>\sprout-install.log so problems are visible. Used by the Inno installer;
+# can be run by hand for testing.
 #
-#   powershell -File installer\sprout-extract.ps1 -Zip src.zip -Dest C:\Sprout -Keep "discord-bot"
+#   powershell -File installer\sprout-extract.ps1 -Url <zip-url> -Dest C:\Sprout -Keep "discord-bot"
 #
 # -Keep is a comma-separated list of library FOLDER names to keep. Use the literal
 # "__none__" to keep no libraries, or omit it to keep them all.
 
 param(
-    [Parameter(Mandatory = $true)][string]$Zip,
+    [Parameter(Mandatory = $true)][string]$Url,
     [Parameter(Mandatory = $true)][string]$Dest,
     [string]$Keep = ""
 )
 
 $ErrorActionPreference = "Stop"
+New-Item -ItemType Directory -Path $Dest -Force | Out-Null
+$log = Join-Path $Dest "sprout-install.log"
+function Log($m) { "$([DateTime]::Now.ToString('HH:mm:ss'))  $m" | Out-File -FilePath $log -Append -Encoding utf8 }
 
-$tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("sprout_extract_" + [System.IO.Path]::GetRandomFileName())
-New-Item -ItemType Directory -Path $tmp -Force | Out-Null
 try {
-    Expand-Archive -LiteralPath $Zip -DestinationPath $tmp -Force
+    Log "start  url=$Url  dest=$Dest  keep=$Keep"
+    $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("sprout_x_" + [System.IO.Path]::GetRandomFileName())
+    New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+    $zip = Join-Path $tmp "src.zip"
 
-    # GitHub zips wrap everything in one folder (e.g. "Sprout--main"); find it.
-    $inner = Get-ChildItem -LiteralPath $tmp -Directory | Select-Object -First 1
-    if (-not $inner) { throw "The downloaded archive didn't contain a Sprout folder." }
+    Log "downloading"
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    Invoke-WebRequest -Uri $Url -OutFile $zip -UseBasicParsing
+    Log "downloaded $((Get-Item $zip).Length) bytes"
 
-    New-Item -ItemType Directory -Path $Dest -Force | Out-Null
-    Copy-Item -Path (Join-Path $inner.FullName "*") -Destination $Dest -Recurse -Force
+    Log "expanding"
+    $exDir = Join-Path $tmp "x"
+    Expand-Archive -LiteralPath $zip -DestinationPath $exDir -Force
+    $inner = Get-ChildItem -LiteralPath $exDir -Directory | Select-Object -First 1
+    if (-not $inner) { throw "the downloaded archive had no Sprout folder" }
 
-    # Prune libraries (and their matching extensions) the user didn't pick.
+    # robocopy merges/overwrites into an existing install reliably (exit < 8 = ok).
+    Log "copying to $Dest"
+    & robocopy $inner.FullName $Dest /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
+    $rc = $LASTEXITCODE
+    Log "robocopy exit $rc"
+    if ($rc -ge 8) { throw "copy failed (robocopy code $rc)" }
+
     if ($Keep -ne "") {
         if ($Keep -eq "__none__") { $keepList = @() }
         else { $keepList = @($Keep.Split(",") | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" }) }
-
         $libDir = Join-Path $Dest "libraries"
         if (Test-Path $libDir) {
             foreach ($lib in (Get-ChildItem -LiteralPath $libDir -Directory)) {
                 if ($keepList -notcontains $lib.Name) {
+                    Log "pruning library $($lib.Name)"
                     Remove-Item -LiteralPath $lib.FullName -Recurse -Force
                     $ext = Join-Path (Join-Path $Dest "extensions") $lib.Name
                     if (Test-Path $ext) { Remove-Item -LiteralPath $ext -Recurse -Force }
@@ -44,8 +59,11 @@ try {
         }
     }
 
-    Write-Host "Sprout source unpacked to $Dest"
+    Log "done ok"
+    exit 0
 }
-finally {
-    Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+catch {
+    Log "ERROR: $($_.Exception.Message)"
+    [Console]::Error.WriteLine($_.Exception.Message)
+    exit 1
 }
