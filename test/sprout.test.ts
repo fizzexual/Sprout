@@ -474,11 +474,13 @@ test("music extension registers its commands on the discord api", () => {
   const slashes: string[] = [];
   const slashOptions: Record<string, Array<{ name: string }>> = {};
   const buttons: string[] = [];
+  const actions: string[] = [];
   const fakeApi = {
     interp: null,
     onCommand: (w: string) => commands.push(w),
     onSlash: (n: string, _d: string, _h: unknown, opts: Array<{ name: string }> = []) => { slashes.push(n); slashOptions[n] = opts; },
     onButton: (id: string) => buttons.push(id),
+    registerAction: (ref: string) => actions.push(ref),
     send: () => {},
     sendEmbed: () => {},
     voiceChannelOf: () => null,
@@ -490,6 +492,7 @@ test("music extension registers its commands on the discord api", () => {
   assert.ok(slashes.includes("play"));
   assert.equal(slashOptions.play[0].name, "song");   // /play has a "song" text field
   assert.ok(buttons.includes("music:playpause") && buttons.includes("music:volup")); // controller buttons
+  assert.ok(actions.includes("discord-bot/music/play")); // wireable extension action
 });
 
 test("discord-bot library exposes an extension api", () => {
@@ -506,6 +509,15 @@ test("discord-bot: slash() registers a Sprout-defined slash command", () => {
   assert.deepEqual(lib.api.slashCommandNames(), []);
   lib.builtins.slash(["hello", "Say hi", "onHello"]);
   assert.ok(lib.api.slashCommandNames().includes("hello"));
+});
+
+test("discord-bot: slash() can wire a command to an extension action", () => {
+  const interp = new Interpreter("", () => {});
+  const lib = discordBot(interp as never);
+  lib.api.registerAction("discord-bot/music/play", () => {});
+  // Wiring with an "lib/ext/fn" ref registers the command against that action.
+  lib.builtins.slash(["play", "play some music", "discord-bot/music/play"]);
+  assert.ok(lib.api.slashCommandNames().includes("play"));
 });
 
 test("nothing is a value you can write and compare", () => {

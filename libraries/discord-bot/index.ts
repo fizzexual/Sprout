@@ -81,6 +81,7 @@ interface BotState {
   voiceAdapters: Map<string, VoiceAdapterMethods>;           // guildId -> @discordjs/voice adapter
   listeners: Map<string, Array<(d: Record<string, unknown>) => void>>;
   buttonHandlers: Map<string, (ctx: ButtonContext) => void>; // custom_id -> handler (for message buttons)
+  actions: Map<string, { handler: (ctx: SlashContext) => void; options: SlashOption[] }>; // "lib/ext/fn" -> a wireable extension action
 }
 
 // What an extension receives as its second argument: hooks into the live bot.
@@ -88,6 +89,9 @@ export interface DiscordApi {
   interp: Interpreter;
   onCommand(word: string, handler: (ctx: CommandContext) => void): void;
   onSlash(name: string, description: string, handler: (ctx: SlashContext) => void, options?: SlashOption[]): void;
+  // Expose a named action (e.g. "discord-bot/music/play") that a Sprout program can
+  // wire to a command with  slash("play", "...", "discord-bot/music/play").
+  registerAction(ref: string, handler: (ctx: SlashContext) => void, options?: SlashOption[]): void;
   send(channelId: string, text: string): void;
   sendEmbed(channelId: string, embed: Record<string, unknown>, components?: unknown[]): void;
   onButton(customId: string, handler: (ctx: ButtonContext) => void): void;
@@ -118,6 +122,7 @@ export function create(interp: Interpreter) {
     voiceAdapters: new Map(),
     listeners: new Map(),
     buttonHandlers: new Map(),
+    actions: new Map(),
   };
 
   // reply() goes wherever we are right now: a slash command answers the
@@ -134,18 +139,25 @@ export function create(interp: Interpreter) {
     author: () => state.current.author,
     reply: (args) => { replyNow(stringify(args[0] ?? NONE)); return NONE; },
     say: (args) => { send(state, stringify(args[0] ?? NONE), stringify(args[1] ?? NONE)); return NONE; },
-    // slash("name", "description", "taskName") — define your own /command in Sprout.
+    // slash("name", "description", handler) — define your own /command. The handler
+    // is EITHER a Sprout task name, OR an extension action like
+    // "discord-bot/music/play" (then /name runs that extension function directly).
     slash: (args) => {
       const name = stringify(args[0] ?? NONE);
       const description = stringify(args[1] ?? NONE) || "A Sprout command";
-      const task = stringify(args[2] ?? NONE);
+      const ref = stringify(args[2] ?? NONE);
+      const action = state.actions.get(ref);
+      if (action) {
+        state.slashCommands.set(name, { name, description, options: action.options, handler: action.handler });
+        return NONE;
+      }
       state.slashCommands.set(name, {
         name, description, options: [],
         handler: (ctx) => {
           state.current = { content: "", author: ctx.author, channelId: ctx.channelId };
           const prev = state.currentReply;
           state.currentReply = ctx.reply;
-          try { interp.runTask(task); }
+          try { interp.runTask(ref); }
           catch (e) { console.error(e instanceof Error ? e.message : String(e)); }
           state.currentReply = prev;
         },
@@ -158,6 +170,7 @@ export function create(interp: Interpreter) {
     interp,
     onCommand: (word, handler) => { state.prefixCommands.set(word.toLowerCase(), { word: word.toLowerCase(), handler }); },
     onSlash: (name, description, handler, options = []) => { state.slashCommands.set(name, { name, description, options, handler }); },
+    registerAction: (ref, handler, options = []) => { state.actions.set(ref, { handler, options }); },
     send: (channelId, text) => send(state, channelId, text),
     sendEmbed: (channelId, embed, components) => sendEmbed(state, channelId, embed, components),
     onButton: (customId, handler) => { state.buttonHandlers.set(customId, handler); },

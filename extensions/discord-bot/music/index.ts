@@ -430,19 +430,30 @@ export function create(interp: Interpreter, library: { api: DiscordApi }) {
   }
 
   // --- wire up Discord commands (prefix + slash) ---
+  // The slash handlers, defined once so they can be both auto-registered AND exposed
+  // as actions a Sprout program can wire itself.
+  const songOpt = [{ name: "song", description: "A YouTube link or search words", type: 3, required: true }];
+  const playAction = (ctx: SlashContext) => void play(ctx.guildId, ctx.authorId, ctx.option("song"), ctx.channelId, ctx.reply);
+  const skipAction = (ctx: SlashContext) => skip(ctx.guildId, ctx.reply);
+  const stopAction = (ctx: SlashContext) => stop(ctx.guildId, ctx.reply);
+  const queueAction = (ctx: SlashContext) => { const gm = guilds.get(ctx.guildId); ctx.reply(formatQueue(gm?.current ?? null, gm?.queue ?? [])); };
+
   api.onCommand("play", (ctx: CommandContext) => void play(ctx.guildId, ctx.authorId, ctx.args, ctx.channelId, ctx.reply));
   api.onCommand("skip", (ctx: CommandContext) => skip(ctx.guildId, ctx.reply));
   api.onCommand("stop", (ctx: CommandContext) => stop(ctx.guildId, ctx.reply));
-  api.onCommand("queue", (ctx: CommandContext) => {
-    const gm = guilds.get(ctx.guildId);
-    ctx.reply(formatQueue(gm?.current ?? null, gm?.queue ?? []));
-  });
+  api.onCommand("queue", (ctx: CommandContext) => { const gm = guilds.get(ctx.guildId); ctx.reply(formatQueue(gm?.current ?? null, gm?.queue ?? [])); });
 
-  api.onSlash("play", "Play a YouTube link or search in your voice channel", (ctx: SlashContext) =>
-    void play(ctx.guildId, ctx.authorId, ctx.option("song"), ctx.channelId, ctx.reply),
-    [{ name: "song", description: "A YouTube link or search words", type: 3, required: true }]);
-  api.onSlash("skip", "Skip the current song", (ctx: SlashContext) => skip(ctx.guildId, ctx.reply));
-  api.onSlash("stop", "Stop the music and leave", (ctx: SlashContext) => stop(ctx.guildId, ctx.reply));
+  // Auto-register the slash commands so a bot works out of the box…
+  api.onSlash("play", "Play a YouTube link or search in your voice channel", playAction, songOpt);
+  api.onSlash("skip", "Skip the current song", skipAction);
+  api.onSlash("stop", "Stop the music and leave", stopAction);
+
+  // …and expose them as actions, so a Sprout program can wire its OWN commands:
+  //   slash("play", "play some music", "discord-bot/music/play")
+  api.registerAction("discord-bot/music/play", playAction, songOpt);
+  api.registerAction("discord-bot/music/skip", skipAction);
+  api.registerAction("discord-bot/music/stop", stopAction);
+  api.registerAction("discord-bot/music/queue", queueAction);
 
   // --- the controller buttons under the Now-Playing card ---
   api.onButton("music:playpause", (ctx: ButtonContext) => {
