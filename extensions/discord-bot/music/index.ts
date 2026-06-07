@@ -35,6 +35,10 @@ export function isUrl(s: string): boolean {
   return /^https?:\/\//i.test(s.trim());
 }
 
+export function isPlaylist(s: string): boolean {
+  return isUrl(s) && /[?&]list=/.test(s);
+}
+
 export function formatQueue(current: Track | null, queue: Track[]): string {
   if (!current && queue.length === 0) return "The queue is empty. Add a song with `!play <link>`.";
   const lines: string[] = [];
@@ -64,6 +68,20 @@ export function nowPlayingEmbed(track: Track, cfg: Record<string, string> = {}):
   };
   if (on("thumbnail") && /^https?:\/\//i.test(track.thumbnail)) embed.image = { url: track.thumbnail }; // big video preview
   return embed;
+}
+
+// The special card shown when a whole playlist is queued (distinct blurple look).
+export function playlistEmbed(title: string, count: number, requestedBy: string, cfg: Record<string, string> = {}): Record<string, unknown> {
+  const fields: Array<Record<string, unknown>> = [];
+  if (requestedBy) fields.push({ name: "Requested by", value: `<@${requestedBy}>`, inline: true });
+  return {
+    color: 0x5865f2, // a distinct "playlist" blurple, separate from the now-playing card
+    author: { name: "📃 Playlist added" },
+    title: title && title !== "NA" ? title : "Playlist",
+    description: `Queued **${count}** song${count === 1 ? "" : "s"}. 🎶`,
+    fields,
+    footer: { text: cfg.footer || "Sprout 🌱 music" },
+  };
 }
 
 // --- the editable design folder ("music/" next to the user's program) ---------
@@ -159,18 +177,36 @@ export function create(interp: Interpreter, library: { api: DiscordApi }) {
       return;
     }
 
+    const gm = musicOf(guildId);
+
+    // A playlist URL → queue every song quickly (metadata is fetched lazily as each
+    // one plays) and show the special playlist card.
+    if (isPlaylist(query)) {
+      reply("📃 Loading playlist…");
+      const pl = await resolvePlaylist(query);
+      if (!pl || pl.entries.length === 0) { api.send(textChannelId, "I couldn't read that playlist — try a single video link."); return; }
+      mlog(`playlist "${pl.title}" — ${pl.entries.length} songs`);
+      const wasIdle = !gm.current;
+      for (const e of pl.entries) {
+        gm.queue.push({ title: e.title, url: e.url, thumbnail: "", channel: "", duration: "", requestedBy: authorId, textChannelId, voiceChannelId: voiceChannel, guildId });
+      }
+      api.sendEmbed(textChannelId, playlistEmbed(pl.title, pl.entries.length, authorId, readMusicConfig(configFile)));
+      if (!gm.connection) ensureConnection(gm, guildId, voiceChannel, V);
+      if (wasIdle) void playNext(guildId, V);
+      return;
+    }
+
     reply("🔎 Looking that up…");
     const found = await resolve(query);
     mlog(found ? `resolved: ${found.title}` : "resolve returned nothing (yt-dlp missing or failed)");
     if (!found) { reply("I couldn't find that (is **yt-dlp** installed?). Try a direct YouTube link."); return; }
 
-    const gm = musicOf(guildId);
     gm.queue.push({ ...found, requestedBy: authorId, textChannelId, voiceChannelId: voiceChannel, guildId });
 
     if (gm.current) { reply(`➕ Added to the queue: **${found.title}**`); return; }
 
     if (!gm.connection) ensureConnection(gm, guildId, voiceChannel, V);
-    playNext(guildId, V);
+    void playNext(guildId, V);
   }
 
   // Join the voice channel via @discordjs/voice (which handles UDP, encryption,
@@ -239,7 +275,7 @@ export function create(interp: Interpreter, library: { api: DiscordApi }) {
     setTimeout(() => snap("after-3s"), 3000);
   }
 
-  function playNext(guildId: string, V: any): void {
+  async function playNext(guildId: string, V: any): Promise<void> {
     const gm = guilds.get(guildId);
     if (!gm) return;
     if (gm.procs) { gm.procs.kill(); gm.procs = null; }
@@ -248,6 +284,14 @@ export function create(interp: Interpreter, library: { api: DiscordApi }) {
     if (!track) { mlog("queue empty — leaving voice"); leave(guildId); return; }
     gm.current = track;
     mlog(`starting track: ${track.title}`);
+
+    // Playlist songs are queued with only title+url — fetch the rest now so their
+    // Now-Playing card still gets a thumbnail/channel/duration.
+    if (!track.thumbnail) {
+      const meta = await resolve(track.url);
+      if (gm.current !== track) return; // a skip/stop happened while we were resolving
+      if (meta) { track.title = meta.title || track.title; track.thumbnail = meta.thumbnail; track.channel = meta.channel; track.duration = meta.duration; }
+    }
 
     const piped = streamFor(track.url, (msg) => {
       api.send(track.textChannelId, msg);
@@ -359,6 +403,34 @@ function resolve(query: string): Promise<{ title: string; url: string; thumbnail
     } catch {
       if (!started) res(null);
     }
+  });
+}
+
+// List a playlist's songs (title + url) quickly with --flat-playlist (capped at
+// 100 so radio/mix playlists don't queue forever). Full per-song metadata is
+// fetched lazily when each song plays.
+function resolvePlaylist(url: string): Promise<{ title: string; entries: Array<{ title: string; url: string }> } | null> {
+  return new Promise((res) => {
+    let out = "";
+    try {
+      const p = spawn("yt-dlp", ["--no-warnings", "--flat-playlist", "--playlist-end", "100",
+        "--print", "%(playlist_title)s|||%(id)s|||%(url)s|||%(title)s", url], { stdio: ["ignore", "pipe", "ignore"] });
+      p.stdout.on("data", (c: Buffer) => { out += c.toString(); });
+      p.on("error", () => res(null));
+      p.on("close", () => {
+        const entries: Array<{ title: string; url: string }> = [];
+        let title = "Playlist";
+        for (const line of out.split("\n")) {
+          const parts = line.trim().split("|||");
+          if (parts.length < 4) continue;
+          if (parts[0] && parts[0] !== "NA") title = parts[0];
+          let vurl = parts[2];
+          if (!/^https?:\/\//i.test(vurl) && parts[1] && parts[1] !== "NA") vurl = `https://www.youtube.com/watch?v=${parts[1]}`;
+          if (/^https?:\/\//i.test(vurl)) entries.push({ url: vurl, title: parts[3] || "Unknown" });
+        }
+        res(entries.length ? { title, entries } : null);
+      });
+    } catch { res(null); }
   });
 }
 
