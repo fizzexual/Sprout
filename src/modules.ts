@@ -52,8 +52,12 @@ const LOGO = [
 ];
 
 // --- the catalogue ------------------------------------------------------------
-interface Extension { name: string; description: string; npm: string[]; tools: string[]; setup?: string; notes?: string; }
-interface Module { name: string; description: string; extensions: Extension[]; }
+interface Extension { name: string; description: string; npm: string[]; tools: string[]; setup?: string; notes?: string; placeholder?: boolean; }
+interface Module { name: string; description: string; extensions: Extension[]; placeholder?: boolean; }
+
+// A placeholder ("coming soon") library/extension — shows the ecosystem vision in
+// `browse` but can't be installed yet.
+const PH = (name: string, description: string): Extension => ({ name, description, npm: [], tools: [], placeholder: true });
 
 const MODULES: Module[] = [
   {
@@ -78,7 +82,34 @@ SCALE (many servers, no shared IP rate-limit): run a Lavalink server and set
 'lavalink host:' in music/settings.bloom — the bot then offloads ALL audio
 (extraction + voice) to it, and you grow by adding Lavalink nodes.`,
       },
+      PH("moderation", "Auto-mod, kick / ban / timeout"),
+      PH("welcome", "Welcome cards for new members"),
+      PH("economy", "Coins, shop, daily rewards & games"),
     ],
+  },
+  {
+    name: "twitch-bot",
+    description: "Make a Twitch chat bot",
+    placeholder: true,
+    extensions: [PH("alerts", "Follow / sub / raid alerts"), PH("commands", "!commands, timers, counters")],
+  },
+  {
+    name: "ai",
+    description: "Talk to an AI — chat & images",
+    placeholder: true,
+    extensions: [PH("chat", "Ask an AI in plain language"), PH("image", "Generate images from a prompt")],
+  },
+  {
+    name: "web",
+    description: "Fetch & scrape the web",
+    placeholder: true,
+    extensions: [PH("scrape", "Pull text & links from a page")],
+  },
+  {
+    name: "games",
+    description: "Drop-in mini-games for your bot",
+    placeholder: true,
+    extensions: [PH("trivia", "Trivia quiz with scoreboards")],
   },
 ];
 
@@ -122,12 +153,17 @@ function contentBlock(): string[] {
   const lines: string[] = [];
   lines.push(T.dim("  libraries"));
   for (const m of MODULES) {
+    if (m.placeholder) {
+      lines.push("    " + T.dim("◌ ") + T.dim(col(m.name, 16)) + T.dim(col(m.description, 28)) + T.purple("🔜 coming soon"));
+      continue;
+    }
     if (!libPresent(m.name)) {
       lines.push("    " + T.dim("○") + " " + T.text(col(m.name, 16)) + T.dim(col(m.description, 28)) + T.yellow("not installed") + T.dim(" → type ") + T.cyan("libinstall " + m.name));
       continue;
     }
     lines.push("    " + T.green("●") + " " + T.text(col(m.name, 16)) + T.dim(m.description));
     for (const e of m.extensions) {
+      if (e.placeholder) { lines.push("        " + T.dim(col(e.name, 14) + col(e.description, 30)) + T.purple("🔜 coming soon")); continue; }
       if (!extPresent(m.name, e.name)) { lines.push("        " + T.dim(col(e.name, 14) + "not installed")); continue; }
       const ready = extMissing(e).length === 0;
       const badge = ready ? T.green("ready") : (T.yellow("needs setup") + T.dim(" → type ") + T.cyan("install " + e.name));
@@ -143,18 +179,26 @@ function contentBlock(): string[] {
 function browseReport(): string[] {
   const out: string[] = [T.text("catalogue — every Sprout library:"), ""];
   for (const m of MODULES) {
+    if (m.placeholder) {
+      out.push("  " + T.dim("◌ " + m.name) + T.purple("   🔜 planned"));
+      out.push("      " + T.dim(m.description));
+      for (const e of m.extensions) out.push("      " + T.dim("+ " + col(e.name, 10) + col(e.description, 30)) + T.purple("planned"));
+      out.push("");
+      continue;
+    }
     const here = libPresent(m.name);
     out.push("  " + (here ? T.green("● " + m.name) + T.dim("   installed, ready to ") + T.cyan("use \"" + m.name + "\"")
                             : T.dim("○ " + m.name) + T.yellow("   available")));
     out.push("      " + T.dim(m.description));
     for (const e of m.extensions) {
+      if (e.placeholder) { out.push("      " + T.dim("+ " + col(e.name, 10) + col(e.description, 30)) + T.purple("planned")); continue; }
       const ready = extPresent(m.name, e.name) && extMissing(e).length === 0;
       out.push("      " + T.dim("+ ") + T.cyan(col(e.name, 10)) + T.dim(col(e.description, 30)) +
         (ready ? T.green("ready") : T.yellow("needs setup") + T.dim(" (") + T.cyan("install " + e.name) + T.dim(")")));
     }
     out.push("");
   }
-  out.push(T.dim("  ‘needs setup’ = it works once you run its install (gets extra tools/packages)."));
+  out.push(T.dim("  🔜 planned = a placeholder showing what's coming; not installable yet."));
   out.push(T.dim("  Want more? Add your own library — see libraries/README.md."));
   return out;
 }
@@ -192,6 +236,7 @@ function renderScreen(state: State): string {
 function testReport(): string[] {
   const out: string[] = [T.text("test:")];
   for (const m of MODULES) {
+    if (m.placeholder) { out.push("  " + T.dim("◌ " + m.name) + T.purple(" — planned (coming soon)")); continue; }
     if (!libPresent(m.name)) { out.push("  " + T.dim("○ " + m.name + " — not installed")); continue; }
     out.push("  " + T.green("✓ ") + T.text(m.name) + T.dim("  library loads"));
     for (const e of m.extensions) {
@@ -208,6 +253,12 @@ function testReport(): string[] {
 function setupReport(f: Found): string[] {
   const { mod, ext } = f;
   const out: string[] = [T.text("setup — " + mod.name + "/" + ext.name), ""];
+  if (ext.placeholder || mod.placeholder) {
+    out.push("  " + T.purple("🔜 coming soon") + T.dim(" — this is a placeholder, not available to install yet."));
+    out.push("");
+    out.push("  " + T.dim(ext.description));
+    return out;
+  }
   if (!extPresent(mod.name, ext.name)) {
     out.push("  " + T.yellow("○ not installed yet") + T.dim("  — run ") + T.cyan("install " + ext.name));
   } else {
@@ -413,6 +464,7 @@ export function modulesCommand(): Promise<void> {
       if (verb === "install" || verb === "add") {
         const f = findExtension(arg); // accepts "music" or "discord-bot/music"
         if (f) {
+          if (f.ext.placeholder || f.mod.placeholder) { state.message = [T.purple("🔜 " + f.ext.name + " is a placeholder — coming soon, not installable yet.")]; return; }
           // Already set up only if BOTH the code is present AND its tools are ready.
           if (extPresent(f.mod.name, f.ext.name) && extMissing(f.ext).length === 0) {
             state.message = [T.green(f.ext.name + " is already set up. 🌱")];
@@ -423,6 +475,7 @@ export function modulesCommand(): Promise<void> {
         }
         const lib = findLibrary(arg);
         if (lib) {
+          if (lib.placeholder) { state.message = [T.purple("🔜 " + lib.name + " is a placeholder — coming soon, not installable yet.")]; return; }
           if (libPresent(lib.name)) { state.message = [T.green(lib.name + " is already installed.")]; return; }
           libInstallAndReturn(lib.name);
           return;
@@ -433,6 +486,7 @@ export function modulesCommand(): Promise<void> {
       if (verb === "libinstall" || verb === "addlib" || verb === "getlib") {
         const lib = findLibrary(arg);
         if (!lib) { state.message = [T.red("no library called '" + arg + "'.") + T.dim("  type ") + T.blue("browse")]; return; }
+        if (lib.placeholder) { state.message = [T.purple("🔜 " + lib.name + " is a placeholder — coming soon, not installable yet.")]; return; }
         if (libPresent(lib.name)) { state.message = [T.green(lib.name + " is already installed.")]; return; }
         libInstallAndReturn(lib.name);
         return;

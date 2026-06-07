@@ -11,17 +11,23 @@ After that, the library's functions work just like the built-in ones.
 
 ## Managing modules: `sprout modules`
 
-Run **`sprout modules`** for an interactive manager (a little terminal UI) where
-you can see what's installed, **set up** a library's extras (e.g. install the
-packages the Music extension needs), **uninstall** one, and **test** that each
-one loads:
+Run **`sprout modules`** for an interactive manager (a full-screen terminal UI).
+Type commands in the box: **`browse`** the catalogue, **`libinstall`** a library,
+**`install`** an extension's tools, **`setup`** to see extra steps, **`uninstall`**,
+or **`test`** that everything loads:
 
 ```
-🌱  Sprout Modules   manage your libraries
-  ● discord-bot        Make a Discord bot — chat + slash commands
-      ✓ discord-bot/music   ready
-  1 install / set up   2 uninstall   3 test   4 quit
-  ❯
+                              modules · v0.4
+
+  libraries
+    ● discord-bot      Make a Discord bot — chat + slash commands
+        music          Play YouTube audio in voice          ready
+        moderation     Auto-mod, kick / ban / timeout       🔜 coming soon
+    ◌ twitch-bot       Make a Twitch chat bot               🔜 coming soon
+    ◌ ai               Talk to an AI — chat & images        🔜 coming soon
+
+  commands  browse  libinstall <name>  install <name>  setup <name>  uninstall <name>  test  quit
+  ❯ install music
 ```
 
 ## Available libraries
@@ -53,7 +59,7 @@ Your token goes in a git-ignored `.env` file next to the program
 | `author()` | who sent it |
 | `reply("text")` | reply in the same channel (or answer a slash command) |
 | `say("channelId", "text")` | send to a specific channel |
-| `slash("name", "description", "taskName")` | add a `/slash` command that runs a task |
+| `slash("name", "description", handler)` | add a `/slash` command — `handler` is a task name, or an extension action like `"discord-bot/music/play"` |
 
 `reply` is smart: inside a slash task it answers the slash command, otherwise it
 posts in the channel. A tiny slash command looks like:
@@ -78,26 +84,60 @@ use "discord-bot"
 use "discord-bot/music"     ~ a music player, built on the discord-bot library
 ```
 
-The first extension is **discord-bot/music** — a real music player. Once it's
-loaded, your bot understands new commands in Discord with no extra Sprout code:
+### discord-bot/music — a real music player 🎵
+
+Once it's loaded, your bot understands these in Discord — no extra Sprout code:
 
 | Command | What it does |
 | --- | --- |
-| `!play <link or words>` | join your voice channel and play YouTube audio (`/play` works too) |
-| `!skip` / `!stop` / `!queue` | skip a song, stop & leave, or see what's queued |
+| `!play <link / words>` | join your voice channel and play a song, a **playlist**, or search words |
+| `/play song:<…>` | the same, as a slash command |
+| `!skip` · `!stop` · `!queue` | skip, stop & leave, or list the queue |
 
-Music is the one part of Sprout that needs extra software — `yt-dlp` + `ffmpeg`
-to fetch/decode audio, and (because Discord now mandates the **DAVE** end-to-end
-encryption protocol for voice) the `@discordjs/voice` packages. One command sets
-it all up:
+Every **now-playing** message carries **buttons** — ⏯️ pause/resume, ⏭️ skip,
+⏹️ stop, 🔉/🔊 volume, 🐢/⏩ speed — so listeners control it without typing.
+
+**You own the look.** A `music/` folder appears next to your program with
+`now-playing.bloom` — edit the colour, title, footer, or show/hide the
+thumbnail and it applies on the next song. Fetch + scale options live in
+`music/settings.bloom`.
+
+**Wire your own commands.** Point a slash command straight at the extension's
+function instead of using the built-in:
+
+```sprout
+slash("play", "play some music", "discord-bot/music/play")
+```
+
+**Setup.** Music needs `yt-dlp` + `ffmpeg` and the voice packages (Discord now
+mandates the **DAVE** end-to-end-encryption protocol for voice). One command —
+or just run `sprout modules` and type `install music`:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\install-music.ps1
 ```
 
-The core language and the discord-bot library stay dependency-free; only the
-music extension uses these, and only when you `!play`. Full details:
-[extensions/discord-bot/music](../extensions/discord-bot/music).
+**Scale to many servers.** One bot fetches YouTube from a single IP, which gets
+rate-limited at scale. Point it at a **Lavalink** server (set `lavalink host:` in
+`music/settings.bloom`) and it offloads *all* audio — extraction, voice, DAVE — to
+the node; add more nodes (each its own IP) to grow. The core language and the
+discord-bot library stay dependency-free; only music uses extras, only when you play.
+Full details: [extensions/discord-bot/music](../extensions/discord-bot/music).
+
+## Coming soon 🔜
+
+Run `sprout modules` → `browse` to see where Sprout is headed. These are
+**placeholders** today — the planned shape of the ecosystem:
+
+| Library | Extensions |
+| --- | --- |
+| **discord-bot** ✅ | `music` ✅ · `moderation` 🔜 · `welcome` 🔜 · `economy` 🔜 |
+| **twitch-bot** 🔜 | `alerts` · `commands` |
+| **ai** 🔜 | `chat` · `image` |
+| **web** 🔜 | `scrape` |
+| **games** 🔜 | `trivia` |
+
+Each would be a great first contribution — the contracts are tiny (see below).
 
 ## Adding your own
 
