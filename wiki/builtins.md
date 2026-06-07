@@ -57,13 +57,22 @@ Call any web address and use what comes back — no libraries, no setup.
 | `get("https://...")` | fetch a page or API and return its text |
 | `post("https://...", body)` | send data and return the reply |
 | `jsonpick(text, "key")` | pull a value out of a JSON reply (use `"a.b"` for nested keys) |
+| `explore(text)` | list **every** path you can read from a JSON reply |
 
 ```sprout
 make info = get("https://api.github.com/repos/fizzexual/Sprout-")
 show "Stars:", jsonpick(info, "stargazers_count")
+show explore(info)        ~ see everything else you could pick
 ```
 
-See [`examples/internet.sprout`](../examples/internet.sprout).
+**Verify & explore an API from the terminal:**
+
+```bash
+sprout api https://api.github.com/repos/fizzexual/Sprout-
+```
+
+It connects and prints every field with its path — so you know exactly what to
+`jsonpick`. See [`examples/internet.sprout`](../examples/internet.sprout).
 
 ## Errors are friendly
 

@@ -39,7 +39,7 @@ show add(2, 3)        ~ call it -> 5
 abs round floor ceil sqrt      min(...) max(...)
 length(text) upper(text) lower(text)      random()
 remember("key", value)   recall("key", default)   ~ save/load between runs
-get("url")   post("url", body)   jsonpick(text, "key")   ~ the internet
+get("url")   post("url", body)   jsonpick(text, "key")   explore(text)   ~ internet
 ```
 
 ## GUI / Server
@@ -73,6 +73,7 @@ sprout run file.sprout
 sprout gui file.sprout
 sprout serve file.sprout
 sprout check file.sprout    ~ verify without running
+sprout api <url>            ~ connect to an API + list everything it offers
 sprout repl
 ```
 

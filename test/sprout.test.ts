@@ -292,6 +292,16 @@ test("checker knows get/post/jsonpick arity", () => {
   assert.equal(problems('show jsonpick("x")')[0].kind, "Type");
 });
 
+test("explore lists every path in a JSON reply", () => {
+  const text = run('show explore("{\\"a\\":1,\\"b\\":{\\"c\\":2}}")').join("\n");
+  assert.match(text, /a = 1/);
+  assert.match(text, /b\.c = 2/);
+});
+
+test("checker knows explore arity", () => {
+  assert.equal(problems("show explore()")[0].kind, "Type");
+});
+
 test("security: only a button's task can be triggered", () => {
   const src = 'task danger():\n    show "boom"\ntask ok():\n    label("d", "hi")\nwindow("X")\nlabel("d", "")\nbutton("Go", "ok")';
   const interp = runApp(src);

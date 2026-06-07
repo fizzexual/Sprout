@@ -1,9 +1,14 @@
 ~ Sprout can talk to the internet. No libraries, no setup.
-~ This asks GitHub about the Sprout repo and shows a few facts.
+~ Tip: from a terminal,  sprout api <url>  connects and lists everything.
 
 make info = get("https://api.github.com/repos/fizzexual/Sprout-")
 
+~ Pick out specific facts:
 show "Repo:  ", jsonpick(info, "full_name")
 show "Stars: ", jsonpick(info, "stargazers_count")
 show "Forks: ", jsonpick(info, "forks_count")
 show "About: ", jsonpick(info, "description")
+
+~ ...or see EVERYTHING you can read (every path you could jsonpick):
+show ""
+show explore(info)

@@ -23,6 +23,7 @@ import { emptyTheme, parseBloom } from "./bloom.ts";
 import type { Theme } from "./bloom.ts";
 import { fileStorage } from "./storage.ts";
 import { nodeNet } from "./net.ts";
+import { describeJson } from "./explore.ts";
 
 const VERSION = "Sprout v0.3.0";
 
@@ -144,6 +145,20 @@ function checkFile(path: string): void {
   process.exit(1);
 }
 
+// `sprout api <url>` — connect to an API and list everything you can read.
+function apiCommand(url: string): void {
+  let body: string;
+  try {
+    body = nodeNet().get(url);
+  } catch (e) {
+    fail(`I couldn't reach ${url}.`, e instanceof Error ? e.message : "Check the address and your internet.");
+  }
+  console.log(`\n✓ Connected to ${url}\n`);
+  console.log("Everything you can read (jsonpick the path on the left):\n");
+  console.log(describeJson(body));
+  console.log("");
+}
+
 function repl(): void {
   console.log(`${VERSION} — type code below.`);
   console.log("Lines ending in ':' start a block; press Enter on a blank line to run it. Ctrl+C to quit.\n");
@@ -198,6 +213,7 @@ function usage(): void {
       "  sprout gui <file.sprout>    open it as a native window",
       "  sprout serve <file.sprout>  run it as a website",
       "  sprout check <file.sprout>  verify the program without running it",
+      "  sprout api <url>            connect to an API and list everything it offers",
       "  sprout repl                 start the interactive prompt",
       "  sprout version              show the version",
       "",
@@ -215,6 +231,8 @@ try {
     runFile(args[1], "serve");
   } else if (args[0] === "check" && args[1]) {
     checkFile(args[1]);
+  } else if (args[0] === "api" && args[1]) {
+    apiCommand(args[1]);
   } else if (args[0] === "version" || args[0] === "--version" || args[0] === "-v") {
     console.log(VERSION);
   } else if (args[0] === "repl" || args.length === 0) {

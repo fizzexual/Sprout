@@ -227,7 +227,7 @@ npm test          # or: node --test test/sprout.test.ts
 | Websites (server) | `server(title)` + the same widgets, runs in a browser |
 | Hidden backend | server logic never reaches the browser — only button tasks can run |
 | Saves data | `remember` / `recall` — data persists between runs, no database |
-| Internet | `get("url")` / `post(...)` + `jsonpick` — call any API, no libraries |
+| Internet | `get` / `post` + `jsonpick` — call any API; `sprout api <url>` discovers one |
 | Verified first | the whole program is checked before it runs (`sprout check`) |
 | Styling (Bloom) | `style "theme.bloom"` — or raw output if omitted |
 | Editor | **Botanica** — a VS Code-style editor (Electron + Monaco) in `botanica/` |

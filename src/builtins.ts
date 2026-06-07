@@ -7,6 +7,7 @@
 import { LangError } from "./errors.ts";
 import type { Value } from "./values.ts";
 import { NONE, typeName } from "./values.ts";
+import { describeJson } from "./explore.ts";
 
 export interface CallSite {
   line: number;
@@ -16,7 +17,7 @@ export interface CallSite {
 export const BUILTIN_NAMES = [
   "abs", "round", "floor", "ceil", "sqrt",
   "min", "max",
-  "length", "upper", "lower", "jsonpick",
+  "length", "upper", "lower", "jsonpick", "explore",
   "random",
 ];
 
@@ -70,6 +71,10 @@ export function callBuiltin(name: string, args: Value[], site: CallSite): Value 
       if (typeof cur === "number" || typeof cur === "string" || typeof cur === "boolean") return cur;
       if (cur === null || cur === undefined) return NONE;
       return JSON.stringify(cur);
+    }
+    case "explore": {
+      exactly(name, args, 1, site);
+      return describeJson(text(args[0], name, 0, site));
     }
     default:
       // Unreachable: callers check isBuiltin() first.
@@ -136,6 +141,7 @@ function exampleCall(name: string): string {
   if (name === "min" || name === "max") return `${name}(3, 9, 5)`;
   if (name === "length" || name === "upper" || name === "lower") return `${name}("hello")`;
   if (name === "jsonpick") return 'jsonpick(text, "key")';
+  if (name === "explore") return "explore(response)";
   if (name === "random") return "random()";
   return `${name}(16)`;
 }
