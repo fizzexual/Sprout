@@ -197,7 +197,7 @@ export function connectVoice(params: VoiceParams): VoicePlayer {
   let destroyed = false;
   let attempts = 0;
   const MAX_ATTEMPTS = 6;
-  const FATAL = new Set([1000, 4004, 4011, 4012, 4014, 4016]); // closes we don't retry
+  const FATAL = new Set([1000, 4004, 4011, 4012, 4014, 4016, 4017]); // closes we don't retry
 
   let heartbeat: ReturnType<typeof setInterval> | null = null;
   let mode = "";
@@ -329,6 +329,7 @@ export function connectVoice(params: VoiceParams): VoicePlayer {
       if (FATAL.has(ev.code)) {
         if (ev.code === 4004) fail("Discord rejected the voice token (4004).");
         else if (ev.code === 4016) fail("This voice server needs an encryption mode Sprout can't do (4016).");
+        else if (ev.code === 4017) fail("Discord now requires end-to-end voice encryption (the DAVE protocol) to join voice. Sprout's zero-dependency bot can't do that yet (close 4017).");
         return;
       }
       // Recoverable (4006 session race, 4009 timeout, 4015 server crash, …): retry.
