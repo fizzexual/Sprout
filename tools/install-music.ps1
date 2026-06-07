@@ -24,7 +24,8 @@ if (-not $npm) {
     try {
         # opusscript is a pure-JS opus encoder (no compiler needed). @discordjs/voice
         # uses it to encode audio to opus; without it, playback is silent.
-        & npm install --save-optional "@discordjs/voice@latest" "@snazzah/davey@latest" "libsodium-wrappers@latest" "prism-media@latest" "opusscript@latest"
+        # ws is the WebSocket client for the optional Lavalink (scale) engine.
+        & npm install --save-optional "@discordjs/voice@latest" "@snazzah/davey@latest" "libsodium-wrappers@latest" "prism-media@latest" "opusscript@latest" "ws@latest"
         if ($LASTEXITCODE -eq 0) {
             Write-Host "  OK - voice packages installed." -ForegroundColor Green
         } else {

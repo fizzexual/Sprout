@@ -102,6 +102,7 @@ export interface DiscordApi {
   // the DAVE end-to-end encryption protocol, which we can't do dependency-free.
   voiceAdapterCreator(guildId: string): (methods: VoiceAdapterMethods) => { sendPayload(payload: unknown): boolean; destroy(): void };
   slashCommandNames(): string[];
+  botId(): string;   // the bot's own user id (e.g. for a Lavalink User-Id header); "" until ready
   log(msg: string): void;
 }
 
@@ -183,6 +184,7 @@ export function create(interp: Interpreter) {
       };
     },
     slashCommandNames: () => [...state.slashCommands.keys()],
+    botId: () => state.selfId,
     log: (msg) => console.log(msg),
   };
 

@@ -18,6 +18,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Interpreter } from "../../../src/interpreter.ts";
 import type { DiscordApi, CommandContext, SlashContext, ButtonContext } from "../../../libraries/discord-bot/index.ts";
+import { createLavalinkEngine, readLavalinkConfig } from "./lavalink.ts";
 
 export interface Track { title: string; url: string; thumbnail: string; channel: string; duration: string; requestedBy: string; textChannelId: string; voiceChannelId: string; guildId: string; }
 
@@ -151,9 +152,21 @@ const DEFAULT_SETTINGS = `~ settings.bloom — how the music bot fetches songs f
 ~      cookies browser: firefox     (or edge, brave, opera, vivaldi, chromium)
 ~
 ~ Leave both blank to fetch without cookies (fine until YouTube blocks you).
+~
+~ ─────────────────────────────────────────────────────────────────────────
+~ SCALE — Lavalink. Run a Lavalink server and the bot offloads ALL audio to it
+~ (extraction + voice + the YouTube fetching), so many servers don't share one
+~ IP's rate limit — add more Lavalink nodes to grow. Set the host to switch the
+~ music engine to Lavalink (otherwise the built-in yt-dlp+ffmpeg engine is used):
+~   lavalink host: localhost
+~   lavalink port: 2333
+~   lavalink password: youshallnotpass
+~   lavalink secure: no        (yes if the node is wss/https)
 
-cookies file:
-cookies browser:
+lavalink host:
+lavalink port: 2333
+lavalink password: youshallnotpass
+lavalink secure: no
 `;
 
 // The music config folder next to the running program. Set by create(); used by
@@ -475,19 +488,45 @@ export function create(interp: Interpreter, library: { api: DiscordApi }) {
     api.send(channelId, `${factor >= 1 ? "⏩" : "🐢"} Speed: **${gm.speed}×** _(brief skip while it re-encodes)_`);
   }
 
-  // --- wire up Discord commands (prefix + slash) ---
-  // The slash handlers, defined once so they can be both auto-registered AND exposed
-  // as actions a Sprout program can wire itself.
-  const songOpt = [{ name: "song", description: "A YouTube link or search words", type: 3, required: true }];
-  const playAction = (ctx: SlashContext) => void play(ctx.guildId, ctx.authorId, ctx.option("song"), ctx.channelId, ctx.reply);
-  const skipAction = (ctx: SlashContext) => skip(ctx.guildId, ctx.reply);
-  const stopAction = (ctx: SlashContext) => stop(ctx.guildId, ctx.reply);
-  const queueAction = (ctx: SlashContext) => { const gm = guilds.get(ctx.guildId); ctx.reply(formatQueue(gm?.current ?? null, gm?.queue ?? [])); };
+  // Pause/resume for the local engine (extracted so it routes like the rest).
+  function localPauseToggle(guildId: string, channelId: string): void {
+    const gm = guilds.get(guildId);
+    if (!gm || !gm.player) { api.send(channelId, "Nothing is playing."); return; }
+    if (gm.player.state?.status === "paused") { gm.player.unpause(); api.send(channelId, "▶️ Resumed."); }
+    else { gm.player.pause(); api.send(channelId, "⏸️ Paused."); }
+  }
 
-  api.onCommand("play", (ctx: CommandContext) => void play(ctx.guildId, ctx.authorId, ctx.args, ctx.channelId, ctx.reply));
-  api.onCommand("skip", (ctx: CommandContext) => skip(ctx.guildId, ctx.reply));
-  api.onCommand("stop", (ctx: CommandContext) => stop(ctx.guildId, ctx.reply));
-  api.onCommand("queue", (ctx: CommandContext) => { const gm = guilds.get(ctx.guildId); ctx.reply(formatQueue(gm?.current ?? null, gm?.queue ?? [])); });
+  // Pick the audio engine: Lavalink if music/settings.bloom sets a host (scales
+  // across nodes, no shared IP rate-limit), else the built-in local yt-dlp+ffmpeg.
+  const llConfig = musicDir ? readLavalinkConfig(readMusicConfig(join(musicDir, "settings.bloom"))) : null;
+  const ll = llConfig
+    ? createLavalinkEngine(api, llConfig, { nowPlayingEmbed, playlistEmbed, controllerComponents, readConfig: () => readMusicConfig(configFile), mlog })
+    : null;
+  if (ll) mlog("engine: Lavalink @ " + llConfig!.host + ":" + llConfig!.port + " — audio offloaded (scales across nodes)");
+
+  // One surface the commands + buttons call; routes to whichever engine is active.
+  const eng = {
+    play: (g: string, a: string, q: string, c: string, r: (t: string) => void) => { if (ll) void ll.play(g, a, q, c, r); else void play(g, a, q, c, r); },
+    skip: (g: string, r: (t: string) => void) => (ll ? ll.skip(g, r) : skip(g, r)),
+    stop: (g: string, r: (t: string) => void) => (ll ? ll.stop(g, r) : stop(g, r)),
+    pause: (g: string, c: string) => (ll ? ll.pauseToggle(g, c) : localPauseToggle(g, c)),
+    vol: (g: string, f: number, c: string) => (ll ? ll.changeVolume(g, f, c) : changeVolume(g, f, c)),
+    speed: (g: string, f: number, c: string) => { if (ll) ll.changeSpeed(g, f, c); else void changeSpeed(g, f, c); },
+    queue: (g: string): { current: Track | null; queue: Track[] } => { if (ll) return ll.queueText(g); const gm = guilds.get(g); return { current: gm?.current ?? null, queue: gm?.queue ?? [] }; },
+  };
+
+  // --- wire up Discord commands (prefix + slash) ---
+  // Handlers defined once so they can be auto-registered AND exposed as actions.
+  const songOpt = [{ name: "song", description: "A YouTube link or search words", type: 3, required: true }];
+  const playAction = (ctx: SlashContext) => eng.play(ctx.guildId, ctx.authorId, ctx.option("song"), ctx.channelId, ctx.reply);
+  const skipAction = (ctx: SlashContext) => eng.skip(ctx.guildId, ctx.reply);
+  const stopAction = (ctx: SlashContext) => eng.stop(ctx.guildId, ctx.reply);
+  const queueAction = (ctx: SlashContext) => { const q = eng.queue(ctx.guildId); ctx.reply(formatQueue(q.current, q.queue)); };
+
+  api.onCommand("play", (ctx: CommandContext) => eng.play(ctx.guildId, ctx.authorId, ctx.args, ctx.channelId, ctx.reply));
+  api.onCommand("skip", (ctx: CommandContext) => eng.skip(ctx.guildId, ctx.reply));
+  api.onCommand("stop", (ctx: CommandContext) => eng.stop(ctx.guildId, ctx.reply));
+  api.onCommand("queue", (ctx: CommandContext) => { const q = eng.queue(ctx.guildId); ctx.reply(formatQueue(q.current, q.queue)); });
 
   // Auto-register the slash commands so a bot works out of the box…
   api.onSlash("play", "Play a YouTube link or search in your voice channel", playAction, songOpt);
@@ -502,18 +541,13 @@ export function create(interp: Interpreter, library: { api: DiscordApi }) {
   api.registerAction("discord-bot/music/queue", queueAction);
 
   // --- the controller buttons under the Now-Playing card ---
-  api.onButton("music:playpause", (ctx: ButtonContext) => {
-    const gm = guilds.get(ctx.guildId);
-    if (!gm || !gm.player) return;
-    if (gm.player.state?.status === "paused") { gm.player.unpause(); api.send(ctx.channelId, "▶️ Resumed."); }
-    else { gm.player.pause(); api.send(ctx.channelId, "⏸️ Paused."); }
-  });
-  api.onButton("music:skip", (ctx: ButtonContext) => skip(ctx.guildId, (t) => api.send(ctx.channelId, t)));
-  api.onButton("music:stop", (ctx: ButtonContext) => stop(ctx.guildId, (t) => api.send(ctx.channelId, t)));
-  api.onButton("music:voldown", (ctx: ButtonContext) => changeVolume(ctx.guildId, 0.8, ctx.channelId));
-  api.onButton("music:volup", (ctx: ButtonContext) => changeVolume(ctx.guildId, 1.25, ctx.channelId));
-  api.onButton("music:slower", (ctx: ButtonContext) => void changeSpeed(ctx.guildId, 0.8, ctx.channelId));
-  api.onButton("music:faster", (ctx: ButtonContext) => void changeSpeed(ctx.guildId, 1.25, ctx.channelId));
+  api.onButton("music:playpause", (ctx: ButtonContext) => eng.pause(ctx.guildId, ctx.channelId));
+  api.onButton("music:skip", (ctx: ButtonContext) => eng.skip(ctx.guildId, (t) => api.send(ctx.channelId, t)));
+  api.onButton("music:stop", (ctx: ButtonContext) => eng.stop(ctx.guildId, (t) => api.send(ctx.channelId, t)));
+  api.onButton("music:voldown", (ctx: ButtonContext) => eng.vol(ctx.guildId, 0.8, ctx.channelId));
+  api.onButton("music:volup", (ctx: ButtonContext) => eng.vol(ctx.guildId, 1.25, ctx.channelId));
+  api.onButton("music:slower", (ctx: ButtonContext) => eng.speed(ctx.guildId, 0.8, ctx.channelId));
+  api.onButton("music:faster", (ctx: ButtonContext) => eng.speed(ctx.guildId, 1.25, ctx.channelId));
 
   return { names: [], builtins: {} };
 }

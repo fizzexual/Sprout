@@ -72,7 +72,11 @@ To avoid rate-limits / IP blocks, sign in with your YouTube account:
   - set  cookies file:  to an exported cookies.txt
     (use the "Get cookies.txt LOCALLY" browser extension on youtube.com)
   - or  cookies browser: firefox
-This is OPTIONAL — only needed once YouTube starts blocking you.`,
+This is OPTIONAL — only needed once YouTube starts blocking you.
+
+SCALE (many servers, no shared IP rate-limit): run a Lavalink server and set
+'lavalink host:' in music/settings.bloom — the bot then offloads ALL audio
+(extraction + voice) to it, and you grow by adding Lavalink nodes.`,
       },
     ],
   },
