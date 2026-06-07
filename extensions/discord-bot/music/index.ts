@@ -14,6 +14,8 @@
 // this extension needs the extra packages, and only when you actually play.
 
 import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type { Interpreter } from "../../../src/interpreter.ts";
 import type { DiscordApi, CommandContext, SlashContext } from "../../../libraries/discord-bot/index.ts";
 
@@ -41,24 +43,74 @@ export function formatQueue(current: Track | null, queue: Track[]): string {
   return lines.join("\n");
 }
 
-// Build the "now playing" Discord embed (a card with the video thumbnail + a
-// clickable link). yt-dlp prints "NA" for fields it doesn't have — skip those.
-export function nowPlayingEmbed(track: Track): Record<string, unknown> {
+// Build the "now playing" Discord embed from the USER'S config (the music/ folder
+// next to their program). The extension provides behavior; the user owns the look.
+// yt-dlp prints "NA" for fields it doesn't have — skip those.
+export function nowPlayingEmbed(track: Track, cfg: Record<string, string> = {}): Record<string, unknown> {
+  const on = (key: string): boolean => { const v = cfg[key]; return v === undefined ? true : /^(yes|true|on|1)$/i.test(v); };
   const ok = (s: string): boolean => !!s && s !== "NA";
+  const color = parseInt((cfg.color || "#77dd77").replace(/^#/, ""), 16);
   const fields: Array<Record<string, unknown>> = [];
-  if (ok(track.channel)) fields.push({ name: "Channel", value: track.channel, inline: true });
-  if (ok(track.duration)) fields.push({ name: "Duration", value: track.duration, inline: true });
-  if (track.requestedBy) fields.push({ name: "Requested by", value: `<@${track.requestedBy}>`, inline: true });
+  if (on("channel") && ok(track.channel)) fields.push({ name: "Channel", value: track.channel, inline: true });
+  if (on("duration") && ok(track.duration)) fields.push({ name: "Duration", value: track.duration, inline: true });
+  if (on("requested by") && track.requestedBy) fields.push({ name: "Requested by", value: `<@${track.requestedBy}>`, inline: true });
   const embed: Record<string, unknown> = {
-    color: 0x77dd77, // Sprout green
-    author: { name: "🎵 Now Playing" },
+    color: Number.isNaN(color) ? 0x77dd77 : color,
+    author: { name: cfg.title || "🎵 Now Playing" },
     title: track.title || "Unknown",
     url: ok(track.url) ? track.url : undefined,
     fields,
-    footer: { text: "Sprout 🌱 music" },
+    footer: { text: cfg.footer || "Sprout 🌱 music" },
   };
-  if (/^https?:\/\//i.test(track.thumbnail)) embed.image = { url: track.thumbnail }; // big video preview
+  if (on("thumbnail") && /^https?:\/\//i.test(track.thumbnail)) embed.image = { url: track.thumbnail }; // big video preview
   return embed;
+}
+
+// --- the editable design folder ("music/" next to the user's program) ---------
+// The idea: an extension ships the functionality, but the user controls the
+// design. So `use "discord-bot/music"` drops a "music" folder beside the running
+// .sprout program holding a Bloom-style config they can freely edit.
+
+const DEFAULT_CONFIG = `~ now-playing.bloom — the "Now Playing" card your music bot shows.
+~ Made for you by  use "discord-bot/music".  Edit a line and save and it applies
+~ on the very next song (no restart needed). Lines starting with ~ are notes.
+~ Turn a part on or off with  yes  or  no.
+
+color: #77dd77
+title: 🎵 Now Playing
+thumbnail: yes
+channel: yes
+duration: yes
+requested by: yes
+footer: Sprout 🌱 music
+`;
+
+// Make sure  <programDir>/music/now-playing.bloom  exists (without ever clobbering
+// the user's edits), and return its path.
+function ensureMusicConfig(programDir: string): string {
+  if (!programDir) return ""; // no known program dir (e.g. tests) — fall back to built-in defaults
+  const folder = join(programDir, "music");
+  const file = join(folder, "now-playing.bloom");
+  try {
+    if (!existsSync(folder)) mkdirSync(folder, { recursive: true });
+    if (!existsSync(file)) writeFileSync(file, DEFAULT_CONFIG, "utf8");
+  } catch { /* read-only filesystem — we just fall back to the built-in defaults */ }
+  return file;
+}
+
+// Read the Bloom-style "key: value" config (with ~ comments). Read fresh each
+// time so the user sees their edits on the next song.
+function readMusicConfig(file: string): Record<string, string> {
+  const cfg: Record<string, string> = {};
+  try {
+    for (const raw of readFileSync(file, "utf8").split("\n")) {
+      const line = raw.trim();
+      if (!line || line.startsWith("~")) continue;
+      const i = line.indexOf(":");
+      if (i > 0) cfg[line.slice(0, i).trim().toLowerCase()] = line.slice(i + 1).trim();
+    }
+  } catch { /* missing/unreadable — built-in defaults */ }
+  return cfg;
 }
 
 // Lazy-load @discordjs/voice so the extension still loads (and !ping etc. work)
@@ -79,9 +131,13 @@ async function loadVoice(): Promise<any> {
 
 // --- the extension -----------------------------------------------------------
 
-export function create(_interp: Interpreter, library: { api: DiscordApi }) {
+export function create(interp: Interpreter, library: { api: DiscordApi }) {
   const api = library.api;
   const guilds = new Map<string, GuildMusic>();
+
+  // Drop an editable "music/" design folder next to the user's program. They own
+  // the look of the Now-Playing card; we read it fresh on every song.
+  const configFile = ensureMusicConfig(interp?.programDir ?? "");
 
   const musicOf = (guildId: string): GuildMusic => {
     let gm = guilds.get(guildId);
@@ -223,10 +279,11 @@ export function create(_interp: Interpreter, library: { api: DiscordApi }) {
     }
     gm.player.play(resource);
     // A rich "now playing" card: the video's thumbnail (so you SEE it), title as a
-    // clickable YouTube link, channel + duration. (Real bots can't stream video to
-    // a voice channel — that needs a ToS-breaking selfbot — so this is the safe way
-    // to "watch" what's playing.)
-    api.sendEmbed(track.textChannelId, nowPlayingEmbed(track));
+    // clickable YouTube link, channel + duration. Styled by the user's editable
+    // music/now-playing.bloom (read fresh so edits apply on the next song). Real
+    // bots can't stream video to voice (that needs a ToS-breaking selfbot), so this
+    // is the safe way to "watch" what's playing.
+    api.sendEmbed(track.textChannelId, nowPlayingEmbed(track, readMusicConfig(configFile)));
   }
 
   function skip(guildId: string, reply: (t: string) => void): void {

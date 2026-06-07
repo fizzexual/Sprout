@@ -145,6 +145,7 @@ async function runFile(path: string, mode: RunMode): Promise<void> {
     storage: fileStorage(dataPath),
     net: nodeNet(),
     secrets: fileSecrets(envPath),
+    programDir: dirname(path),
   });
 
   // Parse, then verify the WHOLE program before running any of it.

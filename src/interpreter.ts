@@ -78,6 +78,7 @@ class ReturnSignal {
 
 export class Interpreter {
   source: string;
+  programDir: string;            // folder of the running program; libraries/extensions read & write their files next to it
   private out: OutputSink;
   private maxSteps: number;
   private steps = 0;
@@ -93,7 +94,7 @@ export class Interpreter {
   constructor(
     source: string,
     out: OutputSink = (line) => console.log(line),
-    options: { maxSteps?: number; storage?: Storage; net?: Net; secrets?: Secrets } = {},
+    options: { maxSteps?: number; storage?: Storage; net?: Net; secrets?: Secrets; programDir?: string } = {},
   ) {
     this.source = source;
     this.out = out;
@@ -102,6 +103,7 @@ export class Interpreter {
     this.data = this.store.load();
     this.net = options.net ?? noNet();
     this.secrets = options.secrets ?? noSecrets();
+    this.programDir = options.programDir ?? process.cwd();
   }
 
   run(program: Stmt[]): void {
