@@ -131,7 +131,8 @@ export function create(_interp: Interpreter, library: { api: DiscordApi }) {
   });
 
   api.onSlash("play", "Play a YouTube link or search in your voice channel", (ctx: SlashContext) =>
-    void play(ctx.guildId, ctx.authorId, ctx.option("song"), ctx.channelId, ctx.reply));
+    void play(ctx.guildId, ctx.authorId, ctx.option("song"), ctx.channelId, ctx.reply),
+    [{ name: "song", description: "A YouTube link or search words", type: 3, required: true }]);
   api.onSlash("skip", "Skip the current song", (ctx: SlashContext) => skip(ctx.guildId, ctx.reply));
   api.onSlash("stop", "Stop the music and leave", (ctx: SlashContext) => stop(ctx.guildId, ctx.reply));
 

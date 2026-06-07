@@ -472,10 +472,11 @@ test("music: formatQueue shows now-playing and the list", () => {
 test("music extension registers its commands on the discord api", () => {
   const commands: string[] = [];
   const slashes: string[] = [];
+  const slashOptions: Record<string, Array<{ name: string }>> = {};
   const fakeApi = {
     interp: null,
     onCommand: (w: string) => commands.push(w),
-    onSlash: (n: string) => slashes.push(n),
+    onSlash: (n: string, _d: string, _h: unknown, opts: Array<{ name: string }> = []) => { slashes.push(n); slashOptions[n] = opts; },
     send: () => {},
     voiceChannelOf: () => null,
     joinVoice: () => Promise.reject(new Error("no")),
@@ -484,6 +485,7 @@ test("music extension registers its commands on the discord api", () => {
   musicExt(null as never, { api: fakeApi } as never);
   assert.deepEqual(commands.sort(), ["play", "queue", "skip", "stop"]);
   assert.ok(slashes.includes("play"));
+  assert.equal(slashOptions.play[0].name, "song");   // /play has a "song" text field
 });
 
 test("discord-bot library exposes an extension api", () => {
@@ -492,6 +494,14 @@ test("discord-bot library exposes an extension api", () => {
   assert.equal(typeof lib.api.onSlash, "function");
   assert.equal(typeof lib.api.joinVoice, "function");
   assert.equal(lib.api.voiceChannelOf("g", "u"), null);
+});
+
+test("discord-bot: slash() registers a Sprout-defined slash command", () => {
+  const interp = new Interpreter("", () => {});
+  const lib = discordBot(interp as never);
+  assert.deepEqual(lib.api.slashCommandNames(), []);
+  lib.builtins.slash(["hello", "Say hi", "onHello"]);
+  assert.ok(lib.api.slashCommandNames().includes("hello"));
 });
 
 test("nothing is a value you can write and compare", () => {

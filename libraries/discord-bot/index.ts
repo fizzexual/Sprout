@@ -40,8 +40,11 @@ export interface SlashContext {
   reply(text: string): void;
 }
 
+// A slash command's typed inputs (type 3 = string). Discord shows them as fields.
+export interface SlashOption { name: string; description: string; type: number; required: boolean; }
+
 interface PrefixCommand { word: string; handler: (ctx: CommandContext) => void; }
-interface SlashCommand { name: string; description: string; handler: (ctx: SlashContext) => void; }
+interface SlashCommand { name: string; description: string; options: SlashOption[]; handler: (ctx: SlashContext) => void; }
 
 interface BotState {
   token: string;
@@ -51,6 +54,7 @@ interface BotState {
   appId: string;
   prefix: string;
   current: { content: string; author: string; channelId: string };
+  currentReply: ((text: string) => void) | null;  // where reply() goes right now (a channel, or a slash)
   ws: WebSocket | null;
   prefixCommands: Map<string, PrefixCommand>;
   slashCommands: Map<string, SlashCommand>;
@@ -62,10 +66,11 @@ interface BotState {
 export interface DiscordApi {
   interp: Interpreter;
   onCommand(word: string, handler: (ctx: CommandContext) => void): void;
-  onSlash(name: string, description: string, handler: (ctx: SlashContext) => void): void;
+  onSlash(name: string, description: string, handler: (ctx: SlashContext) => void, options?: SlashOption[]): void;
   send(channelId: string, text: string): void;
   voiceChannelOf(guildId: string, userId: string): string | null;
   joinVoice(guildId: string, channelId: string): Promise<VoicePlayer>;
+  slashCommandNames(): string[];
   log(msg: string): void;
 }
 
@@ -78,6 +83,7 @@ export function create(interp: Interpreter) {
     appId: "",
     prefix: "!",
     current: { content: "", author: "", channelId: "" },
+    currentReply: null,
     ws: null,
     prefixCommands: new Map(),
     slashCommands: new Map(),
@@ -85,27 +91,53 @@ export function create(interp: Interpreter) {
     listeners: new Map(),
   };
 
+  // reply() goes wherever we are right now: a slash command answers the
+  // interaction; otherwise it's a normal message in the current channel.
+  const replyNow = (text: string): void => {
+    if (state.currentReply) state.currentReply(text);
+    else send(state, state.current.channelId, text);
+  };
+
   const builtins: Record<string, (args: Value[]) => Value> = {
     bot: (args) => { state.token = stringify(args[0] ?? NONE); state.used = true; return NONE; },
     on_message: (args) => { state.handler = stringify(args[0] ?? NONE); return NONE; },
     message: () => state.current.content,
     author: () => state.current.author,
-    reply: (args) => { send(state, state.current.channelId, stringify(args[0] ?? NONE)); return NONE; },
+    reply: (args) => { replyNow(stringify(args[0] ?? NONE)); return NONE; },
     say: (args) => { send(state, stringify(args[0] ?? NONE), stringify(args[1] ?? NONE)); return NONE; },
+    // slash("name", "description", "taskName") — define your own /command in Sprout.
+    slash: (args) => {
+      const name = stringify(args[0] ?? NONE);
+      const description = stringify(args[1] ?? NONE) || "A Sprout command";
+      const task = stringify(args[2] ?? NONE);
+      state.slashCommands.set(name, {
+        name, description, options: [],
+        handler: (ctx) => {
+          state.current = { content: "", author: ctx.author, channelId: ctx.channelId };
+          const prev = state.currentReply;
+          state.currentReply = ctx.reply;
+          try { interp.runTask(task); }
+          catch (e) { console.error(e instanceof Error ? e.message : String(e)); }
+          state.currentReply = prev;
+        },
+      });
+      return NONE;
+    },
   };
 
   const api: DiscordApi = {
     interp,
     onCommand: (word, handler) => { state.prefixCommands.set(word.toLowerCase(), { word: word.toLowerCase(), handler }); },
-    onSlash: (name, description, handler) => { state.slashCommands.set(name, { name, description, handler }); },
+    onSlash: (name, description, handler, options = []) => { state.slashCommands.set(name, { name, description, options, handler }); },
     send: (channelId, text) => send(state, channelId, text),
     voiceChannelOf: (guildId, userId) => state.voiceStates.get(guildId)?.get(userId) ?? null,
     joinVoice: (guildId, channelId) => joinVoice(state, guildId, channelId),
+    slashCommandNames: () => [...state.slashCommands.keys()],
     log: (msg) => console.log(msg),
   };
 
   return {
-    names: ["bot", "on_message", "message", "author", "reply", "say"],
+    names: ["bot", "on_message", "message", "author", "reply", "say", "slash"],
     builtins,
     isActive: () => state.used,
     start: () => connect(interp, state),
@@ -138,7 +170,7 @@ function interactionRespond(state: BotState, id: string, token: string, content:
 
 function registerGuildCommands(state: BotState, guildId: string): void {
   if (!state.appId || state.slashCommands.size === 0) return;
-  const cmds = [...state.slashCommands.values()].map((c) => ({ name: c.name, description: c.description, type: 1 }));
+  const cmds = [...state.slashCommands.values()].map((c) => ({ name: c.name, description: c.description, type: 1, options: c.options ?? [] }));
   void rest(state, "PUT", `/applications/${state.appId}/guilds/${guildId}/commands`, cmds);
 }
 

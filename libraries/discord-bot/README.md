@@ -45,8 +45,9 @@ until you press **Ctrl+C**.
 | `on_message("taskName")` | run that task whenever a message arrives |
 | `message()` | the text of the message that just arrived |
 | `author()` | the username of who sent it |
-| `reply("text")` | reply in the same channel |
+| `reply("text")` | reply in the same channel (or answer a slash command) |
 | `say("channelId", "text")` | send a message to a specific channel |
+| `slash("name", "description", "taskName")` | add a `/slash` command that runs a task |
 
 The bot ignores its own messages and other bots, so it won't talk to itself.
 

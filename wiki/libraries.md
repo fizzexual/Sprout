@@ -36,8 +36,19 @@ Your token goes in a git-ignored `.env` file next to the program
 | `on_message("taskName")` | run that task whenever a message arrives |
 | `message()` | the text that just arrived |
 | `author()` | who sent it |
-| `reply("text")` | reply in the same channel |
+| `reply("text")` | reply in the same channel (or answer a slash command) |
 | `say("channelId", "text")` | send to a specific channel |
+| `slash("name", "description", "taskName")` | add a `/slash` command that runs a task |
+
+`reply` is smart: inside a slash task it answers the slash command, otherwise it
+posts in the channel. A tiny slash command looks like:
+
+```sprout
+slash("hello", "Say hello", "sayHi")
+
+task sayHi():
+    reply("Hello from a Sprout slash command! 🌱")
+```
 
 Full setup is in the [library's README](../libraries/discord-bot/README.md)
 (make a bot, copy its token, turn on the Message Content Intent, invite it).
