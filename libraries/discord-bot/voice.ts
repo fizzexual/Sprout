@@ -184,13 +184,14 @@ const VOICE_DEBUG = process.env.SPROUT_VOICE_DEBUG === "1" || process.env.SPROUT
 function vverbose(msg: string): void { if (VOICE_DEBUG) console.log(`🎙️  [voice] ${msg}`); }
 
 export function connectVoice(params: VoiceParams): VoicePlayer {
-  // Voice gateway v8 — the current version. v8 tags each server message with a
-  // `seq`; heartbeats echo the latest as `seq_ack`. Discord frequently closes the
-  // first attempt with 4006 ("session no longer valid") because the voice server
-  // hasn't learned our session yet — so we reconnect/re-identify until it sticks.
+  // Voice gateway v8. IMPORTANT: connect to the endpoint Discord gives us WITH the
+  // port it specifies — voice servers are no longer all on :443, and connecting to
+  // the wrong port reaches a server that doesn't know our session, which closes
+  // with 4006 ("session no longer valid"). v8 tags each message with `seq`;
+  // heartbeats echo the latest as `seq_ack`. (We still retry transient closes.)
   let endpoint = params.endpoint;
   let token = params.token;
-  const wsUrl = (): string => `wss://${endpoint.replace(/:\d+$/, "")}/?v=8`;
+  const wsUrl = (): string => `wss://${endpoint}/?v=8`;
   const udp: UdpSocket = createSocket("udp4");
   let ws: WebSocket | null = null;
   let destroyed = false;
