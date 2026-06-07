@@ -145,7 +145,7 @@ function findExtension(arg: string): Found | null {
 }
 
 // --- screen -------------------------------------------------------------------
-interface State { input: string; message: string[]; pendingUninstall: string | null; }
+interface State { input: string; message: string[]; pendingUninstall: string | null; view: "home" | "browse"; page: number; }
 
 const col = (s: string, w: number): string => (s.length > w ? s.slice(0, w - 1) + "…" : s.padEnd(w));
 
@@ -175,31 +175,29 @@ function contentBlock(): string[] {
   return lines;
 }
 
-// The full catalogue — every library Sprout offers, installed or not.
-function browseReport(): string[] {
-  const out: string[] = [T.text("catalogue — every Sprout library:"), ""];
-  for (const m of MODULES) {
-    if (m.placeholder) {
-      out.push("  " + T.dim("◌ " + m.name) + T.purple("   🔜 planned"));
-      out.push("      " + T.dim(m.description));
-      for (const e of m.extensions) out.push("      " + T.dim("+ " + col(e.name, 10) + col(e.description, 30)) + T.purple("planned"));
-      out.push("");
-      continue;
-    }
-    const here = libPresent(m.name);
-    out.push("  " + (here ? T.green("● " + m.name) + T.dim("   installed, ready to ") + T.cyan("use \"" + m.name + "\"")
-                            : T.dim("○ " + m.name) + T.yellow("   available")));
-    out.push("      " + T.dim(m.description));
-    for (const e of m.extensions) {
-      if (e.placeholder) { out.push("      " + T.dim("+ " + col(e.name, 10) + col(e.description, 30)) + T.purple("planned")); continue; }
-      const ready = extPresent(m.name, e.name) && extMissing(e).length === 0;
-      out.push("      " + T.dim("+ ") + T.cyan(col(e.name, 10)) + T.dim(col(e.description, 30)) +
-        (ready ? T.green("ready") : T.yellow("needs setup") + T.dim(" (") + T.cyan("install " + e.name) + T.dim(")")));
-    }
-    out.push("");
+// The catalogue, one library per page — flipped with the arrow keys in `browse`.
+function browsePageLines(page: number): string[] {
+  const total = MODULES.length;
+  const idx = ((page % total) + total) % total;   // wrap around with the arrows
+  const m = MODULES[idx];
+  const out: string[] = [];
+  out.push("  " + T.purple("catalogue") + T.dim("    ◄ ►  flip pages   ·   esc  back   ·   page " + (idx + 1) + "/" + total));
+  out.push("");
+  if (m.placeholder) out.push("    " + T.dim("◌ ") + T.text(m.name) + T.purple("    🔜 coming soon"));
+  else if (libPresent(m.name)) out.push("    " + T.green("● ") + T.text(m.name) + T.green("    installed") + T.dim("   ·   use \"" + m.name + "\""));
+  else out.push("    " + T.dim("○ ") + T.text(m.name) + T.yellow("    available") + T.dim("   ·   type ") + T.cyan("libinstall " + m.name));
+  out.push("    " + T.dim(m.description));
+  out.push("");
+  out.push("    " + T.dim("extensions"));
+  if (m.extensions.length === 0) out.push("      " + T.dim("(none yet)"));
+  for (const e of m.extensions) {
+    let badge: string;
+    if (e.placeholder) badge = T.purple("🔜 coming soon");
+    else if (extPresent(m.name, e.name) && extMissing(e).length === 0) badge = T.green("✓ ready");
+    else if (extPresent(m.name, e.name)) badge = T.yellow("needs setup") + T.dim(" → install " + e.name);
+    else badge = T.yellow("available") + T.dim(" → install " + e.name);
+    out.push("      " + T.cyan(col(e.name, 12)) + T.dim(col(e.description, 34)) + badge);
   }
-  out.push(T.dim("  🔜 planned = a placeholder showing what's coming; not installable yet."));
-  out.push(T.dim("  Want more? Add your own library — see libraries/README.md."));
   return out;
 }
 
@@ -212,8 +210,12 @@ function renderScreen(state: State): string {
   for (const l of LOGO) top.push(center(gradient(l)));
   top.push(center(T.dim("modules · v" + VERSION)));
   top.push("");
-  for (const l of contentBlock()) top.push(l);
-  if (state.message.length) { top.push(""); for (const l of state.message) top.push("  " + l); }
+  if (state.view === "browse") {
+    for (const l of browsePageLines(state.page)) top.push(l);
+  } else {
+    for (const l of contentBlock()) top.push(l);
+    if (state.message.length) { top.push(""); for (const l of state.message) top.push("  " + l); }
+  }
 
   // input box, pinned near the bottom
   const boxW = Math.min(cols - 6, 76);
@@ -224,7 +226,9 @@ function renderScreen(state: State): string {
     lp + T.dim("╭" + "─".repeat(boxW - 2) + "╮"),
     lp + T.dim("│") + inner + T.dim("│"),
     lp + T.dim("╰" + "─".repeat(boxW - 2) + "╯"),
-    lp + T.dim("enter run") + "   " + T.dim("·") + "   " + T.dim("type ") + T.blue("help") + T.dim(" for commands"),
+    lp + (state.view === "browse"
+      ? T.dim("◄ ► ") + T.dim("flip pages") + "   " + T.dim("·") + "   " + T.dim("esc ") + T.dim("back") + "   " + T.dim("·") + "   " + T.dim("or type a command")
+      : T.dim("enter run") + "   " + T.dim("·") + "   " + T.dim("type ") + T.blue("help") + T.dim(" for commands")),
   ];
 
   const used = top.length + box.length;
@@ -344,7 +348,7 @@ export function modulesCommand(): Promise<void> {
   }
 
   return new Promise<void>((resolve) => {
-    const state: State = { input: "", message: [], pendingUninstall: null };
+    const state: State = { input: "", message: [], pendingUninstall: null, view: "home", page: 0 };
     let active = true;
     stdin.setRawMode(true);
     stdin.resume();
@@ -438,10 +442,13 @@ export function modulesCommand(): Promise<void> {
         return;
       }
 
-      if (verb === "" ) { state.message = []; return; }
+      // Empty Enter: stay in the browse pager if we're in it, else clear the message.
+      if (verb === "") { if (state.view !== "browse") state.message = []; return; }
+      // browse opens the arrow-flippable catalogue; every other command returns home.
+      if (verb === "browse" || verb === "list" || verb === "store") { state.view = "browse"; state.page = 0; state.message = []; return; }
+      state.view = "home";
       if (verb === "quit" || verb === "exit" || verb === "q") { leave(); return; }
       if (verb === "test") { state.message = testReport(); return; }
-      if (verb === "browse" || verb === "list" || verb === "store") { state.message = browseReport(); return; }
       if (verb === "setup") {
         const f = findExtension(arg);
         if (!f) { state.message = [T.red("no extension called '" + arg + "'.") + T.dim("  try: setup music")]; return; }
@@ -503,8 +510,16 @@ export function modulesCommand(): Promise<void> {
     };
 
     const onData = (data: string): void => {
+      // Arrow keys arrive as whole CSI sequences (\x1b[A/B/C/D). Handle them up
+      // front so the leading \x1b isn't mistaken for Esc. They flip browse pages.
+      if (data === "\x1b[C" || data === "\x1b[B" || data === "\x1bOC" || data === "\x1bOB") { if (state.view === "browse") { state.page++; draw(); } return; } // →/↓ next
+      if (data === "\x1b[D" || data === "\x1b[A" || data === "\x1bOD" || data === "\x1bOA") { if (state.view === "browse") { state.page--; draw(); } return; } // ←/↑ prev
       for (const ch of data) {
-        if (ch === "\x03" || ch === "\x1b") { leave(); return; }   // Ctrl+C / Esc
+        if (ch === "\x03") { leave(); return; }                    // Ctrl+C
+        if (ch === "\x1b") {                                        // Esc: leave browse, else quit
+          if (state.view === "browse") { state.view = "home"; state.message = []; draw(); return; }
+          leave(); return;
+        }
         if (ch === "\r" || ch === "\n") { const line = state.input; state.input = ""; run(line); draw(); if (!active) return; }
         else if (ch === "\x7f" || ch === "\b") { state.input = state.input.slice(0, -1); draw(); }
         else if (ch >= " ") { state.input += ch; draw(); }
