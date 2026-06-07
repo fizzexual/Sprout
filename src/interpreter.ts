@@ -17,6 +17,8 @@ import { NET_BUILTINS, noNet } from "./net.ts";
 import type { Net } from "./net.ts";
 import { SECRET_BUILTINS, noSecrets, missingSecret } from "./secrets.ts";
 import type { Secrets } from "./secrets.ts";
+import { INPUT_BUILTINS, noInput } from "./input.ts";
+import type { Input } from "./input.ts";
 
 // Where `show` sends its output. The CLI prints to the console; tests capture it.
 export type OutputSink = (line: string) => void;
@@ -90,11 +92,15 @@ export class Interpreter {
   private data: Record<string, Value>;
   private net: Net;
   private secrets: Secrets;
+  private input: Input;
+  // Plain-English narration for `sprout explain`. null = off (normal run).
+  private narrate: ((msg: string) => void) | null;
+  private depth = 0;
 
   constructor(
     source: string,
     out: OutputSink = (line) => console.log(line),
-    options: { maxSteps?: number; storage?: Storage; net?: Net; secrets?: Secrets; programDir?: string } = {},
+    options: { maxSteps?: number; storage?: Storage; net?: Net; secrets?: Secrets; programDir?: string; input?: Input; narrate?: (msg: string) => void } = {},
   ) {
     this.source = source;
     this.out = out;
@@ -104,6 +110,14 @@ export class Interpreter {
     this.net = options.net ?? noNet();
     this.secrets = options.secrets ?? noSecrets();
     this.programDir = options.programDir ?? process.cwd();
+    this.input = options.input ?? noInput();
+    this.narrate = options.narrate ?? null;
+  }
+
+  // Emit one indented line of plain-English narration (only in explain mode).
+  // Takes a thunk so we never pay the formatting cost on a normal run.
+  private say(make: () => string): void {
+    if (this.narrate) this.narrate("  ".repeat(this.depth) + make());
   }
 
   run(program: Stmt[]): void {
@@ -220,7 +234,9 @@ export class Interpreter {
 
     switch (stmt.type) {
       case "Make": {
-        env.define(stmt.name, this.evaluate(stmt.value, env));
+        const made = this.evaluate(stmt.value, env);
+        env.define(stmt.name, made);
+        this.say(() => `make ${stmt.name} = ${exprText(stmt.value)}  →  ${stmt.name} is ${stringify(made)}`);
         return;
       }
       case "Set": {
@@ -234,6 +250,7 @@ export class Interpreter {
             this.nameHint(stmt.name, env) ?? `Create it first with: make ${stmt.name} = ...`,
           );
         }
+        this.say(() => `set ${stmt.name} = ${exprText(stmt.value)}  →  ${stmt.name} is now ${stringify(value)}`);
         return;
       }
       case "Show": {
@@ -243,16 +260,28 @@ export class Interpreter {
       }
       case "When": {
         for (const branch of stmt.branches) {
-          if (isTruthy(this.evaluate(branch.cond, env))) {
-            this.runBlock(branch.body, env);
+          const cv = this.evaluate(branch.cond, env);
+          this.say(() => `is ${exprText(branch.cond)}? → ${stringify(cv)}`);
+          if (isTruthy(cv)) {
+            this.say(() => "yes — so I run this part:");
+            this.depth++; this.runBlock(branch.body, env); this.depth--;
             return;
           }
         }
-        if (stmt.otherwiseBody) this.runBlock(stmt.otherwiseBody, env);
+        if (stmt.otherwiseBody) {
+          this.say(() => "none were true — so I run the 'otherwise' part:");
+          this.depth++; this.runBlock(stmt.otherwiseBody, env); this.depth--;
+        }
         return;
       }
       case "RepeatWhile": {
-        while (isTruthy(this.evaluate(stmt.cond, env))) this.runBlock(stmt.body, env);
+        this.say(() => `repeat while ${exprText(stmt.cond)}:`);
+        for (;;) {
+          const cv = this.evaluate(stmt.cond, env);
+          this.say(() => `  ${exprText(stmt.cond)} is ${stringify(cv)}${isTruthy(cv) ? " — keep going" : " — stop"}`);
+          if (!isTruthy(cv)) break;
+          this.depth++; this.runBlock(stmt.body, env); this.depth--;
+        }
         return;
       }
       case "RepeatTimes": {
@@ -267,7 +296,8 @@ export class Interpreter {
           );
         }
         const count = Math.floor(n);
-        for (let k = 0; k < count; k++) this.runBlock(stmt.body, env);
+        this.say(() => `repeat ${count} time${count === 1 ? "" : "s"}:`);
+        for (let k = 0; k < count; k++) { this.say(() => `round ${k + 1} of ${count}:`); this.depth++; this.runBlock(stmt.body, env); this.depth--; }
         return;
       }
       case "ForEach": {
@@ -285,7 +315,12 @@ export class Interpreter {
           );
         }
         // Snapshot the items so changes during the loop don't affect iteration.
-        for (const item of [...items]) { env.define(stmt.name, item); this.runBlock(stmt.body, env); }
+        this.say(() => `for each ${stmt.name} in ${exprText(stmt.iter)}:`);
+        for (const item of [...items]) {
+          env.define(stmt.name, item);
+          this.say(() => `${stmt.name} = ${stringify(item)}:`);
+          this.depth++; this.runBlock(stmt.body, env); this.depth--;
+        }
         return;
       }
       case "IndexSet": {
@@ -305,6 +340,7 @@ export class Interpreter {
         } else {
           throw new LangError("Type", `I can only set an item inside a list or a map, but '${stmt.name}' is ${typeName(coll)}.`, stmt.line, stmt.col);
         }
+        this.say(() => `set ${stmt.name}[${exprText(stmt.index)}] = ${exprText(stmt.value)}  →  ${stmt.name} is now ${stringify(coll)}`);
         return;
       }
       case "Task": {
@@ -321,7 +357,9 @@ export class Interpreter {
         return;
       }
       case "Give": {
-        throw new ReturnSignal(stmt.value ? this.evaluate(stmt.value, env) : NONE);
+        const gv = stmt.value ? this.evaluate(stmt.value, env) : NONE;
+        this.say(() => `give back ${stringify(gv)}`);
+        throw new ReturnSignal(gv);
       }
       case "Style": {
         const v = this.evaluate(stmt.value, env);
@@ -422,10 +460,11 @@ export class Interpreter {
     if (PERSIST_BUILTINS.includes(expr.name)) return this.persist(expr.name, args, expr);
     if (NET_BUILTINS.includes(expr.name)) return this.netCall(expr.name, args, expr);
     if (SECRET_BUILTINS.includes(expr.name)) return this.secretCall(args, expr);
+    if (INPUT_BUILTINS.includes(expr.name)) return this.input.ask(args.length > 0 ? stringify(args[0]) : "");
     if (this.libBuiltins.has(expr.name)) return this.libBuiltins.get(expr.name)!(args, { line: expr.line, col: expr.col });
     if (isBuiltin(expr.name)) return callBuiltin(expr.name, args, { line: expr.line, col: expr.col });
 
-    const near = closest(expr.name, [...this.functions.keys(), ...this.libBuiltins.keys(), ...GUI_BUILTINS, ...PERSIST_BUILTINS, ...NET_BUILTINS, ...SECRET_BUILTINS, ...BUILTIN_NAMES]);
+    const near = closest(expr.name, [...this.functions.keys(), ...this.libBuiltins.keys(), ...GUI_BUILTINS, ...PERSIST_BUILTINS, ...NET_BUILTINS, ...SECRET_BUILTINS, ...INPUT_BUILTINS, ...BUILTIN_NAMES]);
     throw new LangError(
       "Name",
       `I don't know a task called '${expr.name}'.`,
@@ -587,6 +626,24 @@ export class Interpreter {
 }
 
 // --- small helpers ---------------------------------------------------------
+
+// Render an expression back to readable Sprout-ish text (used by `sprout explain`).
+function exprText(e: Expr): string {
+  switch (e.type) {
+    case "Number": return String(e.value);
+    case "String": return '"' + e.value + '"';
+    case "Bool": return e.value ? "yes" : "no";
+    case "Nothing": return "nothing";
+    case "Identifier": return e.name;
+    case "Unary": return (e.op === "-" ? "-" : "not ") + exprText(e.operand);
+    case "Binary": return exprText(e.left) + " " + e.op + " " + exprText(e.right);
+    case "Logical": return exprText(e.left) + " " + e.op + " " + exprText(e.right);
+    case "Call": return e.name + "(" + e.args.map(exprText).join(", ") + ")";
+    case "List": return "[" + e.items.map(exprText).join(", ") + "]";
+    case "Map": return "{" + e.entries.map((en) => en.key + ": " + exprText(en.value)).join(", ") + "}";
+    case "Index": return exprText(e.target) + "[" + exprText(e.index) + "]";
+  }
+}
 
 function opWord(op: string): string {
   if (op === "-") return "subtract";

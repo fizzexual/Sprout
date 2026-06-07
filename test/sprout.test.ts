@@ -643,3 +643,36 @@ test("checker: add() arity is enforced", () => {
   assert.equal(errs.length, 1);
   assert.equal(errs[0].kind, "Type");
 });
+
+// --- v0.5.1: ask, number, explain, infinite-loop detector -------------------
+
+test("number() converts text; gives nothing when it isn't a number", () => {
+  assert.deepEqual(run('show number("42") + 1\nshow number("oops")'), ["43", "nothing"]);
+});
+
+test("ask() returns whatever the input capability provides", () => {
+  const src = 'make n = ask("name?")\nshow "hi", n';
+  const out: string[] = [];
+  const interp = new Interpreter(src, (l) => out.push(l), { input: { ask: () => "Sam" } });
+  interp.run(parse(tokenize(src)));
+  assert.deepEqual(out, ["hi Sam"]);
+});
+
+test("sprout explain narrates variable changes", () => {
+  const src = "make x = 1\nset x = x + 1";
+  const narration: string[] = [];
+  const interp = new Interpreter(src, () => {}, { narrate: (m) => narration.push(m.trim()) });
+  interp.run(parse(tokenize(src)));
+  assert.ok(narration.some((l) => l.includes("x is 1")));
+  assert.ok(narration.some((l) => l.includes("x is now 2")));
+});
+
+test("checker flags a repeat while that can never stop", () => {
+  const errs = problems('repeat while yes:\n    show "hi"');
+  assert.equal(errs.length, 1);
+  assert.equal(errs[0].kind, "Runtime");
+});
+
+test("checker leaves a normal repeat while alone", () => {
+  assert.deepEqual(problems("make i = 0\nrepeat while i < 3:\n    set i = i + 1"), []);
+});

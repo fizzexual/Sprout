@@ -24,10 +24,11 @@ import type { Theme } from "./bloom.ts";
 import { fileStorage } from "./storage.ts";
 import { nodeNet } from "./net.ts";
 import { fileSecrets } from "./secrets.ts";
+import { consoleInput } from "./input.ts";
 import { modulesCommand } from "./modules.ts";
 import { describeJson } from "./explore.ts";
 
-const VERSION = "Sprout v0.5.0";
+const VERSION = "Sprout v0.5.1";
 
 // Turn any unexpected (non-Sprout) error into a friendly message instead of a
 // raw Node stack trace.
@@ -129,7 +130,7 @@ async function loadLibraries(program: ReturnType<typeof parse>, interp: Interpre
 
 type RunMode = "auto" | "gui" | "serve";
 
-async function runFile(path: string, mode: RunMode): Promise<void> {
+async function runFile(path: string, mode: RunMode, explain = false): Promise<void> {
   let source = "";
   try {
     source = readFileSync(path, "utf8");
@@ -146,6 +147,9 @@ async function runFile(path: string, mode: RunMode): Promise<void> {
     net: nodeNet(),
     secrets: fileSecrets(envPath),
     programDir: dirname(path),
+    input: consoleInput(),
+    // explain mode: narrate each step in grey, the program's own output stays white.
+    narrate: explain ? (m: string) => console.log("\x1b[90m" + m + "\x1b[0m") : undefined,
   });
 
   // Parse, then verify the WHOLE program before running any of it.
@@ -169,6 +173,7 @@ async function runFile(path: string, mode: RunMode): Promise<void> {
     process.exit(1);
   }
 
+  if (explain) console.log("\x1b[90m🌱 explaining " + basename(path) + " — grey is me narrating, white is your program:\x1b[0m\n");
   try {
     interp.run(program);
   } catch (err) {
@@ -307,6 +312,7 @@ function usage(): void {
       "  sprout gui <file.sprout>    open it as a native window",
       "  sprout serve <file.sprout>  run it as a website",
       "  sprout check <file.sprout>  verify the program without running it",
+      "  sprout explain <file>       run it and narrate every step in plain English",
       "  sprout api <url>            connect to an API and list everything it offers",
       "  sprout modules              install / uninstall / test libraries (interactive)",
       "  sprout repl                 start the interactive prompt",
@@ -326,6 +332,8 @@ try {
     await runFile(args[1], "serve");
   } else if (args[0] === "check" && args[1]) {
     await checkFile(args[1]);
+  } else if (args[0] === "explain" && args[1]) {
+    await runFile(args[1], "auto", true);
   } else if (args[0] === "api" && args[1]) {
     apiCommand(args[1]);
   } else if (args[0] === "modules" || args[0] === "libraries") {

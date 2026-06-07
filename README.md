@@ -216,6 +216,9 @@ npm test          # or: node --test test/sprout.test.ts
 | Lists | `make xs = [1, 2, 3]` · `xs[0]` · `add(xs, 4)` · `length` / `first` / `last` |
 | Maps | `make m = {name: "Sam", age: 3}` · `m["name"]` · `keys(m)` |
 | For each | `for each item in xs:` — walks a list, a map's keys, or text |
+| Ask for input | `make name = ask("What's your name?")` · `number("42")` to convert |
+| Explain mode | `sprout explain file.sprout` — narrates every step in plain English |
+| Loop safety | the checker refuses a `repeat while` that can never stop |
 | Tasks (functions) | `task greet(name):` … `give value` (with recursion) |
 | GUI apps (native) | `window(title)` + `label` / `button` / `field` / `textof` |
 | Websites (server) | `server(title)` + the same widgets, runs in a browser |
@@ -234,7 +237,7 @@ npm test          # or: node --test test/sprout.test.ts
 | Comments | `~ like this` |
 | Kind errors | points at the spot, suggests fixes |
 
-**Built-ins so far:** `abs` · `round` · `floor` · `ceil` · `sqrt` · `min` · `max` · `length` · `upper` · `lower` · `random` · `add` · `contains` · `keys` · `range` · `first` · `last`
+**Built-ins so far:** `abs` · `round` · `floor` · `ceil` · `sqrt` · `min` · `max` · `length` · `upper` · `lower` · `random` · `number` · `ask` · `add` · `contains` · `keys` · `range` · `first` · `last`
 
 ## How it works
 
@@ -277,7 +280,8 @@ output
 - [x] **Windows installer** — a [`SproutSetup.exe`](https://github.com/fizzexual/Sprout-/releases/latest) wizard (auto-published to Releases): pick libraries, downloads from the repo, Update/Repair/Uninstall
 - [x] **`sprout modules`** — an interactive terminal to install / uninstall / test libraries
 - [x] **v0.5 — The Data Update** — **lists** `[1, 2, 3]`, **maps** `{name: "Sam"}`, indexing `xs[0]` / `m["k"]`, **`for each item in …`**, and `add` / `contains` / `keys` / `range` / `first` / `last`
-- [ ] **next** — `ask` for input + more widgets (checkboxes, sliders, images)
+- [x] **v0.5.1** — **`ask`** for input + `number(...)`, **`sprout explain`** (narrates every step in plain English), and an **infinite-loop detector** (the checker refuses a `repeat while` that can never end)
+- [ ] **next** — built-in **charts** (`chart "bar", data`), **drawing/canvas**, and `every 10 minutes:` scheduled tasks
 
 ---
 

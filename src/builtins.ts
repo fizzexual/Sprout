@@ -18,7 +18,7 @@ export const BUILTIN_NAMES = [
   "abs", "round", "floor", "ceil", "sqrt",
   "min", "max",
   "length", "upper", "lower", "jsonpick", "explore", "get_api_points",
-  "random",
+  "random", "number",
   // collections (v0.5)
   "add", "contains", "keys", "range", "first", "last",
 ];
@@ -98,6 +98,14 @@ export function callBuiltin(name: string, args: Value[], site: CallSite): Value 
     case "upper": exactly(name, args, 1, site); return text(args[0], name, 0, site).toUpperCase();
     case "lower": exactly(name, args, 1, site); return text(args[0], name, 0, site).toLowerCase();
     case "random": exactly(name, args, 0, site); return Math.random();
+    case "number": {
+      // Turn text into a number (handy after ask). Gives `nothing` if it isn't one.
+      exactly(name, args, 1, site);
+      const v = args[0];
+      if (typeof v === "number") return v;
+      if (typeof v === "string") { const n = Number(v.trim()); return v.trim() !== "" && !Number.isNaN(n) ? n : NONE; }
+      return NONE;
+    }
     case "jsonpick": {
       exactly(name, args, 2, site);
       const src = text(args[0], name, 0, site);
@@ -197,6 +205,7 @@ function exampleCall(name: string): string {
   if (name === "keys") return 'keys({name: "Sam"})';
   if (name === "range") return "range(5)";
   if (name === "first" || name === "last") return `${name}(things)`;
+  if (name === "number") return 'number("42")';
   if (name === "jsonpick") return 'jsonpick(text, "key")';
   if (name === "explore") return "explore(response)";
   if (name === "get_api_points") return "get_api_points(response)";

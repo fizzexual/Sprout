@@ -51,6 +51,7 @@ show add(2, 3)        ~ call it -> 5
 abs round floor ceil sqrt      min(...) max(...)
 length(coll) upper(text) lower(text)      random()
 add(list, x) contains(coll, x) keys(map) range(n) first(list) last(list)   ~ lists & maps
+ask("question")   number("42")             ~ read input from the user / text -> number
 remember("key", value)   recall("key", default)   ~ save/load between runs
 get("url")   post("url", body)   jsonpick(text, "key")          ~ internet
 get_api_points(text)   explore(text)                          ~ what does an API offer?
@@ -88,7 +89,9 @@ sprout run file.sprout
 sprout gui file.sprout
 sprout serve file.sprout
 sprout check file.sprout    ~ verify without running
+sprout explain file.sprout  ~ run it and narrate every step in plain English
 sprout api <url>            ~ connect to an API + list everything it offers
+sprout modules              ~ install / browse libraries (interactive)
 sprout repl
 ```
 

@@ -15,9 +15,22 @@ These come with Sprout — call them anywhere, like `sqrt(16)`. They use the sam
 | `min(a, b, …)` | smallest | `min(3, 9, 5)` | `3` |
 | `max(a, b, …)` | largest | `max(3, 9, 5)` | `9` |
 | `random()` | a number from 0 up to 1 | `random()` | e.g. `0.4271` |
+| `number(text)` | turn text into a number (`nothing` if it isn't one) | `number("42")` | `42` |
 
 `min` and `max` take **two or more** numbers. `sqrt` of a negative number is a
 friendly error.
+
+## Asking the user (ask)
+
+```sprout
+make name = ask("What's your name?")
+show "Hi,", name
+make age = number(ask("How old are you?"))   ~ ask gives text; number() converts it
+```
+
+`ask("question")` prints the question and waits for a line typed at the console,
+then hands back what was typed (as text). In a GUI/website app there's no
+console, so `ask` gives back empty text — use a `field` widget there instead.
 
 ## Text
 

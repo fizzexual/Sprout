@@ -17,12 +17,17 @@ import { GUI_BUILTINS } from "./gui.ts";
 import { PERSIST_BUILTINS } from "./storage.ts";
 import { NET_BUILTINS } from "./net.ts";
 import { SECRET_BUILTINS } from "./secrets.ts";
+import { INPUT_BUILTINS } from "./input.ts";
 
 const BUILTIN_ARITY: Record<string, [number, number]> = {
   abs: [1, 1], round: [1, 1], floor: [1, 1], ceil: [1, 1], sqrt: [1, 1],
   length: [1, 1], upper: [1, 1], lower: [1, 1], jsonpick: [2, 2], explore: [1, 1], get_api_points: [1, 1], random: [0, 0],
   min: [1, Infinity], max: [1, Infinity],
   add: [2, 2], contains: [2, 2], keys: [1, 1], range: [1, 2], first: [1, 1], last: [1, 1],
+  number: [1, 1],
+};
+const INPUT_ARITY: Record<string, [number, number]> = {
+  ask: [0, 1],
 };
 const GUI_ARITY: Record<string, [number, number]> = {
   window: [1, 1], server: [1, 1], label: [2, 2], button: [2, 2], field: [1, 2], textof: [1, 1],
@@ -43,7 +48,7 @@ export function check(program: Stmt[], extra: Set<string> = new Set<string>()): 
 
   const taskArity = new Map<string, number>();
   for (const s of program) if (s.type === "Task") taskArity.set(s.name, s.params.length);
-  const callable = new Set<string>([...taskArity.keys(), ...BUILTIN_NAMES, ...GUI_BUILTINS, ...PERSIST_BUILTINS, ...NET_BUILTINS, ...SECRET_BUILTINS]);
+  const callable = new Set<string>([...taskArity.keys(), ...BUILTIN_NAMES, ...GUI_BUILTINS, ...PERSIST_BUILTINS, ...NET_BUILTINS, ...SECRET_BUILTINS, ...INPUT_BUILTINS]);
 
   const globalVars = collectVars(program);
 
@@ -79,7 +84,14 @@ export function check(program: Stmt[], extra: Set<string> = new Set<string>()): 
         if (st.otherwiseBody) checkStmts(st.otherwiseBody, vars, inTask);
         return;
       case "RepeatWhile":
-        checkExpr(st.cond, vars); checkStmts(st.body, vars, inTask);
+        checkExpr(st.cond, vars);
+        // Catch a loop that can never end: the condition is a value that's always
+        // true (yes, a non-zero number, non-empty text). Sprout has no 'break', so
+        // this would run forever. Conservative — only flags definite cases.
+        if (alwaysTrue(st.cond)) {
+          errors.push(new LangError("Runtime", "This 'repeat while' can never stop — its condition is always true.", st.cond.line, st.cond.col, "Make the condition something that can become false (Sprout has no 'break')."));
+        }
+        checkStmts(st.body, vars, inTask);
         return;
       case "RepeatTimes":
         checkExpr(st.count, vars); checkStmts(st.body, vars, inTask);
@@ -148,6 +160,7 @@ export function check(program: Stmt[], extra: Set<string> = new Set<string>()): 
     else if (e.name in PERSIST_ARITY) arity = PERSIST_ARITY[e.name];
     else if (e.name in NET_ARITY) arity = NET_ARITY[e.name];
     else if (e.name in SECRET_ARITY) arity = SECRET_ARITY[e.name];
+    else if (e.name in INPUT_ARITY) arity = INPUT_ARITY[e.name];
     else {
       errors.push(new LangError("Name", `I don't know a task called '${e.name}'.`, e.line, e.col, nearestHint(e.name, callable) ?? `Define it with: task ${e.name}(...):`));
       return;
@@ -167,6 +180,15 @@ export function check(program: Stmt[], extra: Set<string> = new Set<string>()): 
     const near = closest(name, [...names]);
     return near ? `Did you mean '${near}'?` : undefined;
   }
+}
+
+// A condition that is always true (so a `repeat while` using it can never stop).
+// Deliberately narrow — only literal values — so it never flags a real loop.
+function alwaysTrue(e: Expr): boolean {
+  if (e.type === "Bool") return e.value === true;
+  if (e.type === "Number") return e.value !== 0;
+  if (e.type === "String") return e.value.length > 0;
+  return false;
 }
 
 // All variable names created (via make) at one scope level — descending into
