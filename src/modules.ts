@@ -113,13 +113,33 @@ function contentBlock(): string[] {
     for (const e of m.extensions) {
       if (!extPresent(m.name, e.name)) { lines.push("        " + T.dim(col(e.name, 14) + "not installed")); continue; }
       const ready = extMissing(e).length === 0;
-      const badge = ready ? T.green("ready") : T.yellow("needs setup");
+      const badge = ready ? T.green("ready") : (T.yellow("needs setup") + T.dim(" → type ") + T.cyan("install " + e.name));
       lines.push("        " + T.cyan(col(e.name, 14)) + T.dim(col(e.description, 30)) + badge);
     }
   }
   lines.push("");
-  lines.push(T.dim("  commands  ") + T.blue("install ") + T.dim("<name>   ") + T.blue("uninstall ") + T.dim("<name>   ") + T.blue("test") + T.dim("   ") + T.blue("quit"));
+  lines.push(T.dim("  commands  ") + T.blue("browse") + T.dim("   ") + T.blue("install ") + T.dim("<name>   ") + T.blue("uninstall ") + T.dim("<name>   ") + T.blue("test") + T.dim("   ") + T.blue("quit"));
   return lines;
+}
+
+// The full catalogue — every library Sprout offers, installed or not.
+function browseReport(): string[] {
+  const out: string[] = [T.text("catalogue — every Sprout library:"), ""];
+  for (const m of MODULES) {
+    const here = libPresent(m.name);
+    out.push("  " + (here ? T.green("● " + m.name) + T.dim("   installed, ready to ") + T.cyan("use \"" + m.name + "\"")
+                            : T.dim("○ " + m.name) + T.yellow("   available")));
+    out.push("      " + T.dim(m.description));
+    for (const e of m.extensions) {
+      const ready = extPresent(m.name, e.name) && extMissing(e).length === 0;
+      out.push("      " + T.dim("+ ") + T.cyan(col(e.name, 10)) + T.dim(col(e.description, 30)) +
+        (ready ? T.green("ready") : T.yellow("needs setup") + T.dim(" (") + T.cyan("install " + e.name) + T.dim(")")));
+    }
+    out.push("");
+  }
+  out.push(T.dim("  ‘needs setup’ = it works once you run its install (gets extra tools/packages)."));
+  out.push(T.dim("  Want more? Add your own library — see libraries/README.md."));
+  return out;
 }
 
 function renderScreen(state: State): string {
@@ -242,10 +262,12 @@ export function modulesCommand(): Promise<void> {
       if (verb === "" ) { state.message = []; return; }
       if (verb === "quit" || verb === "exit" || verb === "q") { leave(); return; }
       if (verb === "test") { state.message = testReport(); return; }
+      if (verb === "browse" || verb === "list" || verb === "store") { state.message = browseReport(); return; }
       if (verb === "help") {
         state.message = [
           T.text("commands:"),
-          "  " + T.blue("install <name>") + T.dim("    set up a library/extension (e.g. install music)"),
+          "  " + T.blue("browse") + T.dim("            see every library you can install"),
+          "  " + T.blue("install <name>") + T.dim("    set it up — installs its extra tools/packages (e.g. install music)"),
           "  " + T.blue("uninstall <name>") + T.dim("  remove a library/extension"),
           "  " + T.blue("test") + T.dim("              check what's installed and that it loads"),
           "  " + T.blue("quit") + T.dim("              leave  (or Esc / Ctrl+C)"),
