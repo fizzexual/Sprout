@@ -10,7 +10,7 @@
 
 import { readFileSync, existsSync } from "node:fs";
 import { createInterface } from "node:readline";
-import { dirname, join } from "node:path";
+import { basename, dirname, extname, join } from "node:path";
 
 import { tokenize } from "./lexer.ts";
 import { parse } from "./parser.ts";
@@ -21,6 +21,7 @@ import { startNativeGui } from "./gui-native.ts";
 import { startWebServer } from "./serve.ts";
 import { emptyTheme, parseBloom } from "./bloom.ts";
 import type { Theme } from "./bloom.ts";
+import { fileStorage } from "./storage.ts";
 
 const VERSION = "Sprout v0.3.0";
 
@@ -59,7 +60,9 @@ function runFile(path: string, mode: RunMode): void {
     fail(`I couldn't open the file: ${path}`, "Check the name and that the file is there.");
   }
 
-  const interp = new Interpreter(source);
+  // `remember`/`recall` persist to a JSON file next to the program.
+  const dataPath = join(dirname(path), basename(path, extname(path)) + ".data.json");
+  const interp = new Interpreter(source, undefined, { storage: fileStorage(dataPath) });
 
   // Parse, then verify the WHOLE program before running any of it.
   let program: ReturnType<typeof parse>;

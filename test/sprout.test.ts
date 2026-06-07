@@ -10,6 +10,7 @@ import { Interpreter } from "../src/interpreter.ts";
 import { LangError } from "../src/errors.ts";
 import { parseBloom, styleFor, windowStyle } from "../src/bloom.ts";
 import { check } from "../src/checker.ts";
+import { memoryStorage } from "../src/storage.ts";
 
 function problems(src: string): LangError[] {
   return check(parse(tokenize(src)));
@@ -245,6 +246,25 @@ test("checker: no false positive for a conditionally-made variable", () => {
 test("checker: a task's local is not visible outside it", () => {
   const src = "task f():\n    make secret = 1\n    give secret\nshow secret";
   assert.ok(problems(src).some((e) => e.kind === "Name"));
+});
+
+test("remember/recall persist across runs (shared storage)", () => {
+  const store = memoryStorage();
+  const s1 = 'remember("score", 42)';
+  new Interpreter(s1, () => {}, { storage: store }).run(parse(tokenize(s1)));
+  const out: string[] = [];
+  const s2 = 'show recall("score", 0)';
+  new Interpreter(s2, (l) => out.push(l), { storage: store }).run(parse(tokenize(s2)));
+  assert.deepEqual(out, ["42"]);
+});
+
+test("recall returns the default when nothing is saved", () => {
+  assert.deepEqual(run('show recall("missing", 7)'), ["7"]);
+});
+
+test("checker knows remember/recall arity", () => {
+  assert.equal(problems("show recall()")[0].kind, "Type");
+  assert.equal(problems('remember("k")')[0].kind, "Type");
 });
 
 test("security: only a button's task can be triggered", () => {

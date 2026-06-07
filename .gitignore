@@ -4,6 +4,9 @@ dist/
 logs.txt
 .DS_Store
 
+# Data saved by Sprout programs (remember/recall)
+*.data.json
+
 # Local editor / tooling state
 .claude/
 

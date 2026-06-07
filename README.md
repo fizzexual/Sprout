@@ -73,8 +73,8 @@ sprout repl                         # interactive prompt
 
 Sprout programs use the **`.sprout`** extension. There are more to try in
 [`examples/`](examples): `hello`, `fizzbuzz`, `triangle`, `math`, `primes`,
-`functions`, the GUI apps `gui-counter` & `gui-greeter`, and the website
-`server_example`.
+`functions`, the GUI apps `gui-counter` & `gui-greeter`, the website
+`server_example`, and `savecounter` (a counter that remembers its value).
 
 > Don't want to install anything? You can always run it directly:
 > `node src/cli.ts run examples/hello.sprout`
@@ -225,6 +225,7 @@ npm test          # or: node --test test/sprout.test.ts
 | GUI apps (native) | `window(title)` + `label` / `button` / `field` / `textof` |
 | Websites (server) | `server(title)` + the same widgets, runs in a browser |
 | Hidden backend | server logic never reaches the browser — only button tasks can run |
+| Saves data | `remember` / `recall` — data persists between runs, no database |
 | Verified first | the whole program is checked before it runs (`sprout check`) |
 | Styling (Bloom) | `style "theme.bloom"` — or raw output if omitted |
 | Editor | **Botanica** — a VS Code-style editor (Electron + Monaco) in `botanica/` |

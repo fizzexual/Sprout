@@ -27,6 +27,27 @@ friendly error.
 | `upper(text)` | UPPERCASE | `upper("hi")` | `"HI"` |
 | `lower(text)` | lowercase | `lower("HI")` | `"hi"` |
 
+## Saving data (remember / recall)
+
+`remember` and `recall` save values that **last between runs** — no database, no
+setup. Great for scores, settings, or a counter that doesn't reset.
+
+| Function | What it does | Example |
+| --- | --- | --- |
+| `remember("key", value)` | save a value under a name | `remember("score", 100)` |
+| `recall("key")` | read it back (`nothing` if unset) | `recall("score")` |
+| `recall("key", default)` | read it back, or a default | `recall("score", 0)` |
+
+```sprout
+make score = recall("highScore", 0)
+~ ... play the game ...
+remember("highScore", score)
+```
+
+The data lives in a small JSON file next to your program. See
+[`examples/savecounter.sprout`](../examples/savecounter.sprout) — a counter that
+remembers its value after you close it.
+
 ## Errors are friendly
 
 Giving a builtin the wrong kind of value, or the wrong number of values, tells

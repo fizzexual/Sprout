@@ -14,6 +14,7 @@ import { LangError } from "./errors.ts";
 import type { Expr, Stmt } from "./ast.ts";
 import { BUILTIN_NAMES } from "./builtins.ts";
 import { GUI_BUILTINS } from "./gui.ts";
+import { PERSIST_BUILTINS } from "./storage.ts";
 
 const BUILTIN_ARITY: Record<string, [number, number]> = {
   abs: [1, 1], round: [1, 1], floor: [1, 1], ceil: [1, 1], sqrt: [1, 1],
@@ -23,6 +24,9 @@ const BUILTIN_ARITY: Record<string, [number, number]> = {
 const GUI_ARITY: Record<string, [number, number]> = {
   window: [1, 1], server: [1, 1], label: [2, 2], button: [2, 2], field: [1, 2], textof: [1, 1],
 };
+const PERSIST_ARITY: Record<string, [number, number]> = {
+  remember: [2, 2], recall: [1, 2],
+};
 
 // Returns every problem found (empty array = the program is good to run).
 export function check(program: Stmt[]): LangError[] {
@@ -30,7 +34,7 @@ export function check(program: Stmt[]): LangError[] {
 
   const taskArity = new Map<string, number>();
   for (const s of program) if (s.type === "Task") taskArity.set(s.name, s.params.length);
-  const callable = new Set<string>([...taskArity.keys(), ...BUILTIN_NAMES, ...GUI_BUILTINS]);
+  const callable = new Set<string>([...taskArity.keys(), ...BUILTIN_NAMES, ...GUI_BUILTINS, ...PERSIST_BUILTINS]);
 
   const globalVars = collectVars(program);
 
@@ -114,6 +118,7 @@ export function check(program: Stmt[]): LangError[] {
     if (taskArity.has(e.name)) arity = [taskArity.get(e.name)!, taskArity.get(e.name)!];
     else if (e.name in BUILTIN_ARITY) arity = BUILTIN_ARITY[e.name];
     else if (e.name in GUI_ARITY) arity = GUI_ARITY[e.name];
+    else if (e.name in PERSIST_ARITY) arity = PERSIST_ARITY[e.name];
     else {
       errors.push(new LangError("Name", `I don't know a task called '${e.name}'.`, e.line, e.col, nearestHint(e.name, callable) ?? `Define it with: task ${e.name}(...):`));
       return;
