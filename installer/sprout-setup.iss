@@ -94,8 +94,10 @@ var Paths: String;
 begin
   if not RegQueryStringValue(HKCU, EnvKey, 'Path', Paths) then Paths := '';
   if Pos(';' + Uppercase(Path) + ';', ';' + Uppercase(Paths) + ';') > 0 then exit;
-  if (Paths <> '') and (Paths[Length(Paths)] <> ';') then Paths := Paths + ';';
-  RegWriteExpandStringValue(HKCU, EnvKey, 'Path', Paths + Path);
+  { Prepend, not append: on PCs with a very long PATH, an appended entry can get
+    truncated away and `sprout` won't be found. Putting it first keeps it reachable. }
+  if Paths = '' then Paths := Path else Paths := Path + ';' + Paths;
+  RegWriteExpandStringValue(HKCU, EnvKey, 'Path', Paths);
 end;
 
 procedure EnvRemovePath(Path: String);
