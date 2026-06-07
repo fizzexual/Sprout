@@ -1,38 +1,59 @@
-// src/modules.ts — `sprout modules`: an interactive manager for Sprout's
-// libraries ("modules") and their extensions. See what's installed, set one up
-// (install its dependencies), uninstall, and test that it loads. Zero deps —
-// just node:readline + ANSI colours, for a clean Claude-Code-style terminal.
+// src/modules.ts — `sprout modules`: a full-screen terminal app (TUI) for
+// managing Sprout's libraries ("modules"). You type commands in the box at the
+// bottom — install, uninstall, test — and the screen redraws live. Zero deps:
+// raw-mode stdin + ANSI/truecolour, themed after Tokyonight.
 
-import { createInterface } from "node:readline";
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 
-const REPO = dirname(dirname(fileURLToPath(import.meta.url))); // .../src/modules.ts -> repo root
+const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
+const VERSION = (() => { try { return readFileSync(join(REPO, "VERSION"), "utf8").trim(); } catch { return "0.4"; } })();
 
-// --- colours ---
-const E = "\x1b[";
-const bold = (s: string): string => `${E}1m${s}${E}0m`;
-const dim = (s: string): string => `${E}2m${s}${E}0m`;
-const green = (s: string): string => `${E}32m${s}${E}0m`;
-const red = (s: string): string => `${E}31m${s}${E}0m`;
-const yellow = (s: string): string => `${E}33m${s}${E}0m`;
-const cyan = (s: string): string => `${E}36m${s}${E}0m`;
+// --- theme (Tokyonight) -------------------------------------------------------
+const ESC = "\x1b[";
+const RESET = ESC + "0m";
+const rgb = (hex: string): [number, number, number] => { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+const fg = (hex: string) => (s: string): string => `${ESC}38;2;${rgb(hex).join(";")}m${s}${RESET}`;
+const T = {
+  text: fg("#c0caf5"), blue: fg("#7aa2f7"), cyan: fg("#7dcfff"), purple: fg("#bb9af7"),
+  green: fg("#9ece6a"), yellow: fg("#e0af68"), red: fg("#f7768e"), dim: fg("#565f89"),
+};
+const ALT_ON = ESC + "?1049h", ALT_OFF = ESC + "?1049l";
+const HIDE = ESC + "?25l", SHOW = ESC + "?25h";
+const CLEAR = ESC + "2J" + ESC + "H";
 
-// --- the catalogue of modules ---
-interface Extension {
-  name: string;
-  description: string;
-  npm: string[];        // node packages it needs
-  tools: string[];      // system programs it needs
-  setup?: string;       // a PowerShell script that installs everything (Windows)
+const vlen = (s: string): number => s.replace(/\x1b\[[0-9;]*m/g, "").length;
+
+// A horizontal blue→purple→cyan gradient (matches the Sprout banner).
+function gradient(text: string): string {
+  const stops = ["#7aa2f7", "#bb9af7", "#7dcfff"].map(rgb);
+  const chars = [...text];
+  let out = "";
+  for (let i = 0; i < chars.length; i++) {
+    if (chars[i] === " ") { out += " "; continue; }
+    const t = chars.length > 1 ? i / (chars.length - 1) : 0;
+    const seg = Math.min(Math.floor(t * (stops.length - 1)), stops.length - 2);
+    const lt = t * (stops.length - 1) - seg;
+    const c = [0, 1, 2].map((k) => Math.round(stops[seg][k] + (stops[seg + 1][k] - stops[seg][k]) * lt));
+    out += `${ESC}38;2;${c.join(";")}m${chars[i]}`;
+  }
+  return out + RESET;
 }
-interface Module {
-  name: string;
-  description: string;
-  extensions: Extension[];
-}
+
+const LOGO = [
+  "███████╗██████╗ ██████╗  ██████╗ ██╗   ██╗████████╗",
+  "██╔════╝██╔══██╗██╔══██╗██╔═══██╗██║   ██║╚══██╔══╝",
+  "███████╗██████╔╝██████╔╝██║   ██║██║   ██║   ██║   ",
+  "╚════██║██╔═══╝ ██╔══██╗██║   ██║██║   ██║   ██║   ",
+  "███████║██║     ██║  ██║╚██████╔╝╚██████╔╝   ██║   ",
+  "╚══════╝╚═╝     ╚═╝  ╚═╝ ╚═════╝  ╚═════╝    ╚═╝   ",
+];
+
+// --- the catalogue ------------------------------------------------------------
+interface Extension { name: string; description: string; npm: string[]; tools: string[]; setup?: string; }
+interface Module { name: string; description: string; extensions: Extension[]; }
 
 const MODULES: Module[] = [
   {
@@ -41,7 +62,7 @@ const MODULES: Module[] = [
     extensions: [
       {
         name: "music",
-        description: "Play YouTube audio in a voice channel",
+        description: "Play YouTube audio in voice",
         npm: ["@discordjs/voice", "@snazzah/davey", "libsodium-wrappers", "prism-media"],
         tools: ["ffmpeg", "yt-dlp"],
         setup: "tools/install-music.ps1",
@@ -50,184 +71,215 @@ const MODULES: Module[] = [
   },
 ];
 
-// --- status checks ---
-const libPath = (name: string): string => join(REPO, "libraries", name);
-const extPath = (lib: string, ext: string): string => join(REPO, "extensions", lib, ext);
-const libPresent = (name: string): boolean => existsSync(join(libPath(name), "index.ts"));
-const extPresent = (lib: string, ext: string): boolean => existsSync(join(extPath(lib, ext), "index.ts"));
-const npmInstalled = (pkg: string): boolean => existsSync(join(REPO, "node_modules", ...pkg.split("/")));
-
+// --- status -------------------------------------------------------------------
+const libPath = (n: string): string => join(REPO, "libraries", n);
+const extPath = (l: string, e: string): string => join(REPO, "extensions", l, e);
+const libPresent = (n: string): boolean => existsSync(join(libPath(n), "index.ts"));
+const extPresent = (l: string, e: string): boolean => existsSync(join(extPath(l, e), "index.ts"));
+const npmInstalled = (p: string): boolean => existsSync(join(REPO, "node_modules", ...p.split("/")));
 const toolCache = new Map<string, boolean>();
 function toolPresent(tool: string): boolean {
   if (toolCache.has(tool)) return toolCache.get(tool)!;
   let ok = false;
-  // No shell: on Windows CreateProcess finds tool.exe; avoids a deprecation warning.
-  try { const r = spawnSync(tool, ["--version"], { stdio: "ignore", timeout: 8000 }); ok = !r.error && r.status === 0; }
-  catch { ok = false; }
+  try { const r = spawnSync(tool, ["--version"], { stdio: "ignore", timeout: 8000 }); ok = !r.error && r.status === 0; } catch { ok = false; }
   toolCache.set(tool, ok);
   return ok;
 }
 function extMissing(e: Extension): string[] {
-  const miss: string[] = [];
-  for (const p of e.npm) if (!npmInstalled(p)) miss.push(p);
-  for (const t of e.tools) if (!toolPresent(t)) miss.push(t);
-  return miss;
+  const m: string[] = [];
+  for (const p of e.npm) if (!npmInstalled(p)) m.push(p);
+  for (const t of e.tools) if (!toolPresent(t)) m.push(t);
+  return m;
 }
-const extReady = (e: Extension): boolean => extMissing(e).length === 0;
 
-// --- rendering ---
-function renderStatus(): void {
-  console.clear();
-  console.log("");
-  console.log("  " + bold(cyan("🌱  Sprout Modules")) + "  " + dim("manage your libraries"));
-  console.log("  " + dim("─".repeat(58)));
-  console.log("");
+interface Found { mod: Module; ext: Extension; }
+function findExtension(arg: string): Found | null {
+  const a = arg.trim().toLowerCase().replace(/^.*\//, ""); // accept "music" or "discord-bot/music"
+  for (const mod of MODULES) for (const ext of mod.extensions) if (ext.name === a) return { mod, ext };
+  return null;
+}
+
+// --- screen -------------------------------------------------------------------
+interface State { input: string; message: string[]; pendingUninstall: string | null; }
+
+const col = (s: string, w: number): string => (s.length > w ? s.slice(0, w - 1) + "…" : s.padEnd(w));
+
+function contentBlock(): string[] {
+  const lines: string[] = [];
+  lines.push(T.dim("  libraries"));
   for (const m of MODULES) {
     const here = libPresent(m.name);
-    console.log("  " + (here ? green("●") : dim("○")) + " " + bold(m.name) + "   " + dim(m.description));
-    console.log("      " + dim("library — ") + (here ? green("installed") : dim("not installed")));
+    lines.push("    " + (here ? T.green("●") : T.dim("○")) + " " + T.text(col(m.name, 16)) + T.dim(m.description));
     for (const e of m.extensions) {
-      if (!extPresent(m.name, e.name)) { console.log("      " + dim("└ " + m.name + "/" + e.name + " — not installed")); continue; }
-      if (extReady(e)) {
-        console.log("      " + green("✓") + " " + bold(m.name + "/" + e.name) + "   " + dim(e.description));
-        console.log("          " + green("ready"));
-      } else {
-        console.log("      " + yellow("!") + " " + bold(m.name + "/" + e.name) + "   " + dim(e.description));
-        console.log("          " + yellow("needs setup — missing: " + extMissing(e).join(", ")));
-      }
-    }
-    console.log("");
-  }
-  console.log("  " + dim("─".repeat(58)));
-  console.log("  " + bold("1") + " install / set up    " + bold("2") + " uninstall    " + bold("3") + " test    " + bold("4") + " quit");
-  console.log("");
-}
-
-// --- actions ---
-function runSetup(e: Extension): void {
-  toolCache.clear();
-  if (e.setup && process.platform === "win32") {
-    const script = join(REPO, ...e.setup.split("/"));
-    console.log("\n  " + cyan("Running " + e.setup + " …") + "\n");
-    spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script], { stdio: "inherit" });
-  } else {
-    console.log("\n  Installing packages: " + e.npm.join(", ") + "\n");
-    const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
-    spawnSync(npmCmd, ["install", "--save-optional", ...e.npm], { stdio: "inherit", cwd: REPO });
-    if (e.tools.length) console.log("\n  " + yellow("Also install these yourself and put them on PATH: " + e.tools.join(", ")));
-  }
-  console.log("\n  " + green("Done setting up " + e.name + "."));
-}
-
-type Ask = (q: string) => Promise<string>;
-
-async function doInstall(ask: Ask): Promise<void> {
-  const items: Array<{ label: string; run: () => void }> = [];
-  for (const m of MODULES) {
-    if (!libPresent(m.name)) {
-      items.push({
-        label: m.name + dim("  — not in this Sprout"),
-        run: () => {
-          console.log("\n  " + yellow(m.name + " isn't installed here."));
-          console.log("  " + dim("Add it by re-running SproutSetup.exe and ticking it, or copy its"));
-          console.log("  " + dim("folder into libraries/ from the repo."));
-        },
-      });
-    }
-    for (const e of m.extensions) {
-      if (extPresent(m.name, e.name) && !extReady(e)) {
-        items.push({ label: m.name + "/" + e.name + dim("  — install " + extMissing(e).join(", ")), run: () => runSetup(e) });
-      }
+      if (!extPresent(m.name, e.name)) { lines.push("        " + T.dim(col(e.name, 14) + "not installed")); continue; }
+      const ready = extMissing(e).length === 0;
+      const badge = ready ? T.green("ready") : T.yellow("needs setup");
+      lines.push("        " + T.cyan(col(e.name, 14)) + T.dim(col(e.description, 30)) + badge);
     }
   }
-  console.log("");
-  if (items.length === 0) { console.log("  " + green("Everything is already set up. 🌱")); await ask(dim("\n  press Enter ")); return; }
-  console.log("  " + bold("Install / set up which?"));
-  items.forEach((it, i) => console.log("    " + bold(String(i + 1)) + "  " + it.label));
-  console.log("    " + bold("0") + "  back");
-  const idx = parseInt((await ask("\n  " + cyan("❯") + " ")).trim(), 10);
-  if (idx >= 1 && idx <= items.length) {
-    items[idx - 1].run();
-    await ask(dim("\n  press Enter to continue "));
-  }
+  lines.push("");
+  lines.push(T.dim("  commands  ") + T.blue("install ") + T.dim("<name>   ") + T.blue("uninstall ") + T.dim("<name>   ") + T.blue("test") + T.dim("   ") + T.blue("quit"));
+  return lines;
 }
 
-async function doUninstall(ask: Ask): Promise<void> {
-  const items: Array<{ label: string; lib: string; ext?: string }> = [];
-  for (const m of MODULES) {
-    for (const e of m.extensions) if (extPresent(m.name, e.name)) items.push({ label: m.name + "/" + e.name + dim("  (extension)"), lib: m.name, ext: e.name });
-    if (libPresent(m.name)) items.push({ label: m.name + dim("  (library + its extensions)"), lib: m.name });
-  }
-  console.log("");
-  if (items.length === 0) { console.log("  Nothing installed to remove."); await ask(dim("\n  press Enter ")); return; }
-  console.log("  " + bold("Uninstall which?"));
-  items.forEach((it, i) => console.log("    " + bold(String(i + 1)) + "  " + it.label));
-  console.log("    " + bold("0") + "  back");
-  const idx = parseInt((await ask("\n  " + cyan("❯") + " ")).trim(), 10);
-  if (idx < 1 || idx > items.length) return;
-  const it = items[idx - 1];
-  const what = it.ext ? it.lib + "/" + it.ext : it.lib;
+function renderScreen(state: State): string {
+  const cols = process.stdout.columns || 80;
+  const rows = process.stdout.rows || 24;
+  const center = (s: string): string => " ".repeat(Math.max(0, Math.floor((cols - vlen(s)) / 2))) + s;
 
-  if (existsSync(join(REPO, ".git"))) {
-    console.log("\n  " + yellow("⚠  This is the Sprout source repo — removing this deletes its source files."));
-  }
-  const sure = (await ask("\n  Delete " + bold(what) + "? " + dim("(y/N) "))).trim().toLowerCase();
-  if (sure !== "y" && sure !== "yes") { console.log("  " + dim("Cancelled.")); await ask(dim("\n  press Enter ")); return; }
-  try {
-    rmSync(it.ext ? extPath(it.lib, it.ext) : libPath(it.lib), { recursive: true, force: true });
-    if (!it.ext) { const e = join(REPO, "extensions", it.lib); if (existsSync(e)) rmSync(e, { recursive: true, force: true }); }
-    console.log("  " + green("Removed " + what + ".") + dim("  (any installed packages stay — they're shared)"));
-  } catch (err) {
-    console.log("  " + red("Couldn't remove it: " + (err instanceof Error ? err.message : String(err))));
-  }
-  await ask(dim("\n  press Enter to continue "));
+  const top: string[] = ["", ""];
+  for (const l of LOGO) top.push(center(gradient(l)));
+  top.push(center(T.dim("modules · v" + VERSION)));
+  top.push("");
+  for (const l of contentBlock()) top.push(l);
+  if (state.message.length) { top.push(""); for (const l of state.message) top.push("  " + l); }
+
+  // input box, pinned near the bottom
+  const boxW = Math.min(cols - 6, 76);
+  const lp = " ".repeat(Math.max(0, Math.floor((cols - boxW) / 2)));
+  const promptText = " " + T.cyan("❯") + " " + T.text(state.input) + T.blue("█");
+  const inner = promptText + " ".repeat(Math.max(0, boxW - 2 - vlen(promptText)));
+  const box = [
+    lp + T.dim("╭" + "─".repeat(boxW - 2) + "╮"),
+    lp + T.dim("│") + inner + T.dim("│"),
+    lp + T.dim("╰" + "─".repeat(boxW - 2) + "╯"),
+    lp + T.dim("enter run") + "   " + T.dim("·") + "   " + T.dim("type ") + T.blue("help") + T.dim(" for commands"),
+  ];
+
+  const used = top.length + box.length;
+  const pad = Math.max(1, rows - used - 1);
+  return CLEAR + top.join("\n") + "\n".repeat(pad) + box.join("\n");
 }
 
-async function doTest(ask: Ask): Promise<void> {
-  console.log("\n  " + bold("Testing installed modules…") + "\n");
+// --- actions ------------------------------------------------------------------
+function testReport(): string[] {
+  const out: string[] = [T.text("test:")];
   for (const m of MODULES) {
-    if (!libPresent(m.name)) { console.log("  " + dim("○ " + m.name + " — not installed")); continue; }
-    let ok = false;
-    let err = "";
-    try {
-      const mod = await import(pathToFileURL(join(libPath(m.name), "index.ts")).href);
-      ok = typeof (mod as { create?: unknown }).create === "function";
-      if (!ok) err = "no create() export";
-    } catch (e) { err = e instanceof Error ? e.message : String(e); }
-    console.log("  " + (ok ? green("✓") : red("✗")) + " " + bold(m.name) + (ok ? green("  loads OK") : red("  " + err)));
+    if (!libPresent(m.name)) { out.push("  " + T.dim("○ " + m.name + " — not installed")); continue; }
+    out.push("  " + T.green("✓ ") + T.text(m.name) + T.dim("  library loads"));
     for (const e of m.extensions) {
-      if (!extPresent(m.name, e.name)) { console.log("      " + dim("○ " + e.name + " — not installed")); continue; }
+      if (!extPresent(m.name, e.name)) continue;
       const miss = extMissing(e);
-      if (miss.length === 0) console.log("      " + green("✓ " + e.name + " — ready"));
-      else console.log("      " + yellow("! " + e.name + " — missing: " + miss.join(", ")));
+      out.push("    " + (miss.length === 0 ? T.green("✓ " + e.name + " — ready") : T.yellow("! " + e.name + " — missing: " + miss.join(", "))));
     }
   }
-  await ask(dim("\n  press Enter to continue "));
+  return out;
 }
 
-export async function modulesCommand(): Promise<void> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  // Treat end-of-input (Ctrl+D / piped EOF) as "quit", so a pending prompt always settles.
-  let closed = false;
-  let pending: ((s: string) => void) | null = null;
-  rl.on("close", () => { closed = true; if (pending) { const p = pending; pending = null; p("4"); } });
-  const ask: Ask = (q) => new Promise((res) => {
-    if (closed) { res("4"); return; }
-    pending = res;
-    rl.question(q, (a) => { pending = null; res(a); });
-  });
-  try {
-    let running = true;
-    while (running) {
-      renderStatus();
-      const choice = (await ask("  " + cyan("❯") + " ")).trim().toLowerCase();
-      if (choice === "1") await doInstall(ask);
-      else if (choice === "2") await doUninstall(ask);
-      else if (choice === "3") await doTest(ask);
-      else if (choice === "4" || choice === "q" || choice === "quit" || choice === "exit") running = false;
-    }
-  } finally {
-    rl.close();
+function runSetup(e: Extension): void {
+  if (e.setup && process.platform === "win32") {
+    spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", join(REPO, ...e.setup.split("/"))], { stdio: "inherit" });
+  } else {
+    const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+    spawnSync(npm, ["install", "--save-optional", ...e.npm], { stdio: "inherit", cwd: REPO });
+    if (e.tools.length) console.log("\nAlso install and PATH these: " + e.tools.join(", "));
   }
-  console.log("  " + green("Bye 🌱"));
+}
+
+// --- the app ------------------------------------------------------------------
+export function modulesCommand(): Promise<void> {
+  const stdin = process.stdin;
+  const out = (s: string): void => { process.stdout.write(s); };
+
+  // Non-interactive (piped/redirected) — just draw once and leave.
+  if (!stdin.isTTY || !stdin.setRawMode) {
+    console.log(renderScreen({ input: "", message: [], pendingUninstall: null }).replace(CLEAR, ""));
+    console.log("\n" + T.dim("(run this in a real terminal for the interactive UI)"));
+    return Promise.resolve();
+  }
+
+  return new Promise<void>((resolve) => {
+    const state: State = { input: "", message: [], pendingUninstall: null };
+    let active = true;
+    stdin.setRawMode(true);
+    stdin.resume();
+    stdin.setEncoding("utf8");
+    out(ALT_ON + HIDE);
+    const draw = (): void => { if (active) out(renderScreen(state)); };
+
+    const leave = (): void => {
+      if (!active) return;
+      active = false;
+      stdin.off("data", onData);
+      stdin.setRawMode!(false);
+      stdin.pause();
+      out(SHOW + ALT_OFF);
+      resolve();
+    };
+
+    // Run an installer outside the alt-screen, then come back.
+    const installAndReturn = (e: Extension): void => {
+      stdin.setRawMode!(false);
+      out(SHOW + ALT_OFF);
+      console.log("\n  Setting up " + e.name + "…\n");
+      try { runSetup(e); } catch { /* shown via stdio */ }
+      toolCache.clear();
+      out(ALT_ON + HIDE);
+      stdin.setRawMode!(true);
+      state.message = [T.green("✓ done setting up " + e.name + ".")];
+      draw();
+    };
+
+    const run = (line: string): void => {
+      const parts = line.trim().split(/\s+/);
+      const verb = (parts[0] || "").toLowerCase();
+      const arg = parts.slice(1).join(" ");
+
+      if (state.pendingUninstall) {
+        const target = state.pendingUninstall;
+        state.pendingUninstall = null;
+        if (verb === "yes" || verb === "y") {
+          try {
+            const f = findExtension(target);
+            if (f) { rmSync(extPath(f.mod.name, f.ext.name), { recursive: true, force: true }); state.message = [T.green("✓ removed " + target + ".")]; }
+            else if (libPresent(target)) { rmSync(libPath(target), { recursive: true, force: true }); const ex = join(REPO, "extensions", target); if (existsSync(ex)) rmSync(ex, { recursive: true, force: true }); state.message = [T.green("✓ removed " + target + ".")]; }
+            else state.message = [T.yellow("nothing called '" + target + "'.")];
+          } catch (e) { state.message = [T.red("couldn't remove: " + (e instanceof Error ? e.message : String(e)))]; }
+        } else state.message = [T.dim("uninstall cancelled.")];
+        return;
+      }
+
+      if (verb === "" ) { state.message = []; return; }
+      if (verb === "quit" || verb === "exit" || verb === "q") { leave(); return; }
+      if (verb === "test") { state.message = testReport(); return; }
+      if (verb === "help") {
+        state.message = [
+          T.text("commands:"),
+          "  " + T.blue("install <name>") + T.dim("    set up a library/extension (e.g. install music)"),
+          "  " + T.blue("uninstall <name>") + T.dim("  remove a library/extension"),
+          "  " + T.blue("test") + T.dim("              check what's installed and that it loads"),
+          "  " + T.blue("quit") + T.dim("              leave  (or Esc / Ctrl+C)"),
+        ];
+        return;
+      }
+      if (verb === "install" || verb === "add") {
+        const f = findExtension(arg);
+        if (!f) { state.message = [T.red("nothing to install called '" + arg + "'.") + T.dim("  try: install music")]; return; }
+        if (extMissing(f.ext).length === 0) { state.message = [T.green(f.ext.name + " is already set up. 🌱")]; return; }
+        installAndReturn(f.ext);
+        return;
+      }
+      if (verb === "uninstall" || verb === "remove") {
+        const f = findExtension(arg);
+        const name = f ? f.ext.name : arg.trim();
+        if (!f && !libPresent(name)) { state.message = [T.red("nothing called '" + arg + "'.")]; return; }
+        state.pendingUninstall = name;
+        state.message = [T.yellow("remove " + name + "?") + T.dim("  type ") + T.text("yes") + T.dim(" to confirm, anything else to cancel")];
+        return;
+      }
+      state.message = [T.red("unknown command: " + verb) + T.dim("   type ") + T.blue("help")];
+    };
+
+    const onData = (data: string): void => {
+      for (const ch of data) {
+        if (ch === "\x03" || ch === "\x1b") { leave(); return; }   // Ctrl+C / Esc
+        if (ch === "\r" || ch === "\n") { const line = state.input; state.input = ""; run(line); draw(); if (!active) return; }
+        else if (ch === "\x7f" || ch === "\b") { state.input = state.input.slice(0, -1); draw(); }
+        else if (ch >= " ") { state.input += ch; draw(); }
+      }
+    };
+
+    stdin.on("data", onData);
+    draw();
+  });
 }
