@@ -6,7 +6,7 @@
   "author": "Fizzexual",
   "main": "main.js",
   "scripts": {
-    "start": "electron .",
+    "start": "node start.js",
     "dist": "powershell -ExecutionPolicy Bypass -File make-icon.ps1 -Out build/icon.ico && electron-builder --win nsis"
   },
   "devDependencies": {

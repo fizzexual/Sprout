@@ -20,10 +20,12 @@ let mainWindow = null;
 let runChild = null;
 
 // A path passed on the command line (e.g. from "Open with" / the context menu).
+// dev/unpacked: argv = [electron, <appDir or ".">, <userPath?>] -> skip the app path.
+// packaged:     argv = [exe, <userPath?>].
 function pathFromArgv(argv) {
-  const args = argv.slice(1);
+  const args = argv.slice(app.isPackaged ? 1 : 2);
   for (const a of args) {
-    if (!a || a === "." || a.startsWith("-")) continue;
+    if (!a || a.startsWith("-")) continue;
     try { if (fss.existsSync(a)) return a; } catch { /* ignore */ }
   }
   return null;
