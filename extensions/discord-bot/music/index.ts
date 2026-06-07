@@ -174,7 +174,11 @@ export function create(_interp: Interpreter, library: { api: DiscordApi }) {
       return;
     }
     gm.procs = piped;
-    const resource = V.createAudioResource(piped.stream, { inputType: V.StreamType.OggOpus });
+    // Feed raw PCM and let @discordjs/voice encode the opus itself (needs an opus
+    // library — opusscript). This is the path working music bots use; the older
+    // Ogg-passthrough relied on demuxing ffmpeg's output, which could hand the
+    // encoder subtly-broken packets — encrypted fine by DAVE, but silent to listeners.
+    const resource = V.createAudioResource(piped.stream, { inputType: V.StreamType.Raw });
     gm.player.play(resource);
     api.send(track.textChannelId, `🎵 Now playing: **${track.title}**`);
   }
@@ -257,9 +261,10 @@ function streamFor(url: string, onError: (msg: string) => void): { stream: NodeJ
     // index at the END of the file, so ffmpeg would have to seek — which a pipe
     // can't do — and it reads nothing. That's the classic "joins but silent".)
     const format = "bestaudio[ext=webm]/bestaudio[acodec=opus]/bestaudio";
-    mlog(`yt-dlp ${format} -> ffmpeg(libopus) for ${url}`);
+    mlog(`yt-dlp ${format} -> ffmpeg(PCM s16le 48k stereo) for ${url}`);
     const ytdlp = spawn("yt-dlp", ["-q", "--no-playlist", "-f", format, "-o", "-", url], { stdio: ["ignore", "pipe", "pipe"] });
-    const ffmpeg = spawn("ffmpeg", ["-hide_banner", "-loglevel", "warning", "-i", "pipe:0", "-vn", "-c:a", "libopus", "-b:a", "96k", "-ar", "48000", "-ac", "2", "-f", "opus", "pipe:1"], { stdio: ["pipe", "pipe", "pipe"] });
+    // Decode to raw PCM (s16le, 48kHz, stereo) — @discordjs/voice encodes the opus.
+    const ffmpeg = spawn("ffmpeg", ["-hide_banner", "-loglevel", "warning", "-i", "pipe:0", "-vn", "-ar", "48000", "-ac", "2", "-f", "s16le", "pipe:1"], { stdio: ["pipe", "pipe", "pipe"] });
     let ytErr = "";
     let ffErr = "";
     ytdlp.stderr.on("data", (d: Buffer) => { ytErr += d.toString(); });

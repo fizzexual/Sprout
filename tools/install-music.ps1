@@ -22,7 +22,9 @@ if (-not $npm) {
 } else {
     Push-Location $repo
     try {
-        & npm install --save-optional "@discordjs/voice@latest" "@snazzah/davey@latest" "libsodium-wrappers@latest" "prism-media@latest"
+        # opusscript is a pure-JS opus encoder (no compiler needed). @discordjs/voice
+        # uses it to encode audio to opus; without it, playback is silent.
+        & npm install --save-optional "@discordjs/voice@latest" "@snazzah/davey@latest" "libsodium-wrappers@latest" "prism-media@latest" "opusscript@latest"
         if ($LASTEXITCODE -eq 0) {
             Write-Host "  OK - voice packages installed." -ForegroundColor Green
         } else {
