@@ -66,7 +66,8 @@ sprout repl                         # interactive prompt
 
 Sprout programs use the **`.sprout`** extension. There are more to try in
 [`examples/`](examples): `hello`, `fizzbuzz`, `triangle`, `math`, `primes`,
-`functions`, and the GUI apps `gui-counter` & `gui-greeter`.
+`functions`, the GUI apps `gui-counter` & `gui-greeter`, and the website
+`server_example`.
 
 > Don't want to install anything? You can always run it directly:
 > `node src/cli.ts run examples/hello.sprout`
@@ -74,7 +75,8 @@ Sprout programs use the **`.sprout`** extension. There are more to try in
 ### Double-click to run (Windows)
 
 Make `.sprout` files runnable straight from Explorer — double-click one and it
-runs, showing its output in a window:
+runs (a window for GUI apps, a website for `server` apps). This **also installs
+Botanica** as an "Open with" editor for `.sprout`/`.bloom`:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\install-file-association.ps1
@@ -117,27 +119,30 @@ label("display", "Count: 0")
 button("Add one", "add")
 ```
 
-Open it as a native window (Windows — uses the built-in .NET, no installs):
+**Just open the file** — once the installer below is run, double-click it and the
+window appears. No terminal needed. (Or from a shell: `sprout gui examples/gui-counter.sprout`.)
 
-```bash
-sprout gui examples/gui-counter.sprout
-```
+A program that calls **`server("Title")`** instead of `window("Title")` runs as a
+**website** when opened — see [`examples/server_example.sprout`](examples/server_example.sprout)
+(or `sprout serve examples/server_example.sprout`).
 
-…or run the *same program* as a website:
-
-```bash
-sprout serve examples/gui-counter.sprout
-```
-
-GUI building blocks: `window(title)`, `label(id, text)` (call again to update
-it), `button(text, taskName)`, `field(id, hint)`, and `textof(id)`. Try
-`examples/gui-greeter.sprout` too.
+GUI building blocks: `window(title)` / `server(title)`, `label(id, text)` (call
+again to update it), `button(text, taskName)`, `field(id, hint)`, and
+`textof(id)`. Try `examples/gui-greeter.sprout` too (it has no `style`, so it
+shows the raw look).
 
 ## Style it with Bloom 🌸
 
-**Bloom** is Sprout's own styling language — its version of CSS. Put a `.bloom`
-file next to your program (same name) and it's loaded automatically, styling
-both the native window and the website.
+**Bloom** is Sprout's own styling language — its version of CSS. Point at a
+`.bloom` file from your program with `style`:
+
+```sprout
+style "gui-counter.bloom"
+
+window("Counter")
+label("display", "Count: 0")
+button("Add one", "add")
+```
 
 ```bloom
 ~ gui-counter.bloom
@@ -156,7 +161,15 @@ button:
 ```
 
 Style by widget kind (`window`, `label`, `button`, `field`) or by one widget's
-id (`#display`).
+id (`#display`). The same Bloom file styles **both** the native window and the
+website. **No `style`? You get raw, unstyled output — like HTML with no CSS.**
+
+## Botanica — the editor 🪴
+
+Botanica is Sprout's own code editor. Once the file association is installed
+(see below), **right-click a `.sprout` or `.bloom` → Open with → Botanica** to
+edit it; double-clicking a `.bloom` opens it in Botanica too. Press **Run** in
+Botanica and your app opens — no terminal, ever.
 
 ## Tests
 
@@ -181,9 +194,10 @@ npm test          # or: node --test test/sprout.test.ts
 | Conditions | `when` / `orwhen` / `otherwise` |
 | Loops | `repeat while cond:` and `repeat N times:` |
 | Tasks (functions) | `task greet(name):` … `give value` (with recursion) |
-| GUI apps (native) | `window` · `label` · `button` · `field` · `textof` — `sprout gui` |
-| Websites (server) | the same app in a browser — `sprout serve` |
-| Styling (Bloom) | a `.bloom` file styles the window *and* the website |
+| GUI apps (native) | `window(title)` + `label` / `button` / `field` / `textof` |
+| Websites (server) | `server(title)` + the same widgets, runs in a browser |
+| Styling (Bloom) | `style "theme.bloom"` — or raw output if omitted |
+| Editor | **Botanica** — right-click a file → Open with → Botanica |
 | Booleans | `yes` / `no` |
 | Built-in functions | `sqrt(16)`, `max(3, 9)`, `length("hi")`, `upper(s)` |
 | Comments | `~ like this` |
@@ -218,14 +232,15 @@ output
 
 - [x] **v0.1** — original syntax (`make`/`set`/`show`/`when`/`repeat`), math, text, built-ins, tests, kind errors
 - [x] **v0.2** — functions: `task greet(name):` and `give` (return), plus recursion
-- [x] **GUI apps** — real **native windows** from a `.sprout` file (`sprout gui ...`)
-- [x] **Server** — run the same app as a website (`sprout serve ...`)
-- [x] **Bloom** — Sprout's own styling language, `.bloom` files
+- [x] **GUI apps** — real **native windows** from a `.sprout` file
+- [x] **Server** — `server(...)` runs the same app as a website
+- [x] **Bloom** — Sprout's styling language; `style "..."`, raw if omitted
+- [x] **Botanica** — Sprout's own code editor (right-click → Open with → Botanica)
+- [x] **Just open a file** — double-click runs it; no terminal needed
 - [x] **Playground** — edit & run Sprout in the browser (`npm run play`)
 - [ ] **next** — lists & a `for each` loop
 - [ ] **next** — `ask` for input + a bigger standard library
-- [ ] **next** — more widgets (checkboxes, sliders, images, layout rows)
-- [ ] **next** — an editor extension (syntax highlighting + inline errors)
+- [ ] **next** — more widgets (checkboxes, sliders, images), syntax highlighting in Botanica
 
 ---
 

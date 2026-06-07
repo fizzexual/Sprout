@@ -92,6 +92,7 @@ class Parser {
       case "REPEAT": return this.repeatStmt();
       case "TASK": return this.taskStmt();
       case "GIVE": return this.giveStmt();
+      case "STYLE": return this.styleStmt();
       default:
         // A friendly nudge if someone writes `x = 5` without make/set.
         if (t.type === "IDENT" && this.peekNext()?.type === "EQ") {
@@ -190,6 +191,14 @@ class Parser {
     }
     this.endStatement();
     return { type: "Give", value, line: kw.line, col: kw.col };
+  }
+
+  // style "theme.bloom"
+  private styleStmt(): Stmt {
+    const kw = this.advance(); // STYLE
+    const value = this.expression();
+    this.endStatement();
+    return { type: "Style", value, line: kw.line, col: kw.col };
   }
 
   private exprStmt(): Stmt {

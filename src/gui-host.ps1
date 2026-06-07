@@ -1,7 +1,9 @@
-# gui-host.ps1 — renders a Sprout GUI as a native Windows window (WinForms,
+# gui-host.ps1 - renders a Sprout GUI as a native Windows window (WinForms,
 # from the built-in .NET). It talks to the Sprout runtime (Node) over
-# stdin/stdout, one JSON line per message. Launched by src/gui-native.ts —
-# you don't run this directly.
+# stdin/stdout, one JSON line per message. Launched by src/gui-native.ts.
+#
+# Styling is applied only where Bloom provides it; with no style the window
+# keeps the plain system look (raw, like HTML with no CSS).
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
@@ -24,25 +26,26 @@ $init = $script:stdin.ReadLine() | ConvertFrom-Json
 $spec = $init.spec
 $widgets = @($spec.widgets)
 
-$bg = ColorFrom $spec.window.background ([System.Drawing.Color]::FromArgb(15, 20, 16))
-$fg = ColorFrom $spec.window.text ([System.Drawing.Color]::White)
-
-$fontFamily = 'Segoe UI'
-$fontSize = 13
-if ($spec.window.font) {
-  $f = [string]$spec.window.font
-  if ($f -match '^(.*?)\s+(\d+)$') { $fontFamily = $matches[1]; $fontSize = [int]$matches[2] }
-  else { $fontFamily = $f }
-}
-
 $form = New-Object System.Windows.Forms.Form
 $form.Text = [string]$spec.title
 $form.StartPosition = 'CenterScreen'
-$form.BackColor = $bg
-$form.ForeColor = $fg
-$form.Font = New-Object System.Drawing.Font($fontFamily, [float]$fontSize)
-$formHeight = [Math]::Min(720, 70 + ($widgets.Count * 50))
+$formHeight = [Math]::Min(720, 90 + ($widgets.Count * 50))
 $form.ClientSize = New-Object System.Drawing.Size(460, $formHeight)
+
+# Window-level Bloom styling (only if provided).
+if ($spec.window.background) { $form.BackColor = ColorFrom $spec.window.background $form.BackColor }
+if ($spec.window.text) { $form.ForeColor = ColorFrom $spec.window.text $form.ForeColor }
+$fontFamily = $form.Font.FontFamily.Name
+if ($spec.window.font) {
+  $f = [string]$spec.window.font
+  if ($f -match '^(.*?)\s+(\d+)$') {
+    $fontFamily = $matches[1]
+    $form.Font = New-Object System.Drawing.Font($fontFamily, [float][int]$matches[2])
+  } else {
+    $fontFamily = $f
+    $form.Font = New-Object System.Drawing.Font($fontFamily, $form.Font.Size)
+  }
+}
 
 $panel = New-Object System.Windows.Forms.FlowLayoutPanel
 $panel.Dock = 'Fill'
@@ -59,7 +62,7 @@ function Add-Widget($w) {
       $c.Text = [string]$w.text
       $c.AutoSize = $true
       $c.Margin = New-Object System.Windows.Forms.Padding(3, 10, 3, 4)
-      if ($w.style.text) { $c.ForeColor = ColorFrom $w.style.text $fg }
+      if ($w.style.text) { $c.ForeColor = ColorFrom $w.style.text $c.ForeColor }
       if ($w.style.size) { $c.Font = New-Object System.Drawing.Font($fontFamily, [float]([int]$w.style.size)) }
       $script:controls[[string]$w.id] = $c
       $panel.Controls.Add($c)
@@ -69,8 +72,8 @@ function Add-Widget($w) {
       $c.Width = 380
       $c.Text = [string]$w.text
       try { $c.PlaceholderText = [string]$w.placeholder } catch { }
-      if ($w.style.background) { $c.BackColor = ColorFrom $w.style.background $bg }
-      if ($w.style.text) { $c.ForeColor = ColorFrom $w.style.text $fg }
+      if ($w.style.background) { $c.BackColor = ColorFrom $w.style.background $c.BackColor }
+      if ($w.style.text) { $c.ForeColor = ColorFrom $w.style.text $c.ForeColor }
       $script:controls[[string]$w.id] = $c
       $script:fieldIds += [string]$w.id
       $panel.Controls.Add($c)
@@ -80,10 +83,9 @@ function Add-Widget($w) {
       $c.Text = [string]$w.text
       $c.AutoSize = $true
       $c.Width = 380
-      $c.FlatStyle = 'Flat'
       $c.Margin = New-Object System.Windows.Forms.Padding(3, 6, 3, 6)
-      $c.BackColor = ColorFrom $w.style.background ([System.Drawing.Color]::FromArgb(123, 216, 143))
-      $c.ForeColor = ColorFrom $w.style.text ([System.Drawing.Color]::Black)
+      if ($w.style.background) { $c.FlatStyle = 'Flat'; $c.BackColor = ColorFrom $w.style.background $c.BackColor }
+      if ($w.style.text) { $c.ForeColor = ColorFrom $w.style.text $c.ForeColor }
       $c.Tag = [string]$w.onClick
       $c.Add_Click({
         $fields = @{}

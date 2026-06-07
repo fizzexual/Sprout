@@ -96,3 +96,8 @@ field:
 export function defaultTheme(): Theme {
   return parseBloom(DEFAULT_BLOOM);
 }
+
+// An empty theme = no styling at all (raw look, like HTML with no CSS).
+export function emptyTheme(): Theme {
+  return { selectors: {} };
+}

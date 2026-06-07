@@ -1,0 +1,22 @@
+~ Bloom styling for the server example.
+
+window:
+    background: #0e1726
+    text: #dce7ff
+    font: Segoe UI 15
+
+#title:
+    size: 26
+    text: #79b8ff
+
+button:
+    background: #2f6fed
+    text: #ffffff
+    rounded: 10
+    padding: 10
+
+field:
+    background: #0a1018
+    text: #dce7ff
+    border: #24364f
+    padding: 8

@@ -145,22 +145,14 @@ const PAGE = `<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Sprout App</title>
 <style>
-  * { box-sizing:border-box; }
-  body { margin:0; min-height:100vh; background:#0f1410; color:#e6efe6;
-         font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
-         display:flex; align-items:flex-start; justify-content:center; }
-  .app { width:min(460px,92vw); margin:48px 0; padding:28px; border-radius:16px;
-         background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); }
-  h1 { margin:0 0 18px; font-size:22px; }
-  .widget { margin:14px 0; }
-  .s-label { font-size:18px; line-height:1.5; }
-  .s-button { font:inherit; font-weight:700; cursor:pointer; width:100%; border:0;
-              background:#7bd88f; color:#08120a; border-radius:10px; padding:12px 16px; }
-  .s-button:active { transform: translateY(1px); }
-  .s-field { font:inherit; width:100%; background:#161d17; color:#e6efe6;
-             border:1px solid #28321f; border-radius:10px; padding:12px 14px; }
-  #error { color:#ff7a85; white-space:pre-wrap; font-family:ui-monospace,Consolas,monospace;
-           font-size:13px; margin-top:18px; }
+  /* Raw, minimal layout only — Bloom adds all the design. (Like HTML with no CSS.) */
+  body { margin:0; padding:24px; font-family: system-ui, sans-serif; }
+  .app { max-width:560px; margin:0 auto; }
+  .widget { margin:10px 0; }
+  .s-label { display:block; }
+  .s-button { font:inherit; padding:6px 12px; cursor:pointer; }
+  .s-field { font:inherit; padding:6px; }
+  #error { color:#b00020; white-space:pre-wrap; font-family:monospace; margin-top:16px; }
 </style>
 <style id="theme"></style>
 </head>

@@ -27,13 +27,15 @@ export interface GuiModel {
   title: string;
   widgets: Widget[];
   used: boolean; // did the program call any GUI function?
+  mode: "gui" | "server"; // a native window, or a website
+  stylePath?: string; // the .bloom file requested via `style "..."`, if any
 }
 
 export function newGui(): GuiModel {
-  return { title: "Sprout App", widgets: [], used: false };
+  return { title: "Sprout App", widgets: [], used: false, mode: "gui" };
 }
 
-export const GUI_BUILTINS = ["window", "label", "button", "field", "textof"];
+export const GUI_BUILTINS = ["window", "server", "label", "button", "field", "textof"];
 
 export function isGuiBuiltin(name: string): boolean {
   return GUI_BUILTINS.includes(name);
@@ -50,6 +52,13 @@ export function callGuiBuiltin(gui: GuiModel, name: string, args: Value[], site:
     case "window": {
       need(name, args, 1, site);
       gui.title = stringify(args[0]);
+      gui.mode = "gui";
+      return NONE;
+    }
+    case "server": {
+      need(name, args, 1, site);
+      gui.title = stringify(args[0]);
+      gui.mode = "server";
       return NONE;
     }
     case "label": {
@@ -118,6 +127,7 @@ function upsertLabel(gui: GuiModel, id: string, text: string): void {
 
 function exampleFor(name: string): string {
   if (name === "window") return 'Like: window("My App")';
+  if (name === "server") return 'Like: server("My Site")';
   if (name === "label") return 'Like: label("greeting", "Hello!")';
   if (name === "button") return 'Like: button("Click me", "whenClicked")  (2nd value is a task name)';
   if (name === "field") return 'Like: field("name", "Type here")';

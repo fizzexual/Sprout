@@ -6,6 +6,8 @@ $ErrorActionPreference = 'SilentlyContinue'
 
 Remove-Item -Path 'HKCU:\Software\Classes\.sprout' -Recurse -Force
 Remove-Item -Path 'HKCU:\Software\Classes\Sprout.Program' -Recurse -Force
+Remove-Item -Path 'HKCU:\Software\Classes\.bloom' -Recurse -Force
+Remove-Item -Path 'HKCU:\Software\Classes\Botanica.Editor' -Recurse -Force
 
 Add-Type -Namespace Win32 -Name Shell -MemberDefinition `
   '[DllImport("shell32.dll")] public static extern void SHChangeNotify(int eventId, int flags, IntPtr item1, IntPtr item2);'

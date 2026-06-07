@@ -1,5 +1,7 @@
 ~ A clickable counter — your first Sprout GUI app!
-~ Run it with:  sprout gui examples/gui-counter.sprout
+~ Just open this file to run it (or: sprout gui examples/gui-counter.sprout).
+
+style "gui-counter.bloom"
 
 make count = 0
 

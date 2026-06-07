@@ -188,6 +188,27 @@ test("bloom: comments with ~ are ignored", () => {
   assert.equal(t.selectors["button"].rounded, "12");
 });
 
+test('style "..." records the stylesheet path', () => {
+  const interp = runApp('style "theme.bloom"\nwindow("W")\nlabel("a", "b")');
+  assert.equal(interp.getGui().stylePath, "theme.bloom");
+});
+
+test("server() marks the app as a website", () => {
+  const interp = runApp('server("Site")\nlabel("a", "b")');
+  assert.equal(interp.getGui().mode, "server");
+  assert.equal(interp.isGuiApp(), true);
+});
+
+test("window() marks the app as a native window", () => {
+  const interp = runApp('window("App")\nlabel("a", "b")');
+  assert.equal(interp.getGui().mode, "gui");
+});
+
+test("no style means no styling (raw)", () => {
+  const interp = runApp('window("App")\nlabel("a", "b")');
+  assert.equal(interp.getGui().stylePath, undefined);
+});
+
 test("error: unknown name suggests the closest one", () => {
   const e = runErr('make name = "x"\nshow nme');
   assert.equal(e.kind, "Name");

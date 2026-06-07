@@ -23,6 +23,7 @@ const KEYWORDS: Record<string, TokenType> = {
   no: "NO",
   task: "TASK",
   give: "GIVE",
+  style: "STYLE",
 };
 
 const SINGLE: Record<string, TokenType> = {

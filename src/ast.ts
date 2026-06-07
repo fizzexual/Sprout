@@ -34,4 +34,6 @@ export type Stmt =
   | { type: "Task"; name: string; params: string[]; body: Stmt[]; line: number; col: number }
   // give expr  (return a value from a task)
   | { type: "Give"; value: Expr | undefined; line: number; col: number }
+  // style "theme.bloom"  (attach a Bloom stylesheet)
+  | { type: "Style"; value: Expr; line: number; col: number }
   | { type: "ExprStmt"; expr: Expr; line: number };

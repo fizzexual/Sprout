@@ -10,7 +10,7 @@
 
 import { readFileSync, existsSync } from "node:fs";
 import { createInterface } from "node:readline";
-import { extname } from "node:path";
+import { dirname, join } from "node:path";
 
 import { tokenize } from "./lexer.ts";
 import { parse } from "./parser.ts";
@@ -18,7 +18,7 @@ import { Interpreter } from "./interpreter.ts";
 import { LangError, formatError, formatMessage } from "./errors.ts";
 import { startNativeGui } from "./gui-native.ts";
 import { startWebServer } from "./serve.ts";
-import { defaultTheme, parseBloom } from "./bloom.ts";
+import { emptyTheme, parseBloom } from "./bloom.ts";
 import type { Theme } from "./bloom.ts";
 
 const VERSION = "Sprout v0.3.0";
@@ -37,16 +37,15 @@ function fail(message: string, hint?: string): never {
 process.on("uncaughtException", fatal);
 process.on("unhandledRejection", fatal);
 
-// Load the Bloom theme sitting next to a program (same name, .bloom), or the
-// built-in default if there isn't one.
-function loadTheme(path: string): Theme {
-  const bloomPath = path.slice(0, path.length - extname(path).length) + ".bloom";
-  try {
-    if (existsSync(bloomPath)) return parseBloom(readFileSync(bloomPath, "utf8"));
-  } catch {
-    /* fall back to the default theme */
+// Load the Bloom stylesheet a program asked for via `style "..."`, resolved
+// next to the program. With no `style`, the look is raw — like HTML with no CSS.
+function loadTheme(stylePath: string | undefined, sproutPath: string): Theme {
+  if (!stylePath) return emptyTheme();
+  const resolved = join(dirname(sproutPath), stylePath);
+  if (!existsSync(resolved)) {
+    fail(`I couldn't find the style file: ${stylePath}`, 'Check the name in your  style "..."  line.');
   }
-  return defaultTheme();
+  return parseBloom(readFileSync(resolved, "utf8"));
 }
 
 type RunMode = "auto" | "gui" | "serve";
@@ -70,12 +69,17 @@ function runFile(path: string, mode: RunMode): void {
     fatal(err);
   }
 
-  const theme = loadTheme(path);
+  const gui = interp.getGui();
+  const theme = loadTheme(gui.stylePath, path);
   try {
     if (mode === "serve") {
       startWebServer(interp, theme, { open: true });
-    } else if (mode === "gui" || (mode === "auto" && interp.isGuiApp())) {
+    } else if (mode === "gui") {
       startNativeGui(interp, theme);
+    } else if (mode === "auto" && gui.used) {
+      // Launch what the program declared: server(...) -> website, window(...) -> window.
+      if (gui.mode === "server") startWebServer(interp, theme, { open: true });
+      else startNativeGui(interp, theme);
     }
     // Otherwise it's a plain console program — nothing more to do.
   } catch (err) {

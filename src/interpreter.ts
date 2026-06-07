@@ -238,6 +238,11 @@ export class Interpreter {
       case "Give": {
         throw new ReturnSignal(stmt.value ? this.evaluate(stmt.value, env) : NONE);
       }
+      case "Style": {
+        const v = this.evaluate(stmt.value, env);
+        if (typeof v === "string") this.gui.stylePath = v;
+        return;
+      }
       case "ExprStmt": {
         this.evaluate(stmt.expr, env);
         return;
