@@ -7,7 +7,7 @@ A Sprout program is a file ending in **`.sprout`**. There are several ways to ru
 | Way | How |
 | --- | --- |
 | **Just open it** | Double-click a `.sprout` file (after installing the file association). A GUI app opens its window; a `server` app opens in the browser; a plain program shows its output. |
-| **Botanica** | Open the file in [Botanica](../botanica/README.md), the Sprout editor, and press **Run ▶**. |
+| **VS Code** | Open it in VS Code with the [Sprout extension](../vscode-extension) — highlighting + a **Run** button. |
 | **Command line** | `sprout run myprogram.sprout` |
 
 ### The `sprout` command

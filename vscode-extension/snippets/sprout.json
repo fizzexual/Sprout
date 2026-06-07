@@ -1,0 +1,37 @@
+{
+  "Window app": {
+    "prefix": "window",
+    "body": ["window(\"${1:My App}\")", "label(\"${2:msg}\", \"${3:Hello!}\")", "button(\"${4:Click}\", \"${5:onClick}\")"],
+    "description": "A GUI window with a label and a button"
+  },
+  "Server app": {
+    "prefix": "server",
+    "body": ["server(\"${1:My Site}\")", "label(\"${2:msg}\", \"${3:Welcome!}\")"],
+    "description": "A website app"
+  },
+  "Task": {
+    "prefix": "task",
+    "body": ["task ${1:name}(${2}):", "\t${0}"],
+    "description": "Define a task"
+  },
+  "When / otherwise": {
+    "prefix": "when",
+    "body": ["when ${1:condition}:", "\t${2}", "otherwise:", "\t${0}"],
+    "description": "A condition"
+  },
+  "Repeat while": {
+    "prefix": "repeatwhile",
+    "body": ["repeat while ${1:condition}:", "\t${0}"],
+    "description": "Loop while a condition holds"
+  },
+  "Repeat N times": {
+    "prefix": "repeat",
+    "body": ["repeat ${1:3} times:", "\t${0}"],
+    "description": "Loop a fixed number of times"
+  },
+  "Make variable": {
+    "prefix": "make",
+    "body": ["make ${1:name} = ${0}"],
+    "description": "Create a variable"
+  }
+}

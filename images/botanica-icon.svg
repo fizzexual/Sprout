@@ -1,8 +1,0 @@
-<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg" role="img">
-<title>Botanica icon</title>
-<desc>A cream rounded square outlined in green with a two-tone green sprout inside.</desc>
-<rect x="6" y="6" width="244" height="244" rx="56" fill="#f1f5f0" stroke="#15a34a" stroke-width="9"/>
-<path d="M128 196 C 128 156, 127 132, 128 104" fill="none" stroke="#15803d" stroke-width="10" stroke-linecap="round"/>
-<path d="M128 124 C 114 92, 86 80, 60 76 C 64 106, 90 126, 126 132 C 127 129, 128 127, 128 124 Z" fill="#22c55e"/>
-<path d="M128 112 C 142 80, 170 68, 196 64 C 192 94, 166 114, 128 124 C 128 120, 128 116, 128 112 Z" fill="#16a34a"/>
-</svg>

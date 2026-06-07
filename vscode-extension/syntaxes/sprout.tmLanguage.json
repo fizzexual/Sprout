@@ -1,0 +1,25 @@
+{
+  "name": "Sprout",
+  "scopeName": "source.sprout",
+  "patterns": [
+    { "match": "~.*$", "name": "comment.line.tilde.sprout" },
+    {
+      "name": "string.quoted.double.sprout",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [{ "match": "\\\\.", "name": "constant.character.escape.sprout" }]
+    },
+    { "match": "\\b\\d+(\\.\\d+)?\\b", "name": "constant.numeric.sprout" },
+    {
+      "match": "\\b(make|set|show|when|orwhen|otherwise|repeat|while|times|task|give|style)\\b",
+      "name": "keyword.control.sprout"
+    },
+    { "match": "\\b(and|or|not)\\b", "name": "keyword.operator.word.sprout" },
+    { "match": "\\b(yes|no|nothing)\\b", "name": "constant.language.sprout" },
+    {
+      "match": "\\b(window|server|label|button|field|textof|get|post|jsonpick|explore|remember|recall|abs|round|floor|ceil|sqrt|min|max|length|upper|lower|random)\\b(?=\\s*\\()",
+      "name": "support.function.sprout"
+    },
+    { "match": "(==|!=|<=|>=|<|>|\\+|-|\\*|/|%|=)", "name": "keyword.operator.sprout" }
+  ]
+}

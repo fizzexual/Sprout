@@ -1,0 +1,13 @@
+{
+  "name": "Bloom",
+  "scopeName": "source.bloom",
+  "patterns": [
+    { "match": "~.*$", "name": "comment.line.tilde.bloom" },
+    { "match": "^\\s*(window|label|button|field)\\s*(?=:)", "name": "entity.name.tag.bloom" },
+    { "match": "^\\s*#[A-Za-z_][\\w-]*\\s*(?=:)", "name": "entity.other.attribute-name.id.bloom" },
+    { "match": "\\b(background|text|font|size|border|rounded|padding|width)\\b", "name": "support.type.property-name.bloom" },
+    { "match": "#[0-9A-Fa-f]{3,8}\\b", "name": "constant.other.color.bloom" },
+    { "match": "\\b\\d+\\b", "name": "constant.numeric.bloom" },
+    { "match": "\"[^\"]*\"", "name": "string.quoted.double.bloom" }
+  ]
+}

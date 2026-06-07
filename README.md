@@ -83,8 +83,8 @@ web API), and `repo-stats` (a GUI that fetches live GitHub stats).
 ### Double-click to run (Windows)
 
 Make `.sprout` files runnable straight from Explorer — double-click one and it
-runs (a window for GUI apps, a website for `server` apps). This **also installs
-Botanica** as an "Open with" editor for `.sprout`/`.bloom`:
+runs (a window for GUI apps, a website for `server` apps). It also gives
+`.sprout` and `.bloom` files their icons:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\install-file-association.ps1
@@ -172,33 +172,27 @@ Style by widget kind (`window`, `label`, `button`, `field`) or by one widget's
 id (`#display`). The same Bloom file styles **both** the native window and the
 website. **No `style`? You get raw, unstyled output — like HTML with no CSS.**
 
-## Botanica — the editor &nbsp;<img src="images/botanica.png" width="26" align="top">
+## VS Code extension &nbsp;<img src="images/sprout.png" width="24" align="top">
 
-**Botanica** is Sprout's own code editor — a real desktop app built on the same
-stack as VS Code (**Electron + Monaco**). File explorer, tabs, Sprout/Bloom
-syntax highlighting, minimap, and a **Run ▶** button.
+Edit Sprout in **VS Code** with full language support — syntax highlighting for
+`.sprout` and `.bloom`, snippets (`window`, `task`, `when`, `repeat`, …), and
+**Run** commands. It lives in [`vscode-extension/`](vscode-extension).
+
+**Try it instantly:** open the `vscode-extension` folder in VS Code and press
+<kbd>F5</kbd> — a dev window opens with the extension loaded. Open any `.sprout`
+file to see it highlighted.
+
+**Install it permanently** as a `.vsix`:
 
 ```bash
-npm run botanica      # first run downloads Electron + Monaco, then opens it
+cd vscode-extension
+npx @vscode/vsce package
+code --install-extension sprout-language-0.1.0.vsix
 ```
 
-**Install it as a real app** (adds it to the Windows search bar / Start menu):
-
-```powershell
-powershell -ExecutionPolicy Bypass -File botanica\install-botanica.ps1
-```
-
-Then just type **Botanica** in the Windows search bar and press Enter (or use
-the new Desktop icon). Remove it later with
-`botanica\uninstall-botanica.ps1`.
-
-Prefer a real double-click **Setup.exe**? Build one with `cd botanica && npm run dist`
-— it produces `botanica/dist/Botanica Setup <version>.exe` (installs into Program
-Files with an uninstall entry, like any app).
-
-You can also **right-click a `.sprout`/`.bloom` → Open with → Botanica**, and
-double-clicking a `.bloom` opens it in Botanica. Pressing **Run** opens your
-app — no terminal, ever. Source: [`botanica/`](botanica).
+With a `.sprout` file open, click **▶ Run** in the editor title bar, or
+right-click → **Sprout: Run File** / **Run as Window** / **Run as Website**.
+(The commands call `sprout` — run `npm link` once so it's on your PATH.)
 
 ## Tests
 
@@ -230,7 +224,7 @@ npm test          # or: node --test test/sprout.test.ts
 | Internet | `get` / `post` + `jsonpick` — call any API; `sprout api <url>` discovers one |
 | Verified first | the whole program is checked before it runs (`sprout check`) |
 | Styling (Bloom) | `style "theme.bloom"` — or raw output if omitted |
-| Editor | **Botanica** — a VS Code-style editor (Electron + Monaco) in `botanica/` |
+| Editor | **VS Code extension** — highlighting, snippets, Run buttons (`vscode-extension/`) |
 | Booleans | `yes` / `no` |
 | Built-in functions | `sqrt(16)`, `max(3, 9)`, `length("hi")`, `upper(s)` |
 | Comments | `~ like this` |
@@ -263,22 +257,19 @@ output
 
 ## Roadmap
 
-- [x] **v0.1** — original syntax (`make`/`set`/`show`/`when`/`repeat`), math, text, built-ins, tests, kind errors
-- [x] **v0.2** — functions: `task greet(name):` and `give` (return), plus recursion
+- [x] **v0.1** — original syntax, math, text, built-ins, tests, kind errors
+- [x] **v0.2** — functions (`task` / `give`) with recursion
 - [x] **GUI apps** — real **native windows** from a `.sprout` file
 - [x] **Server** — `server(...)` runs the same app as a website
 - [x] **Bloom** — Sprout's styling language; `style "..."`, raw if omitted
-- [x] **Botanica** — a real VS Code-style editor (Electron + Monaco) in `botanica/`
-- [x] **Just open a file** — double-click runs it; no terminal needed
+- [x] **Saves data** — `remember` / `recall`, persists between runs
+- [x] **Internet** — `get` / `post` / `jsonpick`; `sprout api <url>` to explore one
+- [x] **Verify before running** — whole-program check (`sprout check`)
+- [x] **VS Code extension** — highlighting, snippets, run commands
 - [x] **Playground** — edit & run Sprout in the browser (`npm run play`)
-- [ ] **next** — lists & a `for each` loop
-- [ ] **next** — `ask` for input + a bigger standard library
-- [x] **Botanica installer** — `npm run dist` builds a standalone `Botanica Setup.exe`
 - [x] **Wiki** — full Sprout + Bloom docs in [`wiki/`](wiki)
-- [x] **Verify before running** — the whole program is checked first (`sprout check`)
-- [x] **Hidden backend** — server logic stays server-side; only button tasks run
-- [x] **Open with Botanica** — right-click context-menu entry (with icon)
-- [ ] **next** — more widgets (checkboxes, sliders, images, layout rows)
+- [ ] **next** — lists & a `for each` loop
+- [ ] **next** — `ask` for input + more widgets (checkboxes, sliders, images)
 
 ---
 

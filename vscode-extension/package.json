@@ -1,0 +1,65 @@
+{
+  "name": "sprout-language",
+  "displayName": "Sprout",
+  "description": "Language support for Sprout and its styling language Bloom: syntax highlighting, snippets, and run commands.",
+  "version": "0.1.0",
+  "publisher": "fizzexual",
+  "license": "MIT",
+  "icon": "icon.png",
+  "engines": { "vscode": "^1.75.0" },
+  "categories": ["Programming Languages", "Snippets"],
+  "keywords": ["sprout", "bloom", "beginner", "language"],
+  "repository": { "type": "git", "url": "https://github.com/fizzexual/Sprout-" },
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "sprout",
+        "aliases": ["Sprout", "sprout"],
+        "extensions": [".sprout"],
+        "configuration": "./language-configuration.json",
+        "icon": { "light": "./icons/sprout.png", "dark": "./icons/sprout.png" }
+      },
+      {
+        "id": "bloom",
+        "aliases": ["Bloom", "bloom"],
+        "extensions": [".bloom"],
+        "configuration": "./language-configuration.json",
+        "icon": { "light": "./icons/bloom.png", "dark": "./icons/bloom.png" }
+      }
+    ],
+    "grammars": [
+      { "language": "sprout", "scopeName": "source.sprout", "path": "./syntaxes/sprout.tmLanguage.json" },
+      { "language": "bloom", "scopeName": "source.bloom", "path": "./syntaxes/bloom.tmLanguage.json" }
+    ],
+    "snippets": [
+      { "language": "sprout", "path": "./snippets/sprout.json" }
+    ],
+    "commands": [
+      { "command": "sprout.run", "title": "Run File", "category": "Sprout", "icon": "$(play)" },
+      { "command": "sprout.gui", "title": "Run as Window", "category": "Sprout" },
+      { "command": "sprout.serve", "title": "Run as Website", "category": "Sprout" },
+      { "command": "sprout.check", "title": "Verify File", "category": "Sprout" }
+    ],
+    "menus": {
+      "editor/title/run": [
+        { "command": "sprout.run", "when": "resourceLangId == sprout", "group": "navigation@1" }
+      ],
+      "editor/context": [
+        { "command": "sprout.run", "when": "resourceLangId == sprout", "group": "z_sprout@1" },
+        { "command": "sprout.gui", "when": "resourceLangId == sprout", "group": "z_sprout@2" },
+        { "command": "sprout.serve", "when": "resourceLangId == sprout", "group": "z_sprout@3" }
+      ]
+    },
+    "configuration": {
+      "title": "Sprout",
+      "properties": {
+        "sprout.command": {
+          "type": "string",
+          "default": "sprout",
+          "description": "The command used to run Sprout (e.g. 'sprout' if you ran 'npm link', or a full path)."
+        }
+      }
+    }
+  }
+}
