@@ -174,9 +174,19 @@ syntax highlighting, minimap, and a **Run ▶** button.
 npm run botanica      # first run downloads Electron + Monaco, then opens it
 ```
 
-Once the file association is installed (below), **right-click a `.sprout`/`.bloom`
-→ Open with → Botanica**; double-clicking a `.bloom` opens it in Botanica too.
-Pressing **Run** opens your app — no terminal, ever. Source: [`botanica/`](botanica).
+**Install it as a real app** (adds it to the Windows search bar / Start menu):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File botanica\install-botanica.ps1
+```
+
+Then just type **Botanica** in the Windows search bar and press Enter (or use
+the new Desktop icon). Remove it later with
+`botanica\uninstall-botanica.ps1`.
+
+You can also **right-click a `.sprout`/`.bloom` → Open with → Botanica**, and
+double-clicking a `.bloom` opens it in Botanica. Pressing **Run** opens your
+app — no terminal, ever. Source: [`botanica/`](botanica).
 
 ## Tests
 

@@ -15,6 +15,17 @@ npm start
 
 (Or from the project root: `npm run botanica`.)
 
+## Install it as an app
+
+To get Botanica in the Windows search bar / Start menu (with an icon):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install-botanica.ps1
+```
+
+Then type **Botanica** in the search bar, or use the Desktop shortcut. Undo with
+`uninstall-botanica.ps1`. (This is per-user — no admin needed.)
+
 ## What it does
 
 - **Edits Sprout & Bloom** with real syntax highlighting (a custom Monaco grammar)

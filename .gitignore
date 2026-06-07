@@ -7,3 +7,6 @@ logs.txt
 # Local editor / tooling state
 .claude/
 
+# Botanica's generated app icon (recreated by install-botanica.ps1)
+botanica/icon.ico
+
