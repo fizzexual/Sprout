@@ -27,6 +27,20 @@ friendly error.
 | `upper(text)` | UPPERCASE | `upper("hi")` | `"HI"` |
 | `lower(text)` | lowercase | `lower("HI")` | `"hi"` |
 
+## Lists & maps
+
+See [Sprout Syntax](sprout-syntax.md#lists) for `[ ]`, `{ }`, indexing and
+`for each`. These functions work on them:
+
+| Function | What it does | Example | Result |
+| --- | --- | --- | --- |
+| `length(coll)` | items in a list / keys in a map / letters in text | `length([1, 2, 3])` | `3` |
+| `add(list, item)` | add an item to the end (changes the list) | `add(xs, 4)` | the list |
+| `contains(coll, x)` | is `x` in the list, a key of the map, or inside the text? | `contains([1, 2], 2)` | `yes` |
+| `keys(map)` | a list of the map's keys | `keys({a: 1, b: 2})` | `["a", "b"]` |
+| `range(n)` / `range(a, b)` | a list of numbers `0..n-1` (or `a..b-1`) | `range(3)` | `[0, 1, 2]` |
+| `first(list)` / `last(list)` | the first / last item (`nothing` if empty) | `first([9, 8])` | `9` |
+
 ## Saving data (remember / recall)
 
 `remember` and `recall` save values that **last between runs** — no database, no

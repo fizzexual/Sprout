@@ -200,7 +200,7 @@ Node's built-in test runner — still **no dependencies**:
 npm test          # or: node --test test/sprout.test.ts
 ```
 
-## The language so far (v0.3)
+## The language so far (v0.5)
 
 | Feature | Sprout |
 | --- | --- |
@@ -213,6 +213,9 @@ npm test          # or: node --test test/sprout.test.ts
 | Logic | `and`, `or`, `not` |
 | Conditions | `when` / `orwhen` / `otherwise` |
 | Loops | `repeat while cond:` and `repeat N times:` |
+| Lists | `make xs = [1, 2, 3]` · `xs[0]` · `add(xs, 4)` · `length` / `first` / `last` |
+| Maps | `make m = {name: "Sam", age: 3}` · `m["name"]` · `keys(m)` |
+| For each | `for each item in xs:` — walks a list, a map's keys, or text |
 | Tasks (functions) | `task greet(name):` … `give value` (with recursion) |
 | GUI apps (native) | `window(title)` + `label` / `button` / `field` / `textof` |
 | Websites (server) | `server(title)` + the same widgets, runs in a browser |
@@ -231,7 +234,7 @@ npm test          # or: node --test test/sprout.test.ts
 | Comments | `~ like this` |
 | Kind errors | points at the spot, suggests fixes |
 
-**Built-ins so far:** `abs` · `round` · `floor` · `ceil` · `sqrt` · `min` · `max` · `length` · `upper` · `lower` · `random`
+**Built-ins so far:** `abs` · `round` · `floor` · `ceil` · `sqrt` · `min` · `max` · `length` · `upper` · `lower` · `random` · `add` · `contains` · `keys` · `range` · `first` · `last`
 
 ## How it works
 
@@ -273,7 +276,7 @@ output
 - [x] **Extensions + slash commands** — `use "discord-bot/music"` plays YouTube in voice; bots answer `/commands`
 - [x] **Windows installer** — a [`SproutSetup.exe`](https://github.com/fizzexual/Sprout-/releases/latest) wizard (auto-published to Releases): pick libraries, downloads from the repo, Update/Repair/Uninstall
 - [x] **`sprout modules`** — an interactive terminal to install / uninstall / test libraries
-- [ ] **next** — lists & a `for each` loop
+- [x] **v0.5 — The Data Update** — **lists** `[1, 2, 3]`, **maps** `{name: "Sam"}`, indexing `xs[0]` / `m["k"]`, **`for each item in …`**, and `add` / `contains` / `keys` / `range` / `first` / `last`
 - [ ] **next** — `ask` for input + more widgets (checkboxes, sliders, images)
 
 ---

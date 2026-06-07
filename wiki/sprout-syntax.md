@@ -124,6 +124,50 @@ repeat while i <= 5:
     set i = i + 1
 ```
 
+## Lists
+
+A **list** holds many values in order. Make one with square brackets, read an
+item by its number (starting at `0`), and change it with `set`:
+
+```sprout
+make songs = ["a", "b", "c"]
+show songs[0]            ~ a
+set songs[1] = "B"      ~ change the 2nd item
+add(songs, "d")         ~ add to the end
+show length(songs)       ~ 4
+show first(songs), last(songs)
+show contains(songs, "a")
+show [1, 2] + [3, 4]     ~ join two lists -> [1, 2, 3, 4]
+```
+
+Reading a spot that doesn't exist gives `nothing` (it won't crash).
+
+## Maps
+
+A **map** holds values by name (the keys are text):
+
+```sprout
+make person = {name: "Sam", age: 3}
+show person["name"]      ~ Sam
+set person["age"] = 4
+show keys(person)        ~ ["name", "age"]
+```
+
+## For each
+
+Walk through every item of a list (or a map's keys, or a text's letters):
+
+```sprout
+for each song in songs:
+    show "playing", song
+
+for each key in person:
+    show key, "=", person[key]
+
+for each n in range(3):   ~ range(3) is [0, 1, 2]
+    show n
+```
+
 ## Tasks (functions)
 
 Define a reusable task with `task`, and hand back a result with `give`:

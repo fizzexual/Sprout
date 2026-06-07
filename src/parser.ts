@@ -90,6 +90,7 @@ class Parser {
       case "SHOW": return this.showStmt();
       case "WHEN": return this.whenStmt();
       case "REPEAT": return this.repeatStmt();
+      case "FOR": return this.forEachStmt();
       case "TASK": return this.taskStmt();
       case "GIVE": return this.giveStmt();
       case "STYLE": return this.styleStmt();
@@ -121,10 +122,31 @@ class Parser {
   private setStmt(): Stmt {
     const kw = this.advance(); // SET
     const name = this.expect("IDENT", "I expected a name after 'set'.", "Like: set score = score + 1");
+    // set coll[index] = value  — change one item of a list/map.
+    if (this.check("LBRACKET")) {
+      this.advance();
+      const index = this.expression();
+      this.expect("RBRACKET", "I expected a ']' to close the index.", `Like: set ${name.value}[0] = ...`);
+      this.expect("EQ", `I expected an '=' after '${name.value}[...]'.`, `Like: set ${name.value}[0] = ...`);
+      const value = this.expression();
+      this.endStatement();
+      return { type: "IndexSet", name: name.value, index, value, line: kw.line, col: kw.col };
+    }
     this.expect("EQ", `I expected an '=' after '${name.value}'.`, `Like: set ${name.value} = ...`);
     const value = this.expression();
     this.endStatement();
     return { type: "Set", name: name.value, value, line: kw.line, col: kw.col };
+  }
+
+  // for each item in collection:
+  private forEachStmt(): Stmt {
+    const kw = this.advance(); // FOR
+    this.expect("EACH", "I expected 'each' after 'for'.", "Like: for each item in things:");
+    const name = this.expect("IDENT", "I expected a name for each item.", "Like: for each item in things:");
+    this.expect("IN", `I expected 'in' after '${name.value}'.`, "Like: for each item in things:");
+    const iter = this.expression();
+    const body = this.block();
+    return { type: "ForEach", name: name.value, iter, body, line: kw.line, col: kw.col };
   }
 
   private showStmt(): Stmt {
@@ -332,7 +354,19 @@ class Parser {
         col: op.col,
       };
     }
-    return this.primary();
+    return this.postfix();
+  }
+
+  // A value followed by any number of [index] lookups: things[0], grid[i][j].
+  private postfix(): Expr {
+    let e = this.primary();
+    while (this.check("LBRACKET")) {
+      const br = this.advance();
+      const index = this.expression();
+      this.expect("RBRACKET", "I expected a ']' to close this lookup.", "Like: things[0]");
+      e = { type: "Index", target: e, index, line: br.line, col: br.col };
+    }
+    return e;
   }
 
   // A function call: name(arg, arg, ...). The IDENT has already been read.
@@ -363,6 +397,33 @@ class Parser {
       const inner = this.expression();
       this.expect("RPAREN", "I expected a ')' to close this group.");
       return inner;
+    }
+    // List literal: [1, 2, 3]  (or [] for an empty list)
+    if (this.check("LBRACKET")) {
+      const br = this.advance();
+      const items: Expr[] = [];
+      if (!this.check("RBRACKET")) {
+        items.push(this.expression());
+        while (this.match("COMMA")) { if (this.check("RBRACKET")) break; items.push(this.expression()); }
+      }
+      this.expect("RBRACKET", "I expected a ']' to close this list.", "Like: [1, 2, 3]");
+      return { type: "List", items, line: br.line, col: br.col };
+    }
+    // Map literal: {name: "Sam", age: 3}  (keys are names or text; {} is empty)
+    if (this.check("LBRACE")) {
+      const br = this.advance();
+      const entries: { key: string; value: Expr }[] = [];
+      if (!this.check("RBRACE")) {
+        do {
+          if (this.check("RBRACE")) break;
+          const keyTok = this.check("STRING") || this.check("IDENT") ? this.advance()
+            : this.expect("IDENT", "I expected a key name here.", 'Like: {name: "Sam"}');
+          this.expect("COLON", `I expected a ':' after the key '${keyTok.value}'.`, 'Like: {name: "Sam"}');
+          entries.push({ key: keyTok.value, value: this.expression() });
+        } while (this.match("COMMA"));
+      }
+      this.expect("RBRACE", "I expected a '}' to close this map.", 'Like: {name: "Sam", age: 3}');
+      return { type: "Map", entries, line: br.line, col: br.col };
     }
 
     if (t.type === "NEWLINE" || t.type === "EOF") {

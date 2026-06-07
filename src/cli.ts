@@ -27,7 +27,7 @@ import { fileSecrets } from "./secrets.ts";
 import { modulesCommand } from "./modules.ts";
 import { describeJson } from "./explore.ts";
 
-const VERSION = "Sprout v0.4.1";
+const VERSION = "Sprout v0.5.0";
 
 // Turn any unexpected (non-Sprout) error into a friendly message instead of a
 // raw Node stack trace.

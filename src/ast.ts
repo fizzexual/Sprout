@@ -11,7 +11,13 @@ export type Expr =
   | { type: "Unary"; op: "-" | "not"; operand: Expr; line: number; col: number }
   | { type: "Binary"; op: string; left: Expr; right: Expr; line: number; col: number }
   | { type: "Logical"; op: "and" | "or"; left: Expr; right: Expr; line: number; col: number }
-  | { type: "Call"; name: string; args: Expr[]; line: number; col: number };
+  | { type: "Call"; name: string; args: Expr[]; line: number; col: number }
+  // [1, 2, 3]  (a list literal)
+  | { type: "List"; items: Expr[]; line: number; col: number }
+  // {name: "Sam", age: 3}  (a map literal — keys are text)
+  | { type: "Map"; entries: { key: string; value: Expr }[]; line: number; col: number }
+  // coll[index]  (read an item from a list/map/text)
+  | { type: "Index"; target: Expr; index: Expr; line: number; col: number };
 
 export interface Branch {
   cond: Expr;
@@ -31,6 +37,10 @@ export type Stmt =
   | { type: "RepeatWhile"; cond: Expr; body: Stmt[]; line: number }
   // repeat N times:
   | { type: "RepeatTimes"; count: Expr; body: Stmt[]; line: number }
+  // for each item in collection:
+  | { type: "ForEach"; name: string; iter: Expr; body: Stmt[]; line: number; col: number }
+  // set coll[index] = expr   (change one item of a list/map)
+  | { type: "IndexSet"; name: string; index: Expr; value: Expr; line: number; col: number }
   // task name(params):  (define a function)
   | { type: "Task"; name: string; params: string[]; body: Stmt[]; line: number; col: number }
   // give expr  (return a value from a task)

@@ -28,6 +28,18 @@ repeat 3 times:
 repeat while x > 0:
     set x = x - 1
 
+make xs = [1, 2, 3]   ~ a list
+show xs[0]            ~ read by number (from 0)
+set xs[1] = 9         ~ change an item
+add(xs, 4)            ~ append
+
+make m = {name: "Sam", age: 3}   ~ a map
+show m["name"]
+set m["age"] = 4
+
+for each item in xs:  ~ walk a list, a map's keys, or text
+    show item
+
 task add(a, b):       ~ define a task
     give a + b        ~ hand back a value
 show add(2, 3)        ~ call it -> 5
@@ -37,7 +49,8 @@ show add(2, 3)        ~ call it -> 5
 
 ```
 abs round floor ceil sqrt      min(...) max(...)
-length(text) upper(text) lower(text)      random()
+length(coll) upper(text) lower(text)      random()
+add(list, x) contains(coll, x) keys(map) range(n) first(list) last(list)   ~ lists & maps
 remember("key", value)   recall("key", default)   ~ save/load between runs
 get("url")   post("url", body)   jsonpick(text, "key")          ~ internet
 get_api_points(text)   explore(text)                          ~ what does an API offer?

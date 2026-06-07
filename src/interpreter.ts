@@ -7,7 +7,7 @@
 import { LangError } from "./errors.ts";
 import type { Expr, Stmt } from "./ast.ts";
 import type { Value } from "./values.ts";
-import { isTruthy, NONE, stringify, typeName } from "./values.ts";
+import { isTruthy, NONE, stringify, typeName, SList, SMap, equalValues } from "./values.ts";
 import { BUILTIN_NAMES, callBuiltin, isBuiltin } from "./builtins.ts";
 import { callGuiBuiltin, GUI_BUILTINS, isGuiBuiltin, newGui } from "./gui.ts";
 import type { GuiModel } from "./gui.ts";
@@ -270,6 +270,43 @@ export class Interpreter {
         for (let k = 0; k < count; k++) this.runBlock(stmt.body, env);
         return;
       }
+      case "ForEach": {
+        const coll = this.evaluate(stmt.iter, env);
+        let items: Value[];
+        if (coll instanceof SList) items = coll.items;
+        else if (coll instanceof SMap) items = [...coll.entries.keys()];
+        else if (typeof coll === "string") items = [...coll];
+        else {
+          throw new LangError(
+            "Type",
+            `'for each' needs a list, a map, or text to go through, but got ${typeName(coll)}.`,
+            stmt.line, stmt.col,
+            "Like: for each item in [1, 2, 3]:",
+          );
+        }
+        // Snapshot the items so changes during the loop don't affect iteration.
+        for (const item of [...items]) { env.define(stmt.name, item); this.runBlock(stmt.body, env); }
+        return;
+      }
+      case "IndexSet": {
+        if (!env.has(stmt.name)) {
+          throw new LangError("Name", `You're changing '${stmt.name}', but it was never created.`, stmt.line, stmt.col, this.nameHint(stmt.name, env) ?? `Create it first with: make ${stmt.name} = ...`);
+        }
+        const coll = env.get(stmt.name);
+        const index = this.evaluate(stmt.index, env);
+        const value = this.evaluate(stmt.value, env);
+        if (coll instanceof SList) {
+          if (typeof index !== "number") throw new LangError("Type", `A list is numbered, so its index must be a number, not ${typeName(index)}.`, stmt.line, stmt.col, `Like: set ${stmt.name}[0] = ...`);
+          const i = Math.floor(index);
+          if (i < 0 || i > coll.items.length) throw new LangError("Runtime", `That spot (${i}) is outside the list (it has ${coll.items.length} item${coll.items.length === 1 ? "" : "s"}).`, stmt.line, stmt.col, "Use add(list, item) to grow it.");
+          coll.items[i] = value; // i === length appends
+        } else if (coll instanceof SMap) {
+          coll.entries.set(stringify(index), value);
+        } else {
+          throw new LangError("Type", `I can only set an item inside a list or a map, but '${stmt.name}' is ${typeName(coll)}.`, stmt.line, stmt.col);
+        }
+        return;
+      }
       case "Task": {
         if (env !== this.globals) {
           throw new LangError(
@@ -350,6 +387,28 @@ export class Interpreter {
       }
       case "Binary": return this.binary(expr, env);
       case "Call": return this.call(expr, env);
+      case "List": return new SList(expr.items.map((it) => this.evaluate(it, env)));
+      case "Map": {
+        const m = new Map<string, Value>();
+        for (const e of expr.entries) m.set(e.key, this.evaluate(e.value, env));
+        return new SMap(m);
+      }
+      case "Index": {
+        const target = this.evaluate(expr.target, env);
+        const index = this.evaluate(expr.index, env);
+        if (target instanceof SList) {
+          if (typeof index !== "number") throw new LangError("Type", `A list is numbered, so the index in [...] must be a number, not ${typeName(index)}.`, expr.line, expr.col, "Like: things[0]");
+          const i = Math.floor(index);
+          return i >= 0 && i < target.items.length ? target.items[i] : NONE;
+        }
+        if (target instanceof SMap) return target.entries.has(stringify(index)) ? target.entries.get(stringify(index)) as Value : NONE;
+        if (typeof target === "string") {
+          if (typeof index !== "number") throw new LangError("Type", `Text is numbered, so the index in [...] must be a number, not ${typeName(index)}.`, expr.line, expr.col, 'Like: word[0]');
+          const i = Math.floor(index);
+          return i >= 0 && i < target.length ? target[i] : NONE;
+        }
+        throw new LangError("Type", `I can only look inside a list, a map, or text with [...], not ${typeName(target)}.`, expr.line, expr.col);
+      }
     }
   }
 
@@ -469,6 +528,8 @@ export class Interpreter {
       // If either side is text, join them as text (friendly for messages).
       if (typeof l === "string" || typeof r === "string") return stringify(l) + stringify(r);
       if (typeof l === "number" && typeof r === "number") return l + r;
+      // Two lists join into a longer list: [1, 2] + [3] -> [1, 2, 3].
+      if (l instanceof SList && r instanceof SList) return new SList([...l.items, ...r.items]);
       throw this.mathErr("add", l, r, expr);
     }
 
@@ -539,10 +600,6 @@ function compare(op: string, l: number | string, r: number | string): boolean {
   if (op === "<=") return l <= r;
   if (op === ">") return l > r;
   return l >= r;
-}
-
-function equalValues(l: Value, r: Value): boolean {
-  return typeof l === typeof r && l === r;
 }
 
 // Suggest the closest known name (for friendly "did you mean?" hints).

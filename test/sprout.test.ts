@@ -586,3 +586,60 @@ test("error: unknown function suggests a builtin", () => {
   assert.equal(e.kind, "Name");
   assert.match(e.hint ?? "", /sqrt/);
 });
+
+// --- v0.5: lists, maps & for each -------------------------------------------
+
+test("lists: literal, index, length, first/last", () => {
+  assert.deepEqual(run("make xs = [3, 1, 2]\nshow xs\nshow xs[1]\nshow length(xs)\nshow first(xs), last(xs)"),
+    ["[3, 1, 2]", "1", "3", "3 2"]);
+});
+
+test("lists: add mutates, set by index, out-of-range reads nothing", () => {
+  assert.deepEqual(run("make xs = [1]\nadd(xs, 2)\nset xs[0] = 9\nshow xs\nshow xs[5]"),
+    ["[9, 2]", "nothing"]);
+});
+
+test("lists: contains, concat, deep equality", () => {
+  assert.deepEqual(run("show contains([1,2,3], 2)\nshow [1,2] + [3]\nshow [1,2] == [1,2]"),
+    ["yes", "[1, 2, 3]", "yes"]);
+});
+
+test("for each: over a list sums; range() makes a list", () => {
+  assert.deepEqual(run("make t = 0\nfor each n in [1,2,3,4]:\n    set t = t + n\nshow t\nshow range(3)"),
+    ["10", "[0, 1, 2]"]);
+});
+
+test("for each: over text iterates characters", () => {
+  assert.deepEqual(run('make out = ""\nfor each c in "hi":\n    set out = out + c + "."\nshow out'),
+    ["h.i."]);
+});
+
+test("maps: literal, index read/write, keys, for each over keys", () => {
+  assert.deepEqual(run('make p = {name: "Sam", age: 3}\nset p["age"] = 4\nshow p["name"], p["age"]\nshow keys(p)\nshow contains(p, "name")'),
+    ["Sam 4", '["name", "age"]', "yes"]);
+});
+
+test("maps: missing key reads nothing; deep equality", () => {
+  assert.deepEqual(run('make p = {a: 1}\nshow p["nope"]\nshow {a: 1} == {a: 1}\nshow {a: 1} == {a: 2}'),
+    ["nothing", "yes", "no"]);
+});
+
+test("error: for each over a number is a Type error", () => {
+  const e = runErr("for each x in 5:\n    show x");
+  assert.equal(e.kind, "Type");
+});
+
+test("error: indexing a number is a Type error", () => {
+  const e = runErr("make n = 5\nshow n[0]");
+  assert.equal(e.kind, "Type");
+});
+
+test("checker: the for-each item name is in scope", () => {
+  assert.deepEqual(problems("for each x in [1,2]:\n    show x"), []);
+});
+
+test("checker: add() arity is enforced", () => {
+  const errs = problems("make xs = [1]\nshow add(xs)");
+  assert.equal(errs.length, 1);
+  assert.equal(errs[0].kind, "Type");
+});

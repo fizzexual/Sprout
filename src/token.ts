@@ -8,13 +8,14 @@ export type TokenType =
   | "MAKE" | "SET" | "SHOW"
   | "WHEN" | "ORWHEN" | "OTHERWISE"
   | "REPEAT" | "WHILE" | "TIMES"
+  | "FOR" | "EACH" | "IN"
   | "AND" | "OR" | "NOT" | "YES" | "NO" | "NOTHING"
   | "TASK" | "GIVE" | "STYLE" | "USE"
   // operators
   | "PLUS" | "MINUS" | "STAR" | "SLASH" | "PERCENT"
   | "EQ" | "EQEQ" | "BANGEQ" | "LT" | "LTE" | "GT" | "GTE"
   // punctuation
-  | "LPAREN" | "RPAREN" | "COMMA" | "COLON"
+  | "LPAREN" | "RPAREN" | "LBRACKET" | "RBRACKET" | "LBRACE" | "RBRACE" | "COMMA" | "COLON"
   // structure
   | "NEWLINE" | "INDENT" | "DEDENT" | "EOF";
 
