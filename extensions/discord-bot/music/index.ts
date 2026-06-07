@@ -142,12 +142,21 @@ export function create(_interp: Interpreter, library: { api: DiscordApi }) {
   function reportDave(connection: any): void {
     const snap = (label: string): void => {
       try {
-        const dave = connection?.state?.networking?.state?.dave;
-        if (!dave) { mlog(`🔐 DAVE ${label}: no session yet`); return; }
+        const net = connection?.state?.networking;
+        const dave = net?.state?.dave;
+        const connected = net?.state?.connectionData?.connectedClients;
+        const connList = connected ? [...connected] : [];
+        if (!dave) { mlog(`🔐 DAVE ${label}: no session yet (connectedClients=${connList.length})`); return; }
         const v = dave.protocolVersion;
         const ready = !!dave.session?.ready;
-        if (v && ready) mlog(`🔐 DAVE ${label}: ACTIVE (protocol v${v}, session ready) → audio is encrypted ✓`);
-        else mlog(`🔐 DAVE ${label}: NOT active (protocol v${v}, ready=${ready}) → audio is UNENCRYPTED, Discord drops it = silence`);
+        // The real test isn't "is the session ready" — it's "is anyone else in the
+        // encryption group". A 1-member group means only the bot can decrypt its own
+        // audio, so every listener hears silence even though everything says "ready".
+        const ids = dave.session?.getUserIds?.() ?? [];
+        const epoch = dave.session?.epoch;
+        mlog(`🔐 DAVE ${label}: v${v} ready=${ready} epoch=${epoch} groupMembers=${ids.length} [${ids.join(", ")}]  connectedClients=${connList.length} [${connList.join(", ")}]`);
+        if (ready && ids.length <= 1)
+          mlog(`🔐 DAVE ${label}: ⚠ only the bot is in the encryption group — listeners can't decrypt = SILENCE. Workaround: a listener leaves & rejoins the voice channel.`);
       } catch (e) { mlog(`🔐 DAVE ${label}: couldn't inspect (${e instanceof Error ? e.message : String(e)})`); }
     };
     snap("at-ready");
@@ -178,7 +187,20 @@ export function create(_interp: Interpreter, library: { api: DiscordApi }) {
     // library — opusscript). This is the path working music bots use; the older
     // Ogg-passthrough relied on demuxing ffmpeg's output, which could hand the
     // encoder subtly-broken packets — encrypted fine by DAVE, but silent to listeners.
-    const resource = V.createAudioResource(piped.stream, { inputType: V.StreamType.Raw });
+    let resource: any;
+    try {
+      resource = V.createAudioResource(piped.stream, { inputType: V.StreamType.Raw });
+    } catch (e) {
+      // Without an opus encoder, prism-media throws here (before playback) — which
+      // used to look like mysterious silence. Say so out loud instead.
+      const msg = e instanceof Error ? e.message : String(e);
+      mlog(`createAudioResource failed: ${msg}`);
+      api.send(track.textChannelId, /opus/i.test(msg)
+        ? "I can't encode audio — the **opusscript** package is missing. Run `npm run install:music` (or tools/install-music.ps1) and restart me."
+        : "I couldn't start audio: " + msg);
+      playNext(guildId, V);
+      return;
+    }
     gm.player.play(resource);
     api.send(track.textChannelId, `🎵 Now playing: **${track.title}**`);
   }
