@@ -106,11 +106,26 @@ export function create(_interp: Interpreter, library: { api: DiscordApi }) {
       adapterCreator: api.voiceAdapterCreator(guildId),
       selfDeaf: true,
       selfMute: false,
+      debug: true, // surfaces the DAVE end-to-end-encryption handshake (see below)
     });
     gm.player = V.createAudioPlayer({ behaviors: { noSubscriber: V.NoSubscriberBehavior.Play } });
     gm.connection.subscribe(gm.player);
-    gm.connection.on("stateChange", (o: any, n: any) => mlog(`voice connection: ${o.status} -> ${n.status}`));
+    gm.connection.on("stateChange", (o: any, n: any) => {
+      mlog(`voice connection: ${o.status} -> ${n.status}`);
+      if (n.status === "ready") reportDave(gm.connection);
+    });
     gm.player.on("stateChange", (o: any, n: any) => mlog(`player: ${o.status} -> ${n.status}`));
+    // Discord now ENFORCES DAVE E2E encryption on voice. The bot must finish an MLS
+    // key handshake before its audio can be decrypted by anyone. If that doesn't
+    // complete (no "[DAVE] Transition executed (v0 -> v1…)", or a "[DAVE] Session
+    // downgraded"), our opus goes out unencrypted and Discord drops it — the bot
+    // looks like it's "playing" but the channel hears silence. These lines show it:
+    gm.connection.on("debug", (m: string) => {
+      const line = String(m).replace(/\s+/g, " ").trim();
+      if (line.includes("[bin]")) return; // skip the noisy per-packet dumps
+      if (line.includes("[DAVE]") || /encryption mode|secret_key|select protocol|sessionDescription/i.test(line))
+        mlog(`🔐 ${line.slice(0, 240)}`);
+    });
     gm.connection.on("error", (e: Error) => console.error("🎵 voice connection error:", e?.message || e));
     gm.player.on("error", (e: Error) => {
       console.error("🎵 player error:", e?.message || e);
@@ -118,6 +133,25 @@ export function create(_interp: Interpreter, library: { api: DiscordApi }) {
     });
     // A track finishing puts the player back to Idle — advance the queue.
     gm.player.on(V.AudioPlayerStatus.Idle, () => playNext(guildId, V));
+  }
+
+  // Snapshot the DAVE session so "joins but silent" is diagnosable. A protocol
+  // version of 0, or a session that never becomes ready, means our audio is being
+  // sent UNENCRYPTED — which Discord now drops. We check at "ready" and again a few
+  // seconds later (the handshake can finish just after the UDP link comes up).
+  function reportDave(connection: any): void {
+    const snap = (label: string): void => {
+      try {
+        const dave = connection?.state?.networking?.state?.dave;
+        if (!dave) { mlog(`🔐 DAVE ${label}: no session yet`); return; }
+        const v = dave.protocolVersion;
+        const ready = !!dave.session?.ready;
+        if (v && ready) mlog(`🔐 DAVE ${label}: ACTIVE (protocol v${v}, session ready) → audio is encrypted ✓`);
+        else mlog(`🔐 DAVE ${label}: NOT active (protocol v${v}, ready=${ready}) → audio is UNENCRYPTED, Discord drops it = silence`);
+      } catch (e) { mlog(`🔐 DAVE ${label}: couldn't inspect (${e instanceof Error ? e.message : String(e)})`); }
+    };
+    snap("at-ready");
+    setTimeout(() => snap("after-3s"), 3000);
   }
 
   function playNext(guildId: string, V: any): void {
