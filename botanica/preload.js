@@ -30,4 +30,5 @@ contextBridge.exposeInMainWorld("botanica", {
     for (const ch of channels) ipcRenderer.on(ch, () => cb(ch));
   },
   onOpenPath: (cb) => ipcRenderer.on("open-path", (_e, p) => cb(p)),
+  onOpenFolderPath: (cb) => ipcRenderer.on("open-folder-path", (_e, p) => cb(p)),
 });

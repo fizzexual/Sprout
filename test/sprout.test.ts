@@ -9,6 +9,11 @@ import { parse } from "../src/parser.ts";
 import { Interpreter } from "../src/interpreter.ts";
 import { LangError } from "../src/errors.ts";
 import { parseBloom, styleFor, windowStyle } from "../src/bloom.ts";
+import { check } from "../src/checker.ts";
+
+function problems(src: string): LangError[] {
+  return check(parse(tokenize(src)));
+}
 
 // Run a snippet and capture everything `show` prints.
 function run(src: string): string[] {
@@ -207,6 +212,48 @@ test("window() marks the app as a native window", () => {
 test("no style means no styling (raw)", () => {
   const interp = runApp('window("App")\nlabel("a", "b")');
   assert.equal(interp.getGui().stylePath, undefined);
+});
+
+test("checker: a clean program has no problems", () => {
+  assert.equal(problems("make x = 1\nshow x + 2").length, 0);
+});
+
+test("checker: catches an undefined variable", () => {
+  const p = problems('make name = "x"\nshow nme');
+  assert.equal(p[0].kind, "Name");
+});
+
+test("checker: catches an unknown function", () => {
+  assert.equal(problems("show sqrtt(9)")[0].kind, "Name");
+});
+
+test("checker: catches wrong arity (builtin and task)", () => {
+  assert.equal(problems("show sqrt(1, 2)")[0].kind, "Type");
+  assert.equal(problems("task f(a):\n    give a\nshow f(1, 2)")[0].kind, "Type");
+});
+
+test("checker: catches give outside a task and set before make", () => {
+  assert.equal(problems("give 5")[0].kind, "Runtime");
+  assert.equal(problems("set x = 5")[0].kind, "Name");
+});
+
+test("checker: no false positive for a conditionally-made variable", () => {
+  const src = "make c = yes\nwhen c:\n    make x = 1\notherwise:\n    make x = 2\nshow x";
+  assert.equal(problems(src).length, 0);
+});
+
+test("checker: a task's local is not visible outside it", () => {
+  const src = "task f():\n    make secret = 1\n    give secret\nshow secret";
+  assert.ok(problems(src).some((e) => e.kind === "Name"));
+});
+
+test("security: only a button's task can be triggered", () => {
+  const src = 'task danger():\n    show "boom"\ntask ok():\n    label("d", "hi")\nwindow("X")\nlabel("d", "")\nbutton("Go", "ok")';
+  const interp = runApp(src);
+  interp.clickButton("ok"); // wired to a button -> allowed
+  let blocked = false;
+  try { interp.clickButton("danger"); } catch (e) { blocked = e instanceof LangError; }
+  assert.ok(blocked, "an un-wired task must not be runnable from a click");
 });
 
 test("error: unknown name suggests the closest one", () => {

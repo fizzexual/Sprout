@@ -121,7 +121,10 @@ function renderTabs() {
 
 async function openFolder() {
   const dir = await window.botanica.openFolderDialog();
-  if (!dir) return;
+  if (dir) loadFolder(dir);
+}
+
+async function loadFolder(dir) {
   folderRoot = dir;
   document.getElementById("folderName").textContent = baseName(dir).toUpperCase();
   const tree = document.getElementById("tree");
@@ -234,6 +237,7 @@ function wireUI() {
   window.botanica.onRunEnd((code) => appendOutput(`\n[finished${code != null ? " — exit " + code : ""}]\n`));
 
   window.botanica.onOpenPath((p) => openFile(p));
+  window.botanica.onOpenFolderPath((p) => loadFolder(p));
   window.botanica.onMenu(async (ch) => {
     if (ch === "menu-new") newFile();
     else if (ch === "menu-open") { const p = await window.botanica.openFileDialog(); if (p) openFile(p); }

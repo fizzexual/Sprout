@@ -41,6 +41,36 @@ Set-ItemProperty -Path 'HKCU:\Software\Classes\.bloom' -Name '(default)' -Value 
 New-Item -Path 'HKCU:\Software\Classes\.bloom\OpenWithProgids' -Force | Out-Null
 Set-ItemProperty -Path 'HKCU:\Software\Classes\.bloom\OpenWithProgids' -Name 'Botanica.Editor' -Value ''
 
+# --- "Open with Botanica" directly in the right-click menu (with icon) ---
+# Built via a .reg import: reg.exe handles the literal '*' (all-files) key, which
+# PowerShell's own cmdlets treat as a wildcard.
+$botanicaDir = Split-Path -Parent $botanicaLauncher
+$botanicaIcon = Join-Path $botanicaDir 'icon.ico'
+& (Join-Path $botanicaDir 'make-icon.ps1') -Out $botanicaIcon | Out-Null
+
+$icoEsc = $botanicaIcon -replace '\\', '\\'
+$launchEsc = $botanicaLauncher -replace '\\', '\\'
+function botanicaVerbReg($root, $arg) {
+  $cmdData = '\"' + $launchEsc + '\" \"' + $arg + '\"'
+  return @"
+[HKEY_CURRENT_USER\Software\Classes\$root\shell\Botanica]
+@="Open with Botanica"
+"Icon"="$icoEsc"
+
+[HKEY_CURRENT_USER\Software\Classes\$root\shell\Botanica\command]
+@="$cmdData"
+
+"@
+}
+$regText = "Windows Registry Editor Version 5.00`r`n`r`n"
+$regText += botanicaVerbReg '*' '%1'
+$regText += botanicaVerbReg 'Directory' '%1'
+$regText += botanicaVerbReg 'Directory\Background' '%V'
+$regFile = Join-Path $env:TEMP 'botanica-verbs.reg'
+Set-Content -LiteralPath $regFile -Value $regText -Encoding Unicode
+reg import $regFile | Out-Null
+Remove-Item -LiteralPath $regFile -Force
+
 # Tell Explorer the associations changed (so it takes effect right away).
 Add-Type -Namespace Win32 -Name Shell -MemberDefinition `
   '[DllImport("shell32.dll")] public static extern void SHChangeNotify(int eventId, int flags, IntPtr item1, IntPtr item2);'

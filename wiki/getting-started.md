@@ -16,9 +16,14 @@ A Sprout program is a file ending in **`.sprout`**. There are several ways to ru
 sprout run file.sprout      # run a program
 sprout gui file.sprout      # open it as a native window
 sprout serve file.sprout    # run it as a website
+sprout check file.sprout    # verify it WITHOUT running it
 sprout repl                 # type code interactively
 sprout version
 ```
+
+Sprout **checks your whole program for mistakes before running any of it** — so
+typos, unknown names, and wrong argument counts are caught up front, not
+halfway through. `sprout check` does just the check.
 
 To make `sprout` available everywhere, run `npm link` once in the project folder.
 

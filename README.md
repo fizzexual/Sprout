@@ -220,6 +220,8 @@ npm test          # or: node --test test/sprout.test.ts
 | Tasks (functions) | `task greet(name):` … `give value` (with recursion) |
 | GUI apps (native) | `window(title)` + `label` / `button` / `field` / `textof` |
 | Websites (server) | `server(title)` + the same widgets, runs in a browser |
+| Hidden backend | server logic never reaches the browser — only button tasks can run |
+| Verified first | the whole program is checked before it runs (`sprout check`) |
 | Styling (Bloom) | `style "theme.bloom"` — or raw output if omitted |
 | Editor | **Botanica** — a VS Code-style editor (Electron + Monaco) in `botanica/` |
 | Booleans | `yes` / `no` |
@@ -266,6 +268,9 @@ output
 - [ ] **next** — `ask` for input + a bigger standard library
 - [x] **Botanica installer** — `npm run dist` builds a standalone `Botanica Setup.exe`
 - [x] **Wiki** — full Sprout + Bloom docs in [`wiki/`](wiki)
+- [x] **Verify before running** — the whole program is checked first (`sprout check`)
+- [x] **Hidden backend** — server logic stays server-side; only button tasks run
+- [x] **Open with Botanica** — right-click context-menu entry (with icon)
 - [ ] **next** — more widgets (checkboxes, sliders, images, layout rows)
 
 ---

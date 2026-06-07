@@ -127,6 +127,14 @@ export class Interpreter {
   // Run a button's task (which takes no inputs), keeping all program state
   // alive between clicks.
   clickButton(taskName: string): void {
+    // SECURITY: only tasks actually wired to a button may be triggered. This
+    // keeps "backend" tasks (helpers, data access, anything not on a button)
+    // unreachable from the browser — a client can't invoke arbitrary code.
+    const wired = this.gui.widgets.some((w) => w.kind === "button" && w.onClick === taskName);
+    if (!wired) {
+      throw new LangError("Name", "That action isn't available.", 1, 1, "Only a button's own task can run.");
+    }
+
     const fn = this.functions.get(taskName);
     if (!fn) {
       throw new LangError(

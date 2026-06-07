@@ -70,6 +70,7 @@ window:                       ~ or label / button / field / #id
 sprout run file.sprout
 sprout gui file.sprout
 sprout serve file.sprout
+sprout check file.sprout    ~ verify without running
 sprout repl
 ```
 

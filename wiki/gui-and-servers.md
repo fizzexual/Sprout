@@ -69,6 +69,35 @@ button("Click me", "onClick")
 Open it and it runs in your browser instead of a window. Everything else is
 identical.
 
+## Frontend, backend, one file — and the backend stays hidden
+
+When you run a Sprout app as a `server`, your **whole program runs on the
+server**. The browser only ever receives:
+
+1. the rendered page (labels, buttons, fields), and
+2. a tiny "a button was clicked" message.
+
+Your tasks, variables, data, and logic are **never sent to the browser** — a
+visitor can't read them, copy them, or tamper with them. That's your hidden
+backend, in the same file as the frontend.
+
+On top of that, **only a task attached to a button can be triggered** from the
+browser. A helper task that isn't on a button — one that checks a password or
+touches a database — can't be reached from the outside at all:
+
+```sprout
+server("Secure App")
+button("Log in", "login")
+
+task login():
+    ~ runs ONLY on the server, when the button is clicked
+    checkPassword()
+
+task checkPassword():
+    ~ not on any button, so the browser can never call it directly
+    ~ ... secret backend stuff lives safely here ...
+```
+
 ## Styling
 
 By itself, an app shows a **raw** look (like a web page with no CSS). Add a

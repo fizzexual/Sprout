@@ -14,6 +14,7 @@ import { dirname, join } from "node:path";
 
 import { tokenize } from "./lexer.ts";
 import { parse } from "./parser.ts";
+import { check } from "./checker.ts";
 import { Interpreter } from "./interpreter.ts";
 import { LangError, formatError, formatMessage } from "./errors.ts";
 import { startNativeGui } from "./gui-native.ts";
@@ -59,8 +60,28 @@ function runFile(path: string, mode: RunMode): void {
   }
 
   const interp = new Interpreter(source);
+
+  // Parse, then verify the WHOLE program before running any of it.
+  let program: ReturnType<typeof parse>;
   try {
-    interp.run(parse(tokenize(source)));
+    program = parse(tokenize(source));
+  } catch (err) {
+    if (err instanceof LangError) {
+      console.error("\n" + formatError(err, source) + "\n");
+      process.exit(1);
+    }
+    fatal(err);
+  }
+
+  const problems = check(program);
+  if (problems.length > 0) {
+    for (const p of problems) console.error("\n" + formatError(p, source));
+    console.error(`\nFound ${problems.length} problem(s) — fix these and try again.\n`);
+    process.exit(1);
+  }
+
+  try {
+    interp.run(program);
   } catch (err) {
     if (err instanceof LangError) {
       console.error("\n" + formatError(err, source) + "\n");
@@ -89,6 +110,34 @@ function runFile(path: string, mode: RunMode): void {
     }
     fatal(err);
   }
+}
+
+// `sprout check <file>` — verify a program without running it.
+function checkFile(path: string): void {
+  let source = "";
+  try {
+    source = readFileSync(path, "utf8");
+  } catch {
+    fail(`I couldn't open the file: ${path}`, "Check the name and that the file is there.");
+  }
+  let program: ReturnType<typeof parse>;
+  try {
+    program = parse(tokenize(source));
+  } catch (err) {
+    if (err instanceof LangError) {
+      console.error("\n" + formatError(err, source) + "\n");
+      process.exit(1);
+    }
+    fatal(err);
+  }
+  const problems = check(program);
+  if (problems.length === 0) {
+    console.log("✓ Looks good — no problems found.");
+    return;
+  }
+  for (const p of problems) console.error("\n" + formatError(p, source));
+  console.error(`\nFound ${problems.length} problem(s).`);
+  process.exit(1);
 }
 
 function repl(): void {
@@ -144,6 +193,7 @@ function usage(): void {
       "  sprout run <file.sprout>    run a program",
       "  sprout gui <file.sprout>    open it as a native window",
       "  sprout serve <file.sprout>  run it as a website",
+      "  sprout check <file.sprout>  verify the program without running it",
       "  sprout repl                 start the interactive prompt",
       "  sprout version              show the version",
       "",
@@ -159,6 +209,8 @@ try {
     runFile(args[1], "gui");
   } else if (args[0] === "serve" && args[1]) {
     runFile(args[1], "serve");
+  } else if (args[0] === "check" && args[1]) {
+    checkFile(args[1]);
   } else if (args[0] === "version" || args[0] === "--version" || args[0] === "-v") {
     console.log(VERSION);
   } else if (args[0] === "repl" || args.length === 0) {

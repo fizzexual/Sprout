@@ -7,6 +7,7 @@
 const { app, BrowserWindow, Menu, dialog, ipcMain } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs/promises");
+const fss = require("node:fs");
 const { spawn } = require("node:child_process");
 
 // In dev, the Sprout CLI lives in ../src. When packaged into an .exe, the
@@ -18,16 +19,27 @@ const SPROUT_CLI = app.isPackaged
 let mainWindow = null;
 let runChild = null;
 
-// A .sprout/.bloom file passed on the command line (e.g. from "Open with").
-function fileFromArgv(argv) {
+// A path passed on the command line (e.g. from "Open with" / the context menu).
+function pathFromArgv(argv) {
   const args = argv.slice(1);
   for (const a of args) {
-    if (a && !a.startsWith("-") && /\.(sprout|bloom)$/i.test(a)) return a;
+    if (!a || a === "." || a.startsWith("-")) continue;
+    try { if (fss.existsSync(a)) return a; } catch { /* ignore */ }
   }
   return null;
 }
 
-let pendingFile = fileFromArgv(process.argv);
+let pendingPath = pathFromArgv(process.argv);
+
+// Open a file in a tab, or a folder in the explorer, depending on what it is.
+function sendOpen(p) {
+  if (!mainWindow || !p) return;
+  const abs = path.resolve(p);
+  try {
+    if (fss.statSync(abs).isDirectory()) mainWindow.webContents.send("open-folder-path", abs);
+    else mainWindow.webContents.send("open-path", abs);
+  } catch { /* ignore */ }
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -49,9 +61,9 @@ function createWindow() {
   mainWindow.loadFile("index.html");
 
   mainWindow.webContents.on("did-finish-load", () => {
-    if (pendingFile) {
-      mainWindow.webContents.send("open-path", path.resolve(pendingFile));
-      pendingFile = null;
+    if (pendingPath) {
+      sendOpen(pendingPath);
+      pendingPath = null;
     }
   });
 }
@@ -60,9 +72,8 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on("second-instance", (_event, argv) => {
-    const f = fileFromArgv(argv);
     if (mainWindow) {
-      if (f) mainWindow.webContents.send("open-path", path.resolve(f));
+      sendOpen(pathFromArgv(argv));
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
     }
