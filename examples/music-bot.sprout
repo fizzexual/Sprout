@@ -6,9 +6,10 @@
 ~   1. Same as the normal bot (see discord-bot.sprout): make a .env next to this
 ~      file with  DISCORD_TOKEN = your-token , and turn ON "Message Content
 ~      Intent" in the Discord developer portal.
-~   2. Install two free tools so the bot can play audio:
-~        yt-dlp   https://github.com/yt-dlp/yt-dlp   (grabs the audio)
-~        ffmpeg   https://ffmpeg.org                 (plays the audio)
+~   2. Install what music needs (yt-dlp + ffmpeg + the voice packages Discord's
+~      mandatory DAVE encryption requires) with ONE command:
+~        powershell -ExecutionPolicy Bypass -File tools\install-music.ps1
+~      Then open a NEW terminal.
 ~
 ~ Run it:  sprout run examples/music-bot.sprout
 ~ Then JOIN a voice channel and type in any text channel:

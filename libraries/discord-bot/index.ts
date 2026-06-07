@@ -15,11 +15,17 @@
 import { NONE, stringify } from "../../src/values.ts";
 import type { Value } from "../../src/values.ts";
 import type { Interpreter } from "../../src/interpreter.ts";
-import { connectVoice } from "./voice.ts";
-import type { VoicePlayer } from "./voice.ts";
 
 // GUILDS | GUILD_VOICE_STATES | GUILD_MESSAGES | MESSAGE_CONTENT
 const INTENTS = 1 | 128 | 512 | 32768;
+
+// The shape @discordjs/voice's gateway adapter calls back into (the music
+// extension hands these to @discordjs/voice; we forward gateway voice events).
+export interface VoiceAdapterMethods {
+  onVoiceServerUpdate(data: unknown): void;
+  onVoiceStateUpdate(data: unknown): void;
+  destroy(): void;
+}
 
 // Voice-join trace on the gateway side — always on (only prints while joining a
 // voice channel, so it's silent otherwise).
@@ -63,6 +69,7 @@ interface BotState {
   prefixCommands: Map<string, PrefixCommand>;
   slashCommands: Map<string, SlashCommand>;
   voiceStates: Map<string, Map<string, string>>;             // guildId -> (userId -> channelId)
+  voiceAdapters: Map<string, VoiceAdapterMethods>;           // guildId -> @discordjs/voice adapter
   listeners: Map<string, Array<(d: Record<string, unknown>) => void>>;
 }
 
@@ -73,7 +80,11 @@ export interface DiscordApi {
   onSlash(name: string, description: string, handler: (ctx: SlashContext) => void, options?: SlashOption[]): void;
   send(channelId: string, text: string): void;
   voiceChannelOf(guildId: string, userId: string): string | null;
-  joinVoice(guildId: string, channelId: string): Promise<VoicePlayer>;
+  // A @discordjs/voice gateway adapter wired to THIS bot's gateway (for the music
+  // extension): it sends voice payloads over our websocket and receives the
+  // gateway's voice events. We use @discordjs/voice because Discord now requires
+  // the DAVE end-to-end encryption protocol, which we can't do dependency-free.
+  voiceAdapterCreator(guildId: string): (methods: VoiceAdapterMethods) => { sendPayload(payload: unknown): boolean; destroy(): void };
   slashCommandNames(): string[];
   log(msg: string): void;
 }
@@ -92,6 +103,7 @@ export function create(interp: Interpreter) {
     prefixCommands: new Map(),
     slashCommands: new Map(),
     voiceStates: new Map(),
+    voiceAdapters: new Map(),
     listeners: new Map(),
   };
 
@@ -135,7 +147,13 @@ export function create(interp: Interpreter) {
     onSlash: (name, description, handler, options = []) => { state.slashCommands.set(name, { name, description, options, handler }); },
     send: (channelId, text) => send(state, channelId, text),
     voiceChannelOf: (guildId, userId) => state.voiceStates.get(guildId)?.get(userId) ?? null,
-    joinVoice: (guildId, channelId) => joinVoice(state, guildId, channelId),
+    voiceAdapterCreator: (guildId) => (methods) => {
+      state.voiceAdapters.set(guildId, methods);
+      return {
+        sendPayload: (payload) => { try { state.ws?.send(JSON.stringify(payload)); return true; } catch { return false; } },
+        destroy: () => { state.voiceAdapters.delete(guildId); },
+      };
+    },
     slashCommandNames: () => [...state.slashCommands.keys()],
     log: (msg) => console.log(msg),
   };
@@ -196,45 +214,6 @@ function gatewaySend(state: BotState, op: number, d: unknown): void {
   try { state.ws?.send(JSON.stringify({ op, d })); } catch { /* socket closing */ }
 }
 
-// --- voice: join a channel and hand back a player -----------------------------
-
-function joinVoice(state: BotState, guildId: string, channelId: string): Promise<VoicePlayer> {
-  return new Promise((resolve, reject) => {
-    let sessionId = "";
-    let token = "";
-    let endpoint = "";
-    let player: VoicePlayer | null = null;
-    let timedOut = false;
-    const offState = onGateway(state, "VOICE_STATE_UPDATE", (d) => {
-      if (d.guild_id === guildId && d.user_id === state.selfId && d.session_id) { sessionId = String(d.session_id); vdebug("got voice session id"); maybeConnect(); }
-    });
-    const offServer = onGateway(state, "VOICE_SERVER_UPDATE", (d) => {
-      if (d.guild_id === guildId && d.endpoint) {
-        token = String(d.token || ""); endpoint = String(d.endpoint);
-        vdebug(`got voice server (endpoint ${endpoint})`);
-        if (player) player.updateServer(endpoint, token); // refreshed server — feed it in
-        else maybeConnect();
-      }
-    });
-    const cleanup = (): void => { offState(); offServer(); };
-    const maybeConnect = (): void => {
-      if (player || timedOut || !sessionId || !token || !endpoint) return;
-      const inner = connectVoice({
-        endpoint, token, guildId, userId: state.selfId, sessionId,
-        onError: (m) => console.error("🌱 " + m),
-      });
-      // Keep the gateway listeners alive for the connection's life; remove on destroy.
-      player = { ...inner, destroy: () => { cleanup(); inner.destroy(); } };
-      resolve(player);
-    };
-    vdebug(`joining voice channel ${channelId} in guild ${guildId}`);
-    gatewaySend(state, 4, { guild_id: guildId, channel_id: channelId, self_mute: false, self_deaf: false });
-    setTimeout(() => {
-      if (!player) { timedOut = true; cleanup(); vdebug("voice join timed out (no VOICE_SERVER_UPDATE)"); reject(new Error("voice join timed out")); }
-    }, 15000);
-  });
-}
-
 // --- the gateway connection ---------------------------------------------------
 
 function connect(interp: Interpreter, state: BotState): void {
@@ -293,13 +272,18 @@ function dispatch(interp: Interpreter, state: BotState, type: string, d: Record<
     registerGuildCommands(state, guildId);
   } else if (type === "VOICE_STATE_UPDATE") {
     const guildId = String(d.guild_id || "");
+    const userId = String(d.user_id || "");
     if (guildId) {
       const map = state.voiceStates.get(guildId) ?? new Map<string, string>();
-      const userId = String(d.user_id || "");
       const channelId = d.channel_id ? String(d.channel_id) : "";
       if (channelId) map.set(userId, channelId); else map.delete(userId);
       state.voiceStates.set(guildId, map);
+      if (userId === state.selfId) { vdebug("forwarding our VOICE_STATE_UPDATE to the voice adapter"); state.voiceAdapters.get(guildId)?.onVoiceStateUpdate(d); }
     }
+  } else if (type === "VOICE_SERVER_UPDATE") {
+    const guildId = String(d.guild_id || "");
+    vdebug(`forwarding VOICE_SERVER_UPDATE (endpoint ${d.endpoint}) to the voice adapter`);
+    state.voiceAdapters.get(guildId)?.onVoiceServerUpdate(d);
   } else if (type === "MESSAGE_CREATE") {
     const author = d.author as { id?: string; username?: string; bot?: boolean } | undefined;
     if (!author || author.id === state.selfId || author.bot) { emitGateway(state, type, d); return; }

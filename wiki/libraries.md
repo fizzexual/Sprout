@@ -71,9 +71,19 @@ loaded, your bot understands new commands in Discord with no extra Sprout code:
 | `!play <link or words>` | join your voice channel and play YouTube audio (`/play` works too) |
 | `!skip` / `!stop` / `!queue` | skip a song, stop & leave, or see what's queued |
 
-It needs **yt-dlp** and **ffmpeg** installed (free, one-time) to fetch and decode
-audio. Full details: [extensions/discord-bot/music](../extensions/discord-bot/music).
-Example: [`examples/music-bot.sprout`](../examples/music-bot.sprout).
+Music is the one part of Sprout that needs extra software — `yt-dlp` + `ffmpeg`
+to fetch/decode audio, and (because Discord now mandates the **DAVE** end-to-end
+encryption protocol for voice) the `@discordjs/voice` packages. One command sets
+it all up:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\install-music.ps1
+```
+
+The core language and the discord-bot library stay dependency-free; only the
+music extension uses these, and only when you `!play`. Full details:
+[extensions/discord-bot/music](../extensions/discord-bot/music). Example:
+[`examples/music-bot.sprout`](../examples/music-bot.sprout).
 
 ## Adding your own
 

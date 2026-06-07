@@ -1,11 +1,17 @@
-// voice.ts — the Discord voice connection: join a voice channel and stream Opus
-// audio over UDP. No npm dependencies — it uses Node's built-in WebSocket, UDP
-// (node:dgram) and crypto. Audio is produced by ffmpeg/yt-dlp (see music ext).
+// voice.ts — a from-scratch Discord voice connection: join a voice channel and
+// stream Opus audio over UDP with zero npm dependencies (Node's built-in
+// WebSocket, UDP (node:dgram) and crypto).
 //
-// This is genuinely involved (Discord's voice protocol: a second WebSocket, a
-// UDP socket, IP discovery, RTP packetisation, and AEAD encryption), so the
-// tricky pieces — the cipher and the Ogg/Opus demuxer — are pulled out as small
-// pure functions that the test-suite checks directly.
+// NOTE: This is no longer used for live playback. As of 2026-03-01 Discord
+// REQUIRES the DAVE end-to-end-encryption protocol (MLS + AES-128-GCM) to join
+// voice; a channel without it closes with code 4017. DAVE can't be done
+// dependency-free, so the music extension now uses @discordjs/voice (which uses
+// @snazzah/davey). This file is kept as a reference implementation of the voice
+// transport — its cipher and Ogg/Opus demuxer are pure functions the test-suite
+// still checks, and it was correct for the pre-DAVE protocol.
+//
+// Discord's voice protocol here: a second WebSocket, a UDP socket, IP discovery,
+// RTP packetisation, and AEAD encryption.
 
 import { createCipheriv } from "node:crypto";
 import { createSocket } from "node:dgram";

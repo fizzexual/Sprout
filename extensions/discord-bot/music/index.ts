@@ -6,20 +6,22 @@
 //
 // Then in Discord:  !play <youtube link or search>   (also /play, !skip, !stop, !queue)
 //
-// Audio is produced by two external programs you install once — yt-dlp (grabs
-// the audio) and ffmpeg (turns it into Opus). That's the same "shell out to a
-// system tool" approach Sprout already uses for GUIs and the internet, so the
-// library itself stays dependency-free.
+// Audio is grabbed by yt-dlp and decoded by ffmpeg (two external programs). The
+// voice connection itself uses @discordjs/voice, because Discord now REQUIRES the
+// DAVE end-to-end-encryption protocol to join voice, which can't be done with
+// zero dependencies. All of this is installed by  tools/install-music.ps1  — the
+// core Sprout language and the discord-bot library stay dependency-free; only
+// this extension needs the extra packages, and only when you actually play.
 
 import { spawn } from "node:child_process";
 import type { Interpreter } from "../../../src/interpreter.ts";
 import type { DiscordApi, CommandContext, SlashContext } from "../../../libraries/discord-bot/index.ts";
-import type { VoicePlayer } from "../../../libraries/discord-bot/voice.ts";
 
-export interface Track { title: string; url: string; requestedBy: string; textChannelId: string; }
+export interface Track { title: string; url: string; requestedBy: string; textChannelId: string; voiceChannelId: string; guildId: string; }
 
 interface GuildMusic {
-  player: VoicePlayer | null;
+  connection: any | null;   // @discordjs/voice VoiceConnection
+  player: any | null;       // @discordjs/voice AudioPlayer
   queue: Track[];
   current: Track | null;
   procs: { kill(): void } | null;
@@ -39,6 +41,22 @@ export function formatQueue(current: Track | null, queue: Track[]): string {
   return lines.join("\n");
 }
 
+// Lazy-load @discordjs/voice so the extension still loads (and !ping etc. work)
+// even before the music packages are installed. Returns null if they're missing.
+let voiceMod: any = null;
+let voiceMissing = false;
+async function loadVoice(): Promise<any> {
+  if (voiceMod) return voiceMod;
+  if (voiceMissing) return null;
+  try {
+    voiceMod = await import("@discordjs/voice");
+    return voiceMod;
+  } catch {
+    voiceMissing = true;
+    return null;
+  }
+}
+
 // --- the extension -----------------------------------------------------------
 
 export function create(_interp: Interpreter, library: { api: DiscordApi }) {
@@ -47,7 +65,7 @@ export function create(_interp: Interpreter, library: { api: DiscordApi }) {
 
   const musicOf = (guildId: string): GuildMusic => {
     let gm = guilds.get(guildId);
-    if (!gm) { gm = { player: null, queue: [], current: null, procs: null }; guilds.set(guildId, gm); }
+    if (!gm) { gm = { connection: null, player: null, queue: [], current: null, procs: null }; guilds.set(guildId, gm); }
     return gm;
   };
 
@@ -58,28 +76,54 @@ export function create(_interp: Interpreter, library: { api: DiscordApi }) {
     mlog(voiceChannel ? `author is in voice channel ${voiceChannel}` : "author is NOT in a voice channel");
     if (!voiceChannel) { reply("Join a voice channel first, then ask me to play. 🎧"); return; }
 
+    const V = await loadVoice();
+    if (!V) {
+      mlog("@discordjs/voice not installed");
+      reply("🎵 Music isn't set up yet. Run **tools/install-music.ps1** (it installs the audio packages), then restart me.");
+      return;
+    }
+
     reply("🔎 Looking that up…");
     const found = await resolve(query);
     mlog(found ? `resolved: ${found.title}` : "resolve returned nothing (yt-dlp missing or failed)");
     if (!found) { reply("I couldn't find that (is **yt-dlp** installed?). Try a direct YouTube link."); return; }
 
     const gm = musicOf(guildId);
-    gm.queue.push({ ...found, requestedBy: authorId, textChannelId });
+    gm.queue.push({ ...found, requestedBy: authorId, textChannelId, voiceChannelId: voiceChannel, guildId });
 
     if (gm.current) { reply(`➕ Added to the queue: **${found.title}**`); return; }
 
-    if (!gm.player) {
-      try { gm.player = await api.joinVoice(guildId, voiceChannel); }
-      catch { reply("I couldn't join your voice channel."); gm.queue = []; return; }
-      gm.player.onFinish(() => playNext(guildId));
-    }
-    playNext(guildId);
+    if (!gm.connection) ensureConnection(gm, guildId, voiceChannel, V);
+    playNext(guildId, V);
   }
 
-  function playNext(guildId: string): void {
+  // Join the voice channel via @discordjs/voice (which handles UDP, encryption,
+  // and the DAVE protocol), driven by our gateway through the library's adapter.
+  function ensureConnection(gm: GuildMusic, guildId: string, voiceChannelId: string, V: any): void {
+    gm.connection = V.joinVoiceChannel({
+      channelId: voiceChannelId,
+      guildId,
+      adapterCreator: api.voiceAdapterCreator(guildId),
+      selfDeaf: true,
+      selfMute: false,
+    });
+    gm.player = V.createAudioPlayer({ behaviors: { noSubscriber: V.NoSubscriberBehavior.Play } });
+    gm.connection.subscribe(gm.player);
+    gm.connection.on("stateChange", (o: any, n: any) => mlog(`voice connection: ${o.status} -> ${n.status}`));
+    gm.player.on("stateChange", (o: any, n: any) => mlog(`player: ${o.status} -> ${n.status}`));
+    gm.connection.on("error", (e: Error) => console.error("🎵 voice connection error:", e?.message || e));
+    gm.player.on("error", (e: Error) => {
+      console.error("🎵 player error:", e?.message || e);
+      playNext(guildId, V); // skip the broken track
+    });
+    // A track finishing puts the player back to Idle — advance the queue.
+    gm.player.on(V.AudioPlayerStatus.Idle, () => playNext(guildId, V));
+  }
+
+  function playNext(guildId: string, V: any): void {
     const gm = guilds.get(guildId);
     if (!gm) return;
-    gm.procs = null;
+    if (gm.procs) { gm.procs.kill(); gm.procs = null; }
     gm.current = null;
     const track = gm.queue.shift();
     if (!track) { mlog("queue empty — leaving voice"); leave(guildId); return; }
@@ -88,7 +132,7 @@ export function create(_interp: Interpreter, library: { api: DiscordApi }) {
 
     const piped = streamFor(track.url, (msg) => {
       api.send(track.textChannelId, msg);
-      playNext(guildId); // skip a broken track
+      playNext(guildId, V); // skip a broken track
     });
     if (!piped) {
       api.send(track.textChannelId, "I need **ffmpeg** and **yt-dlp** installed to play audio.");
@@ -96,7 +140,8 @@ export function create(_interp: Interpreter, library: { api: DiscordApi }) {
       return;
     }
     gm.procs = piped;
-    gm.player!.playOgg(piped.stream);
+    const resource = V.createAudioResource(piped.stream, { inputType: V.StreamType.OggOpus });
+    gm.player.play(resource);
     api.send(track.textChannelId, `🎵 Now playing: **${track.title}**`);
   }
 
@@ -104,8 +149,8 @@ export function create(_interp: Interpreter, library: { api: DiscordApi }) {
     const gm = guilds.get(guildId);
     if (!gm || !gm.current) { reply("Nothing is playing."); return; }
     reply("⏭️ Skipping…");
-    if (gm.procs) gm.procs.kill();   // stream ends -> onFinish -> playNext
-    else playNext(guildId);
+    if (gm.procs) { gm.procs.kill(); gm.procs = null; }
+    try { gm.player?.stop(true); } catch { /* player gone */ } // -> Idle -> playNext
   }
 
   function stop(guildId: string, reply: (t: string) => void): void {
@@ -113,15 +158,15 @@ export function create(_interp: Interpreter, library: { api: DiscordApi }) {
     if (!gm) { reply("Nothing is playing."); return; }
     gm.queue = [];
     reply("⏹️ Stopped. Bye! 👋");
-    if (gm.procs) gm.procs.kill();
-    else leave(guildId);
+    leave(guildId);
   }
 
   function leave(guildId: string): void {
     const gm = guilds.get(guildId);
     if (!gm) return;
-    if (gm.procs) gm.procs.kill();
-    gm.player?.destroy();
+    if (gm.procs) { gm.procs.kill(); gm.procs = null; }
+    try { gm.player?.stop(true); } catch { /* gone */ }
+    try { gm.connection?.destroy(); } catch { /* gone */ }
     guilds.delete(guildId);
   }
 
@@ -145,6 +190,9 @@ export function create(_interp: Interpreter, library: { api: DiscordApi }) {
 
 // --- audio plumbing (yt-dlp + ffmpeg) ----------------------------------------
 
+// Always-on trace (only prints while a !play/​/play is being handled).
+function mlog(msg: string): void { console.log(`🎵 [music] ${msg}`); }
+
 // Resolve a link or search words into a { title, url } using yt-dlp.
 function resolve(query: string): Promise<{ title: string; url: string } | null> {
   const target = isUrl(query) ? query : `ytsearch1:${query}`;
@@ -167,11 +215,8 @@ function resolve(query: string): Promise<{ title: string; url: string } | null> 
   });
 }
 
-// Always-on trace (only prints while a !play/​/play is being handled).
-function mlog(msg: string): void { console.log(`🎵 [music] ${msg}`); }
-
-// Spawn yt-dlp piped into ffmpeg, producing an Ogg/Opus stream for the voice
-// connection. Returns the stream + a kill() that stops both processes.
+// Spawn yt-dlp piped into ffmpeg, producing an Ogg/Opus stream for @discordjs/voice.
+// Returns the stream + a kill() that stops both processes.
 function streamFor(url: string, onError: (msg: string) => void): { stream: NodeJS.ReadableStream; kill(): void } | null {
   try {
     // Prefer webm/opus: it streams cleanly through a pipe. (m4a/mp4 keeps its

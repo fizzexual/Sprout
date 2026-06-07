@@ -11,6 +11,7 @@
     "repl": "node src/cli.ts repl",
     "play": "node playground/server.ts",
     "test": "node --test test/sprout.test.ts",
+    "install:music": "npm install --save-optional @discordjs/voice@latest @snazzah/davey@latest libsodium-wrappers@latest prism-media@latest",
     "hello": "node src/cli.ts run examples/hello.sprout",
     "fizzbuzz": "node src/cli.ts run examples/fizzbuzz.sprout",
     "triangle": "node src/cli.ts run examples/triangle.sprout",

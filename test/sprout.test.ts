@@ -479,7 +479,7 @@ test("music extension registers its commands on the discord api", () => {
     onSlash: (n: string, _d: string, _h: unknown, opts: Array<{ name: string }> = []) => { slashes.push(n); slashOptions[n] = opts; },
     send: () => {},
     voiceChannelOf: () => null,
-    joinVoice: () => Promise.reject(new Error("no")),
+    voiceAdapterCreator: () => () => ({ sendPayload: () => true, destroy: () => {} }),
     log: () => {},
   };
   musicExt(null as never, { api: fakeApi } as never);
@@ -492,7 +492,7 @@ test("discord-bot library exposes an extension api", () => {
   const lib = discordBot({} as never);
   assert.equal(typeof lib.api.onCommand, "function");
   assert.equal(typeof lib.api.onSlash, "function");
-  assert.equal(typeof lib.api.joinVoice, "function");
+  assert.equal(typeof lib.api.voiceAdapterCreator, "function");
   assert.equal(lib.api.voiceChannelOf("g", "u"), null);
 });
 

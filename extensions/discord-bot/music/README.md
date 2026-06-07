@@ -18,58 +18,63 @@ Then join a voice channel and type, in any text channel:
 | `!stop` | `/stop` | stop and leave the channel |
 | `!queue` | — | show what's playing and what's next |
 
-## What you need installed
+## What you need installed — run the installer
 
-Discord requires audio as encrypted **Opus**, and YouTube audio has to be
-fetched and decoded — no language does that in-process. Like every music bot,
-this shells out to two free command-line tools (install once, put them on your
-PATH):
+Music is the one part of Sprout that needs extra software. There are two reasons:
 
-- **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** — grabs the audio from YouTube
-- **[ffmpeg](https://ffmpeg.org)** — converts it to Opus
+1. **Audio tools** — YouTube audio has to be fetched (`yt-dlp`) and decoded
+   (`ffmpeg`). Every music bot uses these.
+2. **DAVE end-to-end encryption** — since **March 1, 2026**, Discord *requires*
+   the [DAVE protocol](https://daveprotocol.com/) to join any voice channel.
+   It's a heavyweight crypto protocol (MLS + AES‑128‑GCM); even discord.js uses a
+   native package for it. So this extension uses **`@discordjs/voice`** (which
+   pulls in **`@snazzah/davey`** for DAVE) for the actual voice connection.
 
-Sprout itself stays dependency-free — it just runs these the same way it runs
-PowerShell for GUIs or Node for `get`/`post`. If they're missing, the bot tells
-you in chat instead of crashing.
+One command installs all of it:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\install-music.ps1
+```
+
+That installs the npm packages (`@discordjs/voice`, `@snazzah/davey`,
+`libsodium-wrappers`, `prism-media`) and, via `winget`, `ffmpeg` + `yt-dlp`.
+**The rest of Sprout stays dependency-free** — the core language and the
+discord-bot library import none of this; only the music extension does, and only
+when you actually `!play`. If the packages are missing, the bot just tells you to
+run the installer instead of crashing.
 
 ## Setup recap
 
-1. Make a `.env` next to your program with `DISCORD_TOKEN = your-token`.
-2. In the [Discord developer portal](https://discord.com/developers/applications),
-   under **Bot**, turn ON **Message Content Intent** (and the **Server Members**/
-   **Voice** related intents are covered automatically).
-3. Invite the bot with the **`bot`** scope and **Connect** + **Speak** voice
+1. Run `tools\install-music.ps1` (above). Open a **new** terminal afterwards.
+2. Make a `.env` next to your program with `DISCORD_TOKEN = your-token`.
+3. In the [Discord developer portal](https://discord.com/developers/applications),
+   under **Bot**, turn ON **Message Content Intent**.
+4. Invite the bot with the **`bot`** scope and **Connect** + **Speak** voice
    permissions.
-4. `sprout run examples/music-bot.sprout`, join a voice channel, and `!play`.
+5. `sprout run examples/music-bot.sprout`, join a voice channel, and `!play`.
 
 ## How it works (under the hood)
 
-- The library tracks who's in which voice channel (via `GUILD_VOICE_STATES`).
-- `!play` finds your voice channel, joins it (Discord voice gateway → UDP), and
-  streams `yt-dlp | ffmpeg` output as encrypted Opus frames every 20ms.
+- The discord-bot library tracks who's in which voice channel (via
+  `GUILD_VOICE_STATES`) and exposes a tiny `voiceAdapterCreator` — a bridge that
+  lets `@discordjs/voice` send/receive voice events over *our* gateway websocket.
+- `!play` finds your voice channel, has `@discordjs/voice` join it (handling UDP,
+  encryption, **and DAVE**), and feeds it the `yt-dlp | ffmpeg` Ogg/Opus stream.
 - A per-server **queue** drives `!skip` / `!stop` and auto-advances when a song
-  ends. See [`voice.ts`](../../../libraries/discord-bot/voice.ts) for the
-  transport (RTP + AES-256-GCM / XChaCha20-Poly1305 + Ogg/Opus demuxing).
+  ends (the audio player going idle pulls the next track).
+
+> A from-scratch, zero-dependency voice transport also lives in
+> [`voice.ts`](../../../libraries/discord-bot/voice.ts) — it was correct before
+> DAVE became mandatory, and is kept as a reference (its cipher and Ogg/Opus
+> demuxer are still unit-tested).
 
 ## Troubleshooting
 
-**The bot joins but plays nothing.** Almost always one of:
+The console prints a `🎵 [music]` and voice trace while a song plays. Common issues:
 
-1. **ffmpeg can't decode the audio.** The bot asks `yt-dlp` for **webm/opus**
-   on purpose, because m4a/mp4 can't be streamed through a pipe. Make sure your
-   **ffmpeg has libopus** (`ffmpeg -encoders | findstr opus` should list
-   `libopus`). The official ffmpeg builds do.
-2. **yt-dlp or ffmpeg isn't really on your PATH.** Open a new terminal and check
-   `yt-dlp --version` and `ffmpeg -version` both work.
-3. **A song-specific failure.** If `yt-dlp` or `ffmpeg` exit non-zero, the bot
-   now prints the reason to the console.
-
-**See exactly where it stops.** Run with voice tracing on:
-
-```powershell
-$env:SPROUT_VOICE_DEBUG = "1"; sprout run examples/discord-bot.sprout
-```
-
-You'll see each step: `websocket open → hello → ready (+ encryption modes) →
-ip discovery → session description → sending first audio frame 🔊`. Whatever
-step is *missing* is where the problem is — paste that and it's easy to fix.
+1. **"Music isn't set up yet"** → run `tools\install-music.ps1`, then restart the bot.
+2. **`@snazzah/davey` failed to install** → it's a native package; you may need
+   Windows "Visual Studio Build Tools" (C++), then re-run the installer.
+3. **Joins but silent / ffmpeg error** → make sure `ffmpeg -encoders | findstr opus`
+   lists `libopus`, and that `yt-dlp --version` works in a fresh terminal. Any
+   `yt-dlp`/`ffmpeg` non-zero exit is printed to the console.
