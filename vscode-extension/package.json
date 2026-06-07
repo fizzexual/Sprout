@@ -2,7 +2,7 @@
   "name": "sprout-language",
   "displayName": "Sprout",
   "description": "Language support for Sprout and its styling language Bloom: syntax highlighting, snippets, and run commands.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "fizzexual",
   "license": "MIT",
   "icon": "icon.png",
@@ -11,6 +11,7 @@
   "keywords": ["sprout", "bloom", "beginner", "language"],
   "repository": { "type": "git", "url": "https://github.com/fizzexual/Sprout-" },
   "main": "./extension.js",
+  "activationEvents": ["onLanguage:sprout", "onLanguage:bloom"],
   "contributes": {
     "languages": [
       {
@@ -37,18 +38,21 @@
     ],
     "commands": [
       { "command": "sprout.run", "title": "Run File", "category": "Sprout", "icon": "$(play)" },
-      { "command": "sprout.gui", "title": "Run as Window", "category": "Sprout" },
-      { "command": "sprout.serve", "title": "Run as Website", "category": "Sprout" },
-      { "command": "sprout.check", "title": "Verify File", "category": "Sprout" }
+      { "command": "sprout.gui", "title": "Run as Window", "category": "Sprout", "icon": "$(window)" },
+      { "command": "sprout.serve", "title": "Run as Website", "category": "Sprout", "icon": "$(globe)" },
+      { "command": "sprout.check", "title": "Verify File", "category": "Sprout", "icon": "$(check)" }
     ],
     "menus": {
-      "editor/title/run": [
-        { "command": "sprout.run", "when": "resourceLangId == sprout", "group": "navigation@1" }
+      "editor/title": [
+        { "command": "sprout.run", "when": "resourceLangId == sprout", "group": "navigation@1" },
+        { "command": "sprout.gui", "when": "resourceLangId == sprout", "group": "navigation@2" },
+        { "command": "sprout.serve", "when": "resourceLangId == sprout", "group": "navigation@3" }
       ],
       "editor/context": [
         { "command": "sprout.run", "when": "resourceLangId == sprout", "group": "z_sprout@1" },
         { "command": "sprout.gui", "when": "resourceLangId == sprout", "group": "z_sprout@2" },
-        { "command": "sprout.serve", "when": "resourceLangId == sprout", "group": "z_sprout@3" }
+        { "command": "sprout.serve", "when": "resourceLangId == sprout", "group": "z_sprout@3" },
+        { "command": "sprout.check", "when": "resourceLangId == sprout", "group": "z_sprout@4" }
       ]
     },
     "configuration": {
