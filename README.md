@@ -75,7 +75,8 @@ Sprout programs use the **`.sprout`** extension. There are more to try in
 [`examples/`](examples): `hello`, `fizzbuzz`, `triangle`, `math`, `primes`,
 `functions`, the GUI apps `gui-counter` & `gui-greeter`, the website
 `server_example`, `savecounter` (remembers its value), `internet` (calls a live
-web API), and `repo-stats` (a GUI that fetches live GitHub stats).
+web API), `api-explorer` (lists every field an API offers), and `repo-stats`
+(a GUI that fetches live GitHub stats).
 
 > Don't want to install anything? You can always run it directly:
 > `node src/cli.ts run examples/hello.sprout`

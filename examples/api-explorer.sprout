@@ -1,0 +1,16 @@
+~ get_api_points: connect to ANY web API and see every field you can use,
+~ so you don't have to guess. Run it:  sprout run examples/api-explorer.sprout
+
+~ 1. Ask an API for some data (here: GitHub, about the Sprout repo).
+make info = get("https://api.github.com/repos/fizzexual/Sprout-")
+
+~ 2. Discover what's inside — every field name you could read.
+show get_api_points(info)
+
+~ 3. Now that you know the names, pick out the ones you want.
+show ""
+show "Here's what I picked:"
+show "  Name:  ", jsonpick(info, "full_name")
+show "  Stars: ", jsonpick(info, "stargazers_count")
+show "  Owner: ", jsonpick(info, "owner.login")
+show "  Made:  ", jsonpick(info, "created_at")

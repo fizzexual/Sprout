@@ -12,6 +12,7 @@ task check():
 
     make info = get("https://api.github.com/repos/" + repo)
     make name = jsonpick(info, "full_name")
+    show get_api_points(info)
 
     when name == nothing:
         label("name", "Couldn't find '" + repo + "'.")
