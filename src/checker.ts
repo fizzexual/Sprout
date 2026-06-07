@@ -19,7 +19,7 @@ import { NET_BUILTINS } from "./net.ts";
 
 const BUILTIN_ARITY: Record<string, [number, number]> = {
   abs: [1, 1], round: [1, 1], floor: [1, 1], ceil: [1, 1], sqrt: [1, 1],
-  length: [1, 1], upper: [1, 1], lower: [1, 1], jsonpick: [2, 2], explore: [1, 1], random: [0, 0],
+  length: [1, 1], upper: [1, 1], lower: [1, 1], jsonpick: [2, 2], explore: [1, 1], get_api_points: [1, 1], random: [0, 0],
   min: [1, Infinity], max: [1, Infinity],
 };
 const GUI_ARITY: Record<string, [number, number]> = {

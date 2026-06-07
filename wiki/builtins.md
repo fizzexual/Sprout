@@ -57,7 +57,8 @@ Call any web address and use what comes back — no libraries, no setup.
 | `get("https://...")` | fetch a page or API and return its text |
 | `post("https://...", body)` | send data and return the reply |
 | `jsonpick(text, "key")` | pull a value out of a JSON reply (use `"a.b"` for nested keys) |
-| `explore(text)` | list **every** path you can read from a JSON reply |
+| `get_api_points(text)` | list the **field names** an API offers |
+| `explore(text)` | like `get_api_points`, but shows each field's value too |
 
 ```sprout
 make info = get("https://api.github.com/repos/fizzexual/Sprout-")

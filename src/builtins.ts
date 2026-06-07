@@ -7,7 +7,7 @@
 import { LangError } from "./errors.ts";
 import type { Value } from "./values.ts";
 import { NONE, typeName } from "./values.ts";
-import { describeJson } from "./explore.ts";
+import { apiPoints, describeJson } from "./explore.ts";
 
 export interface CallSite {
   line: number;
@@ -17,7 +17,7 @@ export interface CallSite {
 export const BUILTIN_NAMES = [
   "abs", "round", "floor", "ceil", "sqrt",
   "min", "max",
-  "length", "upper", "lower", "jsonpick", "explore",
+  "length", "upper", "lower", "jsonpick", "explore", "get_api_points",
   "random",
 ];
 
@@ -75,6 +75,10 @@ export function callBuiltin(name: string, args: Value[], site: CallSite): Value 
     case "explore": {
       exactly(name, args, 1, site);
       return describeJson(text(args[0], name, 0, site));
+    }
+    case "get_api_points": {
+      exactly(name, args, 1, site);
+      return apiPoints(text(args[0], name, 0, site));
     }
     default:
       // Unreachable: callers check isBuiltin() first.
@@ -142,6 +146,7 @@ function exampleCall(name: string): string {
   if (name === "length" || name === "upper" || name === "lower") return `${name}("hello")`;
   if (name === "jsonpick") return 'jsonpick(text, "key")';
   if (name === "explore") return "explore(response)";
+  if (name === "get_api_points") return "get_api_points(response)";
   if (name === "random") return "random()";
   return `${name}(16)`;
 }

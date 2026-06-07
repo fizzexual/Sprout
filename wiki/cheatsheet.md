@@ -39,7 +39,8 @@ show add(2, 3)        ~ call it -> 5
 abs round floor ceil sqrt      min(...) max(...)
 length(text) upper(text) lower(text)      random()
 remember("key", value)   recall("key", default)   ~ save/load between runs
-get("url")   post("url", body)   jsonpick(text, "key")   explore(text)   ~ internet
+get("url")   post("url", body)   jsonpick(text, "key")          ~ internet
+get_api_points(text)   explore(text)                          ~ what does an API offer?
 ```
 
 ## GUI / Server

@@ -17,7 +17,7 @@
     { "match": "\\b(and|or|not)\\b", "name": "keyword.operator.word.sprout" },
     { "match": "\\b(yes|no|nothing)\\b", "name": "constant.language.sprout" },
     {
-      "match": "\\b(window|server|label|button|field|textof|get|post|jsonpick|explore|remember|recall|abs|round|floor|ceil|sqrt|min|max|length|upper|lower|random)\\b(?=\\s*\\()",
+      "match": "\\b(window|server|label|button|field|textof|get|post|jsonpick|explore|get_api_points|remember|recall|abs|round|floor|ceil|sqrt|min|max|length|upper|lower|random)\\b(?=\\s*\\()",
       "name": "support.function.sprout"
     },
     { "match": "(==|!=|<=|>=|<|>|\\+|-|\\*|/|%|=)", "name": "keyword.operator.sprout" }

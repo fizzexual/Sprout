@@ -302,6 +302,17 @@ test("checker knows explore arity", () => {
   assert.equal(problems("show explore()")[0].kind, "Type");
 });
 
+test("get_api_points lists the field names of a JSON reply", () => {
+  const out = run('show get_api_points("{\\"a\\":1,\\"b\\":{\\"c\\":2}}")').join("\n");
+  assert.match(out, /This API has these/);
+  assert.match(out, /^a$/m);
+  assert.match(out, /^b\.c$/m);
+});
+
+test("checker knows get_api_points arity", () => {
+  assert.equal(problems("show get_api_points()")[0].kind, "Type");
+});
+
 test("nothing is a value you can write and compare", () => {
   assert.deepEqual(run("show nothing"), ["nothing"]);
   assert.deepEqual(run('make x = nothing\nwhen x == nothing:\n    show "empty"'), ["empty"]);

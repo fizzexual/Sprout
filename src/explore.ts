@@ -40,3 +40,34 @@ function preview(v: unknown): string {
   if (v === null) return "nothing";
   return String(v);
 }
+
+// get_api_points(text) — just the field names you can read, with a header.
+export function apiPoints(text: string): string {
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return "That reply isn't JSON, so there are no fields to list.";
+  }
+  const points: string[] = [];
+  collectPoints(data, "", points, 0);
+  if (points.length === 0) return "This API didn't return any fields.";
+  return "This API has these endpoints:\n" + points.join("\n");
+}
+
+function collectPoints(val: unknown, path: string, out: string[], depth: number): void {
+  if (depth > 6) return;
+  if (Array.isArray(val)) {
+    if (path) out.push(path);
+    if (val.length > 0) collectPoints(val[0], `${path}.0`, out, depth + 1);
+  } else if (val !== null && typeof val === "object") {
+    for (const key of Object.keys(val as Record<string, unknown>)) {
+      const p = path ? `${path}.${key}` : key;
+      const child = (val as Record<string, unknown>)[key];
+      if (child !== null && typeof child === "object") collectPoints(child, p, out, depth + 1);
+      else out.push(p);
+    }
+  } else if (path) {
+    out.push(path);
+  }
+}
