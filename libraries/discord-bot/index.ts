@@ -21,9 +21,9 @@ import type { VoicePlayer } from "./voice.ts";
 // GUILDS | GUILD_VOICE_STATES | GUILD_MESSAGES | MESSAGE_CONTENT
 const INTENTS = 1 | 128 | 512 | 32768;
 
-// Set SPROUT_VOICE_DEBUG=1 to trace the voice join on the gateway side.
-const VOICE_DEBUG = process.env.SPROUT_VOICE_DEBUG === "1" || process.env.SPROUT_VOICE_DEBUG === "true";
-function vdebug(msg: string): void { if (VOICE_DEBUG) console.log(`🎙️  [gateway] ${msg}`); }
+// Voice-join trace on the gateway side — always on (only prints while joining a
+// voice channel, so it's silent otherwise).
+function vdebug(msg: string): void { console.log(`🎙️  [gateway] ${msg}`); }
 
 export interface CommandContext {
   args: string;            // everything after "!word "

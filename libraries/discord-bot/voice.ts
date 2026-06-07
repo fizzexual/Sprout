@@ -174,9 +174,13 @@ const SILENCE = Buffer.from([0xf8, 0xff, 0xfe]);
 
 // Connect the voice WebSocket + UDP and return a player. The audio send loop is
 // a self-correcting 20ms timer that reads frames the demuxer produces.
-// Set SPROUT_VOICE_DEBUG=1 to print every step of the voice handshake/streaming.
+// Milestone trace — always on, but it only prints while a song is connecting/
+// playing, so it's silent the rest of the time. Tells you exactly how far the
+// voice handshake got if something's wrong.
+function vlog(msg: string): void { console.log(`🎙️  [voice] ${msg}`); }
+// Extra per-frame counters, only with SPROUT_VOICE_DEBUG=1.
 const VOICE_DEBUG = process.env.SPROUT_VOICE_DEBUG === "1" || process.env.SPROUT_VOICE_DEBUG === "true";
-function vlog(msg: string): void { if (VOICE_DEBUG) console.log(`🎙️  [voice] ${msg}`); }
+function vverbose(msg: string): void { if (VOICE_DEBUG) console.log(`🎙️  [voice] ${msg}`); }
 
 export function connectVoice(params: VoiceParams): VoicePlayer {
   // Voice gateway v4 — the stable version @discordjs/voice uses; it still offers
@@ -229,8 +233,8 @@ export function connectVoice(params: VoiceParams): VoicePlayer {
     timestamp = (timestamp + FRAME_SIZE) >>> 0;
     udp.send(Buffer.concat([header, body]), remote.port, remote.ip, (e) => { if (e) fail("voice UDP send failed"); });
     framesSent++;
-    if (framesSent === 1) vlog("sending first audio frame 🔊");
-    else if (framesSent % 250 === 0) vlog(`sent ${framesSent} frames (~${Math.round(framesSent / 50)}s)`);
+    if (framesSent === 1) vlog("sending first audio frame 🔊  (you should hear sound now)");
+    else if (framesSent % 250 === 0) vverbose(`sent ${framesSent} frames (~${Math.round(framesSent / 50)}s)`);
   };
 
   const tick = (): void => {

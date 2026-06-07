@@ -52,12 +52,15 @@ export function create(_interp: Interpreter, library: { api: DiscordApi }) {
   };
 
   async function play(guildId: string, authorId: string, query: string, textChannelId: string, reply: (t: string) => void): Promise<void> {
+    mlog(`play requested: "${query}" (guild ${guildId}, author ${authorId})`);
     if (!query) { reply("Tell me what to play:  `!play <youtube link or words>`"); return; }
     const voiceChannel = api.voiceChannelOf(guildId, authorId);
+    mlog(voiceChannel ? `author is in voice channel ${voiceChannel}` : "author is NOT in a voice channel");
     if (!voiceChannel) { reply("Join a voice channel first, then ask me to play. 🎧"); return; }
 
     reply("🔎 Looking that up…");
     const found = await resolve(query);
+    mlog(found ? `resolved: ${found.title}` : "resolve returned nothing (yt-dlp missing or failed)");
     if (!found) { reply("I couldn't find that (is **yt-dlp** installed?). Try a direct YouTube link."); return; }
 
     const gm = musicOf(guildId);
@@ -79,8 +82,9 @@ export function create(_interp: Interpreter, library: { api: DiscordApi }) {
     gm.procs = null;
     gm.current = null;
     const track = gm.queue.shift();
-    if (!track) { leave(guildId); return; }
+    if (!track) { mlog("queue empty — leaving voice"); leave(guildId); return; }
     gm.current = track;
+    mlog(`starting track: ${track.title}`);
 
     const piped = streamFor(track.url, (msg) => {
       api.send(track.textChannelId, msg);
@@ -163,8 +167,8 @@ function resolve(query: string): Promise<{ title: string; url: string } | null> 
   });
 }
 
-const MUSIC_DEBUG = process.env.SPROUT_VOICE_DEBUG === "1" || process.env.SPROUT_VOICE_DEBUG === "true";
-function mlog(msg: string): void { if (MUSIC_DEBUG) console.log(`🎵 [music] ${msg}`); }
+// Always-on trace (only prints while a !play/​/play is being handled).
+function mlog(msg: string): void { console.log(`🎵 [music] ${msg}`); }
 
 // Spawn yt-dlp piped into ffmpeg, producing an Ogg/Opus stream for the voice
 // connection. Returns the stream + a kill() that stops both processes.
