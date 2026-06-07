@@ -21,6 +21,9 @@ explains the problem in plain English.
   💡 Did you mean 'name'?
 ```
 
+📚 **Full documentation:** the **[wiki/](wiki)** covers all of Sprout and Bloom —
+start at [wiki/README.md](wiki/README.md) or the [cheat sheet](wiki/cheatsheet.md).
+
 ## A taste
 
 Sprout has its **own** vocabulary — it doesn't borrow `let`, `print`, or `if`
