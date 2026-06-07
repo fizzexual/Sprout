@@ -163,16 +163,30 @@ function resolve(query: string): Promise<{ title: string; url: string } | null> 
   });
 }
 
+const MUSIC_DEBUG = process.env.SPROUT_VOICE_DEBUG === "1" || process.env.SPROUT_VOICE_DEBUG === "true";
+function mlog(msg: string): void { if (MUSIC_DEBUG) console.log(`🎵 [music] ${msg}`); }
+
 // Spawn yt-dlp piped into ffmpeg, producing an Ogg/Opus stream for the voice
 // connection. Returns the stream + a kill() that stops both processes.
 function streamFor(url: string, onError: (msg: string) => void): { stream: NodeJS.ReadableStream; kill(): void } | null {
   try {
-    const ytdlp = spawn("yt-dlp", ["-q", "-f", "bestaudio", "-o", "-", url], { stdio: ["ignore", "pipe", "ignore"] });
-    const ffmpeg = spawn("ffmpeg", ["-hide_banner", "-loglevel", "error", "-i", "pipe:0", "-vn", "-c:a", "libopus", "-b:a", "96k", "-ar", "48000", "-ac", "2", "-f", "opus", "pipe:1"], { stdio: ["pipe", "pipe", "ignore"] });
+    // Prefer webm/opus: it streams cleanly through a pipe. (m4a/mp4 keeps its
+    // index at the END of the file, so ffmpeg would have to seek — which a pipe
+    // can't do — and it reads nothing. That's the classic "joins but silent".)
+    const format = "bestaudio[ext=webm]/bestaudio[acodec=opus]/bestaudio";
+    mlog(`yt-dlp ${format} -> ffmpeg(libopus) for ${url}`);
+    const ytdlp = spawn("yt-dlp", ["-q", "--no-playlist", "-f", format, "-o", "-", url], { stdio: ["ignore", "pipe", "pipe"] });
+    const ffmpeg = spawn("ffmpeg", ["-hide_banner", "-loglevel", "warning", "-i", "pipe:0", "-vn", "-c:a", "libopus", "-b:a", "96k", "-ar", "48000", "-ac", "2", "-f", "opus", "pipe:1"], { stdio: ["pipe", "pipe", "pipe"] });
+    let ytErr = "";
+    let ffErr = "";
+    ytdlp.stderr.on("data", (d: Buffer) => { ytErr += d.toString(); });
+    ffmpeg.stderr.on("data", (d: Buffer) => { ffErr += d.toString(); });
     ytdlp.on("error", () => onError("I couldn't run **yt-dlp** — is it installed and on your PATH?"));
     ffmpeg.on("error", () => onError("I couldn't run **ffmpeg** — is it installed and on your PATH?"));
+    ytdlp.on("close", (code) => { if (code) console.error(`🎵 yt-dlp exited ${code}: ${ytErr.trim().slice(-400)}`); });
+    ffmpeg.on("close", (code) => { if (code) console.error(`🎵 ffmpeg exited ${code}: ${ffErr.trim().slice(-400)}`); });
     ytdlp.stdout.pipe(ffmpeg.stdin);
-    ffmpeg.stdin.on("error", () => { /* ytdlp ended early */ });
+    ffmpeg.stdin.on("error", () => { /* yt-dlp ended early — fine */ });
     return {
       stream: ffmpeg.stdout,
       kill: () => { try { ytdlp.kill("SIGKILL"); } catch { /* gone */ } try { ffmpeg.kill("SIGKILL"); } catch { /* gone */ } },

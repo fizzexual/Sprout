@@ -21,6 +21,10 @@ import type { VoicePlayer } from "./voice.ts";
 // GUILDS | GUILD_VOICE_STATES | GUILD_MESSAGES | MESSAGE_CONTENT
 const INTENTS = 1 | 128 | 512 | 32768;
 
+// Set SPROUT_VOICE_DEBUG=1 to trace the voice join on the gateway side.
+const VOICE_DEBUG = process.env.SPROUT_VOICE_DEBUG === "1" || process.env.SPROUT_VOICE_DEBUG === "true";
+function vdebug(msg: string): void { if (VOICE_DEBUG) console.log(`🎙️  [gateway] ${msg}`); }
+
 export interface CommandContext {
   args: string;            // everything after "!word "
   author: string;          // username who sent it
@@ -201,10 +205,10 @@ function joinVoice(state: BotState, guildId: string, channelId: string): Promise
     let endpoint = "";
     let done = false;
     const offState = onGateway(state, "VOICE_STATE_UPDATE", (d) => {
-      if (d.guild_id === guildId && d.user_id === state.selfId) { sessionId = String(d.session_id || ""); finish(); }
+      if (d.guild_id === guildId && d.user_id === state.selfId) { sessionId = String(d.session_id || ""); vdebug("got voice session id"); finish(); }
     });
     const offServer = onGateway(state, "VOICE_SERVER_UPDATE", (d) => {
-      if (d.guild_id === guildId) { token = String(d.token || ""); endpoint = String(d.endpoint || ""); finish(); }
+      if (d.guild_id === guildId) { token = String(d.token || ""); endpoint = String(d.endpoint || ""); vdebug(`got voice server (endpoint ${endpoint})`); finish(); }
     });
     const finish = (): void => {
       if (done || !sessionId || !token || !endpoint) return;
@@ -216,8 +220,11 @@ function joinVoice(state: BotState, guildId: string, channelId: string): Promise
       });
       resolve(player);
     };
+    vdebug(`joining voice channel ${channelId} in guild ${guildId}`);
     gatewaySend(state, 4, { guild_id: guildId, channel_id: channelId, self_mute: false, self_deaf: false });
-    setTimeout(() => { if (!done) { offState(); offServer(); reject(new Error("voice join timed out")); } }, 15000);
+    setTimeout(() => {
+      if (!done) { offState(); offServer(); vdebug("voice join timed out (no VOICE_SERVER_UPDATE)"); reject(new Error("voice join timed out")); }
+    }, 15000);
   });
 }
 

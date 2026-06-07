@@ -50,3 +50,26 @@ you in chat instead of crashing.
 - A per-server **queue** drives `!skip` / `!stop` and auto-advances when a song
   ends. See [`voice.ts`](../../../libraries/discord-bot/voice.ts) for the
   transport (RTP + AES-256-GCM / XChaCha20-Poly1305 + Ogg/Opus demuxing).
+
+## Troubleshooting
+
+**The bot joins but plays nothing.** Almost always one of:
+
+1. **ffmpeg can't decode the audio.** The bot asks `yt-dlp` for **webm/opus**
+   on purpose, because m4a/mp4 can't be streamed through a pipe. Make sure your
+   **ffmpeg has libopus** (`ffmpeg -encoders | findstr opus` should list
+   `libopus`). The official ffmpeg builds do.
+2. **yt-dlp or ffmpeg isn't really on your PATH.** Open a new terminal and check
+   `yt-dlp --version` and `ffmpeg -version` both work.
+3. **A song-specific failure.** If `yt-dlp` or `ffmpeg` exit non-zero, the bot
+   now prints the reason to the console.
+
+**See exactly where it stops.** Run with voice tracing on:
+
+```powershell
+$env:SPROUT_VOICE_DEBUG = "1"; sprout run examples/discord-bot.sprout
+```
+
+You'll see each step: `websocket open → hello → ready (+ encryption modes) →
+ip discovery → session description → sending first audio frame 🔊`. Whatever
+step is *missing* is where the problem is — paste that and it's easy to fix.

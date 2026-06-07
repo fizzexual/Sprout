@@ -174,10 +174,17 @@ const SILENCE = Buffer.from([0xf8, 0xff, 0xfe]);
 
 // Connect the voice WebSocket + UDP and return a player. The audio send loop is
 // a self-correcting 20ms timer that reads frames the demuxer produces.
+// Set SPROUT_VOICE_DEBUG=1 to print every step of the voice handshake/streaming.
+const VOICE_DEBUG = process.env.SPROUT_VOICE_DEBUG === "1" || process.env.SPROUT_VOICE_DEBUG === "true";
+function vlog(msg: string): void { if (VOICE_DEBUG) console.log(`🎙️  [voice] ${msg}`); }
+
 export function connectVoice(params: VoiceParams): VoicePlayer {
-  const url = `wss://${params.endpoint.replace(/:\d+$/, "")}/?v=8`;
+  // Voice gateway v4 — the stable version @discordjs/voice uses; it still offers
+  // the modern rtpsize encryption modes, without v8's seq-ack heartbeat protocol.
+  const url = `wss://${params.endpoint.replace(/:\d+$/, "")}/?v=4`;
   const ws = new WebSocket(url);
   const udp: UdpSocket = createSocket("udp4");
+  vlog(`connecting to ${url}`);
 
   let heartbeat: ReturnType<typeof setInterval> | null = null;
   let mode = "";
@@ -208,6 +215,7 @@ export function connectVoice(params: VoiceParams): VoicePlayer {
     sendVoice(5, { speaking: on ? 1 : 0, delay: 0, ssrc });
   };
 
+  let framesSent = 0;
   const sendFrame = (opus: Buffer): void => {
     if (!secretKey) return;
     const header = Buffer.alloc(12);
@@ -220,6 +228,9 @@ export function connectVoice(params: VoiceParams): VoicePlayer {
     sequence = (sequence + 1) & 0xffff;
     timestamp = (timestamp + FRAME_SIZE) >>> 0;
     udp.send(Buffer.concat([header, body]), remote.port, remote.ip, (e) => { if (e) fail("voice UDP send failed"); });
+    framesSent++;
+    if (framesSent === 1) vlog("sending first audio frame 🔊");
+    else if (framesSent % 250 === 0) vlog(`sent ${framesSent} frames (~${Math.round(framesSent / 50)}s)`);
   };
 
   const tick = (): void => {
@@ -248,6 +259,7 @@ export function connectVoice(params: VoiceParams): VoicePlayer {
 
   // --- voice websocket lifecycle ---
   ws.addEventListener("open", () => {
+    vlog("websocket open — identifying");
     sendVoice(0, { server_id: params.guildId, user_id: params.userId, session_id: params.sessionId, token: params.token });
   });
 
@@ -257,43 +269,67 @@ export function connectVoice(params: VoiceParams): VoicePlayer {
 
     if (msg.op === 8) {
       const interval = Number((msg.d as { heartbeat_interval?: number }).heartbeat_interval) || 13750;
+      vlog(`hello — heartbeat every ${interval}ms`);
       heartbeat = setInterval(() => sendVoice(3, Date.now()), interval);
     } else if (msg.op === 2) {
       // READY: pick a mode, open UDP, do IP discovery
       const d = msg.d as { ssrc: number; ip: string; port: number; modes: string[] };
       ssrc = d.ssrc; remote = { ip: d.ip, port: d.port };
+      vlog(`ready — ssrc=${ssrc}, server=${d.ip}:${d.port}`);
+      vlog(`server encryption modes: ${(d.modes || []).join(", ")}`);
       const chosen = chooseMode(d.modes);
-      if (!chosen) { fail("This voice server only supports encryption modes Sprout can't do yet."); return; }
+      if (!chosen) { fail(`This voice server only offers modes Sprout can't do yet (${(d.modes || []).join(", ")}).`); return; }
       mode = chosen;
+      vlog(`using encryption mode: ${mode}`);
       ipDiscovery(udp, ssrc, remote, (localIp, localPort) => {
+        vlog(`ip discovery -> we are ${localIp}:${localPort}; selecting protocol`);
         sendVoice(1, { protocol: "udp", data: { address: localIp, port: localPort, mode } });
       }, fail);
     } else if (msg.op === 4) {
       // SESSION DESCRIPTION: we have the secret key, ready to send audio
       const d = msg.d as { secret_key: number[] };
       secretKey = Buffer.from(d.secret_key);
+      vlog(`session description — secret key (${secretKey.length} bytes). Audio loop starting.`);
       startSendLoop();
       params.onReady?.();
     }
   });
 
   ws.addEventListener("error", () => fail("The voice connection had a problem."));
-  ws.addEventListener("close", () => { if (heartbeat) clearInterval(heartbeat); });
+  ws.addEventListener("close", (ev: { code: number }) => {
+    vlog(`websocket closed (code ${ev.code})`);
+    if (heartbeat) clearInterval(heartbeat);
+  });
 
   return {
     playOgg(stream) {
       frames = [];
       streaming = true;
+      let demuxed = 0;
+      let gotData = false;
+      vlog("playOgg: waiting for audio from ffmpeg…");
       stream.on("data", (chunk: Buffer) => {
-        for (const pkt of demuxer.push(chunk)) frames.push(pkt);
+        if (!gotData) { gotData = true; vlog("playOgg: receiving audio bytes from ffmpeg"); }
+        const packets = demuxer.push(chunk);
+        demuxed += packets.length;
+        for (const pkt of packets) frames.push(pkt);
       });
+      // Warn loudly if ffmpeg produced no Opus frames (usually a missing tool or
+      // a format ffmpeg couldn't read) — this is the #1 "joins but silent" cause.
+      const watchdog = setTimeout(() => {
+        if (demuxed === 0) {
+          console.error("🌱 No audio came through. Check that ffmpeg+yt-dlp are installed and that");
+          console.error("   ffmpeg supports libopus. Run with SPROUT_VOICE_DEBUG=1 for details.");
+        }
+      }, 6000);
       stream.on("end", () => {
-        // let the queued frames drain, then finish
+        clearTimeout(watchdog);
+        vlog(`playOgg: ffmpeg stream ended (${demuxed} opus frames total)`);
         const drain = setInterval(() => {
           if (frames.length === 0) { clearInterval(drain); finishTrack(); }
         }, FRAME_MS);
       });
-      stream.on("error", () => fail("The audio stream had a problem."));
+      stream.on("error", () => { clearTimeout(watchdog); fail("The audio stream had a problem."); });
     },
     stop() {
       frames = [];
