@@ -261,8 +261,13 @@ function streamFor(url: string, onError: (msg: string) => void): { stream: NodeJ
     // index at the END of the file, so ffmpeg would have to seek — which a pipe
     // can't do — and it reads nothing. That's the classic "joins but silent".)
     const format = "bestaudio[ext=webm]/bestaudio[acodec=opus]/bestaudio";
-    mlog(`yt-dlp ${format} -> ffmpeg(PCM s16le 48k stereo) for ${url}`);
-    const ytdlp = spawn("yt-dlp", ["-q", "--no-playlist", "-f", format, "-o", "-", url], { stdio: ["ignore", "pipe", "pipe"] });
+    // Force YouTube's Android-VR client: it serves opus WITHOUT the "n challenge"
+    // (nsig) puzzle that the default clients now require. Without this, yt-dlp can't
+    // solve nsig (no JS runtime), the stream gets throttled or 403s, and yt-dlp dies
+    // mid-download — the bot "plays" for a second then goes silent/idle.
+    const ytArgs = ["-q", "--no-playlist", "--extractor-args", "youtube:player_client=android_vr", "-f", format, "-o", "-", url];
+    mlog(`yt-dlp(android_vr) ${format} -> ffmpeg(PCM s16le 48k stereo) for ${url}`);
+    const ytdlp = spawn("yt-dlp", ytArgs, { stdio: ["ignore", "pipe", "pipe"] });
     // Decode to raw PCM (s16le, 48kHz, stereo) — @discordjs/voice encodes the opus.
     const ffmpeg = spawn("ffmpeg", ["-hide_banner", "-loglevel", "warning", "-i", "pipe:0", "-vn", "-ar", "48000", "-ac", "2", "-f", "s16le", "pipe:1"], { stdio: ["pipe", "pipe", "pipe"] });
     let ytErr = "";
