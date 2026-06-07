@@ -37,11 +37,13 @@ try {
     if (-not $inner) { throw "the downloaded archive had no Sprout folder" }
 
     # robocopy merges/overwrites into an existing install reliably (exit < 8 = ok).
+    # Exclude the installer folder: the install doesn't need it, and the running
+    # SproutSetup.exe inside it would be locked (the cause of "copy failed 11").
     Log "copying to $Dest"
-    & robocopy $inner.FullName $Dest /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
+    $rcOut = & robocopy $inner.FullName $Dest /E /XD "$($inner.FullName)\installer" /XF "*.exe" /NP /R:1 /W:1 2>&1
     $rc = $LASTEXITCODE
     Log "robocopy exit $rc"
-    if ($rc -ge 8) { throw "copy failed (robocopy code $rc)" }
+    if ($rc -ge 8) { Log ($rcOut | Out-String); throw "copy failed (robocopy code $rc)" }
 
     if ($Keep -ne "") {
         if ($Keep -eq "__none__") { $keepList = @() }
