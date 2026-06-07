@@ -22,9 +22,9 @@ New-Item -Path 'HKCU:\Software\Classes\Sprout.Program\shell\open\command' -Force
 Set-ItemProperty -Path 'HKCU:\Software\Classes\Sprout.Program\shell\open\command' `
   -Name '(default)' -Value ("`"$launcher`" `"%1`"")
 
-# --- Botanica (the Sprout code editor) ---
-$botanica = Join-Path $PSScriptRoot 'botanica.ps1'
-$botanicaCmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$botanica`" `"%1`""
+# --- Botanica (the Sprout code editor — an Electron app in ../botanica) ---
+$botanicaLauncher = Join-Path (Split-Path -Parent $PSScriptRoot) 'botanica\launch.cmd'
+$botanicaCmd = "`"$botanicaLauncher`" `"%1`""
 
 New-Item -Path 'HKCU:\Software\Classes\Botanica.Editor' -Force | Out-Null
 Set-ItemProperty -Path 'HKCU:\Software\Classes\Botanica.Editor' -Name '(default)' -Value 'Botanica'

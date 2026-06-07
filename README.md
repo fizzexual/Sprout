@@ -166,10 +166,17 @@ website. **No `style`? You get raw, unstyled output — like HTML with no CSS.**
 
 ## Botanica — the editor 🪴
 
-Botanica is Sprout's own code editor. Once the file association is installed
-(see below), **right-click a `.sprout` or `.bloom` → Open with → Botanica** to
-edit it; double-clicking a `.bloom` opens it in Botanica too. Press **Run** in
-Botanica and your app opens — no terminal, ever.
+**Botanica** is Sprout's own code editor — a real desktop app built on the same
+stack as VS Code (**Electron + Monaco**). File explorer, tabs, Sprout/Bloom
+syntax highlighting, minimap, and a **Run ▶** button.
+
+```bash
+npm run botanica      # first run downloads Electron + Monaco, then opens it
+```
+
+Once the file association is installed (below), **right-click a `.sprout`/`.bloom`
+→ Open with → Botanica**; double-clicking a `.bloom` opens it in Botanica too.
+Pressing **Run** opens your app — no terminal, ever. Source: [`botanica/`](botanica).
 
 ## Tests
 
@@ -197,7 +204,7 @@ npm test          # or: node --test test/sprout.test.ts
 | GUI apps (native) | `window(title)` + `label` / `button` / `field` / `textof` |
 | Websites (server) | `server(title)` + the same widgets, runs in a browser |
 | Styling (Bloom) | `style "theme.bloom"` — or raw output if omitted |
-| Editor | **Botanica** — right-click a file → Open with → Botanica |
+| Editor | **Botanica** — a VS Code-style editor (Electron + Monaco) in `botanica/` |
 | Booleans | `yes` / `no` |
 | Built-in functions | `sqrt(16)`, `max(3, 9)`, `length("hi")`, `upper(s)` |
 | Comments | `~ like this` |
@@ -235,12 +242,12 @@ output
 - [x] **GUI apps** — real **native windows** from a `.sprout` file
 - [x] **Server** — `server(...)` runs the same app as a website
 - [x] **Bloom** — Sprout's styling language; `style "..."`, raw if omitted
-- [x] **Botanica** — Sprout's own code editor (right-click → Open with → Botanica)
+- [x] **Botanica** — a real VS Code-style editor (Electron + Monaco) in `botanica/`
 - [x] **Just open a file** — double-click runs it; no terminal needed
 - [x] **Playground** — edit & run Sprout in the browser (`npm run play`)
 - [ ] **next** — lists & a `for each` loop
 - [ ] **next** — `ask` for input + a bigger standard library
-- [ ] **next** — more widgets (checkboxes, sliders, images), syntax highlighting in Botanica
+- [ ] **next** — more widgets (checkboxes, sliders, images); package Botanica as a standalone `.exe`
 
 ---
 

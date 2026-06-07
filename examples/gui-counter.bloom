@@ -1,6 +1,6 @@
 ~ A Bloom theme for the counter app.
-~ Bloom is Sprout's styling language. A .bloom file sitting next to a .sprout
-~ file is loaded automatically, so gui-counter.sprout gets this look for free.
+~ Bloom is Sprout's styling language. gui-counter.sprout loads it with:
+~     style "gui-counter.bloom"
 
 window:
     background: #1a1030
@@ -8,7 +8,7 @@ window:
     font: Segoe UI 14
 
 #display:
-    size: 26
+    size: 50
     text: #c9a8ff
 
 button:

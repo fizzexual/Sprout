@@ -1,0 +1,16 @@
+{
+  "name": "botanica",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Botanica — a professional code editor for the Sprout programming language.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  },
+  "dependencies": {
+    "monaco-editor": "^0.52.0"
+  }
+}

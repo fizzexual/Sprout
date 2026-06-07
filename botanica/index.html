@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Botanica</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="toolbar">
+    <div class="brand">🌱 <b>Botanica</b></div>
+    <button id="btnNew">New</button>
+    <button id="btnOpen">Open</button>
+    <button id="btnOpenFolder">Open Folder</button>
+    <button id="btnSave">Save</button>
+    <div class="spacer"></div>
+    <button id="btnStop">Stop</button>
+    <button id="btnRun" class="run">Run ▶</button>
+  </div>
+
+  <div id="main">
+    <div id="sidebar">
+      <div class="head">
+        <span id="folderName">Explorer</span>
+        <a id="btnOpenFolder2" title="Open Folder">＋</a>
+      </div>
+      <div id="tree"><div class="empty">Open a folder to see your files.</div></div>
+    </div>
+
+    <div id="editorArea">
+      <div id="tabs"></div>
+      <div id="editor"></div>
+      <div id="output">
+        <div class="head">
+          <span>Output</span>
+          <a id="btnClearOut">clear</a>
+        </div>
+        <pre id="outputBody"></pre>
+      </div>
+    </div>
+  </div>
+
+  <div id="status">
+    <span id="stFile">No file</span>
+    <span id="stLang"></span>
+    <span class="right" id="stPos">Ln 1, Col 1</span>
+  </div>
+
+  <script src="node_modules/monaco-editor/min/vs/loader.js"></script>
+  <script src="sprout-language.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>
