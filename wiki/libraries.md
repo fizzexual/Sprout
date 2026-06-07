@@ -9,6 +9,21 @@ use "discord-bot"
 
 After that, the library's functions work just like the built-in ones.
 
+## Managing modules: `sprout modules`
+
+Run **`sprout modules`** for an interactive manager (a little terminal UI) where
+you can see what's installed, **set up** a library's extras (e.g. install the
+packages the Music extension needs), **uninstall** one, and **test** that each
+one loads:
+
+```
+🌱  Sprout Modules   manage your libraries
+  ● discord-bot        Make a Discord bot — chat + slash commands
+      ✓ discord-bot/music   ready
+  1 install / set up   2 uninstall   3 test   4 quit
+  ❯
+```
+
 ## Available libraries
 
 ### discord-bot — make a Discord bot 🤖

@@ -271,6 +271,7 @@ output
 - [x] **Libraries** — `use "..."`; first one is [`discord-bot`](libraries/discord-bot)
 - [x] **Extensions + slash commands** — `use "discord-bot/music"` plays YouTube in voice; bots answer `/commands`
 - [x] **Windows installer** — a [`SproutSetup.exe`](installer/dist/SproutSetup.exe) wizard: pick libraries, downloads from the repo, Update/Repair/Uninstall
+- [x] **`sprout modules`** — an interactive terminal to install / uninstall / test libraries
 - [ ] **next** — lists & a `for each` loop
 - [ ] **next** — `ask` for input + more widgets (checkboxes, sliders, images)
 

@@ -24,6 +24,7 @@ import type { Theme } from "./bloom.ts";
 import { fileStorage } from "./storage.ts";
 import { nodeNet } from "./net.ts";
 import { fileSecrets } from "./secrets.ts";
+import { modulesCommand } from "./modules.ts";
 import { describeJson } from "./explore.ts";
 
 const VERSION = "Sprout v0.3.0";
@@ -306,6 +307,7 @@ function usage(): void {
       "  sprout serve <file.sprout>  run it as a website",
       "  sprout check <file.sprout>  verify the program without running it",
       "  sprout api <url>            connect to an API and list everything it offers",
+      "  sprout modules              install / uninstall / test libraries (interactive)",
       "  sprout repl                 start the interactive prompt",
       "  sprout version              show the version",
       "",
@@ -325,6 +327,8 @@ try {
     await checkFile(args[1]);
   } else if (args[0] === "api" && args[1]) {
     apiCommand(args[1]);
+  } else if (args[0] === "modules" || args[0] === "libraries") {
+    await modulesCommand();
   } else if (args[0] === "version" || args[0] === "--version" || args[0] === "-v") {
     console.log(VERSION);
   } else if (args[0] === "repl" || args.length === 0) {
