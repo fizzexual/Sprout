@@ -81,7 +81,10 @@ const toolCache = new Map<string, boolean>();
 function toolPresent(tool: string): boolean {
   if (toolCache.has(tool)) return toolCache.get(tool)!;
   let ok = false;
-  try { const r = spawnSync(tool, ["--version"], { stdio: "ignore", timeout: 8000 }); ok = !r.error && r.status === 0; } catch { ok = false; }
+  // Just check the tool is ON PATH — don't run it with "--version": ffmpeg's flag
+  // is "-version" (one dash), so it exits non-zero while being perfectly installed.
+  const finder = process.platform === "win32" ? "where" : "which";
+  try { const r = spawnSync(finder, [tool], { stdio: "ignore", timeout: 8000 }); ok = !r.error && r.status === 0; } catch { ok = false; }
   toolCache.set(tool, ok);
   return ok;
 }
