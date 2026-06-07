@@ -7,6 +7,9 @@ logs.txt
 # Data saved by Sprout programs (remember/recall)
 *.data.json
 
+# Packaged VS Code extension
+*.vsix
+
 # Local editor / tooling state
 .claude/
 
