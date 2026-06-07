@@ -99,7 +99,7 @@ export function check(program: Stmt[]): LangError[] {
 
   function checkExpr(e: Expr, vars: Set<string>): void {
     switch (e.type) {
-      case "Number": case "String": case "Bool":
+      case "Number": case "String": case "Bool": case "Nothing":
         return;
       case "Identifier":
         if (!vars.has(e.name)) {

@@ -302,6 +302,15 @@ test("checker knows explore arity", () => {
   assert.equal(problems("show explore()")[0].kind, "Type");
 });
 
+test("nothing is a value you can write and compare", () => {
+  assert.deepEqual(run("show nothing"), ["nothing"]);
+  assert.deepEqual(run('make x = nothing\nwhen x == nothing:\n    show "empty"'), ["empty"]);
+});
+
+test("recall of a missing key equals nothing", () => {
+  assert.deepEqual(run('when recall("missing") == nothing:\n    show "absent"'), ["absent"]);
+});
+
 test("security: only a button's task can be triggered", () => {
   const src = 'task danger():\n    show "boom"\ntask ok():\n    label("d", "hi")\nwindow("X")\nlabel("d", "")\nbutton("Go", "ok")';
   const interp = runApp(src);

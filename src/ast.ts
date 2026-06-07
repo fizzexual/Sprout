@@ -6,6 +6,7 @@ export type Expr =
   | { type: "Number"; value: number; line: number; col: number }
   | { type: "String"; value: string; line: number; col: number }
   | { type: "Bool"; value: boolean; line: number; col: number }
+  | { type: "Nothing"; line: number; col: number }
   | { type: "Identifier"; name: string; line: number; col: number }
   | { type: "Unary"; op: "-" | "not"; operand: Expr; line: number; col: number }
   | { type: "Binary"; op: string; left: Expr; right: Expr; line: number; col: number }

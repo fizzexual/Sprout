@@ -21,6 +21,7 @@ const KEYWORDS: Record<string, TokenType> = {
   not: "NOT",
   yes: "YES",
   no: "NO",
+  nothing: "NOTHING",
   task: "TASK",
   give: "GIVE",
   style: "STYLE",

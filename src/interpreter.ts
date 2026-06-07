@@ -277,6 +277,7 @@ export class Interpreter {
       case "Number": return expr.value;
       case "String": return expr.value;
       case "Bool": return expr.value;
+      case "Nothing": return NONE;
       case "Identifier": {
         if (!env.has(expr.name)) {
           throw new LangError(

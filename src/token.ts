@@ -8,7 +8,7 @@ export type TokenType =
   | "MAKE" | "SET" | "SHOW"
   | "WHEN" | "ORWHEN" | "OTHERWISE"
   | "REPEAT" | "WHILE" | "TIMES"
-  | "AND" | "OR" | "NOT" | "YES" | "NO"
+  | "AND" | "OR" | "NOT" | "YES" | "NO" | "NOTHING"
   | "TASK" | "GIVE" | "STYLE"
   // operators
   | "PLUS" | "MINUS" | "STAR" | "SLASH" | "PERCENT"

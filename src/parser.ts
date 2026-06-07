@@ -344,6 +344,7 @@ class Parser {
     if (this.match("STRING")) return { type: "String", value: t.value, line: t.line, col: t.col };
     if (this.match("YES")) return { type: "Bool", value: true, line: t.line, col: t.col };
     if (this.match("NO")) return { type: "Bool", value: false, line: t.line, col: t.col };
+    if (this.match("NOTHING")) return { type: "Nothing", line: t.line, col: t.col };
     if (this.check("IDENT")) {
       const nameTok = this.advance();
       if (this.check("LPAREN")) return this.finishCall(nameTok);
