@@ -9,8 +9,11 @@ const path = require("node:path");
 const fs = require("node:fs/promises");
 const { spawn } = require("node:child_process");
 
-const REPO_ROOT = path.join(__dirname, "..");
-const SPROUT_CLI = path.join(REPO_ROOT, "src", "cli.ts");
+// In dev, the Sprout CLI lives in ../src. When packaged into an .exe, the
+// Sprout source is bundled as an "extraResource" (see package.json > build).
+const SPROUT_CLI = app.isPackaged
+  ? path.join(process.resourcesPath, "sprout-src", "cli.ts")
+  : path.join(__dirname, "..", "src", "cli.ts");
 
 let mainWindow = null;
 let runChild = null;

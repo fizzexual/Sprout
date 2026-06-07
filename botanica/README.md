@@ -26,6 +26,21 @@ powershell -ExecutionPolicy Bypass -File install-botanica.ps1
 Then type **Botanica** in the search bar, or use the Desktop shortcut. Undo with
 `uninstall-botanica.ps1`. (This is per-user — no admin needed.)
 
+## Build a standalone installer (.exe)
+
+To create a real Windows **Setup.exe** (installs into Program Files, adds an
+uninstall entry, and a searchable Start-menu app):
+
+```bash
+npm install     # once
+npm run dist
+```
+
+The installer appears in `botanica/dist/` as **`Botanica Setup <version>.exe`**.
+Double-click it to install Botanica like any other Windows program. The Sprout
+interpreter is bundled inside, so **Run** works after installing (Node must be
+installed to run programs).
+
 ## What it does
 
 - **Edits Sprout & Bloom** with real syntax highlighting (a custom Monaco grammar)

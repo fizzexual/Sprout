@@ -187,6 +187,10 @@ Then just type **Botanica** in the Windows search bar and press Enter (or use
 the new Desktop icon). Remove it later with
 `botanica\uninstall-botanica.ps1`.
 
+Prefer a real double-click **Setup.exe**? Build one with `cd botanica && npm run dist`
+— it produces `botanica/dist/Botanica Setup <version>.exe` (installs into Program
+Files with an uninstall entry, like any app).
+
 You can also **right-click a `.sprout`/`.bloom` → Open with → Botanica**, and
 double-clicking a `.bloom` opens it in Botanica. Pressing **Run** opens your
 app — no terminal, ever. Source: [`botanica/`](botanica).
@@ -260,7 +264,9 @@ output
 - [x] **Playground** — edit & run Sprout in the browser (`npm run play`)
 - [ ] **next** — lists & a `for each` loop
 - [ ] **next** — `ask` for input + a bigger standard library
-- [ ] **next** — more widgets (checkboxes, sliders, images); package Botanica as a standalone `.exe`
+- [x] **Botanica installer** — `npm run dist` builds a standalone `Botanica Setup.exe`
+- [x] **Wiki** — full Sprout + Bloom docs in [`wiki/`](wiki)
+- [ ] **next** — more widgets (checkboxes, sliders, images, layout rows)
 
 ---
 
