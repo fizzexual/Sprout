@@ -111,8 +111,11 @@ function contentBlock(): string[] {
   const lines: string[] = [];
   lines.push(T.dim("  libraries"));
   for (const m of MODULES) {
-    const here = libPresent(m.name);
-    lines.push("    " + (here ? T.green("●") : T.dim("○")) + " " + T.text(col(m.name, 16)) + T.dim(m.description));
+    if (!libPresent(m.name)) {
+      lines.push("    " + T.dim("○") + " " + T.text(col(m.name, 16)) + T.dim(col(m.description, 28)) + T.yellow("not installed") + T.dim(" → type ") + T.cyan("libinstall " + m.name));
+      continue;
+    }
+    lines.push("    " + T.green("●") + " " + T.text(col(m.name, 16)) + T.dim(m.description));
     for (const e of m.extensions) {
       if (!extPresent(m.name, e.name)) { lines.push("        " + T.dim(col(e.name, 14) + "not installed")); continue; }
       const ready = extMissing(e).length === 0;
@@ -121,7 +124,7 @@ function contentBlock(): string[] {
     }
   }
   lines.push("");
-  lines.push(T.dim("  commands  ") + T.blue("browse") + T.dim("   ") + T.blue("install ") + T.dim("<name>   ") + T.blue("uninstall ") + T.dim("<name>   ") + T.blue("test") + T.dim("   ") + T.blue("quit"));
+  lines.push(T.dim("  commands  ") + T.blue("browse") + T.dim("   ") + T.blue("libinstall ") + T.dim("<name>   ") + T.blue("install ") + T.dim("<name>   ") + T.blue("uninstall ") + T.dim("<name>   ") + T.blue("test") + T.dim("   ") + T.blue("quit"));
   return lines;
 }
 
@@ -212,6 +215,37 @@ function refreshEnvPath(): void {
   } catch { /* keep the current PATH */ }
 }
 
+function findLibrary(arg: string): Module | null {
+  const a = arg.trim().toLowerCase();
+  for (const m of MODULES) if (m.name === a) return m;
+  return null;
+}
+
+// Download a library (its folder + matching extension) from the repo into this
+// install — for `libinstall`, e.g. to restore one you uninstalled.
+function downloadLibrary(name: string): boolean {
+  const url = "https://github.com/fizzexual/Sprout-/archive/refs/heads/main.zip";
+  const libDest = join(REPO, "libraries", name);
+  const extDest = join(REPO, "extensions", name);
+  const ps = [
+    "$ErrorActionPreference='Stop'",
+    "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12",
+    "$t=Join-Path $env:TEMP ('sprout_lib_'+[System.IO.Path]::GetRandomFileName())",
+    "New-Item -ItemType Directory $t -Force|Out-Null",
+    "$z=Join-Path $t 'src.zip'",
+    `Invoke-WebRequest '${url}' -OutFile $z -UseBasicParsing`,
+    "Expand-Archive $z (Join-Path $t 'x') -Force",
+    "$inner=(Get-ChildItem (Join-Path $t 'x') -Directory|Select-Object -First 1).FullName",
+    `$lib=Join-Path $inner 'libraries\\${name}'`,
+    "if(-not (Test-Path $lib)){Write-Error 'no such library in the repo';exit 1}",
+    `& robocopy $lib '${libDest}' /E /NP /NJH /NJS|Out-Null`,
+    `$ext=Join-Path $inner 'extensions\\${name}'`,
+    `if(Test-Path $ext){& robocopy $ext '${extDest}' /E /NP /NJH /NJS|Out-Null}`,
+  ].join(";");
+  spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps], { stdio: "inherit" });
+  return libPresent(name);
+}
+
 // --- the app ------------------------------------------------------------------
 export function modulesCommand(): Promise<void> {
   const stdin = process.stdin;
@@ -261,6 +295,21 @@ export function modulesCommand(): Promise<void> {
       draw();
     };
 
+    // Download + install a library (outside the alt-screen), then come back.
+    const libInstallAndReturn = (name: string): void => {
+      stdin.setRawMode!(false);
+      out(SHOW + ALT_OFF);
+      console.log("\n  Downloading the " + name + " library…\n");
+      let ok = false;
+      try { ok = downloadLibrary(name); } catch { ok = false; }
+      out(ALT_ON + HIDE);
+      stdin.setRawMode!(true);
+      state.message = ok
+        ? [T.green("✓ installed the " + name + " library — use it with ") + T.cyan("use \"" + name + "\"")]
+        : [T.red("couldn't install " + name + ".") + T.dim("  check your internet and try again")];
+      draw();
+    };
+
     const run = (line: string): void => {
       const parts = line.trim().split(/\s+/);
       const verb = (parts[0] || "").toLowerCase();
@@ -287,19 +336,36 @@ export function modulesCommand(): Promise<void> {
       if (verb === "help") {
         state.message = [
           T.text("commands:"),
-          "  " + T.blue("browse") + T.dim("            see every library you can install"),
-          "  " + T.blue("install <name>") + T.dim("    set it up — installs its extra tools/packages (e.g. install music)"),
-          "  " + T.blue("uninstall <name>") + T.dim("  remove a library/extension"),
-          "  " + T.blue("test") + T.dim("              check what's installed and that it loads"),
-          "  " + T.blue("quit") + T.dim("              leave  (or Esc / Ctrl+C)"),
+          "  " + T.blue("browse") + T.dim("             see every library you can install"),
+          "  " + T.blue("libinstall <name>") + T.dim("  install a LIBRARY — downloads it (e.g. libinstall discord-bot)"),
+          "  " + T.blue("install <name>") + T.dim("     set up an extension's tools/packages (e.g. install music)"),
+          "  " + T.blue("uninstall <name>") + T.dim("   remove a library/extension"),
+          "  " + T.blue("test") + T.dim("               check what's installed and that it loads"),
+          "  " + T.blue("quit") + T.dim("               leave  (or Esc / Ctrl+C)"),
         ];
         return;
       }
       if (verb === "install" || verb === "add") {
         const f = findExtension(arg);
-        if (!f) { state.message = [T.red("nothing to install called '" + arg + "'.") + T.dim("  try: install music")]; return; }
-        if (extMissing(f.ext).length === 0) { state.message = [T.green(f.ext.name + " is already set up. 🌱")]; return; }
-        installAndReturn(f.ext);
+        if (f) {
+          if (extMissing(f.ext).length === 0) { state.message = [T.green(f.ext.name + " is already set up. 🌱")]; return; }
+          installAndReturn(f.ext);
+          return;
+        }
+        const lib = findLibrary(arg);
+        if (lib) {
+          if (libPresent(lib.name)) { state.message = [T.green(lib.name + " is already installed.")]; return; }
+          libInstallAndReturn(lib.name);
+          return;
+        }
+        state.message = [T.red("nothing to install called '" + arg + "'.") + T.dim("  try: install music  ·  libinstall discord-bot")];
+        return;
+      }
+      if (verb === "libinstall" || verb === "addlib" || verb === "getlib") {
+        const lib = findLibrary(arg);
+        if (!lib) { state.message = [T.red("no library called '" + arg + "'.") + T.dim("  type ") + T.blue("browse")]; return; }
+        if (libPresent(lib.name)) { state.message = [T.green(lib.name + " is already installed.")]; return; }
+        libInstallAndReturn(lib.name);
         return;
       }
       if (verb === "uninstall" || verb === "remove") {
