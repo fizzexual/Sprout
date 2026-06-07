@@ -79,6 +79,7 @@ export interface DiscordApi {
   onCommand(word: string, handler: (ctx: CommandContext) => void): void;
   onSlash(name: string, description: string, handler: (ctx: SlashContext) => void, options?: SlashOption[]): void;
   send(channelId: string, text: string): void;
+  sendEmbed(channelId: string, embed: Record<string, unknown>): void;
   voiceChannelOf(guildId: string, userId: string): string | null;
   // A @discordjs/voice gateway adapter wired to THIS bot's gateway (for the music
   // extension): it sends voice payloads over our websocket and receives the
@@ -146,6 +147,7 @@ export function create(interp: Interpreter) {
     onCommand: (word, handler) => { state.prefixCommands.set(word.toLowerCase(), { word: word.toLowerCase(), handler }); },
     onSlash: (name, description, handler, options = []) => { state.slashCommands.set(name, { name, description, options, handler }); },
     send: (channelId, text) => send(state, channelId, text),
+    sendEmbed: (channelId, embed) => sendEmbed(state, channelId, embed),
     voiceChannelOf: (guildId, userId) => state.voiceStates.get(guildId)?.get(userId) ?? null,
     voiceAdapterCreator: (guildId) => (methods) => {
       state.voiceAdapters.set(guildId, methods);
@@ -184,6 +186,11 @@ function rest(state: BotState, method: string, path: string, body: unknown, auth
 function send(state: BotState, channelId: string, content: string): void {
   if (!channelId || !content) return;
   void rest(state, "POST", `/channels/${channelId}/messages`, { content });
+}
+
+function sendEmbed(state: BotState, channelId: string, embed: Record<string, unknown>): void {
+  if (!channelId || !embed) return;
+  void rest(state, "POST", `/channels/${channelId}/messages`, { embeds: [embed] });
 }
 
 function interactionRespond(state: BotState, id: string, token: string, content: string): void {

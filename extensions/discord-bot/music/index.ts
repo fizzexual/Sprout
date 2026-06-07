@@ -17,7 +17,7 @@ import { spawn } from "node:child_process";
 import type { Interpreter } from "../../../src/interpreter.ts";
 import type { DiscordApi, CommandContext, SlashContext } from "../../../libraries/discord-bot/index.ts";
 
-export interface Track { title: string; url: string; requestedBy: string; textChannelId: string; voiceChannelId: string; guildId: string; }
+export interface Track { title: string; url: string; thumbnail: string; channel: string; duration: string; requestedBy: string; textChannelId: string; voiceChannelId: string; guildId: string; }
 
 interface GuildMusic {
   connection: any | null;   // @discordjs/voice VoiceConnection
@@ -39,6 +39,26 @@ export function formatQueue(current: Track | null, queue: Track[]): string {
   if (current) lines.push(`🎶 **Now playing:** ${current.title}`);
   queue.forEach((t, i) => lines.push(`${i + 1}. ${t.title}`));
   return lines.join("\n");
+}
+
+// Build the "now playing" Discord embed (a card with the video thumbnail + a
+// clickable link). yt-dlp prints "NA" for fields it doesn't have — skip those.
+export function nowPlayingEmbed(track: Track): Record<string, unknown> {
+  const ok = (s: string): boolean => !!s && s !== "NA";
+  const fields: Array<Record<string, unknown>> = [];
+  if (ok(track.channel)) fields.push({ name: "Channel", value: track.channel, inline: true });
+  if (ok(track.duration)) fields.push({ name: "Duration", value: track.duration, inline: true });
+  if (track.requestedBy) fields.push({ name: "Requested by", value: `<@${track.requestedBy}>`, inline: true });
+  const embed: Record<string, unknown> = {
+    color: 0x77dd77, // Sprout green
+    author: { name: "🎵 Now Playing" },
+    title: track.title || "Unknown",
+    url: ok(track.url) ? track.url : undefined,
+    fields,
+    footer: { text: "Sprout 🌱 music" },
+  };
+  if (/^https?:\/\//i.test(track.thumbnail)) embed.image = { url: track.thumbnail }; // big video preview
+  return embed;
 }
 
 // Lazy-load @discordjs/voice so the extension still loads (and !ping etc. work)
@@ -202,7 +222,11 @@ export function create(_interp: Interpreter, library: { api: DiscordApi }) {
       return;
     }
     gm.player.play(resource);
-    api.send(track.textChannelId, `🎵 Now playing: **${track.title}**`);
+    // A rich "now playing" card: the video's thumbnail (so you SEE it), title as a
+    // clickable YouTube link, channel + duration. (Real bots can't stream video to
+    // a voice channel — that needs a ToS-breaking selfbot — so this is the safe way
+    // to "watch" what's playing.)
+    api.sendEmbed(track.textChannelId, nowPlayingEmbed(track));
   }
 
   function skip(guildId: string, reply: (t: string) => void): void {
@@ -253,21 +277,27 @@ export function create(_interp: Interpreter, library: { api: DiscordApi }) {
 // Always-on trace (only prints while a !play/​/play is being handled).
 function mlog(msg: string): void { console.log(`🎵 [music] ${msg}`); }
 
-// Resolve a link or search words into a { title, url } using yt-dlp.
-function resolve(query: string): Promise<{ title: string; url: string } | null> {
+// Resolve a link or search words into track metadata (title, url, thumbnail,
+// channel, duration) using yt-dlp. The single-line fields print first and the
+// title last, so a title that rarely contains a newline can't shift the others.
+function resolve(query: string): Promise<{ title: string; url: string; thumbnail: string; channel: string; duration: string } | null> {
   const target = isUrl(query) ? query : `ytsearch1:${query}`;
   return new Promise((res) => {
     let out = "";
     let started = false;
     try {
-      const p = spawn("yt-dlp", ["--no-warnings", "-f", "bestaudio", "--skip-download", "--print", "%(title)s\n%(webpage_url)s", target], { stdio: ["ignore", "pipe", "ignore"] });
+      const p = spawn("yt-dlp", ["--no-warnings", "-f", "bestaudio", "--skip-download",
+        "--print", "%(webpage_url)s", "--print", "%(thumbnail)s", "--print", "%(channel)s",
+        "--print", "%(duration_string)s", "--print", "%(title)s", target], { stdio: ["ignore", "pipe", "ignore"] });
       started = true;
       p.stdout.on("data", (c: Buffer) => { out += c.toString(); });
       p.on("error", () => res(null));
       p.on("close", () => {
-        const lines = out.trim().split("\n").filter(Boolean);
-        if (lines.length >= 2) res({ title: lines[0], url: lines[lines.length - 1] });
-        else res(null);
+        const lines = out.split("\n").map((l) => l.trim());
+        while (lines.length && lines[lines.length - 1] === "") lines.pop();
+        if (lines.length < 5) { res(null); return; }
+        const [url, thumbnail, channel, duration, ...titleParts] = lines;
+        res({ title: titleParts.join(" ").trim() || "Unknown", url, thumbnail, channel, duration });
       });
     } catch {
       if (!started) res(null);
