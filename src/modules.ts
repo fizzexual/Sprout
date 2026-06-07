@@ -52,7 +52,7 @@ const LOGO = [
 ];
 
 // --- the catalogue ------------------------------------------------------------
-interface Extension { name: string; description: string; npm: string[]; tools: string[]; setup?: string; }
+interface Extension { name: string; description: string; npm: string[]; tools: string[]; setup?: string; notes?: string; }
 interface Module { name: string; description: string; extensions: Extension[]; }
 
 const MODULES: Module[] = [
@@ -63,9 +63,16 @@ const MODULES: Module[] = [
       {
         name: "music",
         description: "Play YouTube audio in voice",
-        npm: ["@discordjs/voice", "@snazzah/davey", "libsodium-wrappers", "prism-media"],
+        npm: ["@discordjs/voice", "@snazzah/davey", "libsodium-wrappers", "prism-media", "opusscript"],
         tools: ["ffmpeg", "yt-dlp"],
         setup: "tools/install-music.ps1",
+        notes: `YouTube can block heavy use with "confirm you're not a bot".
+To avoid rate-limits / IP blocks, sign in with your YouTube account:
+  - open  music/settings.bloom  (it sits next to your bot program)
+  - set  cookies file:  to an exported cookies.txt
+    (use the "Get cookies.txt LOCALLY" browser extension on youtube.com)
+  - or  cookies browser: firefox
+This is OPTIONAL — only needed once YouTube starts blocking you.`,
       },
     ],
   },
@@ -124,7 +131,7 @@ function contentBlock(): string[] {
     }
   }
   lines.push("");
-  lines.push(T.dim("  commands  ") + T.blue("browse") + T.dim("   ") + T.blue("libinstall ") + T.dim("<name>   ") + T.blue("install ") + T.dim("<name>   ") + T.blue("uninstall ") + T.dim("<name>   ") + T.blue("test") + T.dim("   ") + T.blue("quit"));
+  lines.push(T.dim("  commands  ") + T.blue("browse") + T.dim("  ") + T.blue("libinstall ") + T.dim("<name>  ") + T.blue("install ") + T.dim("<name>  ") + T.blue("setup ") + T.dim("<name>  ") + T.blue("uninstall ") + T.dim("<name>  ") + T.blue("test") + T.dim("  ") + T.blue("quit"));
   return lines;
 }
 
@@ -188,6 +195,29 @@ function testReport(): string[] {
       const miss = extMissing(e);
       out.push("    " + (miss.length === 0 ? T.green("✓ " + e.name + " — ready") : T.yellow("! " + e.name + " — missing: " + miss.join(", "))));
     }
+  }
+  return out;
+}
+
+// `setup <ext>` — show where an extension stands (verified) plus any EXTRA,
+// optional steps (e.g. signing in to YouTube so music isn't rate-limited).
+function setupReport(f: Found): string[] {
+  const { mod, ext } = f;
+  const out: string[] = [T.text("setup — " + mod.name + "/" + ext.name), ""];
+  if (!extPresent(mod.name, ext.name)) {
+    out.push("  " + T.yellow("○ not installed yet") + T.dim("  — run ") + T.cyan("install " + ext.name));
+  } else {
+    const miss = extMissing(ext);
+    out.push(miss.length === 0
+      ? "  " + T.green("● installed & ready")
+      : "  " + T.yellow("● installed, but missing: " + miss.join(", ")) + T.dim("  — run ") + T.cyan("install " + ext.name));
+  }
+  out.push("");
+  if (ext.notes) {
+    out.push("  " + T.text("extra setup (optional):"));
+    for (const line of ext.notes.split("\n")) out.push("    " + T.dim(line));
+  } else {
+    out.push("  " + T.dim("Nothing extra to do — just ") + T.cyan("install " + ext.name));
   }
   return out;
 }
@@ -287,7 +317,8 @@ export function modulesCommand(): Promise<void> {
       let haveCode = extPresent(f.mod.name, f.ext.name);
       if (!haveCode) {
         console.log("\n  Downloading the " + f.mod.name + " library (it brings " + f.ext.name + ")…\n");
-        try { haveCode = downloadLibrary(f.mod.name); } catch { haveCode = false; }
+        try { downloadLibrary(f.mod.name); } catch { /* network/stdio */ }
+        haveCode = extPresent(f.mod.name, f.ext.name); // verify the EXTENSION code actually landed, not just the library
       }
       if (haveCode && extMissing(f.ext).length > 0) {
         console.log("\n  Setting up " + f.ext.name + "…\n");
@@ -335,9 +366,18 @@ export function modulesCommand(): Promise<void> {
         if (verb === "yes" || verb === "y") {
           try {
             const f = findExtension(target);
-            if (f) { rmSync(extPath(f.mod.name, f.ext.name), { recursive: true, force: true }); state.message = [T.green("✓ removed " + target + ".")]; }
-            else if (libPresent(target)) { rmSync(libPath(target), { recursive: true, force: true }); const ex = join(REPO, "extensions", target); if (existsSync(ex)) rmSync(ex, { recursive: true, force: true }); state.message = [T.green("✓ removed " + target + ".")]; }
-            else state.message = [T.yellow("nothing called '" + target + "'.")];
+            if (f) {
+              rmSync(extPath(f.mod.name, f.ext.name), { recursive: true, force: true });
+              state.message = extPresent(f.mod.name, f.ext.name)
+                ? [T.red("couldn't fully remove " + f.ext.name + " — some files may be in use.")]
+                : [T.green("✓ removed " + f.ext.name + " — verified gone.")];
+            } else if (libPresent(target)) {
+              rmSync(libPath(target), { recursive: true, force: true });
+              const ex = join(REPO, "extensions", target); if (existsSync(ex)) rmSync(ex, { recursive: true, force: true });
+              state.message = libPresent(target)
+                ? [T.red("couldn't fully remove " + target + " — some files may be in use.")]
+                : [T.green("✓ removed " + target + " — verified gone.")];
+            } else state.message = [T.yellow("nothing called '" + target + "'.")];
           } catch (e) { state.message = [T.red("couldn't remove: " + (e instanceof Error ? e.message : String(e)))]; }
         } else state.message = [T.dim("uninstall cancelled.")];
         return;
@@ -347,13 +387,20 @@ export function modulesCommand(): Promise<void> {
       if (verb === "quit" || verb === "exit" || verb === "q") { leave(); return; }
       if (verb === "test") { state.message = testReport(); return; }
       if (verb === "browse" || verb === "list" || verb === "store") { state.message = browseReport(); return; }
+      if (verb === "setup") {
+        const f = findExtension(arg);
+        if (!f) { state.message = [T.red("no extension called '" + arg + "'.") + T.dim("  try: setup music")]; return; }
+        state.message = setupReport(f);
+        return;
+      }
       if (verb === "help") {
         state.message = [
           T.text("commands:"),
           "  " + T.blue("browse") + T.dim("             see every library you can install"),
           "  " + T.blue("libinstall <name>") + T.dim("  install a LIBRARY — downloads it (e.g. libinstall discord-bot)"),
           "  " + T.blue("install <name>") + T.dim("     set up an extension's tools/packages (e.g. install music)"),
-          "  " + T.blue("uninstall <name>") + T.dim("   remove a library/extension"),
+          "  " + T.blue("setup <name>") + T.dim("       show an extension's status + any extra optional steps"),
+          "  " + T.blue("uninstall <name>") + T.dim("   remove a library/extension (verified)"),
           "  " + T.blue("test") + T.dim("               check what's installed and that it loads"),
           "  " + T.blue("quit") + T.dim("               leave  (or Esc / Ctrl+C)"),
         ];
