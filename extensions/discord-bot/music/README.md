@@ -51,7 +51,7 @@ run the installer instead of crashing.
    under **Bot**, turn ON **Message Content Intent**.
 4. Invite the bot with the **`bot`** scope and **Connect** + **Speak** voice
    permissions.
-5. `sprout run examples/music-bot.sprout`, join a voice channel, and `!play`.
+5. `sprout run yourbot.sprout`, join a voice channel, and `!play`.
 
 ## How it works (under the hood)
 

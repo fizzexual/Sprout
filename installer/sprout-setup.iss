@@ -70,7 +70,6 @@ Root: HKCU; Subkey: "Software\Sprout"; ValueType: string; ValueName: "InstallDir
 
 [Icons]
 Name: "{group}\Sprout (REPL)"; Filename: "{app}\sprout.cmd"; Parameters: "repl"; WorkingDir: "{app}"; IconFilename: "{app}\images\sprout.ico"
-Name: "{group}\Sprout examples"; Filename: "{app}\examples"
 Name: "{group}\Sprout wiki"; Filename: "{app}\wiki\README.md"
 Name: "{group}\Uninstall Sprout"; Filename: "{uninstallexe}"
 

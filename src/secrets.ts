@@ -22,7 +22,7 @@ export interface Secrets {
 
 export const SECRET_BUILTINS = ["secret"];
 
-// Used by tests and when no source is attached (the playground, the checker).
+// Used by tests and when no source is attached (e.g. the checker).
 export function noSecrets(): Secrets {
   return { get: () => null };
 }

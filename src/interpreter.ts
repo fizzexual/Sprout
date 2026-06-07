@@ -18,8 +18,7 @@ import type { Net } from "./net.ts";
 import { SECRET_BUILTINS, noSecrets, missingSecret } from "./secrets.ts";
 import type { Secrets } from "./secrets.ts";
 
-// Where `show` sends its output. The CLI prints to the console; tests and the
-// playground capture it instead.
+// Where `show` sends its output. The CLI prints to the console; tests capture it.
 export type OutputSink = (line: string) => void;
 
 interface FuncDef {

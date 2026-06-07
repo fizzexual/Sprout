@@ -79,22 +79,17 @@ Then:
 
 ```bash
 sprout version
-sprout examples/hello.sprout        # run a program (Python-style)
-sprout run examples/primes.sprout   # the same, but explicit
-sprout repl                         # interactive prompt
+sprout run hello.sprout    # run a program you wrote
+sprout repl                # interactive prompt
 ```
 
-Sprout programs use the **`.sprout`** extension. There are more to try in
-[`examples/`](examples): `hello`, `fizzbuzz`, `triangle`, `math`, `primes`,
-`functions`, the GUI apps `gui-counter` & `gui-greeter`, the website
-`server_example`, `savecounter` (remembers its value), `internet` (calls a live
-web API), `api-explorer` (lists every field an API offers), `repo-stats`
-(a GUI that fetches live GitHub stats), `discord-bot` (a chat bot, built with the
-[`discord-bot` library](libraries/discord-bot)), and `music-bot` (plays YouTube
-in voice, via the [music extension](extensions/discord-bot/music)).
+Sprout programs use the **`.sprout`** extension — write one in any folder and run
+it with `sprout run yourfile.sprout`. The **[wiki](wiki)** teaches the whole
+language with copy-paste snippets ([cheat sheet](wiki/cheatsheet.md) for the
+one-page tour).
 
 > Don't want to install anything? You can always run it directly:
-> `node src/cli.ts run examples/hello.sprout`
+> `node src/cli.ts run yourfile.sprout`
 
 ### Double-click to run (Windows)
 
@@ -111,19 +106,6 @@ This is per-user only (no admin needed) and reversible:
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\uninstall-file-association.ps1
 ```
-
-## Playground (a GUI in your browser)
-
-Sprout comes with a little playground — a code editor with a **Run** button and
-live output, served by a zero-dependency Node server:
-
-```bash
-npm run play      # then open http://localhost:3000
-```
-
-Type a program, hit **Run** (or <kbd>Ctrl</kbd>+<kbd>Enter</kbd>), and see the
-output instantly. There's a dropdown of examples to start from, and runaway
-loops are stopped automatically.
 
 ## Build a GUI 🪟
 
@@ -143,17 +125,15 @@ label("display", "Count: 0")
 button("Add one", "add")
 ```
 
-**Just open the file** — once the installer below is run, double-click it and the
-window appears. No terminal needed. (Or from a shell: `sprout gui examples/gui-counter.sprout`.)
+**Just open the file** — once the installer is run, double-click it and the
+window appears. No terminal needed. (Or from a shell: `sprout gui yourapp.sprout`.)
 
 A program that calls **`server("Title")`** instead of `window("Title")` runs as a
-**website** when opened — see [`examples/server_example.sprout`](examples/server_example.sprout)
-(or `sprout serve examples/server_example.sprout`).
+**website** when opened (or `sprout serve yourapp.sprout`).
 
 GUI building blocks: `window(title)` / `server(title)`, `label(id, text)` (call
 again to update it), `button(text, taskName)`, `field(id, hint)`, and
-`textof(id)`. Try `examples/gui-greeter.sprout` too (it has no `style`, so it
-shows the raw look).
+`textof(id)`. Leave out `style` and it shows the raw look.
 
 ## Style it with Bloom &nbsp;<img src="images/bloom.png" width="24" align="top">
 
@@ -287,7 +267,6 @@ output
 - [x] **Secrets** — `secret("NAME")` from a git-ignored `.env`; never hardcode a token
 - [x] **Verify before running** — whole-program check (`sprout check`)
 - [x] **VS Code extension** — highlighting, snippets, run commands
-- [x] **Playground** — edit & run Sprout in the browser (`npm run play`)
 - [x] **Wiki** — full Sprout + Bloom docs in [`wiki/`](wiki)
 - [x] **Libraries** — `use "..."`; first one is [`discord-bot`](libraries/discord-bot)
 - [x] **Extensions + slash commands** — `use "discord-bot/music"` plays YouTube in voice; bots answer `/commands`

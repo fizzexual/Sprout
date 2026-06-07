@@ -44,9 +44,8 @@ make score = recall("highScore", 0)
 remember("highScore", score)
 ```
 
-The data lives in a small JSON file next to your program. See
-[`examples/savecounter.sprout`](../examples/savecounter.sprout) — a counter that
-remembers its value after you close it.
+The data lives in a small JSON file next to your program — so a counter can
+remember its value even after you close it.
 
 ## Talking to the internet (get / post)
 
@@ -73,7 +72,7 @@ sprout api https://api.github.com/repos/fizzexual/Sprout-
 ```
 
 It connects and prints every field with its path — so you know exactly what to
-`jsonpick`. See [`examples/internet.sprout`](../examples/internet.sprout).
+`jsonpick`.
 
 ## Secrets (secret)
 
@@ -103,9 +102,8 @@ bot(secret("DISCORD_TOKEN"))     ~ the token itself is nowhere in the code
 ```
 
 If the secret is missing, Sprout tells you kindly and shows you exactly where to
-put it. There's a ready-made template at
-[`examples/.env.example`](../examples/.env.example) — copy it to `.env` and fill
-in your value.
+put it. Just make a `.env` file next to your program with a line like
+`DISCORD_TOKEN = your-value` (it stays off GitHub).
 
 ## Errors are friendly
 

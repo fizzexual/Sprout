@@ -82,8 +82,7 @@ powershell -ExecutionPolicy Bypass -File tools\install-music.ps1
 
 The core language and the discord-bot library stay dependency-free; only the
 music extension uses these, and only when you `!play`. Full details:
-[extensions/discord-bot/music](../extensions/discord-bot/music). Example:
-[`examples/music-bot.sprout`](../examples/music-bot.sprout).
+[extensions/discord-bot/music](../extensions/discord-bot/music).
 
 ## Adding your own
 
