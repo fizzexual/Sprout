@@ -183,9 +183,10 @@ const VOICE_DEBUG = process.env.SPROUT_VOICE_DEBUG === "1" || process.env.SPROUT
 function vverbose(msg: string): void { if (VOICE_DEBUG) console.log(`🎙️  [voice] ${msg}`); }
 
 export function connectVoice(params: VoiceParams): VoicePlayer {
-  // Voice gateway v4 — the stable version @discordjs/voice uses; it still offers
-  // the modern rtpsize encryption modes, without v8's seq-ack heartbeat protocol.
-  const url = `wss://${params.endpoint.replace(/:\d+$/, "")}/?v=4`;
+  // Voice gateway v8 — the current version. (v4 was rejected with close 4006.)
+  // v8 tags each server message with a `seq`; heartbeats must echo the latest as
+  // `seq_ack`, which we track below.
+  const url = `wss://${params.endpoint.replace(/:\d+$/, "")}/?v=8`;
   const ws = new WebSocket(url);
   const udp: UdpSocket = createSocket("udp4");
   vlog(`connecting to ${url}`);
@@ -261,20 +262,25 @@ export function connectVoice(params: VoiceParams): VoicePlayer {
     cbs.forEach((cb) => cb());
   };
 
+  // v8 tags each server message with a sequence number; heartbeats echo the latest.
+  let lastSeq = -1;
+
   // --- voice websocket lifecycle ---
   ws.addEventListener("open", () => {
-    vlog("websocket open — identifying");
+    const sid = params.sessionId ? `${params.sessionId.slice(0, 4)}…(${params.sessionId.length})` : "MISSING";
+    vlog(`websocket open — identifying (user=${params.userId || "MISSING"}, session=${sid}, token=${params.token ? `present(${params.token.length})` : "MISSING"})`);
     sendVoice(0, { server_id: params.guildId, user_id: params.userId, session_id: params.sessionId, token: params.token });
   });
 
   ws.addEventListener("message", (ev: { data: unknown }) => {
-    let msg: { op: number; d: Record<string, unknown> };
+    let msg: { op: number; d: Record<string, unknown>; seq?: number };
     try { msg = JSON.parse(String(ev.data)); } catch { return; }
+    if (typeof msg.seq === "number") lastSeq = msg.seq;
 
     if (msg.op === 8) {
       const interval = Number((msg.d as { heartbeat_interval?: number }).heartbeat_interval) || 13750;
       vlog(`hello — heartbeat every ${interval}ms`);
-      heartbeat = setInterval(() => sendVoice(3, Date.now()), interval);
+      heartbeat = setInterval(() => sendVoice(3, { t: Date.now(), seq_ack: Math.max(lastSeq, 0) }), interval);
     } else if (msg.op === 2) {
       // READY: pick a mode, open UDP, do IP discovery
       const d = msg.d as { ssrc: number; ip: string; port: number; modes: string[] };
