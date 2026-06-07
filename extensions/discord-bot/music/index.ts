@@ -29,6 +29,8 @@ interface GuildMusic {
   procs: { kill(): void } | null;
   volume: number;           // 1.0 = 100% (live-adjustable via the 🔉/🔊 buttons)
   resource: any | null;     // current audio resource, kept so we can change volume live
+  speed: number;            // 1.0 = normal (the 🐢/⏩ buttons; persists across songs)
+  posBase: number;          // source seconds already consumed before the current segment (for speed restarts)
 }
 
 // --- pure helpers (unit-tested) ----------------------------------------------
@@ -90,16 +92,25 @@ export function playlistEmbed(title: string, count: number, requestedBy: string,
 // type 2; style 2 = grey, 4 = red. custom_id is what the click sends back.
 export function controllerComponents(): unknown[] {
   const btn = (id: string, emoji: string, style = 2): Record<string, unknown> => ({ type: 2, style, custom_id: id, emoji: { name: emoji } });
-  return [{
-    type: 1, // action row
-    components: [
-      btn("music:playpause", "⏯️"),
-      btn("music:skip", "⏭️"),
-      btn("music:stop", "⏹️", 4),
-      btn("music:voldown", "🔉"),
-      btn("music:volup", "🔊"),
-    ],
-  }];
+  return [
+    {
+      type: 1, // action row 1: transport + volume
+      components: [
+        btn("music:playpause", "⏯️"),
+        btn("music:skip", "⏭️"),
+        btn("music:stop", "⏹️", 4),
+        btn("music:voldown", "🔉"),
+        btn("music:volup", "🔊"),
+      ],
+    },
+    {
+      type: 1, // action row 2: speed
+      components: [
+        btn("music:slower", "🐢"),
+        btn("music:faster", "⏩"),
+      ],
+    },
+  ];
 }
 
 // --- the editable design folder ("music/" next to the user's program) ---------
@@ -177,7 +188,7 @@ export function create(interp: Interpreter, library: { api: DiscordApi }) {
 
   const musicOf = (guildId: string): GuildMusic => {
     let gm = guilds.get(guildId);
-    if (!gm) { gm = { connection: null, player: null, queue: [], current: null, procs: null, volume: 1, resource: null }; guilds.set(guildId, gm); }
+    if (!gm) { gm = { connection: null, player: null, queue: [], current: null, procs: null, volume: 1, resource: null, speed: 1, posBase: 0 }; guilds.set(guildId, gm); }
     return gm;
   };
 
@@ -301,6 +312,7 @@ export function create(interp: Interpreter, library: { api: DiscordApi }) {
     const track = gm.queue.shift();
     if (!track) { mlog("queue empty — leaving voice"); leave(guildId); return; }
     gm.current = track;
+    gm.posBase = 0; // fresh track starts at the beginning (speed carries over)
     mlog(`starting track: ${track.title}`);
 
     // Playlist songs are queued with only title+url — fetch the rest now so their
@@ -313,8 +325,8 @@ export function create(interp: Interpreter, library: { api: DiscordApi }) {
 
     const piped = streamFor(track.url, (msg) => {
       api.send(track.textChannelId, msg);
-      playNext(guildId, V); // skip a broken track
-    });
+      void playNext(guildId, V); // skip a broken track
+    }, { startSec: 0, speed: gm.speed });
     if (!piped) {
       api.send(track.textChannelId, "I need **ffmpeg** and **yt-dlp** installed to play audio.");
       leave(guildId);
@@ -385,6 +397,38 @@ export function create(interp: Interpreter, library: { api: DiscordApi }) {
     api.send(channelId, `🔊 Volume: **${Math.round(gm.volume * 100)}%**`);
   }
 
+  // Restart the CURRENT song from gm.posBase at gm.speed (used by the speed buttons).
+  function restartCurrent(guildId: string, V: any): void {
+    const gm = guilds.get(guildId);
+    if (!gm || !gm.current || !gm.player) return;
+    if (gm.procs) { gm.procs.kill(); gm.procs = null; }
+    const track = gm.current;
+    const piped = streamFor(track.url, (msg) => { api.send(track.textChannelId, msg); }, { startSec: gm.posBase, speed: gm.speed });
+    if (!piped) return;
+    gm.procs = piped;
+    try {
+      const resource = V.createAudioResource(piped.stream, { inputType: V.StreamType.Raw, inlineVolume: true });
+      if (resource.volume) resource.volume.setVolume(gm.volume);
+      gm.resource = resource;
+      gm.player.play(resource);
+    } catch (e) { mlog(`restart failed: ${e instanceof Error ? e.message : String(e)}`); }
+  }
+
+  // Change speed (the 🐢/⏩ buttons): note where we are in the source, then restart
+  // the song from there at the new speed. ffmpeg's atempo keeps the pitch natural.
+  // It's a re-encode, so there's a brief gap — the honest cost of live speed change.
+  async function changeSpeed(guildId: string, factor: number, channelId: string): Promise<void> {
+    const gm = guilds.get(guildId);
+    if (!gm || !gm.current || !gm.player) { api.send(channelId, "Nothing is playing."); return; }
+    const V = await loadVoice();
+    if (!V) return;
+    const playedOut = (gm.resource?.playbackDuration ?? 0) / 1000;  // output seconds heard in this segment
+    gm.posBase = gm.posBase + playedOut * gm.speed;                 // -> source seconds consumed so far
+    gm.speed = Math.max(0.5, Math.min(2, Math.round(gm.speed * factor * 100) / 100));
+    restartCurrent(guildId, V);
+    api.send(channelId, `${factor >= 1 ? "⏩" : "🐢"} Speed: **${gm.speed}×** _(brief skip while it re-encodes)_`);
+  }
+
   // --- wire up Discord commands (prefix + slash) ---
   api.onCommand("play", (ctx: CommandContext) => void play(ctx.guildId, ctx.authorId, ctx.args, ctx.channelId, ctx.reply));
   api.onCommand("skip", (ctx: CommandContext) => skip(ctx.guildId, ctx.reply));
@@ -411,6 +455,8 @@ export function create(interp: Interpreter, library: { api: DiscordApi }) {
   api.onButton("music:stop", (ctx: ButtonContext) => stop(ctx.guildId, (t) => api.send(ctx.channelId, t)));
   api.onButton("music:voldown", (ctx: ButtonContext) => changeVolume(ctx.guildId, 0.8, ctx.channelId));
   api.onButton("music:volup", (ctx: ButtonContext) => changeVolume(ctx.guildId, 1.25, ctx.channelId));
+  api.onButton("music:slower", (ctx: ButtonContext) => void changeSpeed(ctx.guildId, 0.8, ctx.channelId));
+  api.onButton("music:faster", (ctx: ButtonContext) => void changeSpeed(ctx.guildId, 1.25, ctx.channelId));
 
   return { names: [], builtins: {} };
 }
@@ -478,7 +524,7 @@ function resolvePlaylist(url: string): Promise<{ title: string; entries: Array<{
 
 // Spawn yt-dlp piped into ffmpeg, producing an Ogg/Opus stream for @discordjs/voice.
 // Returns the stream + a kill() that stops both processes.
-function streamFor(url: string, onError: (msg: string) => void): { stream: NodeJS.ReadableStream; kill(): void } | null {
+function streamFor(url: string, onError: (msg: string) => void, opts: { startSec?: number; speed?: number } = {}): { stream: NodeJS.ReadableStream; kill(): void } | null {
   try {
     // Prefer webm/opus: it streams cleanly through a pipe. (m4a/mp4 keeps its
     // index at the END of the file, so ffmpeg would have to seek — which a pipe
@@ -489,10 +535,17 @@ function streamFor(url: string, onError: (msg: string) => void): { stream: NodeJ
     // solve nsig (no JS runtime), the stream gets throttled or 403s, and yt-dlp dies
     // mid-download — the bot "plays" for a second then goes silent/idle.
     const ytArgs = ["-q", "--no-playlist", "--extractor-args", "youtube:player_client=android_vr", "-f", format, "-o", "-", url];
-    mlog(`yt-dlp(android_vr) ${format} -> ffmpeg(PCM s16le 48k stereo) for ${url}`);
+    // Build ffmpeg args. -ss AFTER -i is output-seeking (decodes from the start and
+    // discards) — reliable on a pipe — used to resume at the current spot after a
+    // speed change. -af atempo changes speed without changing pitch (valid 0.5–2.0).
+    const ffArgs = ["-hide_banner", "-loglevel", "warning", "-i", "pipe:0", "-vn"];
+    if (opts.startSec && opts.startSec > 0) ffArgs.push("-ss", String(Math.floor(opts.startSec)));
+    if (opts.speed && opts.speed !== 1) ffArgs.push("-af", `atempo=${opts.speed}`);
+    ffArgs.push("-ar", "48000", "-ac", "2", "-f", "s16le", "pipe:1");
+    mlog(`yt-dlp(android_vr) -> ffmpeg(PCM 48k stereo${opts.speed && opts.speed !== 1 ? `, ${opts.speed}×` : ""}${opts.startSec ? `, from ${Math.floor(opts.startSec)}s` : ""}) for ${url}`);
     const ytdlp = spawn("yt-dlp", ytArgs, { stdio: ["ignore", "pipe", "pipe"] });
     // Decode to raw PCM (s16le, 48kHz, stereo) — @discordjs/voice encodes the opus.
-    const ffmpeg = spawn("ffmpeg", ["-hide_banner", "-loglevel", "warning", "-i", "pipe:0", "-vn", "-ar", "48000", "-ac", "2", "-f", "s16le", "pipe:1"], { stdio: ["pipe", "pipe", "pipe"] });
+    const ffmpeg = spawn("ffmpeg", ffArgs, { stdio: ["pipe", "pipe", "pipe"] });
     let ytErr = "";
     let ffErr = "";
     ytdlp.stderr.on("data", (d: Buffer) => { ytErr += d.toString(); });
