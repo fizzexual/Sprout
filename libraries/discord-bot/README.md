@@ -49,3 +49,11 @@ until you press **Ctrl+C**.
 | `say("channelId", "text")` | send a message to a specific channel |
 
 The bot ignores its own messages and other bots, so it won't talk to itself.
+
+## Extensions & slash commands
+
+This library powers **extensions** that add whole features. The first is
+**[music](../../extensions/discord-bot/music)** — `use "discord-bot/music"` and
+your bot can `!play` (and `/play`) YouTube audio in a voice channel. Extensions
+register their own `!commands` and `/slash` commands; see
+[`extensions/README.md`](../../extensions/README.md) to write your own.

@@ -42,8 +42,32 @@ Your token goes in a git-ignored `.env` file next to the program
 Full setup is in the [library's README](../libraries/discord-bot/README.md)
 (make a bot, copy its token, turn on the Message Content Intent, invite it).
 
+## Extensions — libraries for libraries
+
+An **extension** plugs extra powers into a library. Load one with a
+`library/extension` path:
+
+```sprout
+use "discord-bot"
+use "discord-bot/music"     ~ a music player, built on the discord-bot library
+```
+
+The first extension is **discord-bot/music** — a real music player. Once it's
+loaded, your bot understands new commands in Discord with no extra Sprout code:
+
+| Command | What it does |
+| --- | --- |
+| `!play <link or words>` | join your voice channel and play YouTube audio (`/play` works too) |
+| `!skip` / `!stop` / `!queue` | skip a song, stop & leave, or see what's queued |
+
+It needs **yt-dlp** and **ffmpeg** installed (free, one-time) to fetch and decode
+audio. Full details: [extensions/discord-bot/music](../extensions/discord-bot/music).
+Example: [`examples/music-bot.sprout`](../examples/music-bot.sprout).
+
 ## Adding your own
 
-Libraries live in the [`libraries/`](../libraries) folder — each is a folder
-with an `index.ts` that exports a `create(interp)` function. See
-[`libraries/README.md`](../libraries/README.md) for the (tiny) contract.
+Libraries live in [`libraries/`](../libraries) (`create(interp)`); extensions
+live in [`extensions/<library>/<name>/`](../extensions) (`create(interp, library)`
+— they hook into the library's `api`). See
+[`libraries/README.md`](../libraries/README.md) and
+[`extensions/README.md`](../extensions/README.md) for the (tiny) contracts.

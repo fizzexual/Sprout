@@ -13,6 +13,9 @@ import { check } from "../src/checker.ts";
 import { memoryStorage } from "../src/storage.ts";
 import { memorySecrets, parseEnv } from "../src/secrets.ts";
 import { create as discordBot } from "../libraries/discord-bot/index.ts";
+import { sealAudio, hchacha20, chooseMode, OggOpusDemuxer } from "../libraries/discord-bot/voice.ts";
+import { isUrl, formatQueue, create as musicExt } from "../extensions/discord-bot/music/index.ts";
+import { createDecipheriv } from "node:crypto";
 
 function problems(src: string): LangError[] {
   return check(parse(tokenize(src)));
@@ -374,6 +377,121 @@ test("parseEnv reads KEY = value lines, comments, and quotes", () => {
   assert.equal(env.QUOTED, "x y");
   assert.equal(env.EMPTY, "");
   assert.equal("a comment" in env, false);
+});
+
+// --- voice transport (the music extension's hardest piece) ---
+
+test("voice: chooseMode prefers AES-GCM, falls back to XChaCha, else null", () => {
+  assert.equal(chooseMode(["aead_xchacha20_poly1305_rtpsize", "aead_aes256_gcm_rtpsize"]), "aead_aes256_gcm_rtpsize");
+  assert.equal(chooseMode(["aead_xchacha20_poly1305_rtpsize"]), "aead_xchacha20_poly1305_rtpsize");
+  assert.equal(chooseMode(["xsalsa20_poly1305"]), null);
+});
+
+test("voice: hchacha20 is deterministic and 32 bytes", () => {
+  const key = Buffer.alloc(32, 1);
+  const nonce = Buffer.alloc(16, 2);
+  const a = hchacha20(key, nonce);
+  const b = hchacha20(key, nonce);
+  assert.equal(a.length, 32);
+  assert.deepEqual(a, b);
+  assert.notDeepEqual(a, hchacha20(key, Buffer.alloc(16, 3)));
+});
+
+test("voice: AES-256-GCM packet seals and opens with the right AAD + nonce", () => {
+  const key = Buffer.alloc(32, 7);
+  const header = Buffer.from([0x80, 0x78, 0, 1, 0, 0, 0, 0, 0, 0, 0, 5]);
+  const audio = Buffer.from("opus-frame-bytes");
+  const sealed = sealAudio("aead_aes256_gcm_rtpsize", key, header, audio, 42);
+  const nonce4 = sealed.subarray(sealed.length - 4);
+  assert.equal(nonce4.readUInt32BE(0), 42);
+  const tag = sealed.subarray(sealed.length - 20, sealed.length - 4);
+  const ct = sealed.subarray(0, sealed.length - 20);
+  const iv = Buffer.alloc(12);
+  nonce4.copy(iv, 0);
+  const dec = createDecipheriv("aes-256-gcm", key, iv);
+  dec.setAAD(header);
+  dec.setAuthTag(tag);
+  const plain = Buffer.concat([dec.update(ct), dec.final()]);
+  assert.equal(plain.toString(), "opus-frame-bytes");
+});
+
+test("voice: XChaCha20-Poly1305 packet seals and opens", () => {
+  const key = Buffer.alloc(32, 9);
+  const header = Buffer.from([0x80, 0x78, 0, 2, 0, 0, 3, 192, 0, 0, 0, 5]);
+  const audio = Buffer.from("another-opus-frame");
+  const sealed = sealAudio("aead_xchacha20_poly1305_rtpsize", key, header, audio, 123);
+  const nonce4 = sealed.subarray(sealed.length - 4);
+  const tag = sealed.subarray(sealed.length - 20, sealed.length - 4);
+  const ct = sealed.subarray(0, sealed.length - 20);
+  const xnonce = Buffer.alloc(24);
+  nonce4.copy(xnonce, 0);
+  const subkey = hchacha20(key, xnonce.subarray(0, 16));
+  const chachaNonce = Buffer.alloc(12);
+  xnonce.subarray(16, 24).copy(chachaNonce, 4);
+  const dec = createDecipheriv("chacha20-poly1305", subkey, chachaNonce, { authTagLength: 16 });
+  dec.setAAD(header);
+  dec.setAuthTag(tag);
+  const plain = Buffer.concat([dec.update(ct), dec.final()]);
+  assert.equal(plain.toString(), "another-opus-frame");
+});
+
+test("voice: Ogg demuxer skips the 2 header packets and returns audio packets", () => {
+  const oggPage = (segLens: number[], body: Buffer): Buffer => {
+    const head = Buffer.alloc(27 + segLens.length);
+    head.write("OggS", 0, "ascii");
+    head[26] = segLens.length;
+    for (let i = 0; i < segLens.length; i++) head[27 + i] = segLens[i];
+    return Buffer.concat([head, body]);
+  };
+  const opusHead = Buffer.from("OpusHead");
+  const opusTags = Buffer.from("OpusTags");
+  const audio = Buffer.from("AUDIO1");
+  const page = oggPage([8, 8, 6], Buffer.concat([opusHead, opusTags, audio]));
+  const out = new OggOpusDemuxer().push(page);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].toString(), "AUDIO1");
+});
+
+// --- music extension ---
+
+test("music: isUrl recognises links vs search words", () => {
+  assert.equal(isUrl("https://youtu.be/dQw4w9WgXcQ"), true);
+  assert.equal(isUrl("never gonna give you up"), false);
+});
+
+test("music: formatQueue shows now-playing and the list", () => {
+  const t = (title: string): { title: string; url: string; requestedBy: string; textChannelId: string } =>
+    ({ title, url: "", requestedBy: "", textChannelId: "" });
+  assert.match(formatQueue(null, []), /empty/i);
+  const out = formatQueue(t("Song A"), [t("Song B"), t("Song C")]);
+  assert.match(out, /Now playing.*Song A/);
+  assert.match(out, /1\. Song B/);
+  assert.match(out, /2\. Song C/);
+});
+
+test("music extension registers its commands on the discord api", () => {
+  const commands: string[] = [];
+  const slashes: string[] = [];
+  const fakeApi = {
+    interp: null,
+    onCommand: (w: string) => commands.push(w),
+    onSlash: (n: string) => slashes.push(n),
+    send: () => {},
+    voiceChannelOf: () => null,
+    joinVoice: () => Promise.reject(new Error("no")),
+    log: () => {},
+  };
+  musicExt(null as never, { api: fakeApi } as never);
+  assert.deepEqual(commands.sort(), ["play", "queue", "skip", "stop"]);
+  assert.ok(slashes.includes("play"));
+});
+
+test("discord-bot library exposes an extension api", () => {
+  const lib = discordBot({} as never);
+  assert.equal(typeof lib.api.onCommand, "function");
+  assert.equal(typeof lib.api.onSlash, "function");
+  assert.equal(typeof lib.api.joinVoice, "function");
+  assert.equal(lib.api.voiceChannelOf("g", "u"), null);
 });
 
 test("nothing is a value you can write and compare", () => {

@@ -1,28 +1,72 @@
 // libraries/discord-bot/index.ts — make a Discord bot in Sprout.
 //
 //   use "discord-bot"
-//   bot("YOUR_TOKEN")
+//   bot(secret("DISCORD_TOKEN"))
 //   on_message("handle")
 //   task handle():
 //       when message() == "!ping":
 //           reply("pong!")
 //
 // It connects to the Discord gateway with Node's built-in WebSocket (no
-// dependencies) and sends messages with Discord's REST API. A library exports
-// `create(interp)` returning { names, builtins, isActive, start }; the Sprout
-// CLI loads it when a program says `use "discord-bot"`.
+// dependencies). A library exports `create(interp)` returning the usual
+// { names, builtins, isActive, start } plus an `api` that *extensions* (like
+// the Music extension) hook into — see extensions/discord-bot/.
 
-import { spawnSync } from "node:child_process";
 import { NONE, stringify } from "../../src/values.ts";
 import type { Value } from "../../src/values.ts";
 import type { Interpreter } from "../../src/interpreter.ts";
+import { connectVoice } from "./voice.ts";
+import type { VoicePlayer } from "./voice.ts";
+
+// GUILDS | GUILD_VOICE_STATES | GUILD_MESSAGES | MESSAGE_CONTENT
+const INTENTS = 1 | 128 | 512 | 32768;
+
+export interface CommandContext {
+  args: string;            // everything after "!word "
+  author: string;          // username who sent it
+  authorId: string;
+  channelId: string;
+  guildId: string;
+  reply(text: string): void;
+}
+
+export interface SlashContext {
+  name: string;
+  option(name: string): string;   // a slash option's value as text
+  author: string;
+  authorId: string;
+  channelId: string;
+  guildId: string;
+  reply(text: string): void;
+}
+
+interface PrefixCommand { word: string; handler: (ctx: CommandContext) => void; }
+interface SlashCommand { name: string; description: string; handler: (ctx: SlashContext) => void; }
 
 interface BotState {
   token: string;
   used: boolean;
-  handler: string;
+  handler: string;         // the Sprout task wired via on_message
   selfId: string;
+  appId: string;
+  prefix: string;
   current: { content: string; author: string; channelId: string };
+  ws: WebSocket | null;
+  prefixCommands: Map<string, PrefixCommand>;
+  slashCommands: Map<string, SlashCommand>;
+  voiceStates: Map<string, Map<string, string>>;             // guildId -> (userId -> channelId)
+  listeners: Map<string, Array<(d: Record<string, unknown>) => void>>;
+}
+
+// What an extension receives as its second argument: hooks into the live bot.
+export interface DiscordApi {
+  interp: Interpreter;
+  onCommand(word: string, handler: (ctx: CommandContext) => void): void;
+  onSlash(name: string, description: string, handler: (ctx: SlashContext) => void): void;
+  send(channelId: string, text: string): void;
+  voiceChannelOf(guildId: string, userId: string): string | null;
+  joinVoice(guildId: string, channelId: string): Promise<VoicePlayer>;
+  log(msg: string): void;
 }
 
 export function create(interp: Interpreter) {
@@ -31,7 +75,14 @@ export function create(interp: Interpreter) {
     used: false,
     handler: "",
     selfId: "",
+    appId: "",
+    prefix: "!",
     current: { content: "", author: "", channelId: "" },
+    ws: null,
+    prefixCommands: new Map(),
+    slashCommands: new Map(),
+    voiceStates: new Map(),
+    listeners: new Map(),
   };
 
   const builtins: Record<string, (args: Value[]) => Value> = {
@@ -43,81 +94,134 @@ export function create(interp: Interpreter) {
     say: (args) => { send(state, stringify(args[0] ?? NONE), stringify(args[1] ?? NONE)); return NONE; },
   };
 
+  const api: DiscordApi = {
+    interp,
+    onCommand: (word, handler) => { state.prefixCommands.set(word.toLowerCase(), { word: word.toLowerCase(), handler }); },
+    onSlash: (name, description, handler) => { state.slashCommands.set(name, { name, description, handler }); },
+    send: (channelId, text) => send(state, channelId, text),
+    voiceChannelOf: (guildId, userId) => state.voiceStates.get(guildId)?.get(userId) ?? null,
+    joinVoice: (guildId, channelId) => joinVoice(state, guildId, channelId),
+    log: (msg) => console.log(msg),
+  };
+
   return {
     names: ["bot", "on_message", "message", "author", "reply", "say"],
     builtins,
     isActive: () => state.used,
     start: () => connect(interp, state),
+    api,
   };
 }
 
-// Send a message to a channel via Discord's REST API (a short-lived subprocess,
-// so the call is synchronous — fits Sprout's simple model).
+// --- Discord REST (async fire-and-forget; keeps the audio loop smooth) --------
+
+function rest(state: BotState, method: string, path: string, body: unknown, auth = true): Promise<Record<string, unknown>> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (auth) headers["Authorization"] = "Bot " + state.token;
+  return fetch("https://discord.com/api/v10" + path, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+    .then((r) => r.json().catch(() => ({})))
+    .catch(() => ({})) as Promise<Record<string, unknown>>;
+}
+
 function send(state: BotState, channelId: string, content: string): void {
   if (!channelId || !content) return;
-  const url = `https://discord.com/api/v10/channels/${channelId}/messages`;
-  const script =
-    "(async()=>{try{const r=await fetch(process.argv[1],{method:'POST'," +
-    "headers:{'Authorization':process.argv[2],'Content-Type':'application/json'}," +
-    "body:JSON.stringify({content:process.argv[3]})});process.stdout.write(String(r.status));}" +
-    "catch(e){process.stderr.write(String((e&&e.message)||e));}})()";
-  spawnSync(process.execPath, ["-e", script, url, "Bot " + state.token, content], { encoding: "utf8", timeout: 15000 });
+  void rest(state, "POST", `/channels/${channelId}/messages`, { content });
 }
+
+function interactionRespond(state: BotState, id: string, token: string, content: string): void {
+  void rest(state, "POST", `/interactions/${id}/${token}/callback`, { type: 4, data: { content } }, false);
+}
+
+function registerGuildCommands(state: BotState, guildId: string): void {
+  if (!state.appId || state.slashCommands.size === 0) return;
+  const cmds = [...state.slashCommands.values()].map((c) => ({ name: c.name, description: c.description, type: 1 }));
+  void rest(state, "PUT", `/applications/${state.appId}/guilds/${guildId}/commands`, cmds);
+}
+
+// --- gateway event hub (extensions + voice subscribe here) --------------------
+
+function onGateway(state: BotState, type: string, cb: (d: Record<string, unknown>) => void): () => void {
+  const arr = state.listeners.get(type) ?? [];
+  arr.push(cb);
+  state.listeners.set(type, arr);
+  return () => { const a = state.listeners.get(type); if (a) a.splice(a.indexOf(cb), 1); };
+}
+
+function emitGateway(state: BotState, type: string, d: Record<string, unknown>): void {
+  const arr = state.listeners.get(type);
+  if (arr) for (const cb of arr.slice()) cb(d);
+}
+
+function gatewaySend(state: BotState, op: number, d: unknown): void {
+  try { state.ws?.send(JSON.stringify({ op, d })); } catch { /* socket closing */ }
+}
+
+// --- voice: join a channel and hand back a player -----------------------------
+
+function joinVoice(state: BotState, guildId: string, channelId: string): Promise<VoicePlayer> {
+  return new Promise((resolve, reject) => {
+    let sessionId = "";
+    let token = "";
+    let endpoint = "";
+    let done = false;
+    const offState = onGateway(state, "VOICE_STATE_UPDATE", (d) => {
+      if (d.guild_id === guildId && d.user_id === state.selfId) { sessionId = String(d.session_id || ""); finish(); }
+    });
+    const offServer = onGateway(state, "VOICE_SERVER_UPDATE", (d) => {
+      if (d.guild_id === guildId) { token = String(d.token || ""); endpoint = String(d.endpoint || ""); finish(); }
+    });
+    const finish = (): void => {
+      if (done || !sessionId || !token || !endpoint) return;
+      done = true;
+      offState(); offServer();
+      const player = connectVoice({
+        endpoint, token, guildId, userId: state.selfId, sessionId,
+        onError: (m) => console.error("🌱 " + m),
+      });
+      resolve(player);
+    };
+    gatewaySend(state, 4, { guild_id: guildId, channel_id: channelId, self_mute: false, self_deaf: false });
+    setTimeout(() => { if (!done) { offState(); offServer(); reject(new Error("voice join timed out")); } }, 15000);
+  });
+}
+
+// --- the gateway connection ---------------------------------------------------
 
 function connect(interp: Interpreter, state: BotState): void {
   if (!state.token || state.token === "PUT-YOUR-BOT-TOKEN-HERE" || state.token === "nothing") {
-    console.error('\n🌱 Your bot needs a token. Put it in your program:  bot("your-token-here")');
+    console.error('\n🌱 Your bot needs a token. Put it in a .env file:  DISCORD_TOKEN = your-token');
     console.error("   Get one at https://discord.com/developers/applications");
     console.error("   (under Bot, copy the token and turn ON 'Message Content Intent').\n");
     process.exit(1);
   }
 
-  // GUILDS | GUILD_MESSAGES | MESSAGE_CONTENT
-  const intents = 1 | 512 | 32768;
   let seq: number | null = null;
   let heartbeat: ReturnType<typeof setInterval> | null = null;
 
   const ws = new WebSocket("wss://gateway.discord.gg/?v=10&encoding=json");
+  state.ws = ws;
   console.log("🌱 Connecting your Sprout bot to Discord…");
 
   ws.addEventListener("message", (ev: { data: unknown }) => {
-    let payload: { op: number; d: Record<string, unknown> & { user?: Record<string, unknown>; author?: Record<string, unknown>; heartbeat_interval?: number }; s: number | null; t: string | null };
-    try {
-      payload = JSON.parse(String(ev.data));
-    } catch {
-      return;
-    }
+    let payload: { op: number; d: Record<string, unknown>; s: number | null; t: string | null };
+    try { payload = JSON.parse(String(ev.data)); } catch { return; }
     const { op, d, s, t } = payload;
     if (typeof s === "number") seq = s;
 
     if (op === 10) {
       heartbeat = setInterval(() => {
         try { ws.send(JSON.stringify({ op: 1, d: seq })); } catch { /* ignore */ }
-      }, Number(d.heartbeat_interval));
+      }, Number((d as { heartbeat_interval?: number }).heartbeat_interval));
       ws.send(JSON.stringify({
         op: 2,
-        d: { token: state.token, intents, properties: { os: "linux", browser: "sprout", device: "sprout" } },
+        d: { token: state.token, intents: INTENTS, properties: { os: "linux", browser: "sprout", device: "sprout" } },
       }));
-    } else if (op === 0) {
-      if (t === "READY") {
-        state.selfId = String((d.user && d.user.id) || "");
-        console.log(`🌱 Bot online as ${d.user && d.user.username}! Listening for messages — press Ctrl+C to stop.`);
-      } else if (t === "MESSAGE_CREATE") {
-        const author = d.author as { id?: string; username?: string; bot?: boolean } | undefined;
-        if (!author || author.id === state.selfId || author.bot) return;
-        state.current = {
-          content: String(d.content || ""),
-          author: String(author.username || ""),
-          channelId: String(d.channel_id || ""),
-        };
-        if (state.handler) {
-          try {
-            interp.runTask(state.handler);
-          } catch (e) {
-            console.error(e instanceof Error ? e.message : String(e));
-          }
-        }
-      }
+    } else if (op === 0 && t) {
+      dispatch(interp, state, t, d);
     }
   });
 
@@ -126,7 +230,94 @@ function connect(interp: Interpreter, state: BotState): void {
     console.log(`Disconnected from Discord (code ${ev.code}).`);
     process.exit(0);
   });
-  ws.addEventListener("error", () => {
-    console.error("There was a problem with the Discord connection.");
+  ws.addEventListener("error", () => console.error("There was a problem with the Discord connection."));
+}
+
+function dispatch(interp: Interpreter, state: BotState, type: string, d: Record<string, unknown>): void {
+  if (type === "READY") {
+    state.selfId = String(((d.user as { id?: string }) || {}).id || "");
+    state.appId = String(((d.application as { id?: string }) || {}).id || state.selfId);
+    console.log(`🌱 Bot online as ${(d.user as { username?: string }).username}! Listening — press Ctrl+C to stop.`);
+  } else if (type === "GUILD_CREATE") {
+    const guildId = String(d.id || "");
+    const voiceStates = (d.voice_states as Array<{ user_id: string; channel_id: string }>) || [];
+    const map = new Map<string, string>();
+    for (const vs of voiceStates) if (vs.channel_id) map.set(vs.user_id, vs.channel_id);
+    state.voiceStates.set(guildId, map);
+    registerGuildCommands(state, guildId);
+  } else if (type === "VOICE_STATE_UPDATE") {
+    const guildId = String(d.guild_id || "");
+    if (guildId) {
+      const map = state.voiceStates.get(guildId) ?? new Map<string, string>();
+      const userId = String(d.user_id || "");
+      const channelId = d.channel_id ? String(d.channel_id) : "";
+      if (channelId) map.set(userId, channelId); else map.delete(userId);
+      state.voiceStates.set(guildId, map);
+    }
+  } else if (type === "MESSAGE_CREATE") {
+    const author = d.author as { id?: string; username?: string; bot?: boolean } | undefined;
+    if (!author || author.id === state.selfId || author.bot) { emitGateway(state, type, d); return; }
+    const content = String(d.content || "");
+    state.current = { content, author: String(author.username || ""), channelId: String(d.channel_id || "") };
+    runPrefixCommand(state, content, {
+      author: String(author.username || ""),
+      authorId: String(author.id || ""),
+      channelId: String(d.channel_id || ""),
+      guildId: String(d.guild_id || ""),
+    });
+    if (state.handler) {
+      try { interp.runTask(state.handler); }
+      catch (e) { console.error(e instanceof Error ? e.message : String(e)); }
+    }
+  } else if (type === "INTERACTION_CREATE") {
+    handleInteraction(state, d);
+  }
+  emitGateway(state, type, d);
+}
+
+function runPrefixCommand(
+  state: BotState,
+  content: string,
+  who: { author: string; authorId: string; channelId: string; guildId: string },
+): void {
+  if (!content.startsWith(state.prefix)) return;
+  const rest = content.slice(state.prefix.length);
+  const sp = rest.indexOf(" ");
+  const word = (sp === -1 ? rest : rest.slice(0, sp)).toLowerCase();
+  const args = sp === -1 ? "" : rest.slice(sp + 1).trim();
+  const cmd = state.prefixCommands.get(word);
+  if (!cmd) return;
+  cmd.handler({
+    args,
+    author: who.author,
+    authorId: who.authorId,
+    channelId: who.channelId,
+    guildId: who.guildId,
+    reply: (text) => send(state, who.channelId, text),
   });
+}
+
+function handleInteraction(state: BotState, d: Record<string, unknown>): void {
+  if (Number(d.type) !== 2) return; // only application commands
+  const data = (d.data as { name?: string; options?: Array<{ name: string; value: unknown }> }) || {};
+  const cmd = state.slashCommands.get(String(data.name || ""));
+  const id = String(d.id || "");
+  const token = String(d.token || "");
+  const member = d.member as { user?: { id?: string; username?: string } } | undefined;
+  const user = (member && member.user) || (d.user as { id?: string; username?: string }) || {};
+  const options = data.options || [];
+  const ctx: SlashContext = {
+    name: String(data.name || ""),
+    option: (name) => {
+      const found = options.find((o) => o.name === name);
+      return found ? String(found.value) : "";
+    },
+    author: String(user.username || ""),
+    authorId: String(user.id || ""),
+    channelId: String(d.channel_id || ""),
+    guildId: String(d.guild_id || ""),
+    reply: (text) => interactionRespond(state, id, token, text),
+  };
+  if (cmd) cmd.handler(ctx);
+  else interactionRespond(state, id, token, "That command isn't set up.");
 }

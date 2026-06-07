@@ -58,32 +58,71 @@ interface LoadedLibrary {
   isActive(): boolean;
   start(): void;
 }
+// What a library's create() returns; extensions return just names + builtins.
+interface LibModule {
+  create?: (interp: Interpreter, parent?: unknown) => {
+    names?: string[];
+    builtins?: Record<string, unknown>;
+    isActive?: () => boolean;
+    start?: () => void;
+    api?: unknown;
+  };
+}
 
-// Load the libraries a program `use`s, registering their builtins on the
-// interpreter. Returns the loaded libraries + the set of names they add.
+const NAME_PART = /^[a-z0-9-]+$/;
+
+// Load everything a program `use`s. Plain names (`discord-bot`) are libraries;
+// `library/extension` names (`discord-bot/music`) are extensions that hook into
+// an already-loaded library. Returns the runnable libraries + the names they add
+// (so the verifier knows them). Two passes so file order doesn't matter.
 async function loadLibraries(program: ReturnType<typeof parse>, interp: Interpreter): Promise<{ libs: LoadedLibrary[]; names: Set<string> }> {
   const libs: LoadedLibrary[] = [];
   const names = new Set<string>();
-  for (const stmt of program) {
-    if (stmt.type !== "Use") continue;
-    const libName = stmt.name;
-    if (!/^[a-z0-9-]+$/.test(libName)) {
-      fail(`'${libName}' isn't a valid library name.`, "Library names use lowercase letters, numbers, and dashes.");
-    }
-    let mod: { create?: (i: Interpreter) => LoadedLibrary & { builtins: Record<string, unknown> } } | undefined;
+  const loaded = new Map<string, ReturnType<NonNullable<LibModule["create"]>>>();
+
+  const useNames = program.flatMap((s) => (s.type === "Use" ? [s.name] : []));
+
+  // Pass 1: base libraries.
+  for (const name of useNames) {
+    if (name.includes("/")) continue;
+    if (!NAME_PART.test(name)) fail(`'${name}' isn't a valid library name.`, "Library names use lowercase letters, numbers, and dashes.");
+    if (loaded.has(name)) continue;
+    let mod: LibModule | undefined;
     try {
-      mod = await import(new URL(`../libraries/${libName}/index.ts`, import.meta.url).href);
+      mod = await import(new URL(`../libraries/${name}/index.ts`, import.meta.url).href);
     } catch {
-      fail(`I don't know a library called '${libName}'.`, "Check the spelling, or look in the libraries/ folder.");
+      fail(`I don't know a library called '${name}'.`, "Check the spelling, or look in the libraries/ folder.");
     }
-    if (!mod || typeof mod.create !== "function") {
-      fail(`The library '${libName}' isn't set up correctly (no 'create').`);
-    }
+    if (!mod || typeof mod.create !== "function") fail(`The library '${name}' isn't set up correctly (no 'create').`);
     const lib = mod!.create!(interp);
-    interp.registerLibraryBuiltins(lib.builtins as never);
-    for (const n of lib.names) names.add(n);
-    libs.push(lib);
+    interp.registerLibraryBuiltins((lib.builtins ?? {}) as never);
+    for (const n of lib.names ?? []) names.add(n);
+    loaded.set(name, lib);
+    libs.push({ names: lib.names ?? [], isActive: lib.isActive ?? (() => false), start: lib.start ?? (() => {}) });
   }
+
+  // Pass 2: extensions (library/extension), handed their parent library.
+  for (const name of useNames) {
+    if (!name.includes("/")) continue;
+    const parts = name.split("/");
+    if (parts.length !== 2 || !NAME_PART.test(parts[0]) || !NAME_PART.test(parts[1])) {
+      fail(`'${name}' isn't a valid extension name.`, 'Use  library/extension , like  "discord-bot/music".');
+    }
+    const [libName, extName] = parts;
+    const parent = loaded.get(libName);
+    if (!parent) fail(`Add  use "${libName}"  before  use "${name}".`, `The '${extName}' extension needs the '${libName}' library.`);
+    let mod: LibModule | undefined;
+    try {
+      mod = await import(new URL(`../extensions/${libName}/${extName}/index.ts`, import.meta.url).href);
+    } catch {
+      fail(`I don't know an extension called '${name}'.`, `Look in the extensions/${libName}/ folder.`);
+    }
+    if (!mod || typeof mod.create !== "function") fail(`The extension '${name}' isn't set up correctly (no 'create').`);
+    const ext = mod!.create!(interp, parent);
+    interp.registerLibraryBuiltins((ext.builtins ?? {}) as never);
+    for (const n of ext.names ?? []) names.add(n);
+  }
+
   return { libs, names };
 }
 
