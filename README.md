@@ -70,6 +70,14 @@ npm link
 - **Data & the internet** — `remember` / `recall` to save between runs, `get` / `post` for any API, `secret(...)` to keep tokens out of your code
 - **Libraries** — `use "discord-bot"` for a real Discord bot, with a voice music player
 
+## Libraries
+
+Add powers with `use "..."`, then install and browse them from a built-in terminal UI — `sprout modules`:
+
+<p align="center">
+  <img src="images/sprout_modules.png" alt="The sprout modules manager" width="760" />
+</p>
+
 ## Commands
 
 ```
