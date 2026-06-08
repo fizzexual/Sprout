@@ -1,0 +1,14 @@
+task isPrime(n):
+    when n < 2:
+        give no
+    make d = 2
+    repeat while d * d <= n:
+        when n % d == 0:
+            give no
+        set d = d + 1
+    give yes
+make count = 0
+for each n in range(80000):
+    when isPrime(n):
+        set count = count + 1
+show count

@@ -98,6 +98,18 @@ source → lexer → parser → interpreter → output
 
 A handful of small, dependency-free TypeScript files. The full pipeline is documented in the [wiki](wiki/README.md).
 
+## How fast is it?
+
+Sprout is a from-scratch **tree-walking interpreter** — built for clarity, not raw speed — but the engine is tuned (a recent pass made recursion **~2.9× faster**). The same three programs in five languages, best-of-3 wall-clock (one machine, Node 25):
+
+| Benchmark | Sprout | Python 3.11 | Node (JS) | Go | Java 21 |
+| --- | --- | --- | --- | --- | --- |
+| Recursion — `fib(30)` | 0.88s | 0.25s | 0.09s | 0.03s | 0.10s |
+| Tight loop — 5,000,000× | 0.75s | 0.62s | 0.10s | 0.03s | 0.09s |
+| Primes — < 80,000 | 0.64s | 0.22s | 0.09s | 0.04s | 0.11s |
+
+It lands in **Python's ballpark** (about on par on a simple loop, a few times slower on heavy recursion) and well behind compiled/JIT languages — the honest price of a tiny, zero-dependency, no-build-step language you can read end to end. Reproduce it: [`benchmarks/`](benchmarks) → `bash benchmarks/bench.sh`.
+
 ## Documentation & tooling
 
 The **[wiki](wiki/README.md)** teaches the whole language and Bloom — the [cheat sheet](wiki/cheatsheet.md) is the one-page tour. A **VS Code extension** ([`vscode-extension/`](vscode-extension)) adds syntax highlighting, snippets, and run buttons, and the test suite runs with `npm test` — still zero dependencies.

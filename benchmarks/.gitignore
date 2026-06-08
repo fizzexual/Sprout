@@ -1,0 +1,5 @@
+*.exe
+*.class
+fib_go
+loop_go
+primes_go

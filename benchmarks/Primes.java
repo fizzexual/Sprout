@@ -1,0 +1,1 @@
+public class Primes{static boolean p(int n){if(n<2)return false;for(int d=2;(long)d*d<=n;d++)if(n%d==0)return false;return true;}public static void main(String[] a){int c=0;for(int n=0;n<80000;n++)if(p(n))c++;System.out.println(c);}}
