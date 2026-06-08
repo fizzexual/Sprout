@@ -215,7 +215,9 @@ export function register(interp: Interpreter) {
     // Pause the program. Number = seconds, or friendly text: wait("0.5"), wait("2 minutes").
     wait: (args, site) => {
       const ms = Math.max(0, Math.round(parseDuration(args[0] ?? 0, site) * 1000));
-      if (ms > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+      // While tracing we still check the argument, but don't actually sleep —
+      // a real pause would freeze the step debugger.
+      if (ms > 0 && !interp.tracing) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
       return NONE;
     },
 

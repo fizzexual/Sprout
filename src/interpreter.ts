@@ -101,6 +101,9 @@ export class Interpreter {
   // Step hook for `sprout trace`: called before each statement runs, with its
   // line and a snapshot of the variables in scope. null = off (normal run).
   private onStep: ((line: number, vars: [string, string][]) => void) | null;
+  // True during `sprout trace`. Libraries read it to skip things that don't make
+  // sense while stepping — e.g. wait() shouldn't freeze the trace for real.
+  public tracing = false;
   private depth = 0;
   // `give` returns via these flags instead of throwing an exception (much faster
   // for recursion-heavy code). runBlock + the loops stop when `returning` is set.
@@ -124,6 +127,7 @@ export class Interpreter {
     this.input = options.input ?? noInput();
     this.narrate = options.narrate ?? null;
     this.onStep = options.onStep ?? null;
+    this.tracing = this.onStep !== null;
   }
 
   // Emit one indented line of plain-English narration (only in explain mode).
