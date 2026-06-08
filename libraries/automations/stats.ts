@@ -21,6 +21,7 @@ import type { Value } from "../../src/values.ts";
 import type { Interpreter } from "../../src/interpreter.ts";
 import { LangError } from "../../src/errors.ts";
 import { spawnSync } from "node:child_process";
+import { showToast } from "./_notify.ts";
 
 type Site = { line: number; col: number } | undefined;
 
@@ -222,23 +223,11 @@ export function register(interp: Interpreter) {
     // --- pop-ups ------------------------------------------------------------
 
     // Show a little Windows toast pop-up. notify("Title", "Message")
+    // The toast's app name + icon come from notify.bloom next to your program
+    // (defaults to "Sprout" + the leaf icon) — see ./_notify.ts.
     notify: (args, site) => {
       needWindows("notify", site);
-      const title = stringify(args[0] ?? NONE);
-      const msg = stringify(args[1] ?? NONE);
-      // Zero-dependency WinRT toast. We must load the WinRT types with explicit
-      // accelerators first, then build the toast XML and show it. Title/message
-      // come in via env vars so quotes/newlines in them can't break anything.
-      const cmd =
-        "[void][Windows.UI.Notifications.ToastNotificationManager,Windows.UI.Notifications,ContentType=WindowsRuntime]; " +
-        "[void][Windows.UI.Notifications.ToastNotification,Windows.UI.Notifications,ContentType=WindowsRuntime]; " +
-        "[void][Windows.Data.Xml.Dom.XmlDocument,Windows.Data.Xml.Dom.XmlDocument,ContentType=WindowsRuntime]; " +
-        "$xml = \"<toast><visual><binding template='ToastGeneric'><text>$env:T_TITLE</text><text>$env:T_MSG</text></binding></visual></toast>\"; " +
-        "$d = [Windows.Data.Xml.Dom.XmlDocument]::new(); $d.LoadXml($xml); " +
-        "$t = [Windows.UI.Notifications.ToastNotification]::new($d); " +
-        "$app = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe'; " +
-        "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($app).Show($t)";
-      powershell(cmd, site, 10000, { T_TITLE: title, T_MSG: msg });
+      showToast(interp.programDir, stringify(args[0] ?? NONE), stringify(args[1] ?? NONE));
       return NONE;
     },
 

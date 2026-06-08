@@ -25,6 +25,7 @@ import type { Value } from "../../src/values.ts";
 import type { Interpreter } from "../../src/interpreter.ts";
 import { LangError } from "../../src/errors.ts";
 import { spawnSync } from "node:child_process";
+import { showToast } from "./_notify.ts";
 
 type Site = { line: number; col: number } | undefined;
 
@@ -101,28 +102,9 @@ export function register(interp: Interpreter) {
   // quotes, newlines or emoji in them can never break the PowerShell command.
   // -------------------------------------------------------------------------
   function toast(title: string, msg: string): void {
-    if (process.platform !== "win32") return;   // toasts are Windows-only; stay quiet elsewhere
-    const script =
-      "$ErrorActionPreference='Stop';" +
-      // The three WinRT accelerators that make UI.Notifications reachable from PowerShell.
-      "[void][Windows.UI.Notifications.ToastNotificationManager,Windows.UI.Notifications,ContentType=WindowsRuntime];" +
-      "[void][Windows.UI.Notifications.ToastNotification,Windows.UI.Notifications,ContentType=WindowsRuntime];" +
-      "[void][Windows.Data.Xml.Dom.XmlDocument,Windows.Data.Xml.Dom.XmlDocument,ContentType=WindowsRuntime];" +
-      // The two text lines come in via env vars, so their content can't be injected.
-      "$t=$env:SPROUT_TOAST_TITLE; $m=$env:SPROUT_TOAST_MSG;" +
-      // Start from the built-in two-line ToastGeneric template, then set its text.
-      "$tpl=[Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02);" +
-      "$nodes=$tpl.GetElementsByTagName('text');" +
-      "$nodes.Item(0).AppendChild($tpl.CreateTextNode($t)) | Out-Null;" +
-      "$nodes.Item(1).AppendChild($tpl.CreateTextNode($m)) | Out-Null;" +
-      "$toast=[Windows.UI.Notifications.ToastNotification]::new($tpl);" +
-      // A stable AppId so Windows groups our toasts and shows a sensible source name.
-      "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Sprout').Show($toast);";
-    spawnSync("powershell", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script], {
-      encoding: "utf8",
-      timeout: 8000,
-      env: { ...process.env, SPROUT_TOAST_TITLE: title, SPROUT_TOAST_MSG: msg },
-    });
+    // The toast's app name + icon come from notify.bloom next to the program
+    // (defaults to "Sprout" + the leaf icon) — shared with notify(); see _notify.ts.
+    showToast(interp.programDir, title, msg);
   }
 
   // -------------------------------------------------------------------------

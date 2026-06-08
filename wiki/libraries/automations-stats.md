@@ -59,6 +59,15 @@ user chose. The two `watch_*` functions are the only background work.
   — both check the same program. With no name, you get the full sorted list.
 - **`notify` is a real toast.** It slides in from the corner and lands in the
   Action Center, just like a normal Windows notification.
+- **Change the name & icon.** By default the toast says **Sprout** with the leaf
+  icon. The first time you use `notify` (or `remind` / `timer`), a **`notify.bloom`**
+  file appears next to your program — edit it to use your own name and picture:
+
+  ```bloom
+  ~ notify.bloom
+  name: My Cool App
+  icon: myicon.png      ~ a .png next to this file (blank = the Sprout leaf)
+  ```
 - **The pop-ups wait for you.** `popup`, `confirm`, and `ask_box` pause your
   program until you click or type, so the answer is ready the moment they return.
   `confirm` gives back `yes` / `no`; `ask_box` gives back the text you typed, or
