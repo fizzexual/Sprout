@@ -491,9 +491,9 @@ async function traceFile(path: string): Promise<void> {
     onStep: (line, vars) => {
       if (quit) return;
       if (pendingLine !== null) { history.push({ line: pendingLine, vars, outLen: output.length }); pendingLine = null; }
-      if (line < 0) return;                        // end-of-program signal
-      if (isSkipLine(lines[line - 1])) return;     // a wait() line — run it, never stop
-      if (running) { pendingLine = line; return; } // racing to the end
+      if (line < 0) return;                         // end-of-program signal
+      if (isSkipLine(lines[line - 1])) return true; // a wait() line — never stop AND never run it
+      if (running) { pendingLine = line; return; }  // racing to the end
       let cursor = history.length - 1;             // newest completed step (-1 = nothing yet)
       for (;;) {
         renderStep(cursor);

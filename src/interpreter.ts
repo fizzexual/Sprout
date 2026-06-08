@@ -100,7 +100,9 @@ export class Interpreter {
   private narrate: ((msg: string) => void) | null;
   // Step hook for `sprout trace`: called before each statement runs, with its
   // line and a snapshot of the variables in scope. null = off (normal run).
-  private onStep: ((line: number, vars: [string, string][]) => void) | null;
+  // Returns truthy to SKIP running this statement (used to make wait() lines
+  // inert during a trace — they never execute, like a comment).
+  private onStep: ((line: number, vars: [string, string][]) => boolean | void) | null;
   // True during `sprout trace`. Libraries read it to skip things that don't make
   // sense while stepping — e.g. wait() shouldn't freeze the trace for real.
   public tracing = false;
@@ -113,7 +115,7 @@ export class Interpreter {
   constructor(
     source: string,
     out: OutputSink = (line) => console.log(line),
-    options: { maxSteps?: number; storage?: Storage; net?: Net; secrets?: Secrets; programDir?: string; programFile?: string; input?: Input; narrate?: (msg: string) => void; onStep?: (line: number, vars: [string, string][]) => void } = {},
+    options: { maxSteps?: number; storage?: Storage; net?: Net; secrets?: Secrets; programDir?: string; programFile?: string; input?: Input; narrate?: (msg: string) => void; onStep?: (line: number, vars: [string, string][]) => boolean | void } = {},
   ) {
     this.source = source;
     this.out = out;
@@ -253,7 +255,8 @@ export class Interpreter {
     }
 
     // `sprout trace`: pause before each statement with the line + variables.
-    if (this.onStep) this.onStep(stmt.line, env.visibleNames().map((n) => [n, stringify(env.get(n))] as [string, string]));
+    // A truthy return means "skip this statement entirely" (e.g. a wait() line).
+    if (this.onStep && this.onStep(stmt.line, env.visibleNames().map((n) => [n, stringify(env.get(n))] as [string, string]))) return;
 
     switch (stmt.type) {
       case "Make": {
