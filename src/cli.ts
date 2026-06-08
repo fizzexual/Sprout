@@ -8,13 +8,16 @@
 //   sprout repl                 interactive prompt
 //   sprout version
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { basename, dirname, extname, join, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { pathToFileURL } from "node:url";
 
 import { tokenize } from "./lexer.ts";
 import { parse } from "./parser.ts";
 import { check } from "./checker.ts";
+import { compile } from "./compile.ts";
 import { Interpreter } from "./interpreter.ts";
 import { LangError, formatError, formatMessage } from "./errors.ts";
 import { startNativeGui } from "./gui-native.ts";
@@ -291,6 +294,54 @@ async function checkFile(path: string): Promise<void> {
   process.exit(1);
 }
 
+// --- the fast build: compile a program to JavaScript and run it on V8 ---------
+const RUNTIME_URL = new URL("./jsruntime.ts", import.meta.url).href;
+
+// Parse + compile a single file. Returns the generated JS, or {error} when the
+// fast build doesn't cover this program (it uses a library, GUI, etc.).
+function compileFile(path: string): { js: string } | { error: string } {
+  let source = "";
+  try { source = readFileSync(path, "utf8"); }
+  catch { fail(`I couldn't open the file: ${path}`, "Check the name and that the file is there."); }
+  let program: ReturnType<typeof parse>;
+  try { program = parse(tokenize(source)); }
+  catch (err) {
+    if (err instanceof LangError) { console.error("\n" + formatError(err, source) + "\n"); process.exit(1); }
+    fatal(err); return { error: "" };
+  }
+  const result = compile(program, RUNTIME_URL);
+  if ("error" in result) return result;
+  // It's a supported core program — verify it so mistakes still get a kind error.
+  const problems = check(program);
+  if (problems.length) {
+    for (const p of problems) console.error("\n" + formatError(p, source));
+    console.error(`\nFound ${problems.length} problem(s) — fix these and try again.\n`);
+    process.exit(1);
+  }
+  return result;
+}
+
+// `sprout build <file>` — write a fast standalone .mjs you can run with node.
+function buildFile(path: string): void {
+  const result = compileFile(path);
+  if ("error" in result) fail("Can't fast-build this program: " + result.error);
+  const outPath = join(dirname(path), basename(path, extname(path)) + ".mjs");
+  writeFileSync(outPath, result.js);
+  console.log(`✓ Built ${basename(outPath)} — run it with:  node "${outPath}"`);
+}
+
+// `sprout fast <file>` — compile + run on V8 (much faster); falls back to the
+// interpreter for programs the fast build doesn't cover, so it's always correct.
+async function fastFile(path: string): Promise<void> {
+  const result = compileFile(path);
+  if ("error" in result) { await runFile(path, "auto"); return; }   // fall back, always correct
+  // Run the compiled module in THIS process (one startup; the runtime is already
+  // loaded), so `sprout fast` is genuinely fast, not two node launches.
+  const tmp = join(tmpdir(), `sprout-fast-${process.pid}-${basename(path, extname(path))}.mjs`);
+  writeFileSync(tmp, result.js);
+  await import(pathToFileURL(tmp).href);
+}
+
 // `sprout api <url>` — connect to an API and list everything you can read.
 function apiCommand(url: string): void {
   let body: string;
@@ -359,6 +410,8 @@ function usage(): void {
       "  sprout gui <file.sprout>    open it as a native window",
       "  sprout serve <file.sprout>  run it as a website",
       "  sprout check <file.sprout>  verify the program without running it",
+      "  sprout fast <file.sprout>   run it the fast way (compiled to JavaScript)",
+      "  sprout build <file.sprout>  compile it to a standalone .mjs you run with node",
       "  sprout explain <file>       run it and narrate every step in plain English",
       "  sprout api <url>            connect to an API and list everything it offers",
       "  sprout modules              install / uninstall / test libraries (interactive)",
@@ -379,6 +432,10 @@ try {
     await runFile(args[1], "serve");
   } else if (args[0] === "check" && args[1]) {
     await checkFile(args[1]);
+  } else if (args[0] === "fast" && args[1]) {
+    await fastFile(args[1]);
+  } else if (args[0] === "build" && args[1]) {
+    buildFile(args[1]);
   } else if (args[0] === "explain" && args[1]) {
     await runFile(args[1], "auto", true);
   } else if (args[0] === "api" && args[1]) {

@@ -82,6 +82,8 @@ Add powers with `use "..."`, then install and browse them from a built-in termin
 
 ```
 sprout run file.sprout      run a program
+sprout fast file.sprout     run it compiled to JavaScript (faster than Python)
+sprout build file.sprout    compile it to a standalone .mjs
 sprout gui file.sprout      open it as a native window
 sprout serve file.sprout    run it as a website
 sprout check file.sprout    verify it without running
@@ -100,15 +102,19 @@ A handful of small, dependency-free TypeScript files. The full pipeline is docum
 
 ## How fast is it?
 
-Sprout is a from-scratch **tree-walking interpreter** — built for clarity, not raw speed — but the engine is tuned (a recent pass made recursion **~2.9× faster**). The same three programs in five languages, best-of-3 wall-clock (one machine, Node 25):
+Sprout has **two engines for the same language**:
+- **`sprout run`** — a tuned tree-walking interpreter: instant, friendliest errors, no build step.
+- **`sprout fast` / `sprout build`** — compiles your program to JavaScript and runs it on V8. **Faster than Python.**
 
-| Benchmark | Sprout | Python 3.11 | Node (JS) | Go | Java 21 |
-| --- | --- | --- | --- | --- | --- |
-| Recursion — `fib(30)` | 0.88s | 0.25s | 0.09s | 0.03s | 0.10s |
-| Tight loop — 5,000,000× | 0.75s | 0.62s | 0.10s | 0.03s | 0.09s |
-| Primes — < 80,000 | 0.64s | 0.22s | 0.09s | 0.04s | 0.11s |
+Best-of-5 wall-clock, one machine (Node 25). Same three programs in each language:
 
-It lands in **Python's ballpark** (about on par on a simple loop, a few times slower on heavy recursion) and well behind compiled/JIT languages — the honest price of a tiny, zero-dependency, no-build-step language you can read end to end. Reproduce it: [`benchmarks/`](benchmarks) → `bash benchmarks/bench.sh`.
+| Benchmark | `sprout run` | **`sprout build`** (compiled) | Python 3.11 | Node (JS) | Go | Java 21 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Recursion — `fib(30)` | 0.89s | **0.15s** | 0.25s | 0.09s | 0.03s | 0.10s |
+| Tight loop — 5,000,000× | 0.77s | **0.16s** | 0.62s | 0.10s | 0.03s | 0.10s |
+| Primes — < 80,000 | 0.65s | **0.18s** | 0.22s | 0.09s | 0.04s | 0.11s |
+
+**Compiled Sprout beats CPython on every benchmark** — it runs as real JavaScript on V8 (so it lands within ~2× of Node, and well ahead of Python). The interpreter stays the friendly default for quick scripts and the kindest errors; `sprout fast` is there when you want the speed — *same `.sprout` file, your choice of engine*. (Compile mode covers the core language; programs that `use` a library or open a GUI just run on the interpreter.) Reproduce: [`benchmarks/`](benchmarks) → `bash benchmarks/bench.sh`.
 
 ## Documentation & tooling
 

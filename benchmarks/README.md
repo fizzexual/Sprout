@@ -20,25 +20,27 @@ are compiled first (compile time excluded); Sprout, Python, and Node are run
 as-is, so their numbers include parsing/startup — the real "run this script"
 experience.
 
-## Results (one machine: Windows, Node 25, best of 3, seconds)
+## Results (one machine: Windows, Node 25, best of 5, seconds)
 
-| Benchmark | Sprout | Python 3.11 | Node 25 (JS) | Go | Java 21 |
-| --- | --- | --- | --- | --- | --- |
-| Recursion — `fib(30)` | 0.88 | 0.25 | 0.09 | 0.03 | 0.10 |
-| Tight loop — 5,000,000× | 0.75 | 0.62 | 0.10 | 0.03 | 0.09 |
-| Primes — < 80,000 | 0.64 | 0.22 | 0.09 | 0.04 | 0.11 |
+| Benchmark | `sprout run` | **`sprout build`** (compiled) | Python 3.11 | Node 25 (JS) | Go | Java 21 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Recursion — `fib(30)` | 0.89 | **0.15** | 0.25 | 0.09 | 0.03 | 0.10 |
+| Tight loop — 5,000,000× | 0.77 | **0.16** | 0.62 | 0.10 | 0.03 | 0.10 |
+| Primes — < 80,000 | 0.65 | **0.18** | 0.22 | 0.09 | 0.04 | 0.11 |
 
-**Startup floor** (a trivial "hello" program): Sprout 0.20 · Python 0.10 · Node
-0.08 · Go 0.03 · Java 0.09. About 0.2 s of every Sprout run is fixed startup —
-it re-parses its own interpreter each time, because there's no build step.
+### Two engines, one language
 
-### Reading this honestly
+- **`sprout run`** — a tuned tree-walking interpreter. Friendliest errors, no
+  build step. In Python's ballpark (on par on a loop, a few times slower on
+  recursion).
+- **`sprout fast` / `sprout build`** — compiles the program to JavaScript and
+  runs it on V8 (`sprout build x.sprout` → `node x.mjs`). **Beats CPython on
+  every benchmark**, because it's running as real JS. It lands within ~2× of
+  native Node, and well ahead of Python. Compile mode covers the core language;
+  programs that `use` a library or open a GUI just run on the interpreter.
 
-Sprout is a from-scratch **tree-walking interpreter** — built for clarity, not
-raw speed. It lands in the same ballpark as **Python** (roughly on par on a
-simple loop, a few times slower on heavy recursion), and well behind
-compiled/JIT languages (Go, Node, Java). That gap is the honest price of being a
-tiny, zero-dependency, no-build language you can read end to end.
+So Sprout is *both*: the kindest interpreter to learn with, and — when you want
+it — faster than Python.
 
 ### A recent optimization pass
 

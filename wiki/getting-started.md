@@ -25,12 +25,20 @@ or `-Editor "C:\Path\To\editor.exe"`.
 
 ```bash
 sprout run file.sprout      # run a program
+sprout fast file.sprout     # run it compiled to JavaScript (faster than Python)
+sprout build file.sprout    # compile it to a standalone .mjs you run with node
 sprout gui file.sprout      # open it as a native window
 sprout serve file.sprout    # run it as a website
 sprout check file.sprout    # verify it WITHOUT running it
 sprout repl                 # type code interactively
 sprout version
 ```
+
+> **`sprout run` vs `sprout fast`** — same language, two engines. `sprout run`
+> uses the friendly interpreter (best errors, instant). `sprout fast` compiles
+> your program to JavaScript and runs it on V8 — **faster than Python** — and
+> falls back to the interpreter automatically for programs that `use` a library
+> or open a GUI. See the [benchmarks](../benchmarks).
 
 Sprout **checks your whole program for mistakes before running any of it** — so
 typos, unknown names, and wrong argument counts are caught up front, not

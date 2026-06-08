@@ -330,7 +330,9 @@ Run these in your terminal.
 | Command | What it does |
 | --- | --- |
 | `sprout file.sprout` | Run a program (opens a window if it's a GUI app) |
-| `sprout run file.sprout` | Same as above — run the program |
+| `sprout run file.sprout` | Same as above — run the program (interpreter) |
+| `sprout fast file.sprout` | Run it compiled to JavaScript — **faster than Python** |
+| `sprout build file.sprout` | Compile it to a standalone `.mjs` you run with `node` |
 | `sprout gui file.sprout` | Force it open as a native window |
 | `sprout serve file.sprout` | Run it as a website and open the browser |
 | `sprout check file.sprout` | Verify the program (and files it `use`s) **without** running |
