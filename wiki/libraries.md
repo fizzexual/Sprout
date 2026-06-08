@@ -27,6 +27,7 @@ or **`test`** that everything loads.
 | **discord-bot** | make a real Discord bot — chat + `/slash` commands + a music player |
 | **networking** | the internet & your network — speed, blocking, devices, sharing, uptime |
 | **automations** | automate your PC — schedules, system control, macros, triggers, routines |
+| **screen** | see the screen (find colours) and react — move, click, type |
 
 ### discord-bot — make a Discord bot 🤖
 
@@ -111,6 +112,30 @@ every("2 seconds", "tick")
 ```
 
 > Most of the system, macro, trigger, and routine features are **Windows-focused**.
+
+### screen — see the screen and react 👀
+
+`use "screen"` lets a program **look at the screen** (find a colour, read a
+pixel, wait for something to appear) and **react** (move the mouse, click, type).
+It's how you build watch-and-react helpers — auto-clickers, idle-game minders,
+UI scripts, accessibility tools. Full guide: [`libraries/screen/README.md`](../libraries/screen/README.md).
+
+| Group | Words |
+| --- | --- |
+| **Seeing** | `look` · `screen_width` · `screen_height` · `pixel` · `find_color` · `sees_color` · `count_color` · `wait_for_color` |
+| **Reacting** | `move_to` · `click` · `right_click` · `double_click` · `mouse` · `press` · `type` · `wait` |
+
+```sprout
+use "screen"
+make spot = wait_for_color("red", 20, 30)   ~ wait up to 30s for red
+when spot != nothing:
+    click(spot[0], spot[1])                  ~ click it
+```
+
+> Windows only (it grabs the screen with Windows' own drawing tools), captures
+> your primary monitor, and a snapshot takes ~0.4s — great for "wait for X, then
+> click", not twitch-speed reactions. Automate **your own** screen, and check a
+> game's rules before botting it.
 
 ## Extensions — libraries for libraries
 
