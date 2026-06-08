@@ -417,9 +417,16 @@ function renderTrace(lines: string[], cur: number, vars: [string, string][], out
     let cell: string;
     if (i < lines.length) {
       const ln = i + 1;
-      let txt = ` ${ln === cur ? "→" : " "} ${String(ln).padStart(2)}  ${lines[i]}`;
+      // wait() lines are skipped while tracing — show them as a dim comment so the
+      // arrow stepping over them reads as intentional, not a glitch.
+      const skip = isSkipLine(lines[i]);
+      const indent = (lines[i].match(/^\s*/) || [""])[0];
+      const body = skip ? indent + "~ " + lines[i].slice(indent.length).trimEnd() + "  (skipped)" : lines[i];
+      let txt = ` ${ln === cur ? "→" : " "} ${String(ln).padStart(2)}  ${body}`;
       txt = txt.length > leftW ? txt.slice(0, leftW - 1) + "…" : txt.padEnd(leftW);
-      cell = ln === cur ? Y + txt + R : G + txt.slice(0, 4) + R + txt.slice(4);
+      if (ln === cur) cell = Y + txt + R;
+      else if (skip) cell = G + txt + R;                         // whole line dim, like a comment
+      else cell = G + txt.slice(0, 4) + R + txt.slice(4);
     } else cell = " ".repeat(leftW);
     let right = "";
     if (i === 0) right = B + "Variables" + R;
