@@ -92,12 +92,12 @@ SCALE (many servers, no shared IP rate-limit): run a Lavalink server and set
   },
   {
     name: "networking",
-    description: "IP, ping, downloads, block websites",
+    description: "Speed, blocking, devices, sharing, uptime + more",
     extensions: [],
   },
   {
     name: "automations",
-    description: "Schedule tasks; launch apps; start with PC",
+    description: "Schedule, system control, macros, triggers, routines",
     extensions: [],
   },
   {
