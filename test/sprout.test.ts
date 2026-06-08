@@ -16,6 +16,26 @@ import { create as discordBot } from "../libraries/discord-bot/index.ts";
 import { sealAudio, hchacha20, chooseMode, OggOpusDemuxer } from "../libraries/discord-bot/voice.ts";
 import { isUrl, formatQueue, create as musicExt } from "../extensions/discord-bot/music/index.ts";
 import { createDecipheriv } from "node:crypto";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const CLI = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
+
+// Run the real `sprout` CLI on a freshly-written project folder and return its
+// combined output — this exercises the multi-file module system end to end.
+function runProject(files: Record<string, string>, command: "run" | "check", entry: string) {
+  const dir = mkdtempSync(join(tmpdir(), "sprout-proj-"));
+  try {
+    for (const [name, body] of Object.entries(files)) writeFileSync(join(dir, name), body);
+    const r = spawnSync(process.execPath, [CLI, command, join(dir, entry)], { encoding: "utf8" });
+    return { out: (r.stdout ?? "") + (r.stderr ?? ""), code: r.status };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 function problems(src: string): LangError[] {
   return check(parse(tokenize(src)));
@@ -675,4 +695,44 @@ test("checker flags a repeat while that can never stop", () => {
 
 test("checker leaves a normal repeat while alone", () => {
   assert.deepEqual(problems("make i = 0\nrepeat while i < 3:\n    set i = i + 1"), []);
+});
+
+test("modules: a file can use another file's task", () => {
+  const { out, code } = runProject(
+    {
+      "helper.sprout": "task double(n):\n    give n * 2\n",
+      "main.sprout": 'use "helper.sprout"\nshow double(21)\n',
+    },
+    "run",
+    "main.sprout",
+  );
+  assert.equal(code, 0);
+  assert.match(out, /42/);
+});
+
+test("modules: imports chain (A uses B uses C)", () => {
+  const { out, code } = runProject(
+    {
+      "c.sprout": "task base():\n    give 10\n",
+      "b.sprout": 'use "c.sprout"\ntask mid():\n    give base() + 5\n',
+      "a.sprout": 'use "b.sprout"\nshow mid()\n',
+    },
+    "run",
+    "a.sprout",
+  );
+  assert.equal(code, 0);
+  assert.match(out, /15/);
+});
+
+test("modules: check reports which file a problem is in", () => {
+  const { out, code } = runProject(
+    {
+      "helper.sprout": "task greet():\n    show nope\n",   // 'nope' is undefined
+      "main.sprout": 'use "helper.sprout"\ngreet()\n',
+    },
+    "check",
+    "main.sprout",
+  );
+  assert.notEqual(code, 0);
+  assert.match(out, /helper\.sprout/);
 });

@@ -10,7 +10,7 @@
 
 import { readFileSync, existsSync } from "node:fs";
 import { createInterface } from "node:readline";
-import { basename, dirname, extname, join } from "node:path";
+import { basename, dirname, extname, join, resolve } from "node:path";
 
 import { tokenize } from "./lexer.ts";
 import { parse } from "./parser.ts";
@@ -28,7 +28,7 @@ import { consoleInput } from "./input.ts";
 import { modulesCommand } from "./modules.ts";
 import { describeJson } from "./explore.ts";
 
-const VERSION = "Sprout v0.5.1";
+const VERSION = "Sprout v0.6.0";
 
 // Turn any unexpected (non-Sprout) error into a friendly message instead of a
 // raw Node stack trace.
@@ -86,6 +86,7 @@ async function loadLibraries(program: ReturnType<typeof parse>, interp: Interpre
 
   // Pass 1: base libraries.
   for (const name of useNames) {
+    if (name.endsWith(".sprout")) continue;   // that's a file import, not a library
     if (name.includes("/")) continue;
     if (!NAME_PART.test(name)) fail(`'${name}' isn't a valid library name.`, "Library names use lowercase letters, numbers, and dashes.");
     if (loaded.has(name)) continue;
@@ -105,6 +106,7 @@ async function loadLibraries(program: ReturnType<typeof parse>, interp: Interpre
 
   // Pass 2: extensions (library/extension), handed their parent library.
   for (const name of useNames) {
+    if (name.endsWith(".sprout")) continue;   // file import, handled separately
     if (!name.includes("/")) continue;
     const parts = name.split("/");
     if (parts.length !== 2 || !NAME_PART.test(parts[0]) || !NAME_PART.test(parts[1])) {
@@ -126,6 +128,80 @@ async function loadLibraries(program: ReturnType<typeof parse>, interp: Interpre
   }
 
   return { libs, names };
+}
+
+type SproutFile = { path: string; source: string; program: ReturnType<typeof parse> };
+
+// Gather the entry file plus every .sprout file it `use`s (recursively), with
+// each dependency BEFORE the files that import it, and the entry file last.
+function gatherSproutFiles(entryPath: string): SproutFile[] {
+  const files: SproutFile[] = [];
+  const seen = new Set<string>();
+  const load = (p: string): void => {
+    let real = p;
+    try { real = resolve(p); } catch { /* keep p */ }
+    if (seen.has(real)) return;           // already loaded (handles cycles + repeats)
+    seen.add(real);
+    let source = "";
+    try {
+      source = readFileSync(real, "utf8");
+    } catch {
+      fail(`I couldn't open the imported file: ${p}`, "Check the path — it's relative to the file that 'use's it.");
+    }
+    let program: ReturnType<typeof parse>;
+    try {
+      program = parse(tokenize(source));
+    } catch (err) {
+      if (err instanceof LangError) { console.error("\n" + formatError(err, source) + `\n   (in ${basename(real)})\n`); process.exit(1); }
+      fatal(err);
+      return;
+    }
+    // Load THIS file's own imports first, so dependencies land before it.
+    for (const s of program) {
+      if (s.type === "Use" && s.name.endsWith(".sprout")) load(join(dirname(real), s.name));
+    }
+    files.push({ path: real, source, program });
+  };
+  load(entryPath);
+  return files;
+}
+
+// Load a whole project: the entry file + every .sprout it `use`s. Wires up
+// libraries (from any file), verifies each file with its OWN source (cross-file
+// task calls allowed), and returns the merged program to run — every imported
+// file contributes its tasks; the entry contributes everything.
+async function loadProject(entryPath: string, interp: Interpreter): Promise<{ run: ReturnType<typeof parse>; libs: LoadedLibrary[]; problems: string[] }> {
+  const files = gatherSproutFiles(entryPath);
+  const entry = files[files.length - 1];
+
+  const combined: ReturnType<typeof parse> = [];
+  for (const f of files) for (const s of f.program) combined.push(s);
+  const { libs, names: libNames } = await loadLibraries(combined, interp);
+
+  // Every task name in the project, so a call to another file's task is "known".
+  const allTasks = new Set<string>();
+  for (const f of files) for (const s of f.program) if (s.type === "Task") allTasks.add(s.name);
+
+  const problems: string[] = [];
+  for (const f of files) {
+    const own = new Set<string>();
+    for (const s of f.program) if (s.type === "Task") own.add(s.name);
+    const known = new Set<string>(libNames);
+    for (const n of allTasks) if (!own.has(n)) known.add(n);  // other files' tasks: accept the name
+    for (const p of check(f.program, known)) {
+      problems.push(formatError(p, f.source) + (files.length > 1 ? `\n   (in ${basename(f.path)})` : ""));
+    }
+  }
+
+  // Merge for running: imported files' tasks first, then the entry file in full.
+  const run: ReturnType<typeof parse> = [];
+  for (const f of files) {
+    if (f === entry) continue;
+    for (const s of f.program) if (s.type === "Task") run.push(s);
+  }
+  for (const s of entry.program) run.push(s);
+
+  return { run, libs, problems };
 }
 
 type RunMode = "auto" | "gui" | "serve";
@@ -152,23 +228,11 @@ async function runFile(path: string, mode: RunMode, explain = false): Promise<vo
     narrate: explain ? (m: string) => console.log("\x1b[90m" + m + "\x1b[0m") : undefined,
   });
 
-  // Parse, then verify the WHOLE program before running any of it.
-  let program: ReturnType<typeof parse>;
-  try {
-    program = parse(tokenize(source));
-  } catch (err) {
-    if (err instanceof LangError) {
-      console.error("\n" + formatError(err, source) + "\n");
-      process.exit(1);
-    }
-    fatal(err);
-  }
-
-  const { libs, names: libNames } = await loadLibraries(program, interp);
-
-  const problems = check(program, libNames);
+  // Load the whole project — this file PLUS any .sprout files it `use`s — wire up
+  // libraries, and verify every file before running a single line.
+  const { run: program, libs, problems } = await loadProject(path, interp);
   if (problems.length > 0) {
-    for (const p of problems) console.error("\n" + formatError(p, source));
+    for (const p of problems) console.error("\n" + p);
     console.error(`\nFound ${problems.length} problem(s) — fix these and try again.\n`);
     process.exit(1);
   }
@@ -213,33 +277,15 @@ async function runFile(path: string, mode: RunMode, explain = false): Promise<vo
   }
 }
 
-// `sprout check <file>` — verify a program without running it.
+// `sprout check <file>` — verify a program (and any files it `use`s) without running.
 async function checkFile(path: string): Promise<void> {
-  let source = "";
-  try {
-    source = readFileSync(path, "utf8");
-  } catch {
-    fail(`I couldn't open the file: ${path}`, "Check the name and that the file is there.");
-  }
-  let program: ReturnType<typeof parse>;
-  try {
-    program = parse(tokenize(source));
-  } catch (err) {
-    if (err instanceof LangError) {
-      console.error("\n" + formatError(err, source) + "\n");
-      process.exit(1);
-    }
-    fatal(err);
-  }
-  const interp = new Interpreter(source);
-  const { names: libNames } = await loadLibraries(program, interp);
-
-  const problems = check(program, libNames);
+  const interp = new Interpreter("");
+  const { problems } = await loadProject(path, interp);
   if (problems.length === 0) {
     console.log("✓ Looks good — no problems found.");
     return;
   }
-  for (const p of problems) console.error("\n" + formatError(p, source));
+  for (const p of problems) console.error("\n" + p);
   console.error(`\nFound ${problems.length} problem(s).`);
   process.exit(1);
 }

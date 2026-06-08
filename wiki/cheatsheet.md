@@ -43,6 +43,9 @@ for each item in xs:  ~ walk a list, a map's keys, or text
 task add(a, b):       ~ define a task
     give a + b        ~ hand back a value
 show add(2, 3)        ~ call it -> 5
+
+use "scoring.sprout"  ~ pull in tasks from another file (path is relative)
+use "discord-bot"     ~ no .sprout = a built-in library
 ```
 
 ## Built-in functions

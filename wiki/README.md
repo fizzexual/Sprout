@@ -9,6 +9,7 @@ Everything about the **Sprout** language and its styling language **Bloom**.
 - 🌐 **Websites** — the same app served in a browser, no extra code
 - 🎨 **Styled either way** with **Bloom**, Sprout's own CSS
 - 🤖 **A Discord bot** — chat + `/slash` commands, and a real **music player**
+- 🧩 **Multi-file projects** — split a program into files that `use` each other
 - 🔌 …and a growing library ecosystem (see [Libraries](libraries.md))
 
 All from **one small, dependency-free language** with its own friendly vocabulary.
@@ -23,6 +24,7 @@ All from **one small, dependency-free language** with its own friendly vocabular
 | **[GUI & Servers](gui-and-servers.md)** | build native windows and websites in Sprout |
 | **[Bloom Styling](bloom-syntax.md)** | Sprout's own CSS — style apps and embeds |
 | **[Libraries](libraries.md)** | add powers like `discord-bot`, manage them with `sprout modules` |
+| **[Projects](projects.md)** | connect files together with `use "file.sprout"` |
 | **[Cheat Sheet](cheatsheet.md)** | the whole language on one page |
 
 ## The 30-second tour

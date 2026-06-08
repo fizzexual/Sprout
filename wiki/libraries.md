@@ -9,6 +9,10 @@ use "discord-bot"
 
 After that, the library's functions work just like the built-in ones.
 
+> `use` with a name (`use "discord-bot"`) adds a built-in library. `use` with a
+> path ending in `.sprout` (`use "scoring.sprout"`) pulls in **your own file** —
+> see [Projects](projects.md) for connecting files together.
+
 ## Managing modules: `sprout modules`
 
 Run **`sprout modules`** for an interactive manager (a full-screen terminal UI).

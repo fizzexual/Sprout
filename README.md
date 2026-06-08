@@ -200,7 +200,7 @@ Node's built-in test runner — still **no dependencies**:
 npm test          # or: node --test test/sprout.test.ts
 ```
 
-## The language so far (v0.5)
+## The language so far (v0.6)
 
 | Feature | Sprout |
 | --- | --- |
@@ -220,6 +220,7 @@ npm test          # or: node --test test/sprout.test.ts
 | Explain mode | `sprout explain file.sprout` — narrates every step in plain English |
 | Loop safety | the checker refuses a `repeat while` that can never stop |
 | Tasks (functions) | `task greet(name):` … `give value` (with recursion) |
+| Multi-file projects | `use "scoring.sprout"` — split a program into files that share their tasks |
 | GUI apps (native) | `window(title)` + `label` / `button` / `field` / `textof` |
 | Websites (server) | `server(title)` + the same widgets, runs in a browser |
 | Hidden backend | server logic never reaches the browser — only button tasks can run |
@@ -281,6 +282,7 @@ output
 - [x] **`sprout modules`** — an interactive terminal to install / uninstall / test libraries
 - [x] **v0.5 — The Data Update** — **lists** `[1, 2, 3]`, **maps** `{name: "Sam"}`, indexing `xs[0]` / `m["k"]`, **`for each item in …`**, and `add` / `contains` / `keys` / `range` / `first` / `last`
 - [x] **v0.5.1** — **`ask`** for input + `number(...)`, **`sprout explain`** (narrates every step in plain English), and an **infinite-loop detector** (the checker refuses a `repeat while` that can never end)
+- [x] **v0.6 — Projects** — **connect files** with `use "file.sprout"`; imported files share their tasks, the whole project is checked before it runs ([Projects](wiki/projects.md))
 - [ ] **next** — built-in **charts** (`chart "bar", data`), **drawing/canvas**, and `every 10 minutes:` scheduled tasks
 
 ---
