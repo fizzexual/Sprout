@@ -721,6 +721,24 @@ test("automations library: app/startup builtins are registered", () => {
   assert.equal(lib.builtins.starts_with_pc(["SproutNonexistentStartupXYZ"]), false);
 });
 
+test("automations library: friendly time strings, weekday, and a 12-hour clock", () => {
+  const lib = automations(new Interpreter(""));
+  assert.match(String(lib.builtins.now(["12h"])), /^\d{1,2}:\d\d (AM|PM)$/);
+  assert.ok(["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].includes(String(lib.builtins.weekday([]))));
+  lib.builtins.every(["10 minutes", "tick"], { line: 1, col: 1 });   // text duration is accepted
+  lib.builtins.at(["Monday 09:00", "wake"], { line: 1, col: 1 });    // weekday + time
+  lib.builtins.at(["8:30pm", "dinner"], { line: 1, col: 1 });        // 12-hour am/pm
+  assert.equal(lib.isActive(), true);
+  assert.throws(() => lib.builtins.after(["soon-ish", "t"], { line: 1, col: 1 }), /time/);
+});
+
+test("automations library: run_on_startup links the project (needs a known main file)", () => {
+  const lib = automations(new Interpreter(""));
+  assert.ok(["run_on_startup", "runs_on_startup", "weekday"].every((n) => lib.names.includes(n)));
+  assert.equal(lib.builtins.runs_on_startup([]), false);                           // nothing registered
+  assert.throws(() => lib.builtins.run_on_startup([], { line: 1, col: 1 }));        // no main file known -> friendly error
+});
+
 test("automations library: now/today format, and scheduling marks it active", () => {
   const lib = automations(new Interpreter(""));
   assert.match(String(lib.builtins.now([])), /^\d\d:\d\d:\d\d$/);
@@ -733,7 +751,7 @@ test("automations library: now/today format, and scheduling marks it active", ()
 test("automations library: at() rejects a bad time, every() rejects a bad interval", () => {
   const lib = automations(new Interpreter(""));
   assert.throws(() => lib.builtins.at(["25:00", "x"], { line: 1, col: 1 }), /time/);
-  assert.throws(() => lib.builtins.every([0, "tick"], { line: 1, col: 1 }), /seconds/);
+  assert.throws(() => lib.builtins.every([0, "tick"], { line: 1, col: 1 }), /zero/);
 });
 
 test("modules: a file can use another file's task", () => {

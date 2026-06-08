@@ -123,21 +123,34 @@ task tick():
     when count >= 5:
         stop()
 
-every(1, "tick")        ~ run tick once a second, until it stops itself
+every("2 seconds", "tick")    ~ a number of seconds, OR friendly text
 ```
+
+Times can be a number of seconds **or** friendly text: `"30 seconds"`,
+`"10 minutes"`, `"2 hours"`, `"1 day"` (short forms `30s` / `10m` / `2h` / `1d`).
 
 | Function | What it does |
 | --- | --- |
-| `every(seconds, "task")` | run a task again and again, every N seconds |
-| `after(seconds, "task")` | run a task once, after N seconds |
-| `at("HH:MM", "task")` | run a task every day at a clock time |
+| `every(time, "task")` | run a task again and again |
+| `every(time, "task", count)` | …but only `count` times, then stop |
+| `after(time, "task")` | run a task once, after a delay |
+| `at("time", "task")` | run at a clock time — `"08:00"`, `"8:30pm"`, or weekly `"Monday 09:00"` |
 | `watch("file", "task")` | run a task whenever a file changes on disk |
-| `wait(seconds)` | pause the program (fractions ok: `wait(0.5)`) |
-| `now()` / `today()` | the time / date right now, as text |
+| `wait(time)` | pause the program (`wait("0.5")`, `wait("2 minutes")`) |
+| `now()` / `now("12h")` | the time now, `"14:30:05"` or `"2:30 PM"` |
+| `today()` / `weekday()` | today's date, and the day name (`"Monday"`) |
 | `stop()` | stop all automations and end the program |
 
 `every` / `after` / `at` / `watch` keep the program running in the background —
 press **Ctrl+C** or call `stop()` from a task to end it.
+
+**Run your whole project on startup** — link this `.sprout` to Windows login:
+
+| Function | What it does |
+| --- | --- |
+| `run_on_startup()` | run this project's main file every time the PC starts |
+| `run_on_startup(no)` | stop it running at startup |
+| `runs_on_startup()` | is this project set to start with the PC? → `yes` / `no` |
 
 It can also start apps, see what's running, and manage PC startup (Windows):
 
@@ -146,7 +159,7 @@ It can also start apps, see what's running, and manage PC startup (Windows):
 | `launch("program")` | start a program, app, file, or website in the background |
 | `running("name")` | is that program running right now? → `yes` / `no` |
 | `closeapp("name")` | close a running program |
-| `start_with_pc("name", "command")` | run a command every time the PC starts (no admin) |
+| `start_with_pc("name", "command")` | run any command every time the PC starts (no admin) |
 | `stop_with_pc("name")` | stop it from starting with the PC |
 | `starts_with_pc("name")` | is it set to start with the PC? → `yes` / `no` |
 

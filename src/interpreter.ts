@@ -81,6 +81,7 @@ class ReturnSignal {
 export class Interpreter {
   source: string;
   programDir: string;            // folder of the running program; libraries/extensions read & write their files next to it
+  programFile: string;           // absolute path of the entry .sprout file ("" if unknown); used by libraries like automations
   private out: OutputSink;
   private maxSteps: number;
   private steps = 0;
@@ -100,7 +101,7 @@ export class Interpreter {
   constructor(
     source: string,
     out: OutputSink = (line) => console.log(line),
-    options: { maxSteps?: number; storage?: Storage; net?: Net; secrets?: Secrets; programDir?: string; input?: Input; narrate?: (msg: string) => void } = {},
+    options: { maxSteps?: number; storage?: Storage; net?: Net; secrets?: Secrets; programDir?: string; programFile?: string; input?: Input; narrate?: (msg: string) => void } = {},
   ) {
     this.source = source;
     this.out = out;
@@ -110,6 +111,7 @@ export class Interpreter {
     this.net = options.net ?? noNet();
     this.secrets = options.secrets ?? noSecrets();
     this.programDir = options.programDir ?? process.cwd();
+    this.programFile = options.programFile ?? "";
     this.input = options.input ?? noInput();
     this.narrate = options.narrate ?? null;
   }

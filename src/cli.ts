@@ -223,6 +223,7 @@ async function runFile(path: string, mode: RunMode, explain = false): Promise<vo
     net: nodeNet(),
     secrets: fileSecrets(envPath),
     programDir: dirname(path),
+    programFile: resolve(path),
     input: consoleInput(),
     // explain mode: narrate each step in grey, the program's own output stays white.
     narrate: explain ? (m: string) => console.log("\x1b[90m" + m + "\x1b[0m") : undefined,
