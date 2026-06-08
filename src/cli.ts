@@ -8,7 +8,8 @@
 //   sprout repl                 interactive prompt
 //   sprout version
 
-import { readFileSync, existsSync, writeFileSync } from "node:fs";
+import { readFileSync, existsSync, writeFileSync, readSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { createInterface } from "node:readline";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -343,73 +344,72 @@ async function fastFile(path: string): Promise<void> {
 }
 
 // --- the step debugger: `sprout trace <file>` --------------------------------
-// One recorded moment: which line is about to run, the variables at that point,
-// and how much output had been printed so far.
+// One executed moment: the line that ran, the variables right after it, and how
+// much output had been printed by then. We keep these so you can scrub BACK to
+// re-watch earlier steps (read-only — going back never un-runs anything).
 type TraceFrame = { line: number; vars: [string, string][]; outLen: number };
 
-// Play a recorded trace back interactively. Stepping is now a pure UI concern —
-// we already have every frame, so we just listen for keypresses (reliable in raw
-// mode on every platform) instead of doing a fragile synchronous read mid-run,
-// which on Windows returned 0 bytes and made the trace race through on its own.
-function playTrace(lines: string[], frames: TraceFrame[], output: string[], truncated: boolean): Promise<void> {
-  return new Promise((resolve) => {
-    const stdin = process.stdin;
-    let i = 0;
-    let done = false;
+// What the user asked for at a pause.
+type StepAction = "forward" | "back" | "run" | "quit" | "noop";
 
-    const draw = (): void => {
-      if (i >= frames.length) {
-        const last = frames.length ? frames[frames.length - 1].vars : [];
-        renderTrace(lines, -1, last, output, true);
-        if (truncated) process.stdout.write("\x1b[90m  (trace truncated — the program kept running past the step limit)\x1b[0m\n");
-      } else {
-        const f = frames[i];
-        renderTrace(lines, f.line, f.vars, output.slice(0, f.outLen), false);
-      }
-    };
+// Read ONE keypress on a real Windows console. Raw-mode readSync(0) returns 0
+// bytes there (it doesn't block), so we ask PowerShell for the key instead — it
+// also tells us the modifiers, so Shift can mean "go back".
+function readStepKeyWindows(): StepAction {
+  const ps = "$k=[Console]::ReadKey($true); [Console]::Out.WriteLine(([int]$k.Modifiers).ToString()+'|'+$k.Key.ToString())";
+  const r = spawnSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", ps], { encoding: "utf8", stdio: ["inherit", "pipe", "ignore"] });
+  const out = (r.stdout || "").trim();
+  if (!out || out === "NOCONSOLE") return "quit"; // Ctrl+C killed the reader, or no console
+  const [modStr, keyRaw] = out.split("|");
+  const mod = parseInt(modStr, 10) || 0;
+  const shift = (mod & 2) !== 0;
+  const key = (keyRaw || "").trim();
+  if (key === "Q" || key === "Escape") return "quit";
+  if (key === "C") return "run";
+  if (shift) return "back";                                                  // Shift + anything = up
+  if (key === "UpArrow" || key === "K" || key === "B" || key === "Backspace") return "back";
+  if (key === "Spacebar" || key === "DownArrow" || key === "Enter" || key === "J") return "forward";
+  return "noop";
+}
 
-    const finish = (): void => {
-      if (done) return;
-      done = true;
-      stdin.removeListener("data", onData);
-      stdin.removeListener("end", finish);
-      if (stdin.isTTY && stdin.setRawMode) stdin.setRawMode(false);
-      stdin.pause();
-      process.stdout.write("\x1b[?25h\n"); // show the cursor again
-      resolve();
-    };
+// Read ONE keypress from raw-mode bytes (Unix terminal) or piped input (tests).
+function readStepKeyBytes(): StepAction {
+  const b = Buffer.alloc(1);
+  let n = 0;
+  try { n = readSync(0, b, 0, 1, null); } catch { return "quit"; }
+  if (n === 0) return "quit"; // end of input
+  const c = b.toString("utf8");
+  if (c === "\x1b") { // escape sequence — peek at the next two bytes for arrows
+    const rest = Buffer.alloc(2);
+    let m = 0;
+    try { m = readSync(0, rest, 0, 2, null); } catch { m = 0; }
+    const seq = rest.subarray(0, m).toString("utf8");
+    if (seq === "[A") return "back";    // up arrow
+    if (seq === "[B") return "forward"; // down arrow
+    return "quit";                      // a lone Esc
+  }
+  if (c === "q" || c === "\x03") return "quit";
+  if (c === "c") return "run";
+  if (c === "u" || c === "k" || c === "b") return "back";
+  if (c === " " || c === "j" || c === "\r" || c === "\n") return "forward";
+  return "noop";
+}
 
-    const handleKey = (k: string): void => {
-      if (done) return;
-      if (k === "q" || k === "\x03") { finish(); return; }   // q or Ctrl+C — stop
-      if (i >= frames.length) { finish(); return; }          // any key past the end exits
-      if (k === "c") { i = frames.length; draw(); return; }   // run to the end
-      if (k.charCodeAt(0) === 0x1b) return;                   // ignore arrow/escape sequences
-      i++; draw();                                            // SPACE (or anything else) steps
-    };
-
-    const onData = (data: Buffer): void => {
-      // A real terminal delivers one keypress per event; piped input (for tests)
-      // arrives in a chunk, so step once per byte.
-      if (stdin.isTTY) handleKey(data.toString("utf8"));
-      else for (const b of data) { handleKey(String.fromCharCode(b)); if (done) break; }
-    };
-
-    if (stdin.isTTY && stdin.setRawMode) stdin.setRawMode(true);
-    stdin.resume();
-    stdin.on("data", onData);
-    stdin.on("end", finish); // piped input ran out
-    draw();                  // show the first frame
-  });
+function readStepKey(): StepAction {
+  if (process.platform === "win32" && process.stdin.isTTY) return readStepKeyWindows();
+  return readStepKeyBytes();
 }
 
 // Draw the split screen: source (with a → on the current line) | the variables.
-function renderTrace(lines: string[], cur: number, vars: [string, string][], output: string[], done: boolean): void {
+function renderTrace(lines: string[], cur: number, vars: [string, string][], output: string[], done: boolean, nav?: { step: number; total: number; viewing: boolean }): void {
   const W = process.stdout.columns || 90;
   const leftW = Math.max(28, Math.min(58, W - 34));
   const G = "\x1b[90m", Y = "\x1b[93m", B = "\x1b[1m", R = "\x1b[0m";
   let s = "\x1b[2J\x1b[H\x1b[?25l"; // clear, home, hide cursor
-  const help = done ? G + "finished — press any key to exit" + R : Y + "SPACE" + R + G + " step   " + R + Y + "c" + R + G + " run   " + R + Y + "q" + R + G + " quit" + R;
+  let help: string;
+  if (done) help = G + "finished — press any key to exit" + R;
+  else if (nav && nav.viewing) help = Y + "SPACE" + R + G + " forward   " + R + Y + "up" + R + G + " back   " + R + Y + "q" + R + G + " quit   " + R + G + `(step ${nav.step}/${nav.total}, looking back)` + R;
+  else help = Y + "SPACE" + R + G + " run line   " + R + Y + "up/shift" + R + G + " back   " + R + Y + "c" + R + G + " run   " + R + Y + "q" + R + G + " quit" + R;
   s += "  " + B + "sprout trace" + R + "   " + help + "\n\n";
   const rows = Math.max(lines.length, vars.length + 2);
   for (let i = 0; i < rows; i++) {
@@ -430,19 +430,27 @@ function renderTrace(lines: string[], cur: number, vars: [string, string][], out
   process.stdout.write(s);
 }
 
-// `sprout trace <file>` — step through a program line by line, watching variables.
-// We record the whole run first (instant, no pausing), then let the user step
-// through the recording. That keeps execution synchronous (the interpreter is)
-// while making stepping a reliable, event-driven UI concern.
+// `sprout trace <file>` — step through a program LIVE, line by line. We pause
+// BEFORE each statement; pressing forward runs it then and there, so a line like
+// launch("notepad") opens Notepad exactly when you step onto it. SPACE / down =
+// forward, up / Shift = back (re-watch earlier steps — never re-runs them),
+// c = run to the end, q = quit.
 async function traceFile(path: string): Promise<void> {
   let source = "";
   try { source = readFileSync(path, "utf8"); }
   catch { fail(`I couldn't open the file: ${path}`, "Check the name and that the file is there."); }
   const lines = source.split(/\r?\n/);
   const output: string[] = [];
-  const frames: TraceFrame[] = [];
-  const MAX_FRAMES = 50000; // a teaching trace, not a profiler — bound the memory
-  let truncated = false;
+  const history: TraceFrame[] = [];
+  let running = false; // 'c' pressed: run to the end without pausing
+  let quit = false;
+  const stdin = process.stdin;
+  const unixRaw = !!stdin.isTTY && process.platform !== "win32" && !!stdin.setRawMode;
+
+  const cleanup = (): void => {
+    if (unixRaw && stdin.setRawMode) stdin.setRawMode(false);
+    process.stdout.write("\x1b[?25h"); // show the cursor again
+  };
 
   const dataPath = join(dirname(path), basename(path, extname(path)) + ".data.json");
   const interp = new Interpreter(source, (l) => output.push(l), {
@@ -452,23 +460,43 @@ async function traceFile(path: string): Promise<void> {
     programDir: dirname(path),
     programFile: resolve(path),
     input: consoleInput(),
+    // The pause point: called before each statement runs. We block here until the
+    // user steps forward off the live edge, THEN return so the statement runs.
     onStep: (line, vars) => {
-      if (frames.length >= MAX_FRAMES) { truncated = true; return; }
-      frames.push({ line, vars, outLen: output.length });
+      if (quit || running) return;
+      history.push({ line, vars, outLen: output.length });
+      const frontier = history.length - 1; // the line about to run
+      let cursor = frontier;
+      for (;;) {
+        const f = history[cursor];
+        renderTrace(lines, f.line, f.vars, output.slice(0, f.outLen), false, { step: cursor + 1, total: history.length, viewing: cursor < frontier });
+        const act = readStepKey();
+        if (act === "quit") { quit = true; cleanup(); console.log("\n  (trace stopped)\n"); process.exit(0); }
+        if (act === "back") { if (cursor > 0) cursor--; continue; }
+        if (act === "run") { running = true; return; }
+        if (act === "noop") continue;
+        if (cursor < frontier) { cursor++; continue; } // re-watching history — just move the view
+        return;                                        // at the live edge — let this line run
+      }
     },
   });
 
   const { run: program, problems } = await loadProject(path, interp);
   if (problems.length > 0) { for (const p of problems) console.error("\n" + p); process.exit(1); }
 
+  if (unixRaw && stdin.setRawMode) stdin.setRawMode(true);
   try {
-    interp.run(program); // record — the last frame's arrow sits on the failing line if it throws
+    interp.run(program);
   } catch (err) {
-    await playTrace(lines, frames, output, truncated);
+    cleanup();
     if (err instanceof LangError) { console.error("\n" + formatError(err, source) + "\n"); process.exit(1); }
     fatal(err);
   }
-  await playTrace(lines, frames, output, truncated);
+  const lastVars = history.length ? history[history.length - 1].vars : [];
+  renderTrace(lines, -1, lastVars, output, true);
+  if (!quit) readStepKey(); // one key to dismiss the final screen
+  cleanup();
+  console.log("");
 }
 
 // `sprout api <url>` — connect to an API and list everything you can read.
