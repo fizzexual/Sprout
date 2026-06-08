@@ -83,8 +83,8 @@ Add powers with `use "..."`, then install and browse them from a built-in termin
 ```
 sprout run file.sprout          run a program
 sprout fast file.sprout         run it compiled to JavaScript (faster than Python)
-sprout build file.sprout        compile it to a .mjs
-sprout build file --standalone  bundle it into one file (and a no-Node .exe)
+sprout build file.sprout        build a standalone .exe (asks the size) — runs with no Node
+sprout build file --standalone  build the .exe without the question (+ --no-compress)
 sprout bench file.sprout        time it on both engines and compare the speed
 sprout gui file.sprout          open it as a native window
 sprout serve file.sprout        run it as a website

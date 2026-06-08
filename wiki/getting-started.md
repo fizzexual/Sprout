@@ -26,7 +26,7 @@ or `-Editor "C:\Path\To\editor.exe"`.
 ```bash
 sprout run file.sprout      # run a program
 sprout fast file.sprout     # run it compiled to JavaScript (faster than Python)
-sprout build file.sprout    # compile it to a standalone .mjs you run with node
+sprout build file.sprout    # build a standalone .exe (asks the size) — runs with no Node
 sprout gui file.sprout      # open it as a native window
 sprout serve file.sprout    # run it as a website
 sprout check file.sprout    # verify it WITHOUT running it

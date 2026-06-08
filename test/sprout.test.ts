@@ -907,29 +907,23 @@ test("build: compiles a MULTI-FILE project that uses ask() into one program", ()
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("build wizard: answering 'needs Node' builds the tiny .mjs", () => {
-  const dir = mkdtempSync(join(tmpdir(), "sprout-wiz-"));
-  try {
-    writeFileSync(join(dir, "w.sprout"), "show 6 * 7\n");
-    const r = spawnSync(process.execPath, [CLI, "build", join(dir, "w.sprout")], {
-      encoding: "utf8", input: "2\n", env: { ...process.env, SPROUT_FORCE_WIZARD: "1" },
-    });
-    assert.equal(r.status, 0, (r.stdout ?? "") + (r.stderr ?? ""));
-    assert.ok(existsSync(join(dir, "w.mjs")), "'needs Node' should build a .mjs");
-  } finally { rmSync(dir, { recursive: true, force: true }); }
-});
-
-test("build wizard: answering 'standalone' takes the standalone path", () => {
-  const dir = mkdtempSync(join(tmpdir(), "sprout-wiz2-"));
-  try {
-    writeFileSync(join(dir, "w.sprout"), "show 6 * 7\n");
-    const r = spawnSync(process.execPath, [CLI, "build", join(dir, "w.sprout")], {
-      encoding: "utf8", input: "1\n1\n", env: { ...process.env, SPROUT_FORCE_WIZARD: "1", SPROUT_SKIP_EXE: "1" },
-    });
-    assert.equal(r.status, 0, (r.stdout ?? "") + (r.stderr ?? ""));
-    assert.ok(existsSync(join(dir, "w.cjs")) || existsSync(join(dir, "w.exe")), "'standalone' should produce a bundle/exe");
-  } finally { rmSync(dir, { recursive: true, force: true }); }
-});
+// The wizard ALWAYS makes a standalone exe — whatever size you pick — never a
+// needs-Node .mjs. (SPROUT_SKIP_EXE makes the heavy exe step fall back to the
+// .cjs bundle in tests; the point is it took the standalone path.)
+for (const [label, answer] of [["smallest", "1\n"], ["biggest", "2\n"]] as const) {
+  test(`build wizard: '${label}' produces a standalone artifact, never a .mjs`, () => {
+    const dir = mkdtempSync(join(tmpdir(), "sprout-wiz-"));
+    try {
+      writeFileSync(join(dir, "w.sprout"), "show 6 * 7\n");
+      const r = spawnSync(process.execPath, [CLI, "build", join(dir, "w.sprout")], {
+        encoding: "utf8", input: answer, env: { ...process.env, SPROUT_FORCE_WIZARD: "1", SPROUT_SKIP_EXE: "1" },
+      });
+      assert.equal(r.status, 0, (r.stdout ?? "") + (r.stderr ?? ""));
+      assert.ok(existsSync(join(dir, "w.cjs")) || existsSync(join(dir, "w.exe")), "wizard should produce a standalone bundle/exe");
+      assert.ok(!existsSync(join(dir, "w.mjs")), "wizard must NOT produce a needs-Node .mjs");
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+}
 
 test("bench: times both engines and reports a speedup", () => {
   const dir = mkdtempSync(join(tmpdir(), "sprout-bench-"));

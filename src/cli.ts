@@ -351,20 +351,13 @@ function choose(rl: ReturnType<typeof createInterface>, question: string, option
   });
 }
 
-// `sprout build <file>` with no flags, in a terminal: a friendly wizard that asks
-// how you want it built (sizes shown) instead of needing flags.
+// `sprout build <file>` with no flags, in a terminal: a friendly wizard. It
+// always makes a standalone .exe (runs with no Node) — the only choice is size.
 async function buildWizard(path: string): Promise<void> {
-  const stem = basename(path, extname(path));
-  console.log(`\n  🌱  Building ${basename(path)} — a couple of quick questions:`);
+  console.log(`\n  🌱  Building ${basename(path)} into a standalone .exe (it runs with no Node installed).`);
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    const node = await choose(rl, "Does the computer that runs it need Node installed?", [
-      "No  — make a standalone app that runs on any Windows PC (~20 MB)",
-      `Yes — make a tiny file (~25 KB) you run with:  node ${stem}.mjs`,
-    ]);
-    if (node === 1) { rl.close(); await buildFile(path, []); return; } // tiny, needs Node
-
-    const size = await choose(rl, "How small should the standalone app be?", [
+    const size = await choose(rl, "How small should the .exe be?", [
       "Smallest — about 20 MB, fits Discord (a rare antivirus may warn on packed apps)",
       "Biggest  — about 90 MB, largest but the most antivirus-friendly",
     ]);
@@ -873,8 +866,8 @@ function usage(): void {
       "  sprout serve <file.sprout>  run it as a website",
       "  sprout check <file.sprout>  verify the program without running it",
       "  sprout fast <file.sprout>   run it the fast way (compiled to JavaScript)",
-      "  sprout build <file.sprout>  build it — asks how (tiny needs-Node file, or a standalone .exe)",
-      "  sprout build <file> --standalone   skip the questions: a small no-Node .exe (+ --no-compress)",
+      "  sprout build <file.sprout>  build a standalone .exe (asks the size; runs with no Node)",
+      "  sprout build <file> --standalone   make the .exe without the question (+ --no-compress for ~90 MB)",
       "  sprout bench <file.sprout>  time it on both engines and compare the speed",
       "  sprout explain <file>       run it and narrate every step in plain English",
       "  sprout trace <file>         step through it line-by-line, watching variables",
