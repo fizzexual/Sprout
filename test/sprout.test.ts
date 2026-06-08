@@ -15,7 +15,7 @@ import { memorySecrets, parseEnv } from "../src/secrets.ts";
 import { create as discordBot } from "../libraries/discord-bot/index.ts";
 import { create as networking } from "../libraries/networking/index.ts";
 import { create as automations } from "../libraries/automations/index.ts";
-import { SList } from "../src/values.ts";
+import { SList, NONE } from "../src/values.ts";
 import { sealAudio, hchacha20, chooseMode, OggOpusDemuxer } from "../libraries/discord-bot/voice.ts";
 import { isUrl, formatQueue, create as musicExt } from "../extensions/discord-bot/music/index.ts";
 import { createDecipheriv } from "node:crypto";
@@ -808,4 +808,64 @@ test("modules: check reports which file a problem is in", () => {
   );
   assert.notEqual(code, 0);
   assert.match(out, /helper\.sprout/);
+});
+
+// --- Every command is wired up ----------------------------------------------
+// "Add a test to every command": each command a library advertises must actually
+// be a registered, callable function. This catches the whole "command silently
+// not working because it's mis-wired / typo'd / a module failed to load" class
+// across ALL ~180 commands at once. (Behaviour of side-effecting commands like
+// launch/shutdown can't be safely auto-run, but this proves none are missing.)
+for (const [libName, make, atLeast] of [
+  ["networking", networking, 30],
+  ["automations", automations, 60],
+  ["discord-bot", discordBot, 5],
+] as const) {
+  test(`every ${libName} command is registered and callable`, () => {
+    const lib = make(new Interpreter(""));
+    assert.ok(lib.names.length >= atLeast, `${libName} exposed only ${lib.names.length} commands — did a module fail to load?`);
+    assert.equal(new Set(lib.names).size, lib.names.length, `${libName} has a duplicate command name`);
+    for (const name of lib.names) {
+      assert.equal(typeof lib.builtins[name], "function", `${libName} command '${name}' is advertised but not a registered function`);
+    }
+  });
+}
+
+// Safe, deterministic commands return the right kind of value (no network, no
+// side effects) — a fast health check that the common ones actually work.
+test("safe info/time commands return sensible values", () => {
+  const net = networking(new Interpreter(""));
+  assert.equal(typeof net.builtins.hostname([]), "string");
+  assert.match(String(net.builtins.localip([])), /^\d+\.\d+\.\d+\.\d+$/);
+  assert.equal(net.builtins.isblocked(["definitely-not-blocked-xyz.test"]), false);
+
+  const auto = automations(new Interpreter(""));
+  assert.match(String(auto.builtins.now([])), /^\d\d:\d\d:\d\d$/);
+  assert.match(String(auto.builtins.today([])), /^\d{4}-\d\d-\d\d$/);
+  assert.ok(["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].includes(String(auto.builtins.weekday([]))));
+  assert.equal(auto.builtins.running(["totally-fake-app-987"]), false);
+});
+
+// The trace safety denylist must name REAL commands, or it would silently fail
+// to silence them while tracing.
+test("trace-silenced commands all exist as real automations commands", () => {
+  const have = new Set(automations(new Interpreter("")).names);
+  for (const n of ["type", "press", "typeto", "click", "movemouse", "shutdown", "restart", "sleep", "lock"]) {
+    assert.ok(have.has(n), `the trace denylist names '${n}', but no such command exists`);
+  }
+});
+
+// During a trace, dangerous commands become no-ops; in a normal run they run.
+test("a trace silences dangerous commands, a normal run does not", () => {
+  const traced = new Interpreter("type()\n", () => {}, { onStep: () => {} });
+  let ranInTrace = false;
+  traced.registerLibraryBuiltins({ type: () => { ranInTrace = true; return NONE; } });
+  traced.run(parse(tokenize("type()\n")));
+  assert.equal(ranInTrace, false, "type() must NOT run during a trace");
+
+  const normal = new Interpreter("type()\n", () => {});
+  let ranNormally = false;
+  normal.registerLibraryBuiltins({ type: () => { ranNormally = true; return NONE; } });
+  normal.run(parse(tokenize("type()\n")));
+  assert.equal(ranNormally, true, "type() must run during a normal run");
 });

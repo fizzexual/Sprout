@@ -160,16 +160,13 @@ export class Interpreter {
 
   // --- Library support (used by the CLI's library loader) ---
 
-  // During `sprout trace` these are made no-ops: real-world actions that would be
-  // dangerous or disruptive to fire while merely inspecting a program — injecting
-  // keystrokes (could run terminal commands!), powering the machine off, moving
-  // the mouse, opening apps, changing system settings, or editing the hosts file.
+  // During `sprout trace` ONLY these are made no-ops — the genuinely unsafe ones,
+  // because a trace runs the program once and they'd hit whatever has focus (your
+  // terminal) or power the machine off. Everything else (launch, volume, beep,
+  // blocking, ...) runs normally, so most commands work in a trace.
   private static readonly TRACE_SILENCED = new Set<string>([
-    "type", "press", "typeto", "click", "movemouse",
-    "launch", "closeapp", "focus_window", "show_desktop", "minimize_all",
-    "shutdown", "restart", "sleep", "lock", "wallpaper", "brightness", "darkmode", "volume", "mute", "keepawake",
-    "beep", "play_sound", "mute_mic",
-    "block", "unblock", "unblock_all", "block_category", "unblock_category", "block_until", "use_dns",
+    "type", "press", "typeto", "click", "movemouse", // inject keystrokes/clicks into the focused window (your terminal)
+    "shutdown", "restart", "sleep", "lock",           // power off / lock the machine
   ]);
 
   registerLibraryBuiltins(map: Record<string, (args: Value[], site: { line: number; col: number }) => Value>): void {
