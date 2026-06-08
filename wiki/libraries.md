@@ -103,6 +103,13 @@ download("https://example.com", "page.html")   ~ saves next to your program
 | `status("url")` | the HTTP status code (200, 404…), or `nothing` |
 | `ping("host")` | round-trip time to a host in milliseconds, or `nothing` |
 | `download("url", "file")` | save a file from the web next to your program |
+| `block("site.com")` | block a website on this computer (a focus/parental toy) |
+| `unblock("site.com")` | allow it again |
+| `isblocked("site.com")` | is it blocked? → `yes` / `no` |
+| `blocked()` | a list of the sites you've blocked |
+
+> `block` / `unblock` edit the system **hosts file**, so run your program as
+> **administrator** to use them. `isblocked` / `blocked` work without admin.
 
 ### automations — run tasks on a schedule ⏰
 
@@ -131,6 +138,17 @@ every(1, "tick")        ~ run tick once a second, until it stops itself
 
 `every` / `after` / `at` / `watch` keep the program running in the background —
 press **Ctrl+C** or call `stop()` from a task to end it.
+
+It can also start apps, see what's running, and manage PC startup (Windows):
+
+| Function | What it does |
+| --- | --- |
+| `launch("program")` | start a program, app, file, or website in the background |
+| `running("name")` | is that program running right now? → `yes` / `no` |
+| `closeapp("name")` | close a running program |
+| `start_with_pc("name", "command")` | run a command every time the PC starts (no admin) |
+| `stop_with_pc("name")` | stop it from starting with the PC |
+| `starts_with_pc("name")` | is it set to start with the PC? → `yes` / `no` |
 
 ## Extensions — libraries for libraries
 

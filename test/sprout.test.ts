@@ -15,6 +15,7 @@ import { memorySecrets, parseEnv } from "../src/secrets.ts";
 import { create as discordBot } from "../libraries/discord-bot/index.ts";
 import { create as networking } from "../libraries/networking/index.ts";
 import { create as automations } from "../libraries/automations/index.ts";
+import { SList } from "../src/values.ts";
 import { sealAudio, hchacha20, chooseMode, OggOpusDemuxer } from "../libraries/discord-bot/voice.ts";
 import { isUrl, formatQueue, create as musicExt } from "../extensions/discord-bot/music/index.ts";
 import { createDecipheriv } from "node:crypto";
@@ -701,10 +702,23 @@ test("checker leaves a normal repeat while alone", () => {
 
 test("networking library: registers its builtins; hostname/localip work offline", () => {
   const lib = networking(new Interpreter(""));
-  assert.deepEqual(lib.names, ["hostname", "localip", "myip", "online", "status", "ping", "download"]);
+  assert.ok(["hostname", "localip", "myip", "online", "status", "ping", "download", "block", "unblock", "isblocked", "blocked"].every((n) => lib.names.includes(n)));
   assert.equal(typeof lib.builtins.hostname([]), "string");
   assert.match(String(lib.builtins.localip([])), /^\d+\.\d+\.\d+\.\d+$/);
   assert.equal(lib.isActive(), false);   // pure builtins, no long-running runtime
+});
+
+test("networking library: isblocked is false for an unblocked site; blocked() is a list", () => {
+  const lib = networking(new Interpreter(""));
+  assert.equal(lib.builtins.isblocked(["definitely-not-blocked-xyz12345.test"]), false);
+  assert.ok(lib.builtins.blocked([]) instanceof SList);
+});
+
+test("automations library: app/startup builtins are registered", () => {
+  const lib = automations(new Interpreter(""));
+  assert.ok(["launch", "running", "closeapp", "start_with_pc", "stop_with_pc", "starts_with_pc"].every((n) => lib.names.includes(n)));
+  assert.equal(lib.builtins.running(["totally-fake-app-name-987"]), false);
+  assert.equal(lib.builtins.starts_with_pc(["SproutNonexistentStartupXYZ"]), false);
 });
 
 test("automations library: now/today format, and scheduling marks it active", () => {

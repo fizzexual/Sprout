@@ -18,9 +18,19 @@ import type { Value } from "../../src/values.ts";
 import type { Interpreter } from "../../src/interpreter.ts";
 import { LangError } from "../../src/errors.ts";
 import { watch as fsWatch } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 
 type Site = { line: number; col: number } | undefined;
+
+// Where Windows lists programs to run at every login (no admin needed — it's
+// the per-user key, so a program registers ITSELF without elevation).
+const RUN_KEY = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+
+// Strip "name.exe" -> "name.exe", "chrome" -> "chrome.exe" (Windows image name).
+function imageName(name: string): string {
+  return /\.exe$/i.test(name) ? name : name + ".exe";
+}
 
 type Job =
   | { kind: "every"; seconds: number; task: string }
@@ -93,6 +103,74 @@ export function create(interp: Interpreter) {
       setTimeout(() => process.exit(0), 50);
       return NONE;
     },
+
+    // --- apps & the PC ---
+
+    // Start a program, app, file, or website in the background (it keeps running on its own).
+    launch: (args, site) => {
+      const cmd = stringify(args[0] ?? NONE).trim();
+      if (!cmd) throw new LangError("Runtime", "launch needs something to start.", site?.line ?? 1, site?.col ?? 1, 'Try: launch("notepad")');
+      try {
+        const child = process.platform === "win32"
+          ? spawn("cmd", ["/c", "start", "", cmd], { detached: true, stdio: "ignore", windowsHide: true })
+          : spawn(cmd, { detached: true, stdio: "ignore", shell: true });
+        child.unref();
+      } catch (e) {
+        throw new LangError("Runtime", "couldn't start '" + cmd + "': " + (e instanceof Error ? e.message : String(e)), site?.line ?? 1, site?.col ?? 1);
+      }
+      return NONE;
+    },
+
+    // Is a program/app running right now? -> yes / no
+    running: (args) => {
+      const name = stringify(args[0] ?? NONE).trim();
+      if (!name) return false;
+      if (process.platform === "win32") {
+        const img = imageName(name);
+        const r = spawnSync("tasklist", ["/FI", "IMAGENAME eq " + img, "/NH"], { encoding: "utf8", timeout: 8000 });
+        return (r.stdout || "").toLowerCase().includes(img.toLowerCase());
+      }
+      const r = spawnSync("pgrep", ["-f", name], { encoding: "utf8", timeout: 8000 });
+      return (r.stdout || "").trim().length > 0;
+    },
+
+    // Close a running program/app. -> yes / no (whether one was closed)
+    closeapp: (args) => {
+      const name = stringify(args[0] ?? NONE).trim();
+      if (!name) return false;
+      if (process.platform === "win32") {
+        const r = spawnSync("taskkill", ["/IM", imageName(name), "/F"], { encoding: "utf8", timeout: 8000 });
+        return r.status === 0;
+      }
+      const r = spawnSync("pkill", ["-f", name], { encoding: "utf8", timeout: 8000 });
+      return r.status === 0;
+    },
+
+    // Make a command run automatically every time this PC starts (Windows, no admin).
+    start_with_pc: (args, site) => {
+      if (process.platform !== "win32") throw new LangError("Runtime", "start_with_pc works on Windows.", site?.line ?? 1, site?.col ?? 1, "On macOS/Linux, add a startup item yourself for now.");
+      const name = stringify(args[0] ?? NONE).trim();
+      const cmd = stringify(args[1] ?? NONE).trim();
+      if (!name || !cmd) throw new LangError("Runtime", "start_with_pc needs a name and a command.", site?.line ?? 1, site?.col ?? 1, 'Try: start_with_pc("MyApp", "notepad")');
+      const r = spawnSync("reg", ["add", RUN_KEY, "/v", name, "/t", "REG_SZ", "/d", cmd, "/f"], { encoding: "utf8", timeout: 8000 });
+      if (r.status !== 0) throw new LangError("Runtime", "couldn't set up startup: " + ((r.stderr || "").trim() || "registry error"), site?.line ?? 1, site?.col ?? 1);
+      return NONE;
+    },
+
+    // Stop a program from starting with the PC (undo start_with_pc).
+    stop_with_pc: (args) => {
+      const name = stringify(args[0] ?? NONE).trim();
+      if (process.platform === "win32" && name) spawnSync("reg", ["delete", RUN_KEY, "/v", name, "/f"], { encoding: "utf8", timeout: 8000 });
+      return NONE;
+    },
+
+    // Is something set to start with the PC under this name? -> yes / no
+    starts_with_pc: (args) => {
+      const name = stringify(args[0] ?? NONE).trim();
+      if (process.platform !== "win32" || !name) return false;
+      const r = spawnSync("reg", ["query", RUN_KEY, "/v", name], { encoding: "utf8", timeout: 8000 });
+      return r.status === 0 && (r.stdout || "").includes(name);
+    },
   };
 
   function scheduleAt(hh: number, mm: number, fire: () => void): void {
@@ -138,7 +216,7 @@ export function create(interp: Interpreter) {
   };
 
   return {
-    names: ["wait", "now", "today", "every", "after", "at", "watch", "stop"],
+    names: ["wait", "now", "today", "every", "after", "at", "watch", "stop", "launch", "running", "closeapp", "start_with_pc", "stop_with_pc", "starts_with_pc"],
     builtins,
     isActive: () => jobs.length > 0,
     start,

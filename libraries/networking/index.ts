@@ -12,16 +12,59 @@
 // Node subprocess (spawnSync) — exactly how the built-in get()/post() work, with
 // no dependencies.
 
-import { NONE, stringify } from "../../src/values.ts";
+import { NONE, stringify, SList } from "../../src/values.ts";
 import type { Value } from "../../src/values.ts";
 import type { Interpreter } from "../../src/interpreter.ts";
 import { LangError } from "../../src/errors.ts";
 import { spawnSync } from "node:child_process";
 import { hostname as osHostname, networkInterfaces } from "node:os";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 type Site = { line: number; col: number } | undefined;
+
+// --- website blocking (via the system "hosts" file) ---------------------------
+// Blocking a site means adding a line that points its name at 127.0.0.1 (this
+// computer), so it never reaches the real server. We tag our lines so unblock /
+// blocked only ever touch what Sprout added — never the user's own hosts entries.
+const HOSTS = process.platform === "win32"
+  ? (process.env.SystemRoot || "C:\\Windows") + "\\System32\\drivers\\etc\\hosts"
+  : "/etc/hosts";
+const TAG = "# sprout-block";
+const NL = process.platform === "win32" ? "\r\n" : "\n";
+
+function readHosts(): string {
+  try { return readFileSync(HOSTS, "utf8"); } catch { return ""; }
+}
+
+function flushDns(): void {
+  try { if (process.platform === "win32") spawnSync("ipconfig", ["/flushdns"], { stdio: "ignore", timeout: 5000 }); } catch { /* best effort */ }
+}
+
+function writeHosts(text: string, site: Site): void {
+  try { writeFileSync(HOSTS, text); }
+  catch (e) {
+    const code = (e && typeof e === "object" && "code" in e) ? String((e as { code: unknown }).code) : "";
+    if (code === "EPERM" || code === "EACCES") {
+      throw new LangError("Runtime", "Blocking a website needs administrator rights.", site?.line ?? 1, site?.col ?? 1,
+        process.platform === "win32"
+          ? "Close this, right-click your terminal (or VS Code), choose 'Run as administrator', and run your program again."
+          : "Run your program with sudo to edit the hosts file.");
+    }
+    throw netError(e instanceof Error ? e.message : String(e), site);
+  }
+  flushDns();
+}
+
+// "https://www.Example.com/page" -> "example.com"
+function cleanDomain(s: string): string {
+  return s.replace(/^[a-z]+:\/\//i, "").replace(/\/.*$/, "").replace(/^www\./i, "").trim().toLowerCase();
+}
+
+// Does a hosts line block this exact domain (apex or www)? (only our tagged lines)
+function lineBlocks(line: string, domain: string): boolean {
+  return line.includes(TAG) && (line.includes(" " + domain + " ") || line.includes(" www." + domain + " "));
+}
 
 function netError(msg: string, site: Site): LangError {
   return new LangError("Runtime", "Network problem: " + msg, site?.line ?? 1, site?.col ?? 1, "Check your internet connection and the address.");
@@ -123,10 +166,48 @@ export function create(interp: Interpreter) {
       writeFileSync(resolve(interp.programDir, name), Buffer.from(b64, "base64"));
       return name;
     },
+
+    // Block a website on THIS computer — it won't load in any browser. Needs admin.
+    block: (args, site) => {
+      const domain = cleanDomain(stringify(args[0] ?? NONE));
+      if (!domain) throw new LangError("Runtime", "block needs a website address.", site?.line ?? 1, site?.col ?? 1, 'Try: block("example.com")');
+      const kept = readHosts().split(/\r?\n/).filter((l) => !lineBlocks(l, domain));
+      while (kept.length && kept[kept.length - 1].trim() === "") kept.pop();
+      kept.push("127.0.0.1 " + domain + " " + TAG);
+      kept.push("127.0.0.1 www." + domain + " " + TAG);
+      writeHosts(kept.join(NL) + NL, site);
+      return NONE;
+    },
+
+    // Unblock a website you blocked earlier. Needs admin.
+    unblock: (args, site) => {
+      const domain = cleanDomain(stringify(args[0] ?? NONE));
+      if (!domain) throw new LangError("Runtime", "unblock needs a website address.", site?.line ?? 1, site?.col ?? 1, 'Try: unblock("example.com")');
+      const kept = readHosts().split(/\r?\n/).filter((l) => !lineBlocks(l, domain));
+      writeHosts(kept.join(NL), site);
+      return NONE;
+    },
+
+    // Is a website blocked on this computer right now? -> yes / no
+    isblocked: (args) => {
+      const domain = cleanDomain(stringify(args[0] ?? NONE));
+      return domain ? readHosts().split(/\r?\n/).some((l) => lineBlocks(l, domain)) : false;
+    },
+
+    // A list of the websites you've blocked.
+    blocked: () => {
+      const found = new Set<string>();
+      for (const l of readHosts().split(/\r?\n/)) {
+        if (!l.includes(TAG)) continue;
+        const m = l.match(/^\s*\S+\s+(\S+)/);
+        if (m) found.add(m[1].replace(/^www\./i, ""));
+      }
+      return new SList([...found]);
+    },
   };
 
   return {
-    names: ["hostname", "localip", "myip", "online", "status", "ping", "download"],
+    names: ["hostname", "localip", "myip", "online", "status", "ping", "download", "block", "unblock", "isblocked", "blocked"],
     builtins,
     isActive: () => false,
   };

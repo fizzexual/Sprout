@@ -30,3 +30,34 @@ every(1, "tick")        ~ run tick once a second, until it stops itself
 `every` / `after` / `at` / `watch` keep your program running in the background
 (like a bot's listen loop) — press **Ctrl+C**, or call `stop()` from a task, to
 end it. `wait` / `now` / `today` are instant and work in any program.
+
+## Apps & your PC
+
+Start programs, check what's running, close them, and decide what runs when the
+computer boots.
+
+```sprout
+use "automations"
+
+launch("notepad")                        ~ start an app in the background
+when running("chrome"):                  ~ is Chrome open?
+    show "Chrome is open"
+closeapp("notepad")                      ~ close it again
+
+start_with_pc("MyBot", "node C:\\bot.js")  ~ run this every time the PC starts
+show "auto-starts?", starts_with_pc("MyBot")
+stop_with_pc("MyBot")                       ~ undo it
+```
+
+| Function | What it does |
+| --- | --- |
+| `launch("program")` | start a program, app, file, or website in the background |
+| `running("name")` | is that program running right now? → `yes` / `no` |
+| `closeapp("name")` | close a running program |
+| `start_with_pc("name", "command")` | run a command every time the PC starts |
+| `stop_with_pc("name")` | stop it from starting with the PC |
+| `starts_with_pc("name")` | is it set to start with the PC? → `yes` / `no` |
+
+`start_with_pc` uses your **per-user** Windows startup list, so it needs **no
+administrator rights** — a program can register itself. (These app/PC tools are
+Windows-focused.)
