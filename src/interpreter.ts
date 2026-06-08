@@ -98,6 +98,9 @@ export class Interpreter {
   private input: Input;
   // Plain-English narration for `sprout explain`. null = off (normal run).
   private narrate: ((msg: string) => void) | null;
+  // Step hook for `sprout trace`: called before each statement runs, with its
+  // line and a snapshot of the variables in scope. null = off (normal run).
+  private onStep: ((line: number, vars: [string, string][]) => void) | null;
   private depth = 0;
   // `give` returns via these flags instead of throwing an exception (much faster
   // for recursion-heavy code). runBlock + the loops stop when `returning` is set.
@@ -107,7 +110,7 @@ export class Interpreter {
   constructor(
     source: string,
     out: OutputSink = (line) => console.log(line),
-    options: { maxSteps?: number; storage?: Storage; net?: Net; secrets?: Secrets; programDir?: string; programFile?: string; input?: Input; narrate?: (msg: string) => void } = {},
+    options: { maxSteps?: number; storage?: Storage; net?: Net; secrets?: Secrets; programDir?: string; programFile?: string; input?: Input; narrate?: (msg: string) => void; onStep?: (line: number, vars: [string, string][]) => void } = {},
   ) {
     this.source = source;
     this.out = out;
@@ -120,6 +123,7 @@ export class Interpreter {
     this.programFile = options.programFile ?? "";
     this.input = options.input ?? noInput();
     this.narrate = options.narrate ?? null;
+    this.onStep = options.onStep ?? null;
   }
 
   // Emit one indented line of plain-English narration (only in explain mode).
@@ -240,6 +244,9 @@ export class Interpreter {
         "Check that a 'repeat while' condition eventually becomes false.",
       );
     }
+
+    // `sprout trace`: pause before each statement with the line + variables.
+    if (this.onStep) this.onStep(stmt.line, env.visibleNames().map((n) => [n, stringify(env.get(n))] as [string, string]));
 
     switch (stmt.type) {
       case "Make": {

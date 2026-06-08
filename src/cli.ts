@@ -8,7 +8,7 @@
 //   sprout repl                 interactive prompt
 //   sprout version
 
-import { readFileSync, existsSync, writeFileSync } from "node:fs";
+import { readFileSync, existsSync, writeFileSync, readSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -342,6 +342,93 @@ async function fastFile(path: string): Promise<void> {
   await import(pathToFileURL(tmp).href);
 }
 
+// --- the step debugger: `sprout trace <file>` --------------------------------
+function restoreTerm(): void {
+  if (process.stdin.isTTY && process.stdin.setRawMode) process.stdin.setRawMode(false);
+  process.stdout.write("\x1b[?25h"); // show the cursor again
+}
+
+// Read a single keypress (blocking). Spacebar steps; q quits; c runs to the end.
+function readKey(): string {
+  const buf = Buffer.alloc(1);
+  try { readSync(0, buf, 0, 1, null); } catch { return "q"; }
+  return buf.toString("utf8");
+}
+
+// Draw the split screen: source (with a → on the current line) | the variables.
+function renderTrace(lines: string[], cur: number, vars: [string, string][], output: string[], done: boolean): void {
+  const W = process.stdout.columns || 90;
+  const leftW = Math.max(28, Math.min(58, W - 34));
+  const G = "\x1b[90m", Y = "\x1b[93m", B = "\x1b[1m", R = "\x1b[0m";
+  let s = "\x1b[2J\x1b[H\x1b[?25l"; // clear, home, hide cursor
+  const help = done ? G + "finished — press any key to exit" + R : Y + "SPACE" + R + G + " step   " + R + Y + "c" + R + G + " run   " + R + Y + "q" + R + G + " quit" + R;
+  s += "  " + B + "sprout trace" + R + "   " + help + "\n\n";
+  const rows = Math.max(lines.length, vars.length + 2);
+  for (let i = 0; i < rows; i++) {
+    let cell: string;
+    if (i < lines.length) {
+      const ln = i + 1;
+      let txt = ` ${ln === cur ? "→" : " "} ${String(ln).padStart(2)}  ${lines[i]}`;
+      txt = txt.length > leftW ? txt.slice(0, leftW - 1) + "…" : txt.padEnd(leftW);
+      cell = ln === cur ? Y + txt + R : G + txt.slice(0, 4) + R + txt.slice(4);
+    } else cell = " ".repeat(leftW);
+    let right = "";
+    if (i === 0) right = B + "Variables" + R;
+    else if (i === 1) right = G + "───────────" + R;
+    else { const v = vars[i - 2]; if (v) right = v[0] + G + " = " + R + v[1]; }
+    s += cell + G + " │ " + R + right + "\n";
+  }
+  if (output.length) { s += "\n" + G + "  output" + R + "\n"; for (const o of output.slice(-8)) s += "  " + o + "\n"; }
+  process.stdout.write(s);
+}
+
+// `sprout trace <file>` — step through a program line by line, watching variables.
+async function traceFile(path: string): Promise<void> {
+  let source = "";
+  try { source = readFileSync(path, "utf8"); }
+  catch { fail(`I couldn't open the file: ${path}`, "Check the name and that the file is there."); }
+  const lines = source.split(/\r?\n/);
+  const output: string[] = [];
+  let lastVars: [string, string][] = [];
+  let stepping = true;
+  let quit = false;
+
+  const dataPath = join(dirname(path), basename(path, extname(path)) + ".data.json");
+  const interp = new Interpreter(source, (l) => output.push(l), {
+    storage: fileStorage(dataPath),
+    net: nodeNet(),
+    secrets: fileSecrets(join(dirname(path), ".env")),
+    programDir: dirname(path),
+    programFile: resolve(path),
+    input: consoleInput(),
+    onStep: (line, vars) => {
+      if (quit) return;
+      lastVars = vars;
+      if (!stepping) return;
+      renderTrace(lines, line, vars, output, false);
+      const k = readKey();
+      if (k === "q" || k === "\x03") { quit = true; restoreTerm(); console.log("\n  (trace stopped)\n"); process.exit(0); }
+      if (k === "c") stepping = false;   // run to the end without pausing
+    },
+  });
+
+  const { run: program, problems } = await loadProject(path, interp);
+  if (problems.length > 0) { for (const p of problems) console.error("\n" + p); process.exit(1); }
+
+  if (process.stdin.isTTY && process.stdin.setRawMode) process.stdin.setRawMode(true);
+  try {
+    interp.run(program);
+  } catch (err) {
+    restoreTerm();
+    if (err instanceof LangError) { console.error("\n" + formatError(err, source) + "\n"); process.exit(1); }
+    fatal(err);
+  }
+  renderTrace(lines, -1, lastVars, output, true);
+  readKey();
+  restoreTerm();
+  console.log("");
+}
+
 // `sprout api <url>` — connect to an API and list everything you can read.
 function apiCommand(url: string): void {
   let body: string;
@@ -413,6 +500,7 @@ function usage(): void {
       "  sprout fast <file.sprout>   run it the fast way (compiled to JavaScript)",
       "  sprout build <file.sprout>  compile it to a standalone .mjs you run with node",
       "  sprout explain <file>       run it and narrate every step in plain English",
+      "  sprout trace <file>         step through it line-by-line, watching variables",
       "  sprout api <url>            connect to an API and list everything it offers",
       "  sprout modules              install / uninstall / test libraries (interactive)",
       "  sprout repl                 start the interactive prompt",
@@ -438,6 +526,8 @@ try {
     buildFile(args[1]);
   } else if (args[0] === "explain" && args[1]) {
     await runFile(args[1], "auto", true);
+  } else if (args[0] === "trace" && args[1]) {
+    await traceFile(args[1]);
   } else if (args[0] === "api" && args[1]) {
     apiCommand(args[1]);
   } else if (args[0] === "modules" || args[0] === "libraries") {

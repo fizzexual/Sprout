@@ -67,10 +67,22 @@ export function register(interp: Interpreter) {
     return letter + ":";
   }
 
-  // The CPU reader, shared by cpu() and the watch loop. Average load across cores.
+  // The CPU reader, shared by cpu() and the watch loop. Returns busy % 0-100.
+  //
+  // We measure it from how much CPU time all processes (minus the idle process)
+  // burn over a short window. Win32_Processor.LoadPercentage is unreliable (often
+  // reads 0), and the perf-counter APIs (Get-Counter / PerformanceCounter) fail
+  // outright on machines whose counter registry is corrupted — this WMI-process
+  // method needs neither, so it works everywhere.
   function readCpu(site: Site): number {
-    // Win32_Processor.LoadPercentage is instant and reliable; Get-Counter is slow.
-    const n = readNumber("(Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average", site, 10000);
+    const n = readNumber(
+      "$n=[Environment]::ProcessorCount;" +
+      "$f={ (Get-CimInstance Win32_Process -Filter 'ProcessId<>0' | ForEach-Object { $_.KernelModeTime + $_.UserModeTime } | Measure-Object -Sum).Sum };" +
+      "$s1=&$f; $t=[DateTime]::Now; Start-Sleep -Milliseconds 400; $s2=&$f;" +
+      "$ms=([DateTime]::Now-$t).TotalMilliseconds;" +
+      "[Math]::Round(($s2-$s1)/($n*$ms*10000)*100)",
+      site, 10000,
+    );
     return clampPct(n);
   }
 

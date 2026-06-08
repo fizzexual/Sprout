@@ -337,6 +337,7 @@ Run these in your terminal.
 | `sprout serve file.sprout` | Run it as a website and open the browser |
 | `sprout check file.sprout` | Verify the program (and files it `use`s) **without** running |
 | `sprout explain file.sprout` | Run it and narrate every step in plain English |
+| `sprout trace file.sprout` | Step through it line-by-line in a split view, watching variables change |
 | `sprout api <url>` | Connect to an API and list everything you can read |
 | `sprout modules` | Install / uninstall / test libraries (interactive) |
 | `sprout repl` | Start the interactive prompt (also runs with no arguments) |

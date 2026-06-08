@@ -30,6 +30,7 @@ sprout build file.sprout    # compile it to a standalone .mjs you run with node
 sprout gui file.sprout      # open it as a native window
 sprout serve file.sprout    # run it as a website
 sprout check file.sprout    # verify it WITHOUT running it
+sprout trace file.sprout    # step through it line-by-line, watching variables
 sprout repl                 # type code interactively
 sprout version
 ```

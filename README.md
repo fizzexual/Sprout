@@ -88,6 +88,7 @@ sprout gui file.sprout      open it as a native window
 sprout serve file.sprout    run it as a website
 sprout check file.sprout    verify it without running
 sprout explain file.sprout  run it and narrate each step
+sprout trace file.sprout    step through it line-by-line, watching variables
 sprout modules              install / browse libraries
 sprout repl                 interactive prompt
 ```
