@@ -273,6 +273,7 @@ button("Add one", "bump")
 | `button("text", "taskName")` | A button that runs that task on click | `button("Go", "onGo")` |
 | `field("id", "hint")` | A text box to type in (the hint is optional) | `field("name", "Your name")` |
 | `textof("id")` | Read what's currently typed in a field | `textof("name")` |
+| `always_on_top()` | Keep the native window above all others (`always_on_top(no)` = off) | `always_on_top()` |
 
 > A button can only run **its own** task. Helper tasks not wired to a button can't be triggered from the page — that keeps your app safe.
 

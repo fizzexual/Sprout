@@ -34,6 +34,7 @@ function: `name(args)`.
 | `button("text", "taskName")` | Show a button. When clicked, it runs the task named `taskName`. | `button("Add one", "add")` |
 | `field("id", "hint")` | Show a text box the user can type in. The hint is optional. | `field("name", "Type your name")` |
 | `textof("id")` | Read what's currently typed in a field. Gives back text. | `make who = textof("name")` |
+| `always_on_top()` | Float the **native window** above every other window. `always_on_top(no)` turns it off. (No effect for a website.) | `always_on_top()` |
 
 A few things to remember:
 

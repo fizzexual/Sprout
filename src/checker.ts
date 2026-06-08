@@ -30,7 +30,7 @@ const INPUT_ARITY: Record<string, [number, number]> = {
   ask: [0, 1],
 };
 const GUI_ARITY: Record<string, [number, number]> = {
-  window: [1, 1], server: [1, 1], label: [2, 2], button: [2, 2], field: [1, 2], textof: [1, 1],
+  window: [1, 1], server: [1, 1], label: [2, 2], button: [2, 2], field: [1, 2], textof: [1, 1], always_on_top: [0, 1],
 };
 const PERSIST_ARITY: Record<string, [number, number]> = {
   remember: [2, 2], recall: [1, 2],

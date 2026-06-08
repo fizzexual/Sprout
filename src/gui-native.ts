@@ -87,6 +87,7 @@ function buildSpec(interp: Interpreter, theme: Theme) {
   return {
     title: gui.title,
     window: windowStyle(theme),
+    topMost: gui.topMost ?? false,
     widgets: gui.widgets.map((w) => ({ ...w, style: styleFor(theme, w.kind, w.id) })),
   };
 }

@@ -29,6 +29,7 @@ $widgets = @($spec.widgets)
 $form = New-Object System.Windows.Forms.Form
 $form.Text = [string]$spec.title
 $form.StartPosition = 'CenterScreen'
+if ($spec.topMost) { $form.TopMost = $true }
 $formHeight = [Math]::Min(720, 90 + ($widgets.Count * 50))
 $form.ClientSize = New-Object System.Drawing.Size(460, $formHeight)
 

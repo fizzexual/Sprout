@@ -187,6 +187,11 @@ test("gui: a program builds a window with widgets", () => {
   assert.equal(gui.widgets[1].onClick, "add");
 });
 
+test("gui: always_on_top floats the window above others", () => {
+  assert.equal(runApp('window("F")\nalways_on_top()').getGui().topMost, true);
+  assert.equal(runApp('window("F")\nalways_on_top(no)').getGui().topMost, false);
+});
+
 test("gui: clicking a button runs its task and updates a label", () => {
   const interp = runApp('make n = 0\nwindow("C")\nlabel("d", "0")\nbutton("Add", "add")\ntask add():\n    set n = n + 1\n    label("d", "" + n)');
   interp.clickButton("add");

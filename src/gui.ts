@@ -13,7 +13,7 @@
 
 import { LangError } from "./errors.ts";
 import type { Value } from "./values.ts";
-import { NONE, stringify, typeName } from "./values.ts";
+import { NONE, stringify, typeName, isTruthy } from "./values.ts";
 
 export interface Widget {
   kind: "label" | "button" | "field";
@@ -29,13 +29,14 @@ export interface GuiModel {
   used: boolean; // did the program call any GUI function?
   mode: "gui" | "server"; // a native window, or a website
   stylePath?: string; // the .bloom file requested via `style "..."`, if any
+  topMost?: boolean; // float above every other window (native windows only)
 }
 
 export function newGui(): GuiModel {
   return { title: "Sprout App", widgets: [], used: false, mode: "gui" };
 }
 
-export const GUI_BUILTINS = ["window", "server", "label", "button", "field", "textof"];
+export const GUI_BUILTINS = ["window", "server", "label", "button", "field", "textof", "always_on_top"];
 
 export function isGuiBuiltin(name: string): boolean {
   return GUI_BUILTINS.includes(name);
@@ -84,6 +85,11 @@ export function callGuiBuiltin(gui: GuiModel, name: string, args: Value[], site:
       need(name, args, 1, site);
       const w = find(gui, asId(args[0], name, site));
       return w ? w.text : "";
+    }
+    case "always_on_top": {
+      // always_on_top()  -> float above everything ; always_on_top(no) -> normal
+      gui.topMost = args.length === 0 ? true : isTruthy(args[0]);
+      return NONE;
     }
     default:
       return NONE;
