@@ -18,23 +18,15 @@ After that, the library's functions work just like the built-in ones.
 Run **`sprout modules`** for an interactive manager (a full-screen terminal UI).
 Type commands in the box: **`browse`** the catalogue, **`libinstall`** a library,
 **`install`** an extension's tools, **`setup`** to see extra steps, **`uninstall`**,
-or **`test`** that everything loads:
-
-```
-                              modules · v0.4
-
-  libraries
-    ● discord-bot      Make a Discord bot — chat + slash commands
-        music          Play YouTube audio in voice          ready
-        moderation     Auto-mod, kick / ban / timeout       🔜 coming soon
-    ◌ twitch-bot       Make a Twitch chat bot               🔜 coming soon
-    ◌ ai               Talk to an AI — chat & images        🔜 coming soon
-
-  commands  browse  libinstall <name>  install <name>  setup <name>  uninstall <name>  test  quit
-  ❯ install music
-```
+or **`test`** that everything loads.
 
 ## Available libraries
+
+| Library | What it does |
+| --- | --- |
+| **discord-bot** | make a real Discord bot — chat + `/slash` commands + a music player |
+| **networking** | the internet & your network — speed, blocking, devices, sharing, uptime |
+| **automations** | automate your PC — schedules, system control, macros, triggers, routines |
 
 ### discord-bot — make a Discord bot 🤖
 
@@ -52,7 +44,7 @@ task handle():
 ```
 
 Your token goes in a git-ignored `.env` file next to the program
-(`DISCORD_TOKEN = ...`) and [`secret(...)`](builtins.md#secrets-secret) reads it
+(`DISCORD_TOKEN = ...`) and [`secret(...)`](builtins.md#secrets) reads it
 — so it never reaches GitHub.
 
 | Function | What it does |
@@ -66,102 +58,53 @@ Your token goes in a git-ignored `.env` file next to the program
 | `slash("name", "description", handler)` | add a `/slash` command — `handler` is a task name, or an extension action like `"discord-bot/music/play"` |
 
 `reply` is smart: inside a slash task it answers the slash command, otherwise it
-posts in the channel. A tiny slash command looks like:
+posts in the channel. Full setup is in the
+[library's README](../libraries/discord-bot/README.md) (make a bot, copy its
+token, turn on the Message Content Intent, invite it).
 
-```sprout
-slash("hello", "Say hello", "sayHi")
+### networking — the internet & your network 🌐
 
-task sayHi():
-    reply("Hello from a Sprout slash command! 🌱")
-```
+`use "networking"` adds friendly network tools. It's split into topic pages so
+each part is easy to find:
 
-Full setup is in the [library's README](../libraries/discord-bot/README.md)
-(make a bot, copy its token, turn on the Message Content Intent, invite it).
-
-### networking — talk to the network 🌐
+| Page | What's inside |
+| --- | --- |
+| **[Info & diagnostics](libraries/networking-info.md)** | `hostname` · `localip` · `myip` · `online` · `status` · `ping` · `download` · `speedtest` · `whereis` · `wifi` · `isopen` · `hops` · `whois` |
+| **[Blocking websites](libraries/networking-blocking.md)** | `block` · `unblock` · `blocked` · `unblock_all` · `block_category` · `block_until` |
+| **[Your local network](libraries/networking-devices.md)** | `devices` · `router` · `devicename` · `find` · `isup` · `wake` |
+| **[Uptime monitoring](libraries/networking-monitoring.md)** | `monitor` · `watchinternet` · `isdown` · `avgping` · `healthcheck` · `logstatus` · `uptime` |
+| **[Sharing to your phone](libraries/networking-sharing.md)** | `share` · `serve` · `sharetext` · `sendphone` · `qr` |
 
 ```sprout
 use "networking"
-
-show "This computer:", hostname()
-show "Local IP:", localip()
-
+show "This computer:", hostname(), "  IP:", localip()
 when online():
-    show "Public IP:", myip()
-    show "google.com:", status("https://www.google.com")
-    show "ping:", ping("google.com"), "ms"
-
-download("https://example.com", "page.html")   ~ saves next to your program
+    show "ping google:", ping("google.com"), "ms"
 ```
 
-| Function | What it does |
+### automations — automate your PC ⏰
+
+`use "automations"` runs tasks on a schedule, controls the PC, reacts to events,
+and can run your project on startup. Its topic pages:
+
+| Page | What's inside |
 | --- | --- |
-| `hostname()` | the name of this computer |
-| `localip()` | this computer's address on your local network |
-| `myip()` | your public IP — how the internet sees you |
-| `online()` / `online("https://site")` | is the internet (or one site) reachable? → `yes` / `no` |
-| `status("url")` | the HTTP status code (200, 404…), or `nothing` |
-| `ping("host")` | round-trip time to a host in milliseconds, or `nothing` |
-| `download("url", "file")` | save a file from the web next to your program |
-| `block("site.com")` | block a website on this computer (a focus/parental toy) |
-| `unblock("site.com")` | allow it again |
-| `isblocked("site.com")` | is it blocked? → `yes` / `no` |
-| `blocked()` | a list of the sites you've blocked |
-
-> `block` / `unblock` edit the system **hosts file**, so run your program as
-> **administrator** to use them. `isblocked` / `blocked` work without admin.
-
-### automations — run tasks on a schedule ⏰
+| **[Scheduling & clock](libraries/automations-scheduling.md)** | `every` · `after` · `at` · `watch` · `wait` · `now` · `today` · `weekday` · `countdown` · `alarm` · `snooze` · `on_days` · `sunrise`/`sunset` |
+| **[Run on PC startup](libraries/automations-startup.md)** | `run_on_startup` · `runs_on_startup` · `start_with_pc` · `stop_with_pc` · `starts_with_pc` |
+| **[Launch & control apps](libraries/automations-apps.md)** | `launch` · `running` · `closeapp` |
+| **[System control](libraries/automations-system.md)** | `volume` · `mute` · `shutdown` · `restart` · `sleep` · `lock` · `darkmode` · `wallpaper` · `clipboard` · `brightness` · `keepawake` · `say` |
+| **[Keyboard / mouse / screenshot](libraries/automations-macros.md)** | `type` · `press` · `screenshot` · `copy_text` · `movemouse` · `click` · `mousepos` · `typeto` |
+| **[Event triggers](libraries/automations-triggers.md)** | `when_idle` · `on_usb` · `on_open` · `on_wifi` · `on_low_battery` · `on_hotkey` |
+| **[One-word routines](libraries/automations-routines.md)** | `workmode` · `pomodoro` · `morning` · `bedtime` · `routine` |
 
 ```sprout
 use "automations"
-
-make count = 0
 task tick():
-    set count = count + 1
-    show "tick", count
-    when count >= 5:
-        stop()
-
-every("2 seconds", "tick")    ~ a number of seconds, OR friendly text
+    show "tick at", now("12h")
+every("2 seconds", "tick")
 ```
 
-Times can be a number of seconds **or** friendly text: `"30 seconds"`,
-`"10 minutes"`, `"2 hours"`, `"1 day"` (short forms `30s` / `10m` / `2h` / `1d`).
-
-| Function | What it does |
-| --- | --- |
-| `every(time, "task")` | run a task again and again |
-| `every(time, "task", count)` | …but only `count` times, then stop |
-| `after(time, "task")` | run a task once, after a delay |
-| `at("time", "task")` | run at a clock time — `"08:00"`, `"8:30pm"`, or weekly `"Monday 09:00"` |
-| `watch("file", "task")` | run a task whenever a file changes on disk |
-| `wait(time)` | pause the program (`wait("0.5")`, `wait("2 minutes")`) |
-| `now()` / `now("12h")` | the time now, `"14:30:05"` or `"2:30 PM"` |
-| `today()` / `weekday()` | today's date, and the day name (`"Monday"`) |
-| `stop()` | stop all automations and end the program |
-
-`every` / `after` / `at` / `watch` keep the program running in the background —
-press **Ctrl+C** or call `stop()` from a task to end it.
-
-**Run your whole project on startup** — link this `.sprout` to Windows login:
-
-| Function | What it does |
-| --- | --- |
-| `run_on_startup()` | run this project's main file every time the PC starts |
-| `run_on_startup(no)` | stop it running at startup |
-| `runs_on_startup()` | is this project set to start with the PC? → `yes` / `no` |
-
-It can also start apps, see what's running, and manage PC startup (Windows):
-
-| Function | What it does |
-| --- | --- |
-| `launch("program")` | start a program, app, file, or website in the background |
-| `running("name")` | is that program running right now? → `yes` / `no` |
-| `closeapp("name")` | close a running program |
-| `start_with_pc("name", "command")` | run any command every time the PC starts (no admin) |
-| `stop_with_pc("name")` | stop it from starting with the PC |
-| `starts_with_pc("name")` | is it set to start with the PC? → `yes` / `no` |
+> Most of the system, macro, trigger, and routine features are **Windows-focused**.
 
 ## Extensions — libraries for libraries
 
@@ -218,18 +161,13 @@ Full details: [extensions/discord-bot/music](../extensions/discord-bot/music).
 Run `sprout modules` → `browse` to see where Sprout is headed. These are
 **placeholders** today, and they're deliberately the **genuinely hard** things —
 the kind where Sprout's whole value is "we did the painful part for you" (like
-music's voice + DAVE + yt-dlp + Lavalink saga). Easy stuff — moderation, welcome
-messages, simple commands — you can already build yourself with the discord-bot
-basics, so it's not here.
+music's voice + DAVE + yt-dlp + Lavalink saga).
 
 | Library | Extensions (planned) | Why it's hard |
 | --- | --- | --- |
 | **discord-bot** ✅ | `music` ✅ · `tts` · `transcribe` · `voice-ai` · `soundboard` | voice + DAVE E2EE + audio/AI pipelines |
 | **whatsapp-bot** 🔜 | `media` | the unofficial multi-device protocol |
 | **browser** 🔜 | `scrape` · `screenshot` | driving a real headless browser |
-
-Each is a meaty integration — but the *contract* a library plugs into is tiny
-(see below).
 
 ## Adding your own
 

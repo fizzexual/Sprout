@@ -23,7 +23,8 @@ All from **one small, dependency-free language** with its own friendly vocabular
 | **[Built-in Functions](builtins.md)** | `sqrt`, `max`, `length`, `upper`, `remember`/`recall`, `get`/`post`, `secret`… |
 | **[GUI & Servers](gui-and-servers.md)** | build native windows and websites in Sprout |
 | **[Bloom Styling](bloom-syntax.md)** | Sprout's own CSS — style apps and embeds |
-| **[Libraries](libraries.md)** | add powers like `discord-bot`, manage them with `sprout modules` |
+| **[Libraries](libraries.md)** | add powers — `discord-bot`, `networking`, `automations`; manage with `sprout modules` |
+| **[Library Reference](libraries/README.md)** | one page per topic — every library function, grouped |
 | **[Projects](projects.md)** | connect files together with `use "file.sprout"` |
 | **[Cheat Sheet](cheatsheet.md)** | the whole language on one page |
 
