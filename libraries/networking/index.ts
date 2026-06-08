@@ -18,7 +18,7 @@ import type { Interpreter } from "../../src/interpreter.ts";
 import { LangError } from "../../src/errors.ts";
 import { spawnSync } from "node:child_process";
 import { hostname as osHostname, networkInterfaces } from "node:os";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { resolve } from "node:path";
 
 type Site = { line: number; col: number } | undefined;
@@ -41,19 +41,42 @@ function flushDns(): void {
   try { if (process.platform === "win32") spawnSync("ipconfig", ["/flushdns"], { stdio: "ignore", timeout: 5000 }); } catch { /* best effort */ }
 }
 
+function errCode(e: unknown): string {
+  return (e && typeof e === "object" && "code" in e) ? String((e as { code: unknown }).code) : "";
+}
+
+// A synchronous pause (the interpreter is synchronous anyway).
+function sleepMs(ms: number): void {
+  try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch { /* ignore */ }
+}
+
+function adminError(site: Site): LangError {
+  return new LangError("Runtime", "Blocking a website needs administrator rights.", site?.line ?? 1, site?.col ?? 1,
+    process.platform === "win32"
+      ? "Close this, right-click your terminal (or VS Code), choose 'Run as administrator', and run your program again."
+      : "Run your program with sudo to edit the hosts file.");
+}
+
+// The hosts file is often briefly LOCKED right after a change (antivirus scans it,
+// the DNS service reloads it), so a plain overwrite can fail with EBUSY. We retry,
+// and under a lock we delete + recreate the file so we get a fresh, unlocked handle.
 function writeHosts(text: string, site: Site): void {
-  try { writeFileSync(HOSTS, text); }
-  catch (e) {
-    const code = (e && typeof e === "object" && "code" in e) ? String((e as { code: unknown }).code) : "";
-    if (code === "EPERM" || code === "EACCES") {
-      throw new LangError("Runtime", "Blocking a website needs administrator rights.", site?.line ?? 1, site?.col ?? 1,
-        process.platform === "win32"
-          ? "Close this, right-click your terminal (or VS Code), choose 'Run as administrator', and run your program again."
-          : "Run your program with sudo to edit the hosts file.");
+  let lastErr: unknown = null;
+  for (let attempt = 0; attempt < 16; attempt++) {
+    try {
+      if (attempt > 0) { try { unlinkSync(HOSTS); } catch { /* may be missing or momentarily locked */ } }
+      writeFileSync(HOSTS, text);
+      flushDns();
+      return;
+    } catch (e) {
+      lastErr = e;
+      const code = errCode(e);
+      // A real permission problem (not elevated) shows up on the very first try.
+      if ((code === "EPERM" || code === "EACCES") && attempt === 0) throw adminError(site);
+      sleepMs(Math.min(120 + attempt * 40, 500));   // EBUSY / locked: wait, then retry
     }
-    throw netError(e instanceof Error ? e.message : String(e), site);
   }
-  flushDns();
+  throw netError("the hosts file stayed locked by another program (" + (lastErr instanceof Error ? lastErr.message : String(lastErr)) + "). Pause real-time antivirus or close any hosts editor, then try again.", site);
 }
 
 // "https://www.Example.com/page" -> "example.com"
