@@ -13,6 +13,8 @@ in below.
 | [Your local network](networking-devices.md) | `devices` `router` `devicename` `find` `isup` `wake` |
 | [Uptime monitoring](networking-monitoring.md) | `monitor` `watchinternet` `isdown` `avgping` `healthcheck` `logstatus` `uptime` |
 | [Sharing to your phone](networking-sharing.md) | `share` `serve` `sharetext` `sendphone` `qr` |
+| [Web & data](networking-web.md) | `weather` `mac_vendor` `ssl_expiry` `cert` `dns` `headers` `shorten` `expand` `filesize` |
+| [Security & presence](networking-security.md) | `is_vpn` `captive_portal` `whos_home` `portscan` `services` `use_dns` `current_dns` `on_new_device` `newdevice` |
 
 ## automations — `use "automations"`
 
@@ -25,6 +27,10 @@ in below.
 | [Keyboard / mouse / screenshot](automations-macros.md) | `type` `press` `screenshot` `copy_text` `clipboard` `movemouse` `click` `mousepos` `typeto` |
 | [Event triggers](automations-triggers.md) | `when_idle` `when_back` `on_usb` `on_usb_removed` `on_open` `on_close` `on_wifi` `on_offline` `on_low_battery` `on_charging` `on_hotkey` |
 | [One-word routines](automations-routines.md) | `workmode` `pomodoro` `morning` `bedtime` `routine` `run_routine` `say` |
+| [System stats & pop-ups](automations-stats.md) | `cpu` `ram` `disk` `battery` `charging` `pc_uptime` `processes` `idle_time` `notify` `popup` `confirm` `ask_box` `watch_cpu` `watch_ram` |
+| [Files & folders](automations-files.md) | `read_file` `write_file` `append_file` `log` `files` `newest` `oldest` `biggest` `foldersize` `count` `freespace` `open_folder` `backup` `zip` `unzip` `snapshot` `restore` `versions` `sort_downloads` |
+| [Sound, mic & windows](automations-sound.md) | `beep` `play_sound` `mute_mic` `mic_muted` `dnd` `show_desktop` `minimize_all` `focus_window` |
+| [Reminders & life triggers](automations-reminders.md) | `remind` `timer` `stopwatch` `elapsed` `on_lock` `on_unlock` `on_clipboard` `on_low_disk` |
 
 > The system, macro, trigger, and routine features are **Windows-focused**.
 > Anything that edits the hosts file (`block`) needs **administrator** rights.

@@ -74,6 +74,8 @@ each part is easy to find:
 | **[Your local network](libraries/networking-devices.md)** | `devices` · `router` · `devicename` · `find` · `isup` · `wake` |
 | **[Uptime monitoring](libraries/networking-monitoring.md)** | `monitor` · `watchinternet` · `isdown` · `avgping` · `healthcheck` · `logstatus` · `uptime` |
 | **[Sharing to your phone](libraries/networking-sharing.md)** | `share` · `serve` · `sharetext` · `sendphone` · `qr` |
+| **[Web & data](libraries/networking-web.md)** | `weather` · `mac_vendor` · `ssl_expiry` · `cert` · `dns` · `headers` · `shorten` · `expand` · `filesize` |
+| **[Security & presence](libraries/networking-security.md)** | `is_vpn` · `captive_portal` · `whos_home` · `portscan` · `services` · `use_dns` · `on_new_device` |
 
 ```sprout
 use "networking"
@@ -96,6 +98,10 @@ and can run your project on startup. Its topic pages:
 | **[Keyboard / mouse / screenshot](libraries/automations-macros.md)** | `type` · `press` · `screenshot` · `copy_text` · `movemouse` · `click` · `mousepos` · `typeto` |
 | **[Event triggers](libraries/automations-triggers.md)** | `when_idle` · `on_usb` · `on_open` · `on_wifi` · `on_low_battery` · `on_hotkey` |
 | **[One-word routines](libraries/automations-routines.md)** | `workmode` · `pomodoro` · `morning` · `bedtime` · `routine` |
+| **[System stats & pop-ups](libraries/automations-stats.md)** | `cpu` · `ram` · `disk` · `battery` · `pc_uptime` · `processes` · `notify` · `popup` · `confirm` · `ask_box` |
+| **[Files & folders](libraries/automations-files.md)** | `read_file` · `write_file` · `files` · `newest` · `foldersize` · `backup` · `zip` · `sort_downloads` |
+| **[Sound, mic & windows](libraries/automations-sound.md)** | `beep` · `play_sound` · `mute_mic` · `dnd` · `show_desktop` · `focus_window` |
+| **[Reminders & life triggers](libraries/automations-reminders.md)** | `remind` · `timer` · `stopwatch` · `on_lock` · `on_clipboard` · `on_low_disk` |
 
 ```sprout
 use "automations"
