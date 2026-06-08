@@ -24,6 +24,10 @@ import { register as system } from "./system.ts";
 import { register as macros } from "./macros.ts";
 import { register as triggers } from "./triggers.ts";
 import { register as routines } from "./routines.ts";
+import { register as stats } from "./stats.ts";
+import { register as files } from "./files.ts";
+import { register as sound } from "./sound.ts";
+import { register as reminders } from "./reminders.ts";
 
 type Site = { line: number; col: number };
 type Builtin = (args: Value[], site?: Site) => Value;
@@ -32,7 +36,7 @@ interface Module { names: string[]; builtins: Record<string, Builtin>; isActive?
 export function create(interp: Interpreter) {
   // Order matters for the rare shared name (e.g. clipboard, say): the first
   // module listed wins.
-  const mods: Module[] = [scheduling(interp), startup(interp), apps(interp), system(interp), macros(interp), triggers(interp), routines(interp)];
+  const mods: Module[] = [scheduling(interp), startup(interp), apps(interp), system(interp), macros(interp), triggers(interp), routines(interp), stats(interp), files(interp), sound(interp), reminders(interp)];
   const names: string[] = [];
   const builtins: Record<string, Builtin> = {};
   for (const m of mods) {

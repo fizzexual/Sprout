@@ -19,13 +19,15 @@ import { register as blocking } from "./blocking.ts";
 import { register as devices } from "./devices.ts";
 import { register as monitoring } from "./monitoring.ts";
 import { register as sharing } from "./sharing.ts";
+import { register as web } from "./web.ts";
+import { register as security } from "./security.ts";
 
 type Site = { line: number; col: number };
 type Builtin = (args: Value[], site?: Site) => Value;
 interface Module { names: string[]; builtins: Record<string, Builtin>; isActive?: () => boolean; start?: () => void }
 
 export function create(interp: Interpreter) {
-  const mods: Module[] = [info(interp), blocking(interp), devices(interp), monitoring(interp), sharing(interp)];
+  const mods: Module[] = [info(interp), blocking(interp), devices(interp), monitoring(interp), sharing(interp), web(interp), security(interp)];
   const names: string[] = [];
   const builtins: Record<string, Builtin> = {};
   for (const m of mods) {
