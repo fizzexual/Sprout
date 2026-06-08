@@ -1,18 +1,29 @@
 <p align="center">
-  <img src="images/banner.png" alt="Sprout — grow code, gently" width="100%" />
+  <img src="images/banner.png" alt="Sprout" width="100%" />
 </p>
 
-# 🌱 Sprout
+<h1 align="center">🌱 Sprout</h1>
 
-**A small, friendly programming language — built completely from scratch.**
+<p align="center">A small, friendly programming language — built from scratch, with zero dependencies.</p>
 
-Sprout is a real interpreted language with its own lexer, parser, and
-tree-walking interpreter. No transpiling, no frameworks, **no dependencies** —
-just source text turning into a running program.
+<p align="center">
+  <a href="https://github.com/fizzexual/Sprout-/releases/latest"><img src="https://img.shields.io/badge/version-0.6.0-2ea043?style=flat-square" alt="version" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ea043?style=flat-square" alt="license" /></a>
+  <img src="https://img.shields.io/badge/dependencies-0-2ea043?style=flat-square" alt="zero dependencies" />
+  <img src="https://img.shields.io/badge/node-%E2%89%A523.6-2ea043?style=flat-square" alt="node >=23.6" />
+</p>
 
-Its one big idea: **be the kindest language to learn programming with.** Where
-most languages throw cryptic errors, Sprout points at the exact spot and
-explains the problem in plain English.
+<p align="center">
+  <a href="https://github.com/fizzexual/Sprout-/releases/latest">Download</a> ·
+  <a href="wiki/README.md">Documentation</a> ·
+  <a href="wiki/cheatsheet.md">Cheat sheet</a>
+</p>
+
+---
+
+Sprout is a real interpreted language — its own lexer, parser, and tree-walking interpreter. No transpiling, no frameworks, no dependencies. It has one goal: **be the kindest language to learn programming with.**
+
+Where most languages throw cryptic errors, Sprout points at the exact spot and explains it in plain English:
 
 ```
 🌱 Oops — name problem on line 2:
@@ -25,266 +36,64 @@ explains the problem in plain English.
   💡 Did you mean 'name'?
 ```
 
-📚 **Full documentation:** the **[wiki/](wiki)** covers all of Sprout and Bloom —
-start at [wiki/README.md](wiki/README.md) or the [cheat sheet](wiki/cheatsheet.md).
-
-## A taste
-
-Sprout has its **own** vocabulary — it doesn't borrow `let`, `print`, or `if`
-from anyone:
+## Hello, Sprout
 
 ```sprout
 make name = "world"
 show "Hello, " + name + "!"
-
-~ Count to 20 — FizzBuzz
-make n = 1
-repeat while n <= 20:
-    when n % 15 == 0:
-        show "FizzBuzz"
-    orwhen n % 3 == 0:
-        show "Fizz"
-    orwhen n % 5 == 0:
-        show "Buzz"
-    otherwise:
-        show n
-    set n = n + 1
 ```
 
-## Install Sprout
+```bash
+sprout run hello.sprout
+```
 
-### The easy way (Windows): the installer 🪄
+Sprout has its own vocabulary — `make`, `set`, `show`, `when`, `repeat`, `task` — it doesn't borrow `let`, `print`, or `if` from anyone.
 
-**[Download `SproutSetup.exe`](https://github.com/fizzexual/Sprout-/releases/latest/download/SproutSetup.exe)**
-(from the [latest release](https://github.com/fizzexual/Sprout-/releases/latest)) and run the
-wizard. It lets you pick the folder and which libraries you want, **downloads the
-latest Sprout from this repo**, and registers the `sprout` command, file types,
-and Start-menu shortcuts. Run it again any time to **Update / Repair / Uninstall**.
+## Install
 
-> **This repo is the source code, not the installed product.** Cloning it lets
-> you read and change how Sprout works, but it isn't registered on your PC until
-> the installer sets it up. (You still need **Node 23.6+** installed.)
+**Windows** — download [`SproutSetup.exe`](https://github.com/fizzexual/Sprout-/releases/latest/download/SproutSetup.exe) and run the wizard. It registers the `sprout` command, file types, and shortcuts.
 
-### The manual / developer way
-
-Sprout runs its TypeScript source directly — no build step. Link the `sprout`
-command yourself so you can use it anywhere, just like `python`:
+**From source** (any OS, needs Node 23.6+) — Sprout runs its TypeScript directly, so there's no build step:
 
 ```bash
 git clone https://github.com/fizzexual/Sprout-.git
 cd Sprout-
-npm link          # creates the global `sprout` command
+npm link
 ```
 
-Then:
+## What you can build
 
-```bash
-sprout version
-sprout run hello.sprout    # run a program you wrote
-sprout repl                # interactive prompt
+- **Programs** — variables, math, text, conditions, loops, lists & maps, `for each`, and `task` functions
+- **Multi-file projects** — split your code across files with `use "file.sprout"`
+- **Desktop apps & websites** — `window("Title")` for a native window, `server("Title")` for a site — the same code, either way
+- **Styling** — Bloom, Sprout's own CSS, with `style "theme.bloom"`
+- **Data & the internet** — `remember` / `recall` to save between runs, `get` / `post` for any API, `secret(...)` to keep tokens out of your code
+- **Libraries** — `use "discord-bot"` for a real Discord bot, with a voice music player
+
+## Commands
+
 ```
-
-Sprout programs use the **`.sprout`** extension — write one in any folder and run
-it with `sprout run yourfile.sprout`. The **[wiki](wiki)** teaches the whole
-language with copy-paste snippets ([cheat sheet](wiki/cheatsheet.md) for the
-one-page tour).
-
-> Don't want to install anything? You can always run it directly:
-> `node src/cli.ts run yourfile.sprout`
-
-### Double-click to run (Windows)
-
-Make `.sprout` files runnable straight from Explorer — double-click one and it
-runs (a window for GUI apps, a website for `server` apps). It also gives
-`.sprout` and `.bloom` files their icons:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File tools\install-file-association.ps1
+sprout run file.sprout      run a program
+sprout gui file.sprout      open it as a native window
+sprout serve file.sprout    run it as a website
+sprout check file.sprout    verify it without running
+sprout explain file.sprout  run it and narrate each step
+sprout modules              install / browse libraries
+sprout repl                 interactive prompt
 ```
-
-This is per-user only (no admin needed) and reversible:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File tools\uninstall-file-association.ps1
-```
-
-## Build a GUI 🪟
-
-Sprout can make real **native windows** — written entirely in Sprout. A `button`
-runs a `task` when clicked, `label` updates what's on screen, and `field` reads
-what the user typed.
-
-```sprout
-make count = 0
-
-task add():
-    set count = count + 1
-    label("display", "Count: " + count)
-
-window("Counter")
-label("display", "Count: 0")
-button("Add one", "add")
-```
-
-**Just open the file** — once the installer is run, double-click it and the
-window appears. No terminal needed. (Or from a shell: `sprout gui yourapp.sprout`.)
-
-A program that calls **`server("Title")`** instead of `window("Title")` runs as a
-**website** when opened (or `sprout serve yourapp.sprout`).
-
-GUI building blocks: `window(title)` / `server(title)`, `label(id, text)` (call
-again to update it), `button(text, taskName)`, `field(id, hint)`, and
-`textof(id)`. Leave out `style` and it shows the raw look.
-
-## Style it with Bloom &nbsp;<img src="images/bloom.png" width="24" align="top">
-
-**Bloom** is Sprout's own styling language — its version of CSS. Point at a
-`.bloom` file from your program with `style`:
-
-```sprout
-style "gui-counter.bloom"
-
-window("Counter")
-label("display", "Count: 0")
-button("Add one", "add")
-```
-
-```bloom
-~ gui-counter.bloom
-window:
-    background: #1a1030
-    text: #f0e9ff
-    font: Segoe UI 14
-
-#display:
-    size: 26
-    text: #c9a8ff
-
-button:
-    background: #8a5cff
-    rounded: 12
-```
-
-Style by widget kind (`window`, `label`, `button`, `field`) or by one widget's
-id (`#display`). The same Bloom file styles **both** the native window and the
-website. **No `style`? You get raw, unstyled output — like HTML with no CSS.**
-
-## VS Code extension &nbsp;<img src="images/sprout.png" width="24" align="top">
-
-Edit Sprout in **VS Code** with full language support — syntax highlighting for
-`.sprout` and `.bloom`, snippets (`window`, `task`, `when`, `repeat`, …), and
-**Run** commands. It lives in [`vscode-extension/`](vscode-extension).
-
-**Try it instantly:** open the `vscode-extension` folder in VS Code and press
-<kbd>F5</kbd> — a dev window opens with the extension loaded. Open any `.sprout`
-file to see it highlighted.
-
-**Install it permanently** as a `.vsix`:
-
-```bash
-cd vscode-extension
-npx @vscode/vsce package
-code --install-extension sprout-language-0.1.0.vsix
-```
-
-With a `.sprout` file open, click **▶ Run** in the editor title bar, or
-right-click → **Sprout: Run File** / **Run as Window** / **Run as Website**.
-(The commands call `sprout` — run `npm link` once so it's on your PATH.)
-
-## Tests
-
-Sprout has a test suite that runs real programs and checks their output, using
-Node's built-in test runner — still **no dependencies**:
-
-```bash
-npm test          # or: node --test test/sprout.test.ts
-```
-
-## The language so far (v0.6)
-
-| Feature | Sprout |
-| --- | --- |
-| Create a variable | `make score = 0` |
-| Change a variable | `set score = score + 1` |
-| Print | `show "hi", name, 1 + 2` |
-| Math | `+ - * / %` and parentheses |
-| Text | `"a" + "b"`, joins with anything |
-| Comparisons | `== != < <= > >=` |
-| Logic | `and`, `or`, `not` |
-| Conditions | `when` / `orwhen` / `otherwise` |
-| Loops | `repeat while cond:` and `repeat N times:` |
-| Lists | `make xs = [1, 2, 3]` · `xs[0]` · `add(xs, 4)` · `length` / `first` / `last` |
-| Maps | `make m = {name: "Sam", age: 3}` · `m["name"]` · `keys(m)` |
-| For each | `for each item in xs:` — walks a list, a map's keys, or text |
-| Ask for input | `make name = ask("What's your name?")` · `number("42")` to convert |
-| Explain mode | `sprout explain file.sprout` — narrates every step in plain English |
-| Loop safety | the checker refuses a `repeat while` that can never stop |
-| Tasks (functions) | `task greet(name):` … `give value` (with recursion) |
-| Multi-file projects | `use "scoring.sprout"` — split a program into files that share their tasks |
-| GUI apps (native) | `window(title)` + `label` / `button` / `field` / `textof` |
-| Websites (server) | `server(title)` + the same widgets, runs in a browser |
-| Hidden backend | server logic never reaches the browser — only button tasks can run |
-| Saves data | `remember` / `recall` — data persists between runs, no database |
-| Internet | `get` / `post` + `jsonpick` — call any API; `sprout api <url>` discovers one |
-| Secrets | `secret("DISCORD_TOKEN")` — tokens live in a git-ignored `.env`, never in code |
-| Verified first | the whole program is checked before it runs (`sprout check`) |
-| Libraries | `use "discord-bot"` — add powers like a real Discord bot |
-| Extensions | `use "discord-bot/music"` — a voice **music player** (`!play`, `/play`) on top |
-| Slash commands | bots register & answer `/commands`, not just `!text` |
-| Styling (Bloom) | `style "theme.bloom"` — or raw output if omitted |
-| Editor | **VS Code extension** — highlighting, snippets, Run buttons (`vscode-extension/`) |
-| Booleans | `yes` / `no` |
-| Built-in functions | `sqrt(16)`, `max(3, 9)`, `length("hi")`, `upper(s)` |
-| Comments | `~ like this` |
-| Kind errors | points at the spot, suggests fixes |
-
-**Built-ins so far:** `abs` · `round` · `floor` · `ceil` · `sqrt` · `min` · `max` · `length` · `upper` · `lower` · `random` · `number` · `ask` · `add` · `contains` · `keys` · `range` · `first` · `last`
 
 ## How it works
 
 ```
-source text
-   │  lexer.ts        →  tokens (words & symbols, with indentation)
-   ▼
- tokens
-   │  parser.ts       →  a syntax tree (AST)
-   ▼
-syntax tree
-   │  interpreter.ts  →  walks the tree and runs it
-   ▼
-output
+source → lexer → parser → interpreter → output
 ```
 
-| File | Job |
-| --- | --- |
-| `src/lexer.ts` | Turn text into tokens (handles indentation → INDENT/DEDENT) |
-| `src/parser.ts` | Recursive-descent parser → AST |
-| `src/interpreter.ts` | Tree-walking evaluator |
-| `src/errors.ts` | The friendly error type + pretty-printer |
-| `src/cli.ts` | The `sprout` command (run a file, or REPL) |
+A handful of small, dependency-free TypeScript files. The full pipeline is documented in the [wiki](wiki/README.md).
 
-## Roadmap
+## Documentation & tooling
 
-- [x] **v0.1** — original syntax, math, text, built-ins, tests, kind errors
-- [x] **v0.2** — functions (`task` / `give`) with recursion
-- [x] **GUI apps** — real **native windows** from a `.sprout` file
-- [x] **Server** — `server(...)` runs the same app as a website
-- [x] **Bloom** — Sprout's styling language; `style "..."`, raw if omitted
-- [x] **Saves data** — `remember` / `recall`, persists between runs
-- [x] **Internet** — `get` / `post` / `jsonpick`; `sprout api <url>` to explore one
-- [x] **Secrets** — `secret("NAME")` from a git-ignored `.env`; never hardcode a token
-- [x] **Verify before running** — whole-program check (`sprout check`)
-- [x] **VS Code extension** — highlighting, snippets, run commands
-- [x] **Wiki** — full Sprout + Bloom docs in [`wiki/`](wiki)
-- [x] **Libraries** — `use "..."`; first one is [`discord-bot`](libraries/discord-bot)
-- [x] **Extensions + slash commands** — `use "discord-bot/music"` plays YouTube in voice; bots answer `/commands`
-- [x] **Windows installer** — a [`SproutSetup.exe`](https://github.com/fizzexual/Sprout-/releases/latest) wizard (auto-published to Releases): pick libraries, downloads from the repo, Update/Repair/Uninstall
-- [x] **`sprout modules`** — an interactive terminal to install / uninstall / test libraries
-- [x] **v0.5 — The Data Update** — **lists** `[1, 2, 3]`, **maps** `{name: "Sam"}`, indexing `xs[0]` / `m["k"]`, **`for each item in …`**, and `add` / `contains` / `keys` / `range` / `first` / `last`
-- [x] **v0.5.1** — **`ask`** for input + `number(...)`, **`sprout explain`** (narrates every step in plain English), and an **infinite-loop detector** (the checker refuses a `repeat while` that can never end)
-- [x] **v0.6 — Projects** — **connect files** with `use "file.sprout"`; imported files share their tasks, the whole project is checked before it runs ([Projects](wiki/projects.md))
-- [ ] **next** — built-in **charts** (`chart "bar", data`), **drawing/canvas**, and `every 10 minutes:` scheduled tasks
+The **[wiki](wiki/README.md)** teaches the whole language and Bloom — the [cheat sheet](wiki/cheatsheet.md) is the one-page tour. A **VS Code extension** ([`vscode-extension/`](vscode-extension)) adds syntax highlighting, snippets, and run buttons, and the test suite runs with `npm test` — still zero dependencies.
 
 ---
 
-Made from scratch, one slice at a time. 🌱
+<p align="center"><sub>Made from scratch, one slice at a time. 🌱</sub></p>
