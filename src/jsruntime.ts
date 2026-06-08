@@ -8,6 +8,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NONE, SList, SMap, stringify, isTruthy, equalValues, typeName } from "./values.ts";
 import { callBuiltin } from "./builtins.ts";
+import { readSync } from "node:fs";
 
 export { NONE, SList, SMap };
 
@@ -67,3 +68,25 @@ export function _smap(pairs: [string, any][]): SMap { return new SMap(new Map(pa
 // Core builtins (length/upper/round/range/add/keys/...) — routed through the
 // interpreter's own callBuiltin so they behave identically.
 export function _b(name: string, args: any[]): any { return callBuiltin(name, args, SITE); }
+
+// ask("question?") — read one line from the console, blocking until Enter. Same
+// behaviour as the interpreter's `ask`, so a compiled program can be interactive.
+function _readLine(): string {
+  let s = "";
+  const buf = Buffer.alloc(1);
+  for (;;) {
+    let n = 0;
+    try { n = readSync(0, buf, 0, 1, null); } catch { break; }
+    if (n === 0) break;            // end of input
+    const ch = buf.toString("utf8");
+    if (ch === "\n") break;
+    if (ch === "\r") continue;
+    s += ch;
+  }
+  return s;
+}
+export function _ask(args: any[]): string {
+  const prompt = args.length ? stringify(args[0]) : "";
+  if (prompt) process.stdout.write(prompt + " ");
+  return _readLine();
+}

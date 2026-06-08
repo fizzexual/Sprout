@@ -300,28 +300,36 @@ async function checkFile(path: string): Promise<void> {
 // --- the fast build: compile a program to JavaScript and run it on V8 ---------
 const RUNTIME_URL = new URL("./jsruntime.ts", import.meta.url).href;
 
-// Parse + compile a single file. Returns the generated JS, or {error} when the
-// fast build doesn't cover this program (it uses a library, GUI, etc.).
-function compileFile(path: string, runtimeUrl: string = RUNTIME_URL): { js: string } | { error: string } {
-  let source = "";
-  try { source = readFileSync(path, "utf8"); }
-  catch { fail(`I couldn't open the file: ${path}`, "Check the name and that the file is there."); }
-  let program: ReturnType<typeof parse>;
-  try { program = parse(tokenize(source)); }
-  catch (err) {
-    if (err instanceof LangError) { console.error("\n" + formatError(err, source) + "\n"); process.exit(1); }
-    fatal(err); return { error: "" };
+// Parse + (multi-file) combine + compile. Gathers the entry plus every .sprout
+// file it `use`s, merges their tasks, and compiles the whole project into one JS
+// program. Returns {error} when the fast build can't cover it (a library, a
+// styled GUI, ...). Verifies every file first, so mistakes get a kind error.
+function compileProject(path: string, runtimeUrl: string = RUNTIME_URL): { js: string } | { error: string } {
+  const files = gatherSproutFiles(path);  // reads + parses each file (errors itself)
+  const entry = files[files.length - 1];
+
+  // A library `use` can't be compiled — bail early with a friendly note.
+  for (const f of files) for (const s of f.program) {
+    if (s.type === "Use" && !s.name.endsWith(".sprout")) return { error: `it uses the '${s.name}' library, which the fast build doesn't cover — run it with: sprout run` };
   }
-  const result = compile(program, runtimeUrl);
-  if ("error" in result) return result;
-  // It's a supported core program — verify it so mistakes still get a kind error.
-  const problems = check(program);
-  if (problems.length) {
-    for (const p of problems) console.error("\n" + formatError(p, source));
-    console.error(`\nFound ${problems.length} problem(s) — fix these and try again.\n`);
-    process.exit(1);
+
+  // Verify every file (cross-file task calls are allowed).
+  const allTasks = new Set<string>();
+  for (const f of files) for (const s of f.program) if (s.type === "Task") allTasks.add(s.name);
+  for (const f of files) {
+    const problems = check(f.program, allTasks);
+    if (problems.length) {
+      for (const p of problems) console.error("\n" + formatError(p, f.source) + (files.length > 1 ? `\n   (in ${basename(f.path)})` : ""));
+      console.error(`\nFound ${problems.length} problem(s) — fix these and try again.\n`);
+      process.exit(1);
+    }
   }
-  return result;
+
+  // Merge: imported files' tasks first, then the entry file in full.
+  const combined: ReturnType<typeof parse> = [];
+  for (const f of files) if (f !== entry) for (const s of f.program) if (s.type === "Task") combined.push(s);
+  for (const s of entry.program) combined.push(s);
+  return compile(combined, runtimeUrl);
 }
 
 // `sprout build <file>` — write a fast .mjs you run with node.
@@ -330,7 +338,7 @@ function compileFile(path: string, runtimeUrl: string = RUNTIME_URL): { js: stri
 async function buildFile(path: string, flags: string[] = []): Promise<void> {
   const standalone = flags.includes("--standalone") || flags.includes("--exe");
   if (!standalone) {
-    const result = compileFile(path);
+    const result = compileProject(path);
     if ("error" in result) fail("Can't fast-build this program: " + result.error);
     const outPath = join(dirname(path), basename(path, extname(path)) + ".mjs");
     writeFileSync(outPath, result.js);
@@ -339,7 +347,7 @@ async function buildFile(path: string, flags: string[] = []): Promise<void> {
   }
 
   // --standalone: compile, then inline the whole runtime into one self-contained file.
-  const result = compileFile(path, "@runtime");
+  const result = compileProject(path, "@runtime");
   if ("error" in result) fail("Can't build a standalone from this program: " + result.error);
   const bundle = bundleStandalone(result.js);
   const stem = basename(path, extname(path));
@@ -396,7 +404,7 @@ function buildExe(bundle: string, outPath: string): { ok: true; path: string } |
 // `sprout fast <file>` — compile + run on V8 (much faster); falls back to the
 // interpreter for programs the fast build doesn't cover, so it's always correct.
 async function fastFile(path: string): Promise<void> {
-  const result = compileFile(path);
+  const result = compileProject(path);
   if ("error" in result) { await runFile(path, "auto"); return; }   // fall back, always correct
   // Run the compiled module in THIS process (one startup; the runtime is already
   // loaded), so `sprout fast` is genuinely fast, not two node launches.

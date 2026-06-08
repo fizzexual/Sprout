@@ -892,6 +892,20 @@ test("build --standalone: command succeeds and emits a self-contained artifact",
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test("build: compiles a MULTI-FILE project that uses ask() into one program", () => {
+  const dir = mkdtempSync(join(tmpdir(), "sprout-proj-build-"));
+  try {
+    writeFileSync(join(dir, "data.sprout"), "task double(n):\n    give n * 2\n");
+    writeFileSync(join(dir, "main.sprout"), 'use "data.sprout"\nmake x = ask("n?")\nshow double(number(x))\n');
+    const built = runCli(["build", join(dir, "main.sprout")]);
+    assert.equal(built.code, 0, built.out);
+    const mjs = join(dir, "main.mjs");
+    assert.ok(existsSync(mjs), "the merged project should compile to one .mjs");
+    const r = spawnSync(process.execPath, [mjs], { encoding: "utf8", input: "21\n" });
+    assert.match(r.stdout ?? "", /42/); // cross-file task + ask() both work in the compiled program
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test("bench: times both engines and reports a speedup", () => {
   const dir = mkdtempSync(join(tmpdir(), "sprout-bench-"));
   try {

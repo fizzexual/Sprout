@@ -28,7 +28,9 @@ export function compile(program: Stmt[], runtimeUrl: string): { js: string } | {
   const scanStmts = (stmts: Stmt[]): void => { for (const s of stmts) scanStmt(s); };
   const scanStmt = (s: Stmt): void => {
     switch (s.type) {
-      case "Use": note(`the fast build doesn't support 'use "${s.name}"' yet`); break;
+      // `use "other.sprout"` is a multi-file import — the builder already merged
+      // those files in, so here it's a no-op. Only a LIBRARY use can't compile.
+      case "Use": if (!s.name.endsWith(".sprout")) note(`the fast build doesn't support 'use "${s.name}"' yet`); break;
       case "Style": note("the fast build doesn't support styled GUI apps yet"); break;
       case "Make": case "Set": scanExpr(s.value); break;
       case "ExprStmt": scanExpr(s.expr); break;
@@ -46,7 +48,7 @@ export function compile(program: Stmt[], runtimeUrl: string): { js: string } | {
     switch (e.type) {
       case "Unary": scanExpr(e.operand); break;
       case "Logical": case "Binary": scanExpr(e.left); scanExpr(e.right); break;
-      case "Call": if (!tasks.has(e.name) && !BUILTIN.has(e.name)) note(`the fast build doesn't support '${e.name}' yet`); e.args.forEach(scanExpr); break;
+      case "Call": if (!tasks.has(e.name) && !BUILTIN.has(e.name) && e.name !== "ask") note(`the fast build doesn't support '${e.name}' yet`); e.args.forEach(scanExpr); break;
       case "List": e.items.forEach(scanExpr); break;
       case "Map": e.entries.forEach((en) => scanExpr(en.value)); break;
       case "Index": scanExpr(e.target); scanExpr(e.index); break;
@@ -81,7 +83,10 @@ export function compile(program: Stmt[], runtimeUrl: string): { js: string } | {
       case "Unary": return e.op === "-" ? `_neg(${genExpr(e.operand)})` : `_not(${genExpr(e.operand)})`;
       case "Logical": return `(_truthy(${genExpr(e.left)}) ${e.op === "and" ? "&&" : "||"} _truthy(${genExpr(e.right)}))`;
       case "Binary": return `${BINOP[e.op]}(${genExpr(e.left)}, ${genExpr(e.right)})`;
-      case "Call": return tasks.has(e.name) ? `${v(e.name)}(${e.args.map(genExpr).join(", ")})` : `_b(${JSON.stringify(e.name)}, [${e.args.map(genExpr).join(", ")}])`;
+      case "Call":
+        if (tasks.has(e.name)) return `${v(e.name)}(${e.args.map(genExpr).join(", ")})`;
+        if (e.name === "ask") return `_ask([${e.args.map(genExpr).join(", ")}])`;
+        return `_b(${JSON.stringify(e.name)}, [${e.args.map(genExpr).join(", ")}])`;
       case "List": return `new SList([${e.items.map(genExpr).join(", ")}])`;
       case "Map": return `_smap([${e.entries.map((en) => `[${JSON.stringify(en.key)}, ${genExpr(en.value)}]`).join(", ")}])`;
       case "Index": return `_index(${genExpr(e.target)}, ${genExpr(e.index)})`;
@@ -112,7 +117,7 @@ export function compile(program: Stmt[], runtimeUrl: string): { js: string } | {
   };
 
   const out: string[] = [];
-  out.push(`import { NONE, SList, SMap, _show, _add, _sub, _mul, _div, _mod, _neg, _lt, _le, _gt, _ge, _eq, _ne, _truthy, _not, _index, _iset, _iter, _count, _smap, _b } from ${JSON.stringify(runtimeUrl)};`);
+  out.push(`import { NONE, SList, SMap, _show, _add, _sub, _mul, _div, _mod, _neg, _lt, _le, _gt, _ge, _eq, _ne, _truthy, _not, _index, _iset, _iter, _count, _smap, _b, _ask } from ${JSON.stringify(runtimeUrl)};`);
   out.push("");
 
   // tasks (function declarations hoist, so order/forward-refs are fine)

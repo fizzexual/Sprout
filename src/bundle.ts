@@ -27,8 +27,10 @@ function moduleBody(name: string): string {
   finally { process.emitWarning = realEmitWarning; }
   const exported: string[] = [];
   js = js
-    // import { a, b } from "./x.ts"  ->  const { a, b } = __req("./x.ts")
-    .replace(/import\s*\{([^}]*)\}\s*from\s*["']([^"']+)["'];?/g, (_m, names, from) => `const {${names}} = __req(${JSON.stringify(from)});`)
+    // import { a, b } from "..."  ->  registry __req for our modules, real
+    // require() for Node built-ins like "node:fs".
+    .replace(/import\s*\{([^}]*)\}\s*from\s*["']([^"']+)["'];?/g, (_m, names, from) =>
+      from.startsWith(".") ? `const {${names}} = __req(${JSON.stringify(from)});` : `const {${names}} = require(${JSON.stringify(from)});`)
     // export { a, b }  (re-export of in-scope names) -> just record them
     .replace(/export\s*\{([^}]*)\}\s*;?/g, (_m, names: string) => { for (const n of names.split(",")) { const t = n.trim(); if (t) exported.push(t); } return ""; })
     // export function/class NAME -> function/class NAME
