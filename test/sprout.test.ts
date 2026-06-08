@@ -16,6 +16,7 @@ import { create as discordBot } from "../libraries/discord-bot/index.ts";
 import { create as networking } from "../libraries/networking/index.ts";
 import { create as automations } from "../libraries/automations/index.ts";
 import { create as screen } from "../libraries/screen/index.ts";
+import { create as recorder } from "../libraries/recorder/index.ts";
 import { SList, NONE } from "../src/values.ts";
 import { sealAudio, hchacha20, chooseMode, OggOpusDemuxer } from "../libraries/discord-bot/voice.ts";
 import { isUrl, formatQueue, create as musicExt } from "../extensions/discord-bot/music/index.ts";
@@ -824,6 +825,7 @@ for (const [libName, make, atLeast] of [
   ["automations", automations, 60],
   ["discord-bot", discordBot, 5],
   ["screen", screen, 12],
+  ["recorder", recorder, 3],
 ] as const) {
   test(`every ${libName} command is registered and callable`, () => {
     const lib = make(new Interpreter(""));

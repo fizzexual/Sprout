@@ -106,6 +106,11 @@ SCALE (many servers, no shared IP rate-limit): run a Lavalink server and set
     extensions: [],
   },
   {
+    name: "recorder",
+    description: "Record your mouse + keyboard, then replay it (macros)",
+    extensions: [],
+  },
+  {
     name: "whatsapp-bot",
     description: "A WhatsApp bot — the tricky unofficial multi-device protocol",
     placeholder: true,

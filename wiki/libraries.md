@@ -28,6 +28,7 @@ or **`test`** that everything loads.
 | **networking** | the internet & your network — speed, blocking, devices, sharing, uptime |
 | **automations** | automate your PC — schedules, system control, macros, triggers, routines |
 | **screen** | see the screen (find colours) and react — move, click, type |
+| **recorder** | record your mouse + keyboard, then replay it (macros) |
 
 ### discord-bot — make a Discord bot 🤖
 
@@ -136,6 +137,29 @@ when spot != nothing:
 > your primary monitor, and a snapshot takes ~0.4s — great for "wait for X, then
 > click", not twitch-speed reactions. Automate **your own** screen, and check a
 > game's rules before botting it.
+
+### recorder — record your input, then replay it 🎬
+
+`use "recorder"` captures **every mouse move, click, and key press/hold** (with
+timing) into a file, then plays it back exactly — a macro recorder. Great for
+repetitive tasks. Full guide: [`libraries/recorder/README.md`](../libraries/recorder/README.md).
+
+| Word | What it does |
+| --- | --- |
+| `record(file, seconds?)` | Record mouse + keyboard until you press **ESC** (or after `seconds`). |
+| `play(file, times?)` | Replay it with the original timing (optionally `times` times). |
+| `wait(seconds)` | Pause — handy before a replay so you can switch windows. |
+
+```sprout
+use "recorder"
+record("my-macro.txt")     ~ do your thing, then press ESC
+wait(3)                     ~ switch to the right window
+play("my-macro.txt")       ~ Sprout does it all again
+```
+
+> Windows only. Replaying sends input to whatever window is focused, so switch to
+> the right one first. Use it for **your own** tasks; check a game's rules before
+> automating it.
 
 ## Extensions — libraries for libraries
 
