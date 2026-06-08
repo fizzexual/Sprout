@@ -1,8 +1,15 @@
-# Registers the .sprout and .bloom file types and their icons.
+# Registers the .sprout and .bloom file types and their icons, so that
+# DOUBLE-CLICK opens the file in your editor (VS Code by default), with a
+# right-click "Run with Sprout" still available for .sprout files.
+#
 # Per-user only (HKCU) - no administrator rights needed. Reversible with
 # uninstall-file-association.ps1.
 #
 #   powershell -ExecutionPolicy Bypass -File tools\install-file-association.ps1
+#   powershell -ExecutionPolicy Bypass -File tools\install-file-association.ps1 -Editor "C:\Path\To\editor.exe"
+#   powershell -ExecutionPolicy Bypass -File tools\install-file-association.ps1 -Editor notepad++
+
+param([string]$Editor = 'auto')
 
 $ErrorActionPreference = 'Stop'
 
@@ -14,32 +21,71 @@ $imagesDir = Join-Path $repoRoot 'images'
 $sproutIcon = Join-Path $imagesDir 'sprout.ico'
 $bloomIcon = Join-Path $imagesDir 'bloom.ico'
 
-# --- .sprout -> Sprout.Program (runs on double-click; shows the Sprout icon) ---
-New-Item -Path 'HKCU:\Software\Classes\.sprout' -Force | Out-Null
-Set-ItemProperty -Path 'HKCU:\Software\Classes\.sprout' -Name '(default)' -Value 'Sprout.Program'
-New-Item -Path 'HKCU:\Software\Classes\Sprout.Program' -Force | Out-Null
-Set-ItemProperty -Path 'HKCU:\Software\Classes\Sprout.Program' -Name '(default)' -Value 'Sprout Program'
-New-Item -Path 'HKCU:\Software\Classes\Sprout.Program\DefaultIcon' -Force | Out-Null
-Set-ItemProperty -Path 'HKCU:\Software\Classes\Sprout.Program\DefaultIcon' -Name '(default)' -Value $sproutIcon
-New-Item -Path 'HKCU:\Software\Classes\Sprout.Program\shell\open\command' -Force | Out-Null
-Set-ItemProperty -Path 'HKCU:\Software\Classes\Sprout.Program\shell\open\command' -Name '(default)' -Value ("`"$launcher`" `"%1`"")
+# --- Work out which editor to open files in -----------------------------------
+function Find-Editor([string]$choice) {
+  $localApp = $env:LOCALAPPDATA
+  $vscode = @(
+    (Join-Path $localApp 'Programs\Microsoft VS Code\Code.exe'),
+    'C:\Program Files\Microsoft VS Code\Code.exe',
+    'C:\Program Files (x86)\Microsoft VS Code\Code.exe'
+  )
+  $cursor = @(
+    (Join-Path $localApp 'Programs\cursor\Cursor.exe'),
+    (Join-Path $localApp 'Programs\Cursor\Cursor.exe')
+  )
+  $nopp = @('C:\Program Files\Notepad++\notepad++.exe', 'C:\Program Files (x86)\Notepad++\notepad++.exe')
+  $subl = @('C:\Program Files\Sublime Text\sublime_text.exe', 'C:\Program Files\Sublime Text 3\sublime_text.exe')
 
-# --- .bloom -> Bloom.File (shows as type "Bloom" with the flower icon) ---
+  # A full path to an .exe was given - use it as-is.
+  if ($choice -match '\.exe$' -and (Test-Path $choice)) { return $choice }
+
+  $c = $choice.ToLower()
+  if ($c -match 'code|vscode') { foreach ($p in $vscode) { if (Test-Path $p) { return $p } } }
+  elseif ($c -eq 'cursor') { foreach ($p in $cursor) { if (Test-Path $p) { return $p } } }
+  elseif ($c -match 'notepad\+\+|npp|nopp') { foreach ($p in $nopp) { if (Test-Path $p) { return $p } } }
+  elseif ($c -match 'sublime|subl') { foreach ($p in $subl) { if (Test-Path $p) { return $p } } }
+  elseif ($c -eq 'notepad') { return 'notepad.exe' }
+
+  # 'auto', or a named editor that wasn't found: prefer VS Code, then the rest.
+  foreach ($p in ($vscode + $cursor + $nopp + $subl)) { if (Test-Path $p) { return $p } }
+  return 'notepad.exe'
+}
+
+$editorExe = Find-Editor $Editor
+$openCmd = "`"$editorExe`" `"%1`""
+$runCmd = "`"$launcher`" `"%1`""
+
+function Set-Default([string]$path, [string]$value) {
+  New-Item -Path $path -Force | Out-Null
+  Set-ItemProperty -Path $path -Name '(default)' -Value $value
+}
+
+# --- .sprout -> Sprout.Program (double-click OPENS in editor; right-click RUN) -
+Remove-Item -Path 'HKCU:\Software\Classes\Sprout.Program\shell' -Recurse -Force -ErrorAction SilentlyContinue
+Set-Default 'HKCU:\Software\Classes\.sprout' 'Sprout.Program'
+Set-Default 'HKCU:\Software\Classes\Sprout.Program' 'Sprout Program'
+Set-Default 'HKCU:\Software\Classes\Sprout.Program\DefaultIcon' $sproutIcon
+# Default action (double-click) = open in the editor.
+Set-Default 'HKCU:\Software\Classes\Sprout.Program\shell' 'open'
+Set-Default 'HKCU:\Software\Classes\Sprout.Program\shell\open\command' $openCmd
+# Secondary action (right-click) = run the program with Sprout.
+Set-Default 'HKCU:\Software\Classes\Sprout.Program\shell\run' 'Run with Sprout'
+Set-ItemProperty -Path 'HKCU:\Software\Classes\Sprout.Program\shell\run' -Name 'Icon' -Value $sproutIcon
+Set-Default 'HKCU:\Software\Classes\Sprout.Program\shell\run\command' $runCmd
+
+# --- .bloom -> Bloom.File (double-click OPENS in editor; flower icon) ----------
 Remove-Item -Path 'HKCU:\Software\Classes\Bloom.File' -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -Path 'HKCU:\Software\Classes\Bloom.File' -Force | Out-Null
-Set-ItemProperty -Path 'HKCU:\Software\Classes\Bloom.File' -Name '(default)' -Value 'Bloom'
-New-Item -Path 'HKCU:\Software\Classes\Bloom.File\DefaultIcon' -Force | Out-Null
-Set-ItemProperty -Path 'HKCU:\Software\Classes\Bloom.File\DefaultIcon' -Name '(default)' -Value $bloomIcon
-New-Item -Path 'HKCU:\Software\Classes\.bloom' -Force | Out-Null
-Set-ItemProperty -Path 'HKCU:\Software\Classes\.bloom' -Name '(default)' -Value 'Bloom.File'
+Set-Default 'HKCU:\Software\Classes\.bloom' 'Bloom.File'
+Set-Default 'HKCU:\Software\Classes\Bloom.File' 'Bloom'
+Set-Default 'HKCU:\Software\Classes\Bloom.File\DefaultIcon' $bloomIcon
+Set-Default 'HKCU:\Software\Classes\Bloom.File\shell' 'open'
+Set-Default 'HKCU:\Software\Classes\Bloom.File\shell\open\command' $openCmd
 
-# --- Clean up any leftover Botanica registrations from older installs ---
+# --- Clean up any leftover Botanica registrations from older installs ---------
 Remove-Item -Path 'HKCU:\Software\Classes\Botanica.Editor' -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath 'HKCU:\Software\Classes\*\shell\Botanica' -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -Path 'HKCU:\Software\Classes\Directory\shell\Botanica' -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -Path 'HKCU:\Software\Classes\Directory\Background\shell\Botanica' -Recurse -Force -ErrorAction SilentlyContinue
-Remove-ItemProperty -Path 'HKCU:\Software\Classes\.sprout\OpenWithProgids' -Name 'Botanica.Editor' -ErrorAction SilentlyContinue
-Remove-ItemProperty -Path 'HKCU:\Software\Classes\.bloom\OpenWithProgids' -Name 'Botanica.Editor' -ErrorAction SilentlyContinue
 
 # Tell Explorer the associations changed.
 Add-Type -Namespace Win32 -Name Shell -MemberDefinition `
@@ -47,5 +93,6 @@ Add-Type -Namespace Win32 -Name Shell -MemberDefinition `
 [Win32.Shell]::SHChangeNotify(0x08000000, 0, [IntPtr]::Zero, [IntPtr]::Zero)
 
 Write-Host "Done!" -ForegroundColor Green
-Write-Host "  - .sprout files show the Sprout icon and run on double-click."
-Write-Host "  - .bloom files show as 'Bloom' with the flower icon."
+Write-Host "  Editor: $editorExe"
+Write-Host "  - Double-click a .sprout or .bloom file -> opens in your editor."
+Write-Host "  - Right-click a .sprout file -> 'Run with Sprout' to run it."

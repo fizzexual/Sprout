@@ -56,15 +56,21 @@ Source: "sprout.cmd"; DestDir: "{app}"; Flags: ignoreversion
 Source: "sprout-extract.ps1"; DestDir: "{tmp}"; Flags: dontcopy
 
 [Registry]
-; .sprout -> double-click runs it; .bloom -> shows the Bloom type. Per-user (HKCU);
-; removed on uninstall. Icons come from the downloaded source under {app}\images.
+; .sprout / .bloom -> double-click OPENS in the editor (VS Code if found, else
+; Notepad); right-click a .sprout for "Run with Sprout". Per-user (HKCU); removed
+; on uninstall. Icons come from the downloaded source under {app}\images.
 Root: HKCU; Subkey: "Software\Classes\.sprout"; ValueType: string; ValueName: ""; ValueData: "Sprout.Program"; Flags: uninsdeletevalue
 Root: HKCU; Subkey: "Software\Classes\Sprout.Program"; ValueType: string; ValueName: ""; ValueData: "Sprout Program"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\Sprout.Program\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\images\sprout.ico"
-Root: HKCU; Subkey: "Software\Classes\Sprout.Program\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\sprout.cmd"" ""%1"""
+Root: HKCU; Subkey: "Software\Classes\Sprout.Program\shell"; ValueType: string; ValueName: ""; ValueData: "open"
+Root: HKCU; Subkey: "Software\Classes\Sprout.Program\shell\open\command"; ValueType: string; ValueName: ""; ValueData: "{code:EditorOpenCommand}"
+Root: HKCU; Subkey: "Software\Classes\Sprout.Program\shell\run"; ValueType: string; ValueName: ""; ValueData: "Run with Sprout"
+Root: HKCU; Subkey: "Software\Classes\Sprout.Program\shell\run"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\images\sprout.ico"
+Root: HKCU; Subkey: "Software\Classes\Sprout.Program\shell\run\command"; ValueType: string; ValueName: ""; ValueData: """{app}\sprout.cmd"" ""%1"""
 Root: HKCU; Subkey: "Software\Classes\.bloom"; ValueType: string; ValueName: ""; ValueData: "Bloom.File"; Flags: uninsdeletevalue
 Root: HKCU; Subkey: "Software\Classes\Bloom.File"; ValueType: string; ValueName: ""; ValueData: "Bloom"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\Bloom.File\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\images\bloom.ico"
+Root: HKCU; Subkey: "Software\Classes\Bloom.File\shell\open\command"; ValueType: string; ValueName: ""; ValueData: "{code:EditorOpenCommand}"
 ; Remember where + what version we installed (used to detect updates next time).
 Root: HKCU; Subkey: "Software\Sprout"; ValueType: string; ValueName: "InstallDir"; ValueData: "{app}"; Flags: uninsdeletekey
 
@@ -87,6 +93,23 @@ var
   InstalledVersion: String;
   RepoVersion: String;
   UpdateAvailable: Boolean;
+
+{ ---- editor used to open .sprout / .bloom on double-click ---- }
+function EditorOpenCommand(Param: String): String;
+var
+  candidates: array[0..2] of String;
+  i: Integer;
+begin
+  candidates[0] := ExpandConstant('{localappdata}\Programs\Microsoft VS Code\Code.exe');
+  candidates[1] := 'C:\Program Files\Microsoft VS Code\Code.exe';
+  candidates[2] := 'C:\Program Files (x86)\Microsoft VS Code\Code.exe';
+  Result := '';
+  for i := 0 to 2 do
+    if (Result = '') and FileExists(candidates[i]) then
+      Result := '"' + candidates[i] + '" "%1"';
+  if Result = '' then
+    Result := 'notepad.exe "%1"';
+end;
 
 { ---- PATH helpers (per-user) ---- }
 procedure EnvAddPath(Path: String);

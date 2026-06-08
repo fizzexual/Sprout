@@ -6,9 +6,20 @@ A Sprout program is a file ending in **`.sprout`**. There are several ways to ru
 
 | Way | How |
 | --- | --- |
-| **Just open it** | Double-click a `.sprout` file (after installing the file association). A GUI app opens its window; a `server` app opens in the browser; a plain program shows its output. |
+| **Open it to edit** | Double-click a `.sprout` or `.bloom` file — it opens in your editor (VS Code by default). |
+| **Run from Explorer** | Right-click a `.sprout` file → **Run with Sprout**. A GUI app opens its window; a `server` app opens in the browser; a plain program shows its output. |
 | **VS Code** | Open it in VS Code with the [Sprout extension](../vscode-extension) — highlighting + a **Run** button. |
 | **Command line** | `sprout run myprogram.sprout` |
+
+Set the double-click behavior up once (per-user, no admin needed):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\install-file-association.ps1
+```
+
+It opens files in **VS Code** if it's installed (otherwise Notepad). To choose a
+different editor, pass `-Editor notepad++`, `-Editor sublime`, `-Editor cursor`,
+or `-Editor "C:\Path\To\editor.exe"`.
 
 ### The `sprout` command
 
