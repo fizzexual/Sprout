@@ -332,12 +332,15 @@ Run these in your terminal.
 | `sprout file.sprout` | Run a program (opens a window if it's a GUI app) |
 | `sprout run file.sprout` | Same as above — run the program (interpreter) |
 | `sprout fast file.sprout` | Run it compiled to JavaScript — **faster than Python** |
-| `sprout build file.sprout` | Compile it to a standalone `.mjs` you run with `node` |
+| `sprout build file.sprout` | Compile it to a `.mjs` you run with `node` |
+| `sprout build file.sprout --standalone` | Bundle it into ONE file (and a no-Node `.exe`) |
+| `sprout bench file.sprout` | Time it on both engines and show how much faster compiling is |
 | `sprout gui file.sprout` | Force it open as a native window |
 | `sprout serve file.sprout` | Run it as a website and open the browser |
 | `sprout check file.sprout` | Verify the program (and files it `use`s) **without** running |
 | `sprout explain file.sprout` | Run it and narrate every step in plain English |
 | `sprout trace file.sprout` | Step through it line-by-line in a split view, watching variables change |
+| `sprout new myapp` | Create a starter program so you can get going fast |
 | `sprout api <url>` | Connect to an API and list everything you can read |
 | `sprout modules` | Install / uninstall / test libraries (interactive) |
 | `sprout repl` | Start the interactive prompt (also runs with no arguments) |

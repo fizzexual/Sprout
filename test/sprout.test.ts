@@ -20,7 +20,9 @@ import { sealAudio, hchacha20, chooseMode, OggOpusDemuxer } from "../libraries/d
 import { isUrl, formatQueue, create as musicExt } from "../extensions/discord-bot/music/index.ts";
 import { createDecipheriv } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { compile } from "../src/compile.ts";
+import { bundleStandalone } from "../src/bundle.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -853,6 +855,66 @@ test("trace-silenced commands all exist as real automations commands", () => {
   for (const n of ["type", "press", "typeto", "click", "movemouse", "shutdown", "restart", "sleep", "lock"]) {
     assert.ok(have.has(n), `the trace denylist names '${n}', but no such command exists`);
   }
+});
+
+// --- new in v0.6.1: standalone bundle, bench, new ---------------------------
+function runCli(args: string[], cwd?: string): { out: string; code: number | null } {
+  const r = spawnSync(process.execPath, [CLI, ...args], { encoding: "utf8", cwd });
+  return { out: (r.stdout ?? "") + (r.stderr ?? ""), code: r.status };
+}
+
+// The standalone bundler inlines the whole runtime into one file that runs
+// identically — this is the custom part, so test it directly and deterministically.
+test("standalone bundle: inlines the runtime into one runnable file", () => {
+  const compiled = compile(parse(tokenize("make x = 6\nshow x * 7\n")), "@runtime");
+  assert.ok(!("error" in compiled), "a core program should compile");
+  const js = bundleStandalone((compiled as { js: string }).js);
+  assert.doesNotMatch(js, /\bimport\b|\bexport\b/, "the bundle must have no ESM import/export left");
+  const dir = mkdtempSync(join(tmpdir(), "sprout-bundle-"));
+  try {
+    const f = join(dir, "out.cjs");
+    writeFileSync(f, js);
+    const r = spawnSync(process.execPath, [f], { encoding: "utf8" });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout ?? "", /42/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("build --standalone: command succeeds and emits a self-contained artifact", () => {
+  const dir = mkdtempSync(join(tmpdir(), "sprout-sa-"));
+  try {
+    writeFileSync(join(dir, "p.sprout"), "show 6 * 7\n");
+    const r = runCli(["build", join(dir, "p.sprout"), "--standalone"]);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /Bundled|Built/);
+    // either a portable .cjs (no postject) or a real .exe (postject present)
+    assert.ok(existsSync(join(dir, "p.cjs")) || existsSync(join(dir, "p.exe")) || existsSync(join(dir, "p")));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("bench: times both engines and reports a speedup", () => {
+  const dir = mkdtempSync(join(tmpdir(), "sprout-bench-"));
+  try {
+    writeFileSync(join(dir, "b.sprout"), "make t = 0\nrepeat 2000 times:\n    set t = t + 1\nshow t\n");
+    const r = runCli(["bench", join(dir, "b.sprout"), "3"]); // 3 runs each = fast
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /interpreter/);
+    assert.match(r.out, /compiled/);
+    assert.match(r.out, /faster/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("new: scaffolds a starter program that runs, and won't overwrite", () => {
+  const dir = mkdtempSync(join(tmpdir(), "sprout-new-"));
+  try {
+    const made = runCli(["new", "hello.sprout"], dir);
+    assert.equal(made.code, 0, made.out);
+    assert.ok(existsSync(join(dir, "hello.sprout")));
+    const ran = runCli(["run", join(dir, "hello.sprout")]);
+    assert.match(ran.out, /Hello, world!/);
+    const again = runCli(["new", "hello.sprout"], dir);
+    assert.notEqual(again.code, 0); // refuses to clobber
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 // During a trace, dangerous commands become no-ops; in a normal run they run.

@@ -8,8 +8,10 @@
 //   sprout repl                 interactive prompt
 //   sprout version
 
-import { readFileSync, existsSync, writeFileSync } from "node:fs";
+import { readFileSync, existsSync, writeFileSync, copyFileSync, mkdtempSync, rmSync } from "node:fs";
 import { createInterface } from "node:readline";
+import { createRequire } from "node:module";
+import { spawnSync } from "node:child_process";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
@@ -24,14 +26,15 @@ import { startNativeGui } from "./gui-native.ts";
 import { startWebServer } from "./serve.ts";
 import { emptyTheme, parseBloom } from "./bloom.ts";
 import type { Theme } from "./bloom.ts";
-import { fileStorage } from "./storage.ts";
-import { nodeNet } from "./net.ts";
+import { fileStorage, memoryStorage } from "./storage.ts";
+import { nodeNet, noNet } from "./net.ts";
 import { fileSecrets } from "./secrets.ts";
-import { consoleInput } from "./input.ts";
+import { consoleInput, noInput } from "./input.ts";
 import { modulesCommand } from "./modules.ts";
 import { describeJson } from "./explore.ts";
+import { bundleStandalone } from "./bundle.ts";
 
-const VERSION = "Sprout v0.6.0";
+const VERSION = "Sprout v0.6.1";
 
 // Turn any unexpected (non-Sprout) error into a friendly message instead of a
 // raw Node stack trace.
@@ -299,7 +302,7 @@ const RUNTIME_URL = new URL("./jsruntime.ts", import.meta.url).href;
 
 // Parse + compile a single file. Returns the generated JS, or {error} when the
 // fast build doesn't cover this program (it uses a library, GUI, etc.).
-function compileFile(path: string): { js: string } | { error: string } {
+function compileFile(path: string, runtimeUrl: string = RUNTIME_URL): { js: string } | { error: string } {
   let source = "";
   try { source = readFileSync(path, "utf8"); }
   catch { fail(`I couldn't open the file: ${path}`, "Check the name and that the file is there."); }
@@ -309,7 +312,7 @@ function compileFile(path: string): { js: string } | { error: string } {
     if (err instanceof LangError) { console.error("\n" + formatError(err, source) + "\n"); process.exit(1); }
     fatal(err); return { error: "" };
   }
-  const result = compile(program, RUNTIME_URL);
+  const result = compile(program, runtimeUrl);
   if ("error" in result) return result;
   // It's a supported core program — verify it so mistakes still get a kind error.
   const problems = check(program);
@@ -321,13 +324,73 @@ function compileFile(path: string): { js: string } | { error: string } {
   return result;
 }
 
-// `sprout build <file>` — write a fast standalone .mjs you can run with node.
-function buildFile(path: string): void {
-  const result = compileFile(path);
-  if ("error" in result) fail("Can't fast-build this program: " + result.error);
-  const outPath = join(dirname(path), basename(path, extname(path)) + ".mjs");
-  writeFileSync(outPath, result.js);
-  console.log(`✓ Built ${basename(outPath)} — run it with:  node "${outPath}"`);
+// `sprout build <file>` — write a fast .mjs you run with node.
+// `sprout build <file> --standalone` — bundle everything into ONE file, and (if
+// the build tool is set up) wrap it into a real .exe that needs no Node at all.
+async function buildFile(path: string, flags: string[] = []): Promise<void> {
+  const standalone = flags.includes("--standalone") || flags.includes("--exe");
+  if (!standalone) {
+    const result = compileFile(path);
+    if ("error" in result) fail("Can't fast-build this program: " + result.error);
+    const outPath = join(dirname(path), basename(path, extname(path)) + ".mjs");
+    writeFileSync(outPath, result.js);
+    console.log(`✓ Built ${basename(outPath)} — run it with:  node "${outPath}"`);
+    return;
+  }
+
+  // --standalone: compile, then inline the whole runtime into one self-contained file.
+  const result = compileFile(path, "@runtime");
+  if ("error" in result) fail("Can't build a standalone from this program: " + result.error);
+  const bundle = bundleStandalone(result.js);
+  const stem = basename(path, extname(path));
+  const cjsPath = join(dirname(path), stem + ".cjs");
+  writeFileSync(cjsPath, bundle);
+
+  // Try to wrap it into a real executable (no Node required to run it).
+  const exePath = join(dirname(path), stem + (process.platform === "win32" ? ".exe" : ""));
+  const exe = buildExe(bundle, exePath);
+  if (exe.ok) {
+    try { rmSync(cjsPath, { force: true }); } catch { /* keep it if we can't remove it */ }
+    console.log(`✓ Built ${basename(exe.path)} — a standalone program that needs no Node installed.`);
+    console.log(`  ${process.platform === "win32" ? "Double-click it, or send it to a friend to run." : "Run it directly, or send it to a friend."}`);
+  } else {
+    console.log(`✓ Bundled ${basename(cjsPath)} — one self-contained file. Run it with:  node "${cjsPath}"`);
+    console.log("");
+    console.log(`  To turn it into a true standalone executable (no Node needed), set the`);
+    console.log(`  build tool up once:   npm run install:exe`);
+    console.log(`  then run this again.  (${exe.why})`);
+  }
+}
+
+// Wrap a JS bundle into a single executable using Node's built-in Single
+// Executable Applications (SEA): generate a blob from the bundle, copy the node
+// runtime, and inject the blob with `postject` (a one-time build-time tool).
+function buildExe(bundle: string, outPath: string): { ok: true; path: string } | { ok: false; why: string } {
+  let postject: string;
+  try { postject = createRequire(import.meta.url).resolve("postject/dist/cli.js"); }
+  catch { return { ok: false, why: "the 'postject' build tool isn't installed yet" }; }
+
+  const work = mkdtempSync(join(tmpdir(), "sprout-exe-"));
+  try {
+    const appJs = join(work, "app.js");
+    const cfg = join(work, "sea-config.json");
+    const blob = join(work, "sea.blob");
+    writeFileSync(appJs, bundle);
+    writeFileSync(cfg, JSON.stringify({ main: appJs, output: blob, disableExperimentalSEAWarning: true }));
+    const gen = spawnSync(process.execPath, ["--experimental-sea-config", cfg], { encoding: "utf8" });
+    if (gen.status !== 0 || !existsSync(blob)) return { ok: false, why: "couldn't generate the program blob" };
+    copyFileSync(process.execPath, outPath);
+    const fuse = "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2";
+    const args = [postject, outPath, "NODE_SEA_BLOB", blob, "--sentinel-fuse", fuse];
+    if (process.platform === "darwin") args.push("--macho-segment-name", "NODE_SEA");
+    const inj = spawnSync(process.execPath, args, { encoding: "utf8" });
+    if (inj.status !== 0) return { ok: false, why: "couldn't inject the program into the executable" };
+    return { ok: true, path: outPath };
+  } catch (e) {
+    return { ok: false, why: e instanceof Error ? e.message : String(e) };
+  } finally {
+    try { rmSync(work, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
 }
 
 // `sprout fast <file>` — compile + run on V8 (much faster); falls back to the
@@ -340,6 +403,129 @@ async function fastFile(path: string): Promise<void> {
   const tmp = join(tmpdir(), `sprout-fast-${process.pid}-${basename(path, extname(path))}.mjs`);
   writeFileSync(tmp, result.js);
   await import(pathToFileURL(tmp).href);
+}
+
+// --- the benchmark: `sprout bench <file>` ------------------------------------
+// Times a program on BOTH engines (the interpreter and the compiled build) and
+// prints how much faster compiling makes it — a hands-on lesson in the
+// difference between interpreted and compiled code, using your own program.
+function fmtMs(ms: number): string {
+  return ms >= 1000 ? (ms / 1000).toFixed(3) + " s " : ms.toFixed(1) + " ms";
+}
+function meanSd(times: number[]): { mean: number; sd: number } {
+  const mean = times.reduce((a, b) => a + b, 0) / times.length;
+  const variance = times.reduce((a, b) => a + (b - mean) ** 2, 0) / times.length;
+  return { mean, sd: Math.sqrt(variance) };
+}
+// Pick a run count from how long one run took, so fast programs still get a
+// stable average and slow ones don't take forever.
+function runCount(firstMs: number, fixed: number): number {
+  if (fixed > 0) return fixed;
+  if (firstMs < 5) return 100;
+  if (firstMs < 50) return 40;
+  if (firstMs < 250) return 15;
+  if (firstMs < 1000) return 8;
+  return 5;
+}
+
+async function benchFile(path: string, runsArg?: string): Promise<void> {
+  let source = "";
+  try { source = readFileSync(path, "utf8"); }
+  catch { fail(`I couldn't open the file: ${path}`, "Check the name and that the file is there."); }
+  let program: ReturnType<typeof parse>;
+  try { program = parse(tokenize(source)); }
+  catch (err) {
+    if (err instanceof LangError) { console.error("\n" + formatError(err, source) + "\n"); process.exit(1); }
+    fatal(err); return;
+  }
+  const problems = check(program);
+  if (problems.length) { for (const p of problems) console.error("\n" + formatError(p, source)); console.error(`\nFound ${problems.length} problem(s) — fix these and try again.\n`); process.exit(1); }
+
+  const fixed = runsArg && /^\d+$/.test(runsArg) ? parseInt(runsArg, 10) : 0;
+  const silent = (): void => {};
+  const G = "\x1b[90m", Y = "\x1b[93m", B = "\x1b[1m", GR = "\x1b[92m", R = "\x1b[0m";
+
+  // --- interpreter: run in-process, output suppressed, fresh state each run ---
+  const runOnce = (): void => { new Interpreter(source, silent, { storage: memoryStorage(), net: noNet(), input: noInput() }).run(program); };
+  let warm: number;
+  try { const a = process.hrtime.bigint(); runOnce(); warm = Number(process.hrtime.bigint() - a) / 1e6; }
+  catch (err) {
+    if (err instanceof LangError) { console.error("\n" + formatError(err, source) + "\n  (bench runs your program for real — it needs to finish without errors)\n"); process.exit(1); }
+    fatal(err); return;
+  }
+  const interpN = runCount(warm, fixed);
+  const interpTimes: number[] = [];
+  for (let i = 0; i < interpN; i++) { const a = process.hrtime.bigint(); runOnce(); interpTimes.push(Number(process.hrtime.bigint() - a) / 1e6); }
+  const interp = meanSd(interpTimes);
+
+  // --- compiled: import the .mjs in-process, cache-busted, output suppressed ---
+  let comp: { mean: number; sd: number } | null = null;
+  let compN = 0;
+  const compiled = compile(program, RUNTIME_URL);
+  if (!("error" in compiled)) {
+    const tmp = join(tmpdir(), `sprout-bench-${process.pid}.mjs`);
+    writeFileSync(tmp, compiled.js);
+    const base = pathToFileURL(tmp).href;
+    const realLog = console.log;
+    console.log = silent;
+    try {
+      const a = process.hrtime.bigint(); await import(base + "?b=0"); const firstMs = Number(process.hrtime.bigint() - a) / 1e6;
+      compN = runCount(firstMs, fixed);
+      const ts: number[] = [];
+      for (let i = 1; i <= compN; i++) { const x = process.hrtime.bigint(); await import(base + "?b=" + i); ts.push(Number(process.hrtime.bigint() - x) / 1e6); }
+      comp = meanSd(ts);
+    } finally { console.log = realLog; }
+  }
+
+  // --- report ---
+  const peak = Math.max(interp.mean, comp ? comp.mean : 0) || 1;
+  const W = 40;
+  const bar = (mean: number, color: string): string => { const n = Math.max(1, Math.round((mean / peak) * W)); return color + "█".repeat(n) + G + "░".repeat(W - n) + R; };
+  const row = (label: string, s: { mean: number; sd: number }, n: number, color: string): string =>
+    "  " + color + label.padEnd(13) + R + fmtMs(s.mean).padStart(9) + G + "  ± " + s.sd.toFixed(s.mean >= 1000 ? 3 : 1).padStart(5) + "  (" + n + " runs)" + R + "  " + bar(s.mean, color);
+  console.log("");
+  console.log("  🌱  " + B + "sprout bench" + R + "  " + basename(path) + G + "   (execution time)" + R);
+  console.log("");
+  console.log(row("interpreter", interp, interpN, Y));
+  if (comp) {
+    console.log(row("compiled", comp, compN, GR));
+    console.log("");
+    const x = interp.mean / comp.mean;
+    console.log("  " + GR + "→ compiled ran " + B + x.toFixed(1) + "×" + R + GR + " faster than the interpreter" + R);
+  } else {
+    console.log("  " + G + "compiled      not available — this program uses features the fast build doesn't cover (libraries, GUI)" + R);
+  }
+  console.log("");
+}
+
+// `sprout new <name>` — drop a friendly starter program so a beginner can go
+// from nothing to a running program in one command.
+function newFile(rawName: string): void {
+  const name = rawName.endsWith(".sprout") ? rawName : rawName + ".sprout";
+  const target = resolve(name);
+  if (existsSync(target)) fail(`"${name}" already exists.`, "Pick a different name so nothing gets overwritten.");
+  const stem = basename(name, ".sprout");
+  const starter = [
+    `~ ${stem}.sprout — made with Sprout 🌱`,
+    `~ Lines starting with ~ are notes. Change anything and run it again!`,
+    ``,
+    `make name = "world"`,
+    `show "Hello, " + name + "!"`,
+    ``,
+    `make total = 0`,
+    `repeat 5 times:`,
+    `    set total = total + 1`,
+    `show "I counted to", total`,
+    ``,
+    `task greet(who):`,
+    `    give "Nice to meet you, " + who + "!"`,
+    `show greet("friend")`,
+    ``,
+  ].join("\n");
+  writeFileSync(target, starter);
+  console.log(`✓ Created ${name}`);
+  console.log(`  Run it:    sprout run ${name}`);
+  console.log(`  Watch it:  sprout trace ${name}`);
 }
 
 // --- the step debugger: `sprout trace <file>` --------------------------------
@@ -575,9 +761,12 @@ function usage(): void {
       "  sprout serve <file.sprout>  run it as a website",
       "  sprout check <file.sprout>  verify the program without running it",
       "  sprout fast <file.sprout>   run it the fast way (compiled to JavaScript)",
-      "  sprout build <file.sprout>  compile it to a standalone .mjs you run with node",
+      "  sprout build <file.sprout>  compile it to a .mjs you run with node",
+      "  sprout build <file> --standalone   bundle it into one file (and an .exe)",
+      "  sprout bench <file.sprout>  time it on both engines and compare the speed",
       "  sprout explain <file>       run it and narrate every step in plain English",
       "  sprout trace <file>         step through it line-by-line, watching variables",
+      "  sprout new <name>           create a starter program to get going fast",
       "  sprout api <url>            connect to an API and list everything it offers",
       "  sprout modules              install / uninstall / test libraries (interactive)",
       "  sprout repl                 start the interactive prompt",
@@ -600,7 +789,11 @@ try {
   } else if (args[0] === "fast" && args[1]) {
     await fastFile(args[1]);
   } else if (args[0] === "build" && args[1]) {
-    buildFile(args[1]);
+    await buildFile(args[1], args.slice(2));
+  } else if (args[0] === "bench" && args[1]) {
+    await benchFile(args[1], args[2]);
+  } else if (args[0] === "new" && args[1]) {
+    newFile(args[1]);
   } else if (args[0] === "explain" && args[1]) {
     await runFile(args[1], "auto", true);
   } else if (args[0] === "trace" && args[1]) {

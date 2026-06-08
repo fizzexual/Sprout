@@ -31,6 +31,9 @@ sprout gui file.sprout      # open it as a native window
 sprout serve file.sprout    # run it as a website
 sprout check file.sprout    # verify it WITHOUT running it
 sprout trace file.sprout    # step through it line-by-line, watching variables
+sprout bench file.sprout    # time it on both engines and compare the speed
+sprout build file.sprout --standalone   # bundle it into one file (and a no-Node .exe)
+sprout new myapp            # create a starter program to get going fast
 sprout repl                 # type code interactively
 sprout version
 ```

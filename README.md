@@ -7,7 +7,7 @@
 <p align="center">A small, friendly programming language — built from scratch, with zero dependencies.</p>
 
 <p align="center">
-  <a href="https://github.com/fizzexual/Sprout-/releases/latest"><img src="https://img.shields.io/badge/version-0.6.0-2ea043?style=flat-square" alt="version" /></a>
+  <a href="https://github.com/fizzexual/Sprout-/releases/latest"><img src="https://img.shields.io/badge/version-0.6.1-2ea043?style=flat-square" alt="version" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ea043?style=flat-square" alt="license" /></a>
   <img src="https://img.shields.io/badge/dependencies-0-2ea043?style=flat-square" alt="zero dependencies" />
   <img src="https://img.shields.io/badge/node-%E2%89%A523.6-2ea043?style=flat-square" alt="node >=23.6" />
@@ -81,16 +81,19 @@ Add powers with `use "..."`, then install and browse them from a built-in termin
 ## Commands
 
 ```
-sprout run file.sprout      run a program
-sprout fast file.sprout     run it compiled to JavaScript (faster than Python)
-sprout build file.sprout    compile it to a standalone .mjs
-sprout gui file.sprout      open it as a native window
-sprout serve file.sprout    run it as a website
-sprout check file.sprout    verify it without running
-sprout explain file.sprout  run it and narrate each step
-sprout trace file.sprout    step through it line-by-line, watching variables
-sprout modules              install / browse libraries
-sprout repl                 interactive prompt
+sprout run file.sprout          run a program
+sprout fast file.sprout         run it compiled to JavaScript (faster than Python)
+sprout build file.sprout        compile it to a .mjs
+sprout build file --standalone  bundle it into one file (and a no-Node .exe)
+sprout bench file.sprout        time it on both engines and compare the speed
+sprout gui file.sprout          open it as a native window
+sprout serve file.sprout        run it as a website
+sprout check file.sprout        verify it without running
+sprout explain file.sprout      run it and narrate each step
+sprout trace file.sprout        step through it line-by-line, watching variables
+sprout new myapp                create a starter program to get going fast
+sprout modules                  install / browse libraries
+sprout repl                     interactive prompt
 ```
 
 ## How it works
@@ -116,6 +119,21 @@ Best-of-5 wall-clock, one machine (Node 25). Same three programs in each languag
 | Primes — < 80,000 | 0.65s | **0.18s** | 0.22s | 0.09s | 0.04s | 0.11s |
 
 **Compiled Sprout beats CPython on every benchmark** — it runs as real JavaScript on V8 (so it lands within ~2× of Node, and well ahead of Python). The interpreter stays the friendly default for quick scripts and the kindest errors; `sprout fast` is there when you want the speed — *same `.sprout` file, your choice of engine*. (Compile mode covers the core language; programs that `use` a library or open a GUI just run on the interpreter.) Reproduce: [`benchmarks/`](benchmarks) → `bash benchmarks/bench.sh`.
+
+**Measure your own code:** `sprout bench yourfile.sprout` times it on both engines and prints the difference:
+
+```
+🌱  sprout bench  fib.sprout   (execution time)
+
+  interpreter    168.3 ms  ±  5.7  (15 runs)   ████████████████████████████████████████
+  compiled         7.1 ms  ±  0.6  (40 runs)   ██
+
+  → compiled ran 23.9× faster than the interpreter
+```
+
+## Share it — one file, no install
+
+`sprout build my-game.sprout --standalone` bundles your whole program — runtime and all — into a **single self-contained file**. With the one-time build tool set up (`npm run install:exe`), it produces a real **`my-game.exe`** that runs on a machine with **no Node and no Sprout installed** — just double-click, or send it to a friend.
 
 ## Documentation & tooling
 
