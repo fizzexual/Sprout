@@ -14,7 +14,7 @@ import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { pathToFileURL } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
 
 import { tokenize } from "./lexer.ts";
 import { parse } from "./parser.ts";
@@ -363,20 +363,35 @@ async function buildFile(path: string, flags: string[] = []): Promise<void> {
     console.log(`  ${process.platform === "win32" ? "Double-click it, or send it to a friend to run." : "Run it directly, or send it to a friend."}`);
   } else {
     console.log(`✓ Bundled ${basename(cjsPath)} — one self-contained file. Run it with:  node "${cjsPath}"`);
-    console.log("");
-    console.log(`  To turn it into a true standalone executable (no Node needed), set the`);
-    console.log(`  build tool up once:   npm run install:exe`);
-    console.log(`  then run this again.  (${exe.why})`);
+    console.log(`  (Couldn't build the no-Node .exe: ${exe.why}. The single file above still works wherever Node is installed.)`);
   }
+}
+
+// Find the `postject` build tool, installing it once if it's missing — so
+// `sprout build --standalone` is a single command with no separate setup step.
+// Returns its path, or null if it isn't there and couldn't be installed.
+function ensurePostject(): string | null {
+  if (process.env.SPROUT_SKIP_EXE) return null; // tests: skip the (large, slow) .exe build entirely
+  try { return createRequire(import.meta.url).resolve("postject/dist/cli.js"); } catch { /* not installed */ }
+  const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+  console.log("  First standalone build — setting up the .exe tool (one time)…\n");
+  // shell:true is required on Windows: Node refuses to spawn npm's .cmd directly
+  // (EINVAL). The args are fixed (no user input), so there's no injection risk.
+  const realEmitWarning = process.emitWarning;
+  process.emitWarning = () => {}; // hush the shell-option deprecation note
+  let r;
+  try { r = spawnSync("npm", ["run", "install:exe"], { cwd: root, stdio: "inherit", shell: true }); }
+  finally { process.emitWarning = realEmitWarning; }
+  if (!r || r.status !== 0) return null;
+  try { return createRequire(import.meta.url).resolve("postject/dist/cli.js"); } catch { return null; }
 }
 
 // Wrap a JS bundle into a single executable using Node's built-in Single
 // Executable Applications (SEA): generate a blob from the bundle, copy the node
-// runtime, and inject the blob with `postject` (a one-time build-time tool).
+// runtime, and inject the blob with `postject` (installed automatically once).
 function buildExe(bundle: string, outPath: string): { ok: true; path: string } | { ok: false; why: string } {
-  let postject: string;
-  try { postject = createRequire(import.meta.url).resolve("postject/dist/cli.js"); }
-  catch { return { ok: false, why: "the 'postject' build tool isn't installed yet" }; }
+  const postject = ensurePostject();
+  if (!postject) return { ok: false, why: "couldn't set up the 'postject' build tool (the first .exe build needs internet)" };
 
   const work = mkdtempSync(join(tmpdir(), "sprout-exe-"));
   try {

@@ -858,8 +858,8 @@ test("trace-silenced commands all exist as real automations commands", () => {
 });
 
 // --- new in v0.6.1: standalone bundle, bench, new ---------------------------
-function runCli(args: string[], cwd?: string): { out: string; code: number | null } {
-  const r = spawnSync(process.execPath, [CLI, ...args], { encoding: "utf8", cwd });
+function runCli(args: string[], cwd?: string, env?: Record<string, string>): { out: string; code: number | null } {
+  const r = spawnSync(process.execPath, [CLI, ...args], { encoding: "utf8", cwd, env: env ? { ...process.env, ...env } : process.env });
   return { out: (r.stdout ?? "") + (r.stderr ?? ""), code: r.status };
 }
 
@@ -884,7 +884,8 @@ test("build --standalone: command succeeds and emits a self-contained artifact",
   const dir = mkdtempSync(join(tmpdir(), "sprout-sa-"));
   try {
     writeFileSync(join(dir, "p.sprout"), "show 6 * 7\n");
-    const r = runCli(["build", join(dir, "p.sprout"), "--standalone"]);
+    // SPROUT_SKIP_EXE: skip the heavy .exe build in tests — we only check the bundle.
+    const r = runCli(["build", join(dir, "p.sprout"), "--standalone"], undefined, { SPROUT_SKIP_EXE: "1" });
     assert.equal(r.code, 0, r.out);
     assert.match(r.out, /Bundled|Built/);
     // either a portable .cjs (no postject) or a real .exe (postject present)
