@@ -332,8 +332,9 @@ Run these in your terminal.
 | `sprout file.sprout` | Run a program (opens a window if it's a GUI app) |
 | `sprout run file.sprout` | Same as above — run the program (interpreter) |
 | `sprout fast file.sprout` | Run it compiled to JavaScript — **faster than Python** |
-| `sprout build file.sprout` | Build a standalone `.exe` (asks the size) — runs with no Node |
-| `sprout build file.sprout --standalone` | Build the `.exe` without the question (`--no-compress` for ~90 MB) |
+| `sprout build file.sprout` | Build an `.exe` (asks how): a no-Node standalone, or a tiny one that uses installed Node |
+| `sprout build file.sprout --standalone` | The no-Node `.exe`, no questions (`--no-compress` for ~90 MB) |
+| `sprout build file.sprout --needs-node` | A tiny (~40 KB) `.exe` that runs on the system's Node |
 | `sprout bench file.sprout` | Time it on both engines and show how much faster compiling is |
 | `sprout gui file.sprout` | Force it open as a native window |
 | `sprout serve file.sprout` | Run it as a website and open the browser |

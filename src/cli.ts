@@ -351,13 +351,19 @@ function choose(rl: ReturnType<typeof createInterface>, question: string, option
   });
 }
 
-// `sprout build <file>` with no flags, in a terminal: a friendly wizard. It
-// always makes a standalone .exe (runs with no Node) — the only choice is size.
+// `sprout build <file>` with no flags, in a terminal: a friendly wizard. Always
+// produces an .exe — the questions just decide which kind.
 async function buildWizard(path: string): Promise<void> {
-  console.log(`\n  🌱  Building ${basename(path)} into a standalone .exe (it runs with no Node installed).`);
+  console.log(`\n  🌱  Building ${basename(path)} into an .exe — a couple of quick questions:`);
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    const size = await choose(rl, "How small should the .exe be?", [
+    const needsNode = await choose(rl, "Does the computer that runs it need Node installed?", [
+      "No  — works on any Windows PC, but a bigger .exe (~20–90 MB)",
+      "Yes — a tiny .exe (~40 KB), but that PC must have Node installed",
+    ]);
+    if (needsNode === 1) { rl.close(); await buildFile(path, ["--needs-node"]); return; } // tiny .exe, uses system Node
+
+    const size = await choose(rl, "How small should the standalone .exe be?", [
       "Smallest — about 20 MB, fits Discord (a rare antivirus may warn on packed apps)",
       "Biggest  — about 90 MB, largest but the most antivirus-friendly",
     ]);
@@ -377,11 +383,14 @@ async function buildCommand(path: string, flags: string[]): Promise<void> {
 }
 
 // `sprout build <file>` — write a fast .mjs you run with node.
-// `sprout build <file> --standalone` — bundle everything into ONE file, and (if
-// the build tool is set up) wrap it into a real .exe that needs no Node at all.
+// `sprout build <file> --standalone` — one no-Node .exe (embeds the engine).
+// `sprout build <file> --needs-node` — a tiny .exe that uses the installed Node.
 async function buildFile(path: string, flags: string[] = []): Promise<void> {
   const standalone = flags.includes("--standalone") || flags.includes("--exe");
-  if (!standalone) {
+  const needsNode = flags.includes("--needs-node");
+
+  // Plain .mjs — the scripted / non-interactive default.
+  if (!standalone && !needsNode) {
     const result = compileProject(path);
     if ("error" in result) fail("Can't fast-build this program: " + result.error);
     const outPath = join(dirname(path), basename(path, extname(path)) + ".mjs");
@@ -390,16 +399,31 @@ async function buildFile(path: string, flags: string[] = []): Promise<void> {
     return;
   }
 
-  // --standalone: compile, then inline the whole runtime into one self-contained file.
+  // Both .exe kinds share the same self-contained bundle.
   const result = compileProject(path, "@runtime");
-  if ("error" in result) fail("Can't build a standalone from this program: " + result.error);
+  if ("error" in result) fail("Can't build an .exe from this program: " + result.error);
   const bundle = bundleStandalone(result.js);
   const stem = basename(path, extname(path));
+  const exePath = join(dirname(path), stem + (process.platform === "win32" ? ".exe" : ""));
+
+  // A tiny .exe that runs on the system's Node (must be installed to run it).
+  if (needsNode) {
+    const exe = buildNeedsNodeExe(bundle, exePath);
+    if (exe.ok) {
+      const kb = (statSync(exe.path).size / 1024).toFixed(0);
+      console.log(`✓ Built ${basename(exe.path)} (${kb} KB) — a tiny app. The PC that runs it must have Node installed (free at https://nodejs.org).`);
+      console.log("  Double-click it, or send it to a friend who has Node.");
+    } else {
+      const cjs = join(dirname(path), stem + ".cjs"); writeFileSync(cjs, bundle);
+      console.log(`✓ Bundled ${basename(cjs)} — run it with:  node "${cjs}"`);
+      console.log(`  (Couldn't build the tiny .exe: ${exe.why}.)`);
+    }
+    return;
+  }
+
+  // A standalone .exe that needs no Node at all — embeds the engine via SEA.
   const cjsPath = join(dirname(path), stem + ".cjs");
   writeFileSync(cjsPath, bundle);
-
-  // Try to wrap it into a real executable (no Node required to run it).
-  const exePath = join(dirname(path), stem + (process.platform === "win32" ? ".exe" : ""));
   const exe = buildExe(bundle, exePath);
   if (exe.ok) {
     try { rmSync(cjsPath, { force: true }); } catch { /* keep it if we can't remove it */ }
@@ -412,6 +436,59 @@ async function buildFile(path: string, flags: string[] = []): Promise<void> {
   } else {
     console.log(`✓ Bundled ${basename(cjsPath)} — one self-contained file. Run it with:  node "${cjsPath}"`);
     console.log(`  (Couldn't build the no-Node .exe: ${exe.why}. The single file above still works wherever Node is installed.)`);
+  }
+}
+
+// Find the C# compiler that ships with the .NET Framework (present on Windows).
+function findCsc(): string | null {
+  const win = process.env.WINDIR || "C:\\Windows";
+  for (const arch of ["Framework64", "Framework"]) {
+    const p = join(win, "Microsoft.NET", arch, "v4.0.30319", "csc.exe");
+    if (existsSync(p)) return p;
+  }
+  const w = spawnSync("where", ["csc"], { encoding: "utf8" });
+  if (w.status === 0) { const p = (w.stdout || "").split(/\r?\n/)[0].trim(); if (p && existsSync(p)) return p; }
+  return null;
+}
+
+// Build a TINY .exe (~40 KB) that carries the program inside it and runs it on
+// the system's Node (which must be installed). A small C# launcher — compiled
+// with the .NET csc that's already on Windows — extracts the bundle and runs
+// `node` on it, inheriting the console so interactive programs work.
+function buildNeedsNodeExe(bundle: string, outPath: string): { ok: true; path: string } | { ok: false; why: string } {
+  if (process.env.SPROUT_SKIP_EXE) return { ok: false, why: "skipped" };
+  if (process.platform !== "win32") return { ok: false, why: "the tiny needs-Node .exe is Windows-only for now" };
+  const csc = findCsc();
+  if (!csc) return { ok: false, why: "couldn't find the C# compiler (csc) that ships with Windows" };
+  const b64 = Buffer.from(bundle, "utf8").toString("base64");
+  const cs = [
+    "using System;using System.Diagnostics;using System.IO;",
+    "class P{static int Main(){",
+    "  string b64=\"" + b64 + "\";",
+    "  string tmp=Path.Combine(Path.GetTempPath(),\"sprout_\"+Guid.NewGuid().ToString(\"N\")+\".cjs\");",
+    "  File.WriteAllBytes(tmp,Convert.FromBase64String(b64));",
+    "  try{",
+    "    var psi=new ProcessStartInfo(\"node\",\"\\\"\"+tmp+\"\\\"\"){UseShellExecute=false};",
+    "    var p=Process.Start(psi);p.WaitForExit();",
+    "    try{File.Delete(tmp);}catch{}",
+    "    return p.ExitCode;",
+    "  }catch{",
+    "    Console.Error.WriteLine(\"This program needs Node.js installed — get it free at https://nodejs.org\");",
+    "    Console.Error.Write(\"Press Enter to close.\");Console.In.ReadLine();return 1;",
+    "  }",
+    "}}",
+  ].join("\n");
+  const work = mkdtempSync(join(tmpdir(), "sprout-csc-"));
+  try {
+    const csFile = join(work, "launcher.cs");
+    writeFileSync(csFile, cs);
+    const r = spawnSync(csc, ["-nologo", "-optimize+", "-target:exe", "-out:" + outPath, csFile], { encoding: "utf8" });
+    if (r.status !== 0 || !existsSync(outPath)) return { ok: false, why: "the C# launcher didn't compile" };
+    return { ok: true, path: outPath };
+  } catch (e) {
+    return { ok: false, why: e instanceof Error ? e.message : String(e) };
+  } finally {
+    try { rmSync(work, { recursive: true, force: true }); } catch { /* best effort */ }
   }
 }
 
@@ -866,8 +943,8 @@ function usage(): void {
       "  sprout serve <file.sprout>  run it as a website",
       "  sprout check <file.sprout>  verify the program without running it",
       "  sprout fast <file.sprout>   run it the fast way (compiled to JavaScript)",
-      "  sprout build <file.sprout>  build a standalone .exe (asks the size; runs with no Node)",
-      "  sprout build <file> --standalone   make the .exe without the question (+ --no-compress for ~90 MB)",
+      "  sprout build <file.sprout>  build an .exe (asks how) — no-Node standalone, or a tiny needs-Node one",
+      "  sprout build <file> --standalone   no-Node .exe (+ --no-compress)   ·   --needs-node = tiny .exe",
       "  sprout bench <file.sprout>  time it on both engines and compare the speed",
       "  sprout explain <file>       run it and narrate every step in plain English",
       "  sprout trace <file>         step through it line-by-line, watching variables",

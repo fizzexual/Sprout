@@ -83,8 +83,8 @@ Add powers with `use "..."`, then install and browse them from a built-in termin
 ```
 sprout run file.sprout          run a program
 sprout fast file.sprout         run it compiled to JavaScript (faster than Python)
-sprout build file.sprout        build a standalone .exe (asks the size) — runs with no Node
-sprout build file --standalone  build the .exe without the question (+ --no-compress)
+sprout build file.sprout        build an .exe (asks how): no-Node standalone, or a tiny needs-Node one
+sprout build file --standalone  the no-Node .exe, no questions (--no-compress / --needs-node)
 sprout bench file.sprout        time it on both engines and compare the speed
 sprout gui file.sprout          open it as a native window
 sprout serve file.sprout        run it as a website
@@ -135,7 +135,12 @@ Best-of-5 wall-clock, one machine (Node 25). Same three programs in each languag
 
 `sprout build my-game.sprout --standalone` bundles your whole program — runtime and all — into a **single `my-game.exe`** that runs on a machine with **no Node and no Sprout installed**. Just double-click it, or send it to a friend.
 
-It's one command: the first time, it sets up its build tools itself, then compresses the result down to **~20 MB** (it embeds a JavaScript engine, like every "compile to exe" tool — `--no-compress` skips the shrink step). Multi-file projects (`use "other.sprout"`) and interactive ones (`ask`) bundle in too.
+It's one command — `sprout build my-game.sprout` asks how you want it:
+
+- **No Node needed** → a standalone `.exe` that runs on any PC. It embeds a JavaScript engine (like every "compile to exe" tool), so it's ~90 MB — but it auto-compresses down to **~20 MB** (`--no-compress` keeps it full).
+- **Tiny** → a **~40 KB** `.exe` that runs on the system's Node (the recipient needs Node installed).
+
+Either way it's a single `.exe`. Multi-file projects (`use "other.sprout"`) and interactive ones (`ask`) bundle in too.
 
 ## Documentation & tooling
 
