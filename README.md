@@ -133,7 +133,9 @@ Best-of-5 wall-clock, one machine (Node 25). Same three programs in each languag
 
 ## Share it — one file, no install
 
-`sprout build my-game.sprout --standalone` bundles your whole program — runtime and all — into a **single self-contained file**. With the one-time build tool set up (`npm run install:exe`), it produces a real **`my-game.exe`** that runs on a machine with **no Node and no Sprout installed** — just double-click, or send it to a friend.
+`sprout build my-game.sprout --standalone` bundles your whole program — runtime and all — into a **single `my-game.exe`** that runs on a machine with **no Node and no Sprout installed**. Just double-click it, or send it to a friend.
+
+It's one command: the first time, it sets up its build tools itself, then compresses the result down to **~20 MB** (it embeds a JavaScript engine, like every "compile to exe" tool — `--no-compress` skips the shrink step). Multi-file projects (`use "other.sprout"`) and interactive ones (`ask`) bundle in too.
 
 ## Documentation & tooling
 

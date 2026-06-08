@@ -8,7 +8,7 @@
 //   sprout repl                 interactive prompt
 //   sprout version
 
-import { readFileSync, existsSync, writeFileSync, copyFileSync, mkdtempSync, rmSync } from "node:fs";
+import { readFileSync, existsSync, writeFileSync, copyFileSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
@@ -359,7 +359,11 @@ async function buildFile(path: string, flags: string[] = []): Promise<void> {
   const exe = buildExe(bundle, exePath);
   if (exe.ok) {
     try { rmSync(cjsPath, { force: true }); } catch { /* keep it if we can't remove it */ }
-    console.log(`✓ Built ${basename(exe.path)} — a standalone program that needs no Node installed.`);
+    // Shrink it ~4x with upx (still standalone) unless the user opted out.
+    const compressed = flags.includes("--no-compress") ? false : compressExe(exe.path);
+    const mb = (statSync(exe.path).size / (1024 * 1024)).toFixed(0);
+    console.log(`✓ Built ${basename(exe.path)} (${mb} MB) — a standalone program that needs no Node installed.`);
+    if (compressed) console.log("  Compressed with upx. (If a friend's antivirus flags it, that's a false positive for packed apps — rebuild with --no-compress to avoid it.)");
     console.log(`  ${process.platform === "win32" ? "Double-click it, or send it to a friend to run." : "Run it directly, or send it to a friend."}`);
   } else {
     console.log(`✓ Bundled ${basename(cjsPath)} — one self-contained file. Run it with:  node "${cjsPath}"`);
@@ -414,6 +418,40 @@ function buildExe(bundle: string, outPath: string): { ok: true; path: string } |
   } finally {
     try { rmSync(work, { recursive: true, force: true }); } catch { /* best effort */ }
   }
+}
+
+// Find the `upx` compressor — on PATH, or where winget's `upx` alias lives.
+function findUpx(): string | null {
+  const w = spawnSync(process.platform === "win32" ? "where" : "which", ["upx"], { encoding: "utf8" });
+  if (w.status === 0) { const p = (w.stdout || "").split(/\r?\n/)[0].trim(); if (p && existsSync(p)) return p; }
+  // winget installs a launcher alias here, which this just-started process's PATH may not see yet.
+  const local = process.env.LOCALAPPDATA;
+  if (local) { const link = join(local, "Microsoft", "WinGet", "Links", "upx.exe"); if (existsSync(link)) return link; }
+  return null;
+}
+
+// Get upx, installing it once via winget if needed (like the music deps do).
+function ensureUpx(): string | null {
+  let upx = findUpx();
+  if (upx) return upx;
+  if (process.platform !== "win32") return null; // elsewhere: user installs upx via their package manager
+  console.log("  Setting up the compressor (upx) to shrink the .exe (one time)…\n");
+  const realEmitWarning = process.emitWarning;
+  process.emitWarning = () => {};
+  try { spawnSync("winget", ["install", "--id", "UPX.UPX", "-e", "--accept-package-agreements", "--accept-source-agreements"], { stdio: "inherit", shell: true }); }
+  finally { process.emitWarning = realEmitWarning; }
+  upx = findUpx();
+  return upx;
+}
+
+// Compress an executable in place with upx (keeps it standalone — it just
+// self-extracts in memory when run). Returns whether it shrank.
+function compressExe(exePath: string): boolean {
+  const upx = ensureUpx();
+  if (!upx) return false;
+  console.log("  Compressing… (one-time, ~20s)\n");
+  const r = spawnSync(upx, ["--best", "--lzma", "-q", exePath], { encoding: "utf8" });
+  return r.status === 0;
 }
 
 // `sprout fast <file>` — compile + run on V8 (much faster); falls back to the
@@ -785,7 +823,7 @@ function usage(): void {
       "  sprout check <file.sprout>  verify the program without running it",
       "  sprout fast <file.sprout>   run it the fast way (compiled to JavaScript)",
       "  sprout build <file.sprout>  compile it to a .mjs you run with node",
-      "  sprout build <file> --standalone   bundle it into one file (and an .exe)",
+      "  sprout build <file> --standalone   build a small .exe that needs no Node (add --no-compress to skip shrinking)",
       "  sprout bench <file.sprout>  time it on both engines and compare the speed",
       "  sprout explain <file>       run it and narrate every step in plain English",
       "  sprout trace <file>         step through it line-by-line, watching variables",
