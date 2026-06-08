@@ -13,6 +13,8 @@ import { check } from "../src/checker.ts";
 import { memoryStorage } from "../src/storage.ts";
 import { memorySecrets, parseEnv } from "../src/secrets.ts";
 import { create as discordBot } from "../libraries/discord-bot/index.ts";
+import { create as networking } from "../libraries/networking/index.ts";
+import { create as automations } from "../libraries/automations/index.ts";
 import { sealAudio, hchacha20, chooseMode, OggOpusDemuxer } from "../libraries/discord-bot/voice.ts";
 import { isUrl, formatQueue, create as musicExt } from "../extensions/discord-bot/music/index.ts";
 import { createDecipheriv } from "node:crypto";
@@ -695,6 +697,29 @@ test("checker flags a repeat while that can never stop", () => {
 
 test("checker leaves a normal repeat while alone", () => {
   assert.deepEqual(problems("make i = 0\nrepeat while i < 3:\n    set i = i + 1"), []);
+});
+
+test("networking library: registers its builtins; hostname/localip work offline", () => {
+  const lib = networking(new Interpreter(""));
+  assert.deepEqual(lib.names, ["hostname", "localip", "myip", "online", "status", "ping", "download"]);
+  assert.equal(typeof lib.builtins.hostname([]), "string");
+  assert.match(String(lib.builtins.localip([])), /^\d+\.\d+\.\d+\.\d+$/);
+  assert.equal(lib.isActive(), false);   // pure builtins, no long-running runtime
+});
+
+test("automations library: now/today format, and scheduling marks it active", () => {
+  const lib = automations(new Interpreter(""));
+  assert.match(String(lib.builtins.now([])), /^\d\d:\d\d:\d\d$/);
+  assert.match(String(lib.builtins.today([])), /^\d{4}-\d\d-\d\d$/);
+  assert.equal(lib.isActive(), false);
+  lib.builtins.every([2, "tick"], { line: 1, col: 1 });
+  assert.equal(lib.isActive(), true);     // a job was scheduled -> start() will run
+});
+
+test("automations library: at() rejects a bad time, every() rejects a bad interval", () => {
+  const lib = automations(new Interpreter(""));
+  assert.throws(() => lib.builtins.at(["25:00", "x"], { line: 1, col: 1 }), /time/);
+  assert.throws(() => lib.builtins.every([0, "tick"], { line: 1, col: 1 }), /seconds/);
 });
 
 test("modules: a file can use another file's task", () => {

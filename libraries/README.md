@@ -12,6 +12,8 @@ like any built-in.
 | Library | What it does |
 | --- | --- |
 | [discord-bot](discord-bot) | make a Discord bot |
+| [networking](networking) | network tools — your IP, ping, status, downloads |
+| [automations](automations) | run tasks on a schedule — every / after / at / watch |
 
 ## How a library works
 

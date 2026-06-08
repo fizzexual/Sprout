@@ -91,6 +91,16 @@ SCALE (many servers, no shared IP rate-limit): run a Lavalink server and set
     ],
   },
   {
+    name: "networking",
+    description: "Network tools — your IP, ping, status, downloads",
+    extensions: [],
+  },
+  {
+    name: "automations",
+    description: "Run tasks on a schedule — every, after, at, watch",
+    extensions: [],
+  },
+  {
     name: "whatsapp-bot",
     description: "A WhatsApp bot — the tricky unofficial multi-device protocol",
     placeholder: true,

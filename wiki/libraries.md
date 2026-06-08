@@ -78,6 +78,60 @@ task sayHi():
 Full setup is in the [library's README](../libraries/discord-bot/README.md)
 (make a bot, copy its token, turn on the Message Content Intent, invite it).
 
+### networking — talk to the network 🌐
+
+```sprout
+use "networking"
+
+show "This computer:", hostname()
+show "Local IP:", localip()
+
+when online():
+    show "Public IP:", myip()
+    show "google.com:", status("https://www.google.com")
+    show "ping:", ping("google.com"), "ms"
+
+download("https://example.com", "page.html")   ~ saves next to your program
+```
+
+| Function | What it does |
+| --- | --- |
+| `hostname()` | the name of this computer |
+| `localip()` | this computer's address on your local network |
+| `myip()` | your public IP — how the internet sees you |
+| `online()` / `online("https://site")` | is the internet (or one site) reachable? → `yes` / `no` |
+| `status("url")` | the HTTP status code (200, 404…), or `nothing` |
+| `ping("host")` | round-trip time to a host in milliseconds, or `nothing` |
+| `download("url", "file")` | save a file from the web next to your program |
+
+### automations — run tasks on a schedule ⏰
+
+```sprout
+use "automations"
+
+make count = 0
+task tick():
+    set count = count + 1
+    show "tick", count
+    when count >= 5:
+        stop()
+
+every(1, "tick")        ~ run tick once a second, until it stops itself
+```
+
+| Function | What it does |
+| --- | --- |
+| `every(seconds, "task")` | run a task again and again, every N seconds |
+| `after(seconds, "task")` | run a task once, after N seconds |
+| `at("HH:MM", "task")` | run a task every day at a clock time |
+| `watch("file", "task")` | run a task whenever a file changes on disk |
+| `wait(seconds)` | pause the program (fractions ok: `wait(0.5)`) |
+| `now()` / `today()` | the time / date right now, as text |
+| `stop()` | stop all automations and end the program |
+
+`every` / `after` / `at` / `watch` keep the program running in the background —
+press **Ctrl+C** or call `stop()` from a task to end it.
+
 ## Extensions — libraries for libraries
 
 An **extension** plugs extra powers into a library. Load one with a

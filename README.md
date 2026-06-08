@@ -68,7 +68,7 @@ npm link
 - **Desktop apps & websites** — `window("Title")` for a native window, `server("Title")` for a site — the same code, either way
 - **Styling** — Bloom, Sprout's own CSS, with `style "theme.bloom"`
 - **Data & the internet** — `remember` / `recall` to save between runs, `get` / `post` for any API, `secret(...)` to keep tokens out of your code
-- **Libraries** — `use "discord-bot"` for a real Discord bot, with a voice music player
+- **Libraries** — `use "discord-bot"` (a real Discord bot + music player), `use "networking"` (IP, ping, downloads), `use "automations"` (scheduled tasks)
 
 ## Libraries
 
