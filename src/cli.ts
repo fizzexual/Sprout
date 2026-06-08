@@ -412,21 +412,18 @@ function renderTrace(lines: string[], cur: number, vars: [string, string][], out
   else if (nav && nav.viewing) help = Y + "SPACE" + R + G + " forward   " + R + Y + "up" + R + G + " back   " + R + Y + "q" + R + G + " quit   " + R + G + `(step ${nav.step}/${nav.total}, looking back)` + R;
   else help = Y + "SPACE" + R + G + " next line   " + R + Y + "up/shift" + R + G + " back   " + R + Y + "c" + R + G + " run   " + R + Y + "q" + R + G + " quit" + R;
   s += "  " + B + "sprout trace" + R + "   " + help + "\n\n";
-  const rows = Math.max(lines.length, vars.length + 2);
+  // wait() lines are skipped while tracing, so don't show them at all — the
+  // source pane simply doesn't include them (keeping every other line's real number).
+  const display: Array<{ n: number; text: string }> = [];
+  for (let i = 0; i < lines.length; i++) if (!isSkipLine(lines[i])) display.push({ n: i + 1, text: lines[i] });
+  const rows = Math.max(display.length, vars.length + 2);
   for (let i = 0; i < rows; i++) {
     let cell: string;
-    if (i < lines.length) {
-      const ln = i + 1;
-      // wait() lines are skipped while tracing — show them as a dim comment so the
-      // arrow stepping over them reads as intentional, not a glitch.
-      const skip = isSkipLine(lines[i]);
-      const indent = (lines[i].match(/^\s*/) || [""])[0];
-      const body = skip ? indent + "~ " + lines[i].slice(indent.length).trimEnd() + "  (skipped)" : lines[i];
-      let txt = ` ${ln === cur ? "→" : " "} ${String(ln).padStart(2)}  ${body}`;
+    if (i < display.length) {
+      const ln = display[i].n;
+      let txt = ` ${ln === cur ? "→" : " "} ${String(ln).padStart(2)}  ${display[i].text}`;
       txt = txt.length > leftW ? txt.slice(0, leftW - 1) + "…" : txt.padEnd(leftW);
-      if (ln === cur) cell = Y + txt + R;
-      else if (skip) cell = G + txt + R;                         // whole line dim, like a comment
-      else cell = G + txt.slice(0, 4) + R + txt.slice(4);
+      cell = ln === cur ? Y + txt + R : G + txt.slice(0, 4) + R + txt.slice(4);
     } else cell = " ".repeat(leftW);
     let right = "";
     if (i === 0) right = B + "Variables" + R;
