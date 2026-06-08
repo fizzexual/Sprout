@@ -332,6 +332,57 @@ function compileProject(path: string, runtimeUrl: string = RUNTIME_URL): { js: s
   return compile(combined, runtimeUrl);
 }
 
+// Ask a numbered multiple-choice question on an existing readline and return the
+// chosen index (0-based). Enter with no answer picks the first option.
+function choose(rl: ReturnType<typeof createInterface>, question: string, options: string[]): Promise<number> {
+  return new Promise((resolve) => {
+    const Y = "\x1b[93m", G = "\x1b[90m", R = "\x1b[0m", B = "\x1b[1m";
+    console.log("\n  " + B + question + R);
+    options.forEach((o, i) => console.log("    " + Y + (i + 1) + R + ")  " + o));
+    let done = false;
+    const finish = (i: number): void => { if (!done) { done = true; resolve(i); } };
+    const onClose = (): void => finish(0);              // input ended (EOF) -> default to option 1
+    rl.once("close", onClose);
+    rl.question("\n  " + G + `Pick 1-${options.length} (Enter = 1): ` + R, (ans) => {
+      rl.removeListener("close", onClose);
+      const n = parseInt(ans.trim(), 10);
+      finish(Number.isInteger(n) && n >= 1 && n <= options.length ? n - 1 : 0);
+    });
+  });
+}
+
+// `sprout build <file>` with no flags, in a terminal: a friendly wizard that asks
+// how you want it built (sizes shown) instead of needing flags.
+async function buildWizard(path: string): Promise<void> {
+  const stem = basename(path, extname(path));
+  console.log(`\n  🌱  Building ${basename(path)} — a couple of quick questions:`);
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const node = await choose(rl, "Does the computer that runs it need Node installed?", [
+      "No  — make a standalone app that runs on any Windows PC (~20 MB)",
+      `Yes — make a tiny file (~25 KB) you run with:  node ${stem}.mjs`,
+    ]);
+    if (node === 1) { rl.close(); await buildFile(path, []); return; } // tiny, needs Node
+
+    const size = await choose(rl, "How small should the standalone app be?", [
+      "Smallest — about 20 MB, fits Discord (a rare antivirus may warn on packed apps)",
+      "Biggest  — about 90 MB, largest but the most antivirus-friendly",
+    ]);
+    rl.close();
+    await buildFile(path, size === 0 ? ["--standalone"] : ["--standalone", "--no-compress"]);
+  } finally {
+    rl.close();
+  }
+}
+
+// Route `sprout build`: ask interactively when no flags + a real terminal (the
+// SPROUT_FORCE_WIZARD env lets tests drive it). Otherwise build per the flags.
+async function buildCommand(path: string, flags: string[]): Promise<void> {
+  const scripted = flags.some((f) => f.startsWith("-"));
+  if (!scripted && (process.stdin.isTTY || process.env.SPROUT_FORCE_WIZARD)) { await buildWizard(path); return; }
+  await buildFile(path, flags);
+}
+
 // `sprout build <file>` — write a fast .mjs you run with node.
 // `sprout build <file> --standalone` — bundle everything into ONE file, and (if
 // the build tool is set up) wrap it into a real .exe that needs no Node at all.
@@ -822,8 +873,8 @@ function usage(): void {
       "  sprout serve <file.sprout>  run it as a website",
       "  sprout check <file.sprout>  verify the program without running it",
       "  sprout fast <file.sprout>   run it the fast way (compiled to JavaScript)",
-      "  sprout build <file.sprout>  compile it to a .mjs you run with node",
-      "  sprout build <file> --standalone   build a small .exe that needs no Node (add --no-compress to skip shrinking)",
+      "  sprout build <file.sprout>  build it — asks how (tiny needs-Node file, or a standalone .exe)",
+      "  sprout build <file> --standalone   skip the questions: a small no-Node .exe (+ --no-compress)",
       "  sprout bench <file.sprout>  time it on both engines and compare the speed",
       "  sprout explain <file>       run it and narrate every step in plain English",
       "  sprout trace <file>         step through it line-by-line, watching variables",
@@ -850,7 +901,7 @@ try {
   } else if (args[0] === "fast" && args[1]) {
     await fastFile(args[1]);
   } else if (args[0] === "build" && args[1]) {
-    await buildFile(args[1], args.slice(2));
+    await buildCommand(args[1], args.slice(2));
   } else if (args[0] === "bench" && args[1]) {
     await benchFile(args[1], args[2]);
   } else if (args[0] === "new" && args[1]) {
