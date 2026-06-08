@@ -121,5 +121,5 @@ if ($init.test) {
   exit 0
 }
 
-$form.Add_Shown({ $form.Activate() })
+$form.Add_Shown({ $form.Activate(); $form.ActiveControl = $null })  # don't auto-focus a button (a stray Enter could fire it)
 [System.Windows.Forms.Application]::Run($form)

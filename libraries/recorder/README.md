@@ -11,6 +11,10 @@ saves it to a plain text file, and plays it back exactly. Perfect for repetitive
 tasks — fill the same form, do the same clicks, run a practised routine. It
 records and sends real input; it never touches another program's memory.
 
+While it works, a small banner floats on top so you always know the state —
+**red "Recording — press ESC to stop"** while capturing, **green "Playing
+back…"** while replaying.
+
 > Windows only. **Press ESC to stop recording.** Replaying sends input to
 > whatever window is focused, so switch to the right window first (the example
 > below gives you a 3-second head start).
