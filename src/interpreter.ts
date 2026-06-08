@@ -149,6 +149,9 @@ export class Interpreter {
         throw new LangError("Runtime", "'give' only works inside a task.", 1, 1, "Move it inside a 'task ...:' block.");
       }
     }
+    // sprout trace: a final frame (line -1) so the last statement's result can be
+    // shown — it has no statement after it to trigger the before-step hook.
+    if (this.onStep) this.onStep(-1, this.globals.visibleNames().map((n) => [n, stringify(this.globals.get(n))] as [string, string]));
   }
 
   // --- GUI support (used by gui-server.ts) ---------------------------------

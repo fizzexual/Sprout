@@ -408,8 +408,9 @@ function renderTrace(lines: string[], cur: number, vars: [string, string][], out
   let s = "\x1b[2J\x1b[H\x1b[?25l"; // clear, home, hide cursor
   let help: string;
   if (done) help = G + "finished — press any key to exit" + R;
+  else if (nav && nav.total === 0) help = Y + "SPACE" + R + G + " start   " + R + Y + "q" + R + G + " quit" + R;
   else if (nav && nav.viewing) help = Y + "SPACE" + R + G + " forward   " + R + Y + "up" + R + G + " back   " + R + Y + "q" + R + G + " quit   " + R + G + `(step ${nav.step}/${nav.total}, looking back)` + R;
-  else help = Y + "SPACE" + R + G + " run line   " + R + Y + "up/shift" + R + G + " back   " + R + Y + "c" + R + G + " run   " + R + Y + "q" + R + G + " quit" + R;
+  else help = Y + "SPACE" + R + G + " next line   " + R + Y + "up/shift" + R + G + " back   " + R + Y + "c" + R + G + " run   " + R + Y + "q" + R + G + " quit" + R;
   s += "  " + B + "sprout trace" + R + "   " + help + "\n\n";
   const rows = Math.max(lines.length, vars.length + 2);
   for (let i = 0; i < rows; i++) {
@@ -430,18 +431,27 @@ function renderTrace(lines: string[], cur: number, vars: [string, string][], out
   process.stdout.write(s);
 }
 
-// `sprout trace <file>` — step through a program LIVE, line by line. We pause
-// BEFORE each statement; pressing forward runs it then and there, so a line like
-// launch("notepad") opens Notepad exactly when you step onto it. SPACE / down =
-// forward, up / Shift = back (re-watch earlier steps — never re-runs them),
-// c = run to the end, q = quit.
+// Is this source line a wait() call? Those are skipped while tracing (like a
+// comment) — a real pause for them would just freeze the stepper, and a fake one
+// is noise. Matches `wait(...)` at the start of the line, any indentation.
+function isSkipLine(src: string | undefined): boolean {
+  return !!src && /^\s*wait\s*\(/.test(src);
+}
+
+// `sprout trace <file>` — step through a program LIVE, line by line. Each step
+// RUNS the next statement and then highlights it with its fresh result, so the
+// arrow and the variables always describe the SAME line (not the one before it).
+// Side effects happen as you step onto a line — launch("notepad") opens Notepad
+// right then. wait() lines are skipped entirely. SPACE = next line, up / Shift =
+// back (re-watch an earlier step — never re-runs it), c = run to the end, q = quit.
 async function traceFile(path: string): Promise<void> {
   let source = "";
   try { source = readFileSync(path, "utf8"); }
   catch { fail(`I couldn't open the file: ${path}`, "Check the name and that the file is there."); }
   const lines = source.split(/\r?\n/);
   const output: string[] = [];
-  const history: TraceFrame[] = [];
+  const history: TraceFrame[] = []; // one entry per visible statement that has run, with its result
+  let pendingLine: number | null = null; // a statement we ran; its result lands at the next step
   let running = false; // 'c' pressed: run to the end without pausing
   let quit = false;
   const stdin = process.stdin;
@@ -452,6 +462,13 @@ async function traceFile(path: string): Promise<void> {
     process.stdout.write("\x1b[?25h"); // show the cursor again
   };
 
+  // Draw a completed step — or the "about to start" screen when nothing has run.
+  const renderStep = (cursor: number): void => {
+    if (cursor < 0) { renderTrace(lines, -1, [], [], false, { step: 0, total: 0, viewing: false }); return; }
+    const f = history[cursor];
+    renderTrace(lines, f.line, f.vars, output.slice(0, f.outLen), false, { step: cursor + 1, total: history.length, viewing: cursor < history.length - 1 });
+  };
+
   const dataPath = join(dirname(path), basename(path, extname(path)) + ".data.json");
   const interp = new Interpreter(source, (l) => output.push(l), {
     storage: fileStorage(dataPath),
@@ -460,23 +477,26 @@ async function traceFile(path: string): Promise<void> {
     programDir: dirname(path),
     programFile: resolve(path),
     input: consoleInput(),
-    // The pause point: called before each statement runs. We block here until the
-    // user steps forward off the live edge, THEN return so the statement runs.
+    // Called before each statement (and once with line -1 at the very end). First
+    // we record the result of the statement that just finished (its effect is in
+    // the state NOW), pause showing it, then — on a forward step — run the next
+    // line for real. So the highlighted line is always the one that just ran.
     onStep: (line, vars) => {
-      if (quit || running) return;
-      history.push({ line, vars, outLen: output.length });
-      const frontier = history.length - 1; // the line about to run
-      let cursor = frontier;
+      if (quit) return;
+      if (pendingLine !== null) { history.push({ line: pendingLine, vars, outLen: output.length }); pendingLine = null; }
+      if (line < 0) return;                        // end-of-program signal
+      if (isSkipLine(lines[line - 1])) return;     // a wait() line — run it, never stop
+      if (running) { pendingLine = line; return; } // racing to the end
+      let cursor = history.length - 1;             // newest completed step (-1 = nothing yet)
       for (;;) {
-        const f = history[cursor];
-        renderTrace(lines, f.line, f.vars, output.slice(0, f.outLen), false, { step: cursor + 1, total: history.length, viewing: cursor < frontier });
+        renderStep(cursor);
         const act = readStepKey();
         if (act === "quit") { quit = true; cleanup(); console.log("\n  (trace stopped)\n"); process.exit(0); }
         if (act === "back") { if (cursor > 0) cursor--; continue; }
-        if (act === "run") { running = true; return; }
+        if (act === "run") { running = true; pendingLine = line; return; }
         if (act === "noop") continue;
-        if (cursor < frontier) { cursor++; continue; } // re-watching history — just move the view
-        return;                                        // at the live edge — let this line run
+        if (cursor < history.length - 1) { cursor++; continue; } // re-watch an earlier step
+        pendingLine = line; return;                // step onto & actually run this line
       }
     },
   });
@@ -492,8 +512,8 @@ async function traceFile(path: string): Promise<void> {
     if (err instanceof LangError) { console.error("\n" + formatError(err, source) + "\n"); process.exit(1); }
     fatal(err);
   }
-  const lastVars = history.length ? history[history.length - 1].vars : [];
-  renderTrace(lines, -1, lastVars, output, true);
+  const last = history.length ? history[history.length - 1] : null;
+  renderTrace(lines, last ? last.line : -1, last ? last.vars : [], output, true);
   if (!quit) readStepKey(); // one key to dismiss the final screen
   cleanup();
   console.log("");
