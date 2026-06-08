@@ -700,6 +700,22 @@ test("checker leaves a normal repeat while alone", () => {
   assert.deepEqual(problems("make i = 0\nrepeat while i < 3:\n    set i = i + 1"), []);
 });
 
+test("give returns early out of a loop", () => {
+  assert.deepEqual(run("task f(xs):\n    for each x in xs:\n        when x > 2:\n            give x\n    give 0\nshow f([1, 2, 5, 9])"), ["5"]);
+});
+
+test("give unwinds out of nested loops", () => {
+  assert.deepEqual(run('task f():\n    repeat 5 times:\n        for each y in [1, 2, 3]:\n            when y == 2:\n                give "hit"\n    give "miss"\nshow f()'), ["hit"]);
+});
+
+test("give early out of a repeat while", () => {
+  assert.deepEqual(run("task f(limit):\n    make i = 0\n    repeat while i < 1000:\n        set i = i + 1\n        when i >= limit:\n            give i\n    give -1\nshow f(4)"), ["4"]);
+});
+
+test("a give in one task does not leak into the next", () => {
+  assert.deepEqual(run('task a():\n    give "A"\ntask b():\n    give "B"\nshow a(), b()'), ["A B"]);
+});
+
 test("networking library: registers its builtins; hostname/localip work offline", () => {
   const lib = networking(new Interpreter(""));
   assert.ok(["hostname", "localip", "myip", "online", "status", "ping", "download", "block", "unblock", "isblocked", "blocked"].every((n) => lib.names.includes(n)));

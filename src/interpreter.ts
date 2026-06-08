@@ -42,13 +42,19 @@ class Environment {
   define(name: string, value: Value): void {
     this.vars.set(name, value);
   }
+  // One walk up the scope chain. Returns undefined ONLY when the name is unset
+  // (a real Value is never undefined), so get/has share this single lookup.
+  lookup(name: string): Value | undefined {
+    const v = this.vars.get(name);
+    if (v !== undefined) return v;
+    return this.parent ? this.parent.lookup(name) : undefined;
+  }
   has(name: string): boolean {
-    return this.vars.has(name) || (this.parent ? this.parent.has(name) : false);
+    return this.lookup(name) !== undefined;
   }
   get(name: string): Value {
-    if (this.vars.has(name)) return this.vars.get(name) as Value;
-    if (this.parent) return this.parent.get(name);
-    return NONE;
+    const v = this.lookup(name);
+    return v === undefined ? NONE : v;
   }
   // Update an existing variable wherever it lives. Returns false if not found.
   assign(name: string, value: Value): boolean {
@@ -70,13 +76,9 @@ class Environment {
   }
 }
 
-// Thrown to unwind out of a running task when `give` executes.
-class ReturnSignal {
-  value: Value;
-  constructor(value: Value) {
-    this.value = value;
-  }
-}
+// A resolved call target, cached on a Call AST node (the inline call cache).
+type CallHandler = (args: Value[], expr: Expr & { type: "Call" }) => Value;
+interface CachedCall { __h?: CallHandler }
 
 export class Interpreter {
   source: string;
@@ -97,6 +99,10 @@ export class Interpreter {
   // Plain-English narration for `sprout explain`. null = off (normal run).
   private narrate: ((msg: string) => void) | null;
   private depth = 0;
+  // `give` returns via these flags instead of throwing an exception (much faster
+  // for recursion-heavy code). runBlock + the loops stop when `returning` is set.
+  private returning = false;
+  private returnValue: Value = NONE;
 
   constructor(
     source: string,
@@ -128,13 +134,12 @@ export class Interpreter {
     for (const stmt of program) {
       if (stmt.type === "Task") this.functions.set(stmt.name, { params: stmt.params, body: stmt.body });
     }
-    try {
-      for (const stmt of program) this.execute(stmt, this.globals);
-    } catch (e) {
-      if (e instanceof ReturnSignal) {
+    for (const stmt of program) {
+      this.execute(stmt, this.globals);
+      if (this.returning) {
+        this.returning = false;
         throw new LangError("Runtime", "'give' only works inside a task.", 1, 1, "Move it inside a 'task ...:' block.");
       }
-      throw e;
     }
   }
 
@@ -158,10 +163,11 @@ export class Interpreter {
     try {
       this.runBlock(fn.body, frame);
     } catch (e) {
-      if (e instanceof ReturnSignal) return;
-      if (e instanceof RangeError) throw new LangError("Runtime", `The task '${name}' went too deep.`, 1, 1);
+      if (e instanceof RangeError) { this.returning = false; throw new LangError("Runtime", `The task '${name}' went too deep.`, 1, 1); }
+      this.returning = false;
       throw e;
     }
+    this.returning = false;   // a `give` in an event task just ends it
   }
 
   isGuiApp(): boolean {
@@ -215,12 +221,13 @@ export class Interpreter {
     try {
       this.runBlock(fn.body, frame);
     } catch (e) {
-      if (e instanceof ReturnSignal) return;
+      this.returning = false;
       if (e instanceof RangeError) {
         throw new LangError("Runtime", `The task '${taskName}' called itself too many times.`, 1, 1);
       }
       throw e;
     }
+    this.returning = false;   // a `give` in a button task just ends it
   }
 
   private execute(stmt: Stmt, env: Environment): void {
@@ -238,7 +245,7 @@ export class Interpreter {
       case "Make": {
         const made = this.evaluate(stmt.value, env);
         env.define(stmt.name, made);
-        this.say(() => `make ${stmt.name} = ${exprText(stmt.value)}  →  ${stmt.name} is ${stringify(made)}`);
+        if (this.narrate) this.say(() => `make ${stmt.name} = ${exprText(stmt.value)}  →  ${stmt.name} is ${stringify(made)}`);
         return;
       }
       case "Set": {
@@ -252,7 +259,7 @@ export class Interpreter {
             this.nameHint(stmt.name, env) ?? `Create it first with: make ${stmt.name} = ...`,
           );
         }
-        this.say(() => `set ${stmt.name} = ${exprText(stmt.value)}  →  ${stmt.name} is now ${stringify(value)}`);
+        if (this.narrate) this.say(() => `set ${stmt.name} = ${exprText(stmt.value)}  →  ${stmt.name} is now ${stringify(value)}`);
         return;
       }
       case "Show": {
@@ -263,26 +270,27 @@ export class Interpreter {
       case "When": {
         for (const branch of stmt.branches) {
           const cv = this.evaluate(branch.cond, env);
-          this.say(() => `is ${exprText(branch.cond)}? → ${stringify(cv)}`);
+          if (this.narrate) this.say(() => `is ${exprText(branch.cond)}? → ${stringify(cv)}`);
           if (isTruthy(cv)) {
-            this.say(() => "yes — so I run this part:");
+            if (this.narrate) this.say(() => "yes — so I run this part:");
             this.depth++; this.runBlock(branch.body, env); this.depth--;
             return;
           }
         }
         if (stmt.otherwiseBody) {
-          this.say(() => "none were true — so I run the 'otherwise' part:");
+          if (this.narrate) this.say(() => "none were true — so I run the 'otherwise' part:");
           this.depth++; this.runBlock(stmt.otherwiseBody, env); this.depth--;
         }
         return;
       }
       case "RepeatWhile": {
-        this.say(() => `repeat while ${exprText(stmt.cond)}:`);
+        if (this.narrate) this.say(() => `repeat while ${exprText(stmt.cond)}:`);
         for (;;) {
           const cv = this.evaluate(stmt.cond, env);
-          this.say(() => `  ${exprText(stmt.cond)} is ${stringify(cv)}${isTruthy(cv) ? " — keep going" : " — stop"}`);
+          if (this.narrate) this.say(() => `  ${exprText(stmt.cond)} is ${stringify(cv)}${isTruthy(cv) ? " — keep going" : " — stop"}`);
           if (!isTruthy(cv)) break;
           this.depth++; this.runBlock(stmt.body, env); this.depth--;
+          if (this.returning) return;
         }
         return;
       }
@@ -298,8 +306,8 @@ export class Interpreter {
           );
         }
         const count = Math.floor(n);
-        this.say(() => `repeat ${count} time${count === 1 ? "" : "s"}:`);
-        for (let k = 0; k < count; k++) { this.say(() => `round ${k + 1} of ${count}:`); this.depth++; this.runBlock(stmt.body, env); this.depth--; }
+        if (this.narrate) this.say(() => `repeat ${count} time${count === 1 ? "" : "s"}:`);
+        for (let k = 0; k < count; k++) { if (this.narrate) this.say(() => `round ${k + 1} of ${count}:`); this.depth++; this.runBlock(stmt.body, env); this.depth--; if (this.returning) return; }
         return;
       }
       case "ForEach": {
@@ -317,11 +325,13 @@ export class Interpreter {
           );
         }
         // Snapshot the items so changes during the loop don't affect iteration.
-        this.say(() => `for each ${stmt.name} in ${exprText(stmt.iter)}:`);
-        for (const item of [...items]) {
+        if (this.narrate) this.say(() => `for each ${stmt.name} in ${exprText(stmt.iter)}:`);
+        const snapshot = items.slice();   // changes during the loop don't affect iteration
+        for (const item of snapshot) {
           env.define(stmt.name, item);
-          this.say(() => `${stmt.name} = ${stringify(item)}:`);
+          if (this.narrate) this.say(() => `${stmt.name} = ${stringify(item)}:`);
           this.depth++; this.runBlock(stmt.body, env); this.depth--;
+          if (this.returning) return;
         }
         return;
       }
@@ -342,7 +352,7 @@ export class Interpreter {
         } else {
           throw new LangError("Type", `I can only set an item inside a list or a map, but '${stmt.name}' is ${typeName(coll)}.`, stmt.line, stmt.col);
         }
-        this.say(() => `set ${stmt.name}[${exprText(stmt.index)}] = ${exprText(stmt.value)}  →  ${stmt.name} is now ${stringify(coll)}`);
+        if (this.narrate) this.say(() => `set ${stmt.name}[${exprText(stmt.index)}] = ${exprText(stmt.value)}  →  ${stmt.name} is now ${stringify(coll)}`);
         return;
       }
       case "Task": {
@@ -360,8 +370,10 @@ export class Interpreter {
       }
       case "Give": {
         const gv = stmt.value ? this.evaluate(stmt.value, env) : NONE;
-        this.say(() => `give back ${stringify(gv)}`);
-        throw new ReturnSignal(gv);
+        if (this.narrate) this.say(() => `give back ${stringify(gv)}`);
+        this.returnValue = gv;
+        this.returning = true;
+        return;
       }
       case "Style": {
         const v = this.evaluate(stmt.value, env);
@@ -380,7 +392,10 @@ export class Interpreter {
   }
 
   private runBlock(stmts: Stmt[], env: Environment): void {
-    for (const stmt of stmts) this.execute(stmt, env);
+    for (const stmt of stmts) {
+      this.execute(stmt, env);
+      if (this.returning) return;   // a `give` ran — stop this block and unwind
+    }
   }
 
   private evaluate(expr: Expr, env: Environment): Value {
@@ -390,7 +405,8 @@ export class Interpreter {
       case "Bool": return expr.value;
       case "Nothing": return NONE;
       case "Identifier": {
-        if (!env.has(expr.name)) {
+        const v = env.lookup(expr.name);
+        if (v === undefined) {
           throw new LangError(
             "Name",
             `I don't know what '${expr.name}' is.`,
@@ -399,7 +415,7 @@ export class Interpreter {
             this.nameHint(expr.name, env) ?? `Create it first with: make ${expr.name} = ...`,
           );
         }
-        return env.get(expr.name);
+        return v;
       }
       case "Unary": {
         if (expr.op === "-") {
@@ -454,18 +470,31 @@ export class Interpreter {
 
   private call(expr: Expr & { type: "Call" }, env: Environment): Value {
     const args = expr.args.map((a) => this.evaluate(a, env));
+    // Inline cache: the name->handler decision is stable for the whole run
+    // (tasks/library builtins are registered before run), so resolve it once per
+    // call-site and reuse it — skips the whole dispatch chain on every later call.
+    const cached = (expr as CachedCall).__h;
+    if (cached) return cached(args, expr);
+    return this.resolveCall(expr, args);
+  }
 
-    const fn = this.functions.get(expr.name);
-    if (fn) return this.callTask(expr.name, fn, args, expr);
+  private resolveCall(expr: Expr & { type: "Call" }, args: Value[]): Value {
+    const name = expr.name;
+    let h: CallHandler;
+    if (this.functions.has(name)) h = (a, e) => this.callTask(e.name, this.functions.get(e.name)!, a, e);
+    else if (isGuiBuiltin(name)) h = (a, e) => callGuiBuiltin(this.gui, e.name, a, { line: e.line, col: e.col });
+    else if (PERSIST_BUILTINS.includes(name)) h = (a, e) => this.persist(e.name, a, e);
+    else if (NET_BUILTINS.includes(name)) h = (a, e) => this.netCall(e.name, a, e);
+    else if (SECRET_BUILTINS.includes(name)) h = (a, e) => this.secretCall(a, e);
+    else if (INPUT_BUILTINS.includes(name)) h = (a) => this.input.ask(a.length > 0 ? stringify(a[0]) : "");
+    else if (this.libBuiltins.has(name)) h = (a, e) => this.libBuiltins.get(e.name)!(a, { line: e.line, col: e.col });
+    else if (isBuiltin(name)) h = (a, e) => callBuiltin(e.name, a, { line: e.line, col: e.col });
+    else return this.unknownCall(expr);
+    (expr as CachedCall).__h = h;
+    return h(args, expr);
+  }
 
-    if (isGuiBuiltin(expr.name)) return callGuiBuiltin(this.gui, expr.name, args, { line: expr.line, col: expr.col });
-    if (PERSIST_BUILTINS.includes(expr.name)) return this.persist(expr.name, args, expr);
-    if (NET_BUILTINS.includes(expr.name)) return this.netCall(expr.name, args, expr);
-    if (SECRET_BUILTINS.includes(expr.name)) return this.secretCall(args, expr);
-    if (INPUT_BUILTINS.includes(expr.name)) return this.input.ask(args.length > 0 ? stringify(args[0]) : "");
-    if (this.libBuiltins.has(expr.name)) return this.libBuiltins.get(expr.name)!(args, { line: expr.line, col: expr.col });
-    if (isBuiltin(expr.name)) return callBuiltin(expr.name, args, { line: expr.line, col: expr.col });
-
+  private unknownCall(expr: Expr & { type: "Call" }): never {
     const near = closest(expr.name, [...this.functions.keys(), ...this.libBuiltins.keys(), ...GUI_BUILTINS, ...PERSIST_BUILTINS, ...NET_BUILTINS, ...SECRET_BUILTINS, ...INPUT_BUILTINS, ...BUILTIN_NAMES]);
     throw new LangError(
       "Name",
@@ -545,7 +574,6 @@ export class Interpreter {
     try {
       this.runBlock(fn.body, frame);
     } catch (e) {
-      if (e instanceof ReturnSignal) return e.value;
       if (e instanceof RangeError) {
         throw new LangError(
           "Runtime",
@@ -557,6 +585,7 @@ export class Interpreter {
       }
       throw e;
     }
+    if (this.returning) { this.returning = false; return this.returnValue; }
     return NONE; // the task finished without giving anything back
   }
 
