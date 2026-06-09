@@ -59,6 +59,10 @@ it.
 
 ## Tips
 
+- **Typed keys go to whatever window is focused.** So start your recording by
+  **clicking into the window you want** — that click is recorded, and on replay
+  it focuses the right window before the typing happens. (Mouse moves don't need
+  focus, which is why they always work.)
 - The macro replays at the **same screen positions**, so keep windows where they
   were when you recorded.
 - Use it on **your own** machine for your own tasks. Many online games disallow

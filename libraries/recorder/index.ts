@@ -36,9 +36,12 @@ $bl.Dock='Fill'; $bl.ForeColor=[System.Drawing.Color]::FromName($Color); $bl.Tex
 $bl.Font=New-Object System.Drawing.Font('Segoe UI',12,[System.Drawing.FontStyle]::Bold)
 $bl.Text=$Msg
 $banner.Controls.Add($bl)
-$banner.Show()
+# Make it click-through (LAYERED|TRANSPARENT) AND no-activate (NOACTIVATE) BEFORE
+# showing, so the banner never steals mouse OR keyboard focus from your window.
+$null=$banner.Handle
 $ex=[Native]::GetWindowLong($banner.Handle,-20)
-[void][Native]::SetWindowLong($banner.Handle,-20,($ex -bor 0x80000 -bor 0x20))
+[void][Native]::SetWindowLong($banner.Handle,-20,($ex -bor 0x80000 -bor 0x20 -bor 0x08000000))
+$banner.Show()
 [System.Windows.Forms.Application]::DoEvents()
 `;
 
