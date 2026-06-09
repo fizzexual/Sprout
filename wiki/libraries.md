@@ -27,8 +27,6 @@ or **`test`** that everything loads.
 | **discord-bot** | make a real Discord bot — chat + `/slash` commands + a music player |
 | **networking** | the internet & your network — speed, blocking, devices, sharing, uptime |
 | **automations** | automate your PC — schedules, system control, macros, triggers, routines |
-| **screen** | see the screen (find colours) and react — move, click, type |
-| **recorder** | record your mouse + keyboard, then replay it (macros) |
 
 ### discord-bot — make a Discord bot 🤖
 
@@ -113,53 +111,6 @@ every("2 seconds", "tick")
 ```
 
 > Most of the system, macro, trigger, and routine features are **Windows-focused**.
-
-### screen — see the screen and react 👀
-
-`use "screen"` lets a program **look at the screen** (find a colour, read a
-pixel, wait for something to appear) and **react** (move the mouse, click, type).
-It's how you build watch-and-react helpers — auto-clickers, idle-game minders,
-UI scripts, accessibility tools. Full guide: [`libraries/screen/README.md`](../libraries/screen/README.md).
-
-| Group | Words |
-| --- | --- |
-| **Seeing** | `look` · `screen_width` · `screen_height` · `pixel` · `find_color` · `sees_color` · `count_color` · `wait_for_color` |
-| **Reacting** | `move_to` · `click` · `right_click` · `double_click` · `mouse` · `press` · `type` · `wait` |
-
-```sprout
-use "screen"
-make spot = wait_for_color("red", 20, 30)   ~ wait up to 30s for red
-when spot != nothing:
-    click(spot[0], spot[1])                  ~ click it
-```
-
-> Windows only (it grabs the screen with Windows' own drawing tools), captures
-> your primary monitor, and a snapshot takes ~0.4s — great for "wait for X, then
-> click", not twitch-speed reactions. Automate **your own** screen, and check a
-> game's rules before botting it.
-
-### recorder — record your input, then replay it 🎬
-
-`use "recorder"` captures **every mouse move, click, and key press/hold** (with
-timing) into a file, then plays it back exactly — a macro recorder. Great for
-repetitive tasks. Full guide: [`libraries/recorder/README.md`](../libraries/recorder/README.md).
-
-| Word | What it does |
-| --- | --- |
-| `record(file, seconds?)` | Record mouse + keyboard until you press **ESC** (or after `seconds`). |
-| `play(file, times?)` | Replay it with the original timing (optionally `times` times). |
-| `wait(seconds)` | Pause — handy before a replay so you can switch windows. |
-
-```sprout
-use "recorder"
-record("my-macro.txt")     ~ do your thing, then press ESC
-wait(3)                     ~ switch to the right window
-play("my-macro.txt")       ~ Sprout does it all again
-```
-
-> Windows only. Replaying sends input to whatever window is focused, so switch to
-> the right one first. Use it for **your own** tasks; check a game's rules before
-> automating it.
 
 ## Extensions — libraries for libraries
 
