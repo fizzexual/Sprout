@@ -40,6 +40,7 @@ static char *dup_str(const char *s) { size_t n = strlen(s) + 1; char *p = (char 
 /* terminal colours, used across messages, the TUI, and learn mode */
 #define C_RESET "\x1b[0m"
 #define C_GREEN "\x1b[32m"
+#define C_RED   "\x1b[31m"
 #define C_BOLD  "\x1b[1m"
 #define C_DIM   "\x1b[2m"
 #define C_CYAN  "\x1b[36m"
@@ -189,7 +190,7 @@ static void failf(int line, const char *fmt, const char *arg) {
 typedef enum {
   T_NUM, T_STR, T_IDENT,
   T_MAKE, T_SET, T_SHOW, T_WHEN, T_ORWHEN, T_OTHERWISE, T_REPEAT, T_WHILE, T_TIMES,
-  T_TASK, T_GIVE, T_FOR, T_EACH, T_IN, T_USE, T_PUBLIC, T_PRIVATE, T_LEARN,
+  T_TASK, T_GIVE, T_FOR, T_EACH, T_IN, T_USE, T_PUBLIC, T_PRIVATE, T_LEARN, T_TEST, T_EXPECT,
   T_AND, T_OR, T_NOT, T_YES, T_NO, T_NOTHING,
   T_PLUS, T_MINUS, T_STAR, T_SLASH, T_PERCENT, T_DOT,
   T_EQ, T_EQEQ, T_BANGEQ, T_LT, T_LE, T_GT, T_GE,
@@ -212,6 +213,7 @@ static TokType keyword(const char *w) {
     { "while", T_WHILE }, { "times", T_TIMES }, { "task", T_TASK }, { "give", T_GIVE },
     { "for", T_FOR }, { "each", T_EACH }, { "in", T_IN }, { "use", T_USE },
     { "public", T_PUBLIC }, { "private", T_PRIVATE }, { "learn", T_LEARN },
+    { "test", T_TEST }, { "expect", T_EXPECT },
     { "and", T_AND }, { "or", T_OR },
     { "not", T_NOT }, { "yes", T_YES }, { "no", T_NO }, { "nothing", T_NOTHING },
   };
@@ -373,7 +375,7 @@ typedef struct Expr {
   struct Expr *target, *index;            /* E_INDEX: target[index] */
 } Expr;
 
-typedef enum { S_MAKE, S_SET, S_SHOW, S_WHEN, S_REPEAT_TIMES, S_REPEAT_WHILE, S_TASK, S_GIVE, S_EXPR, S_FOREACH, S_INDEXSET, S_USE, S_LEARN } SKind;
+typedef enum { S_MAKE, S_SET, S_SHOW, S_WHEN, S_REPEAT_TIMES, S_REPEAT_WHILE, S_TASK, S_GIVE, S_EXPR, S_FOREACH, S_INDEXSET, S_USE, S_LEARN, S_TEST, S_EXPECT } SKind;
 typedef struct Stmt Stmt;
 typedef struct { Expr *cond; Stmt **body; int nbody; } Branch;
 struct Stmt {
@@ -516,6 +518,7 @@ static Stmt *statement(void);
 /* a `:` then a NEWLINE then an indented run of statements */
 static int g_block_depth = 0;   /* >0 while parsing inside an indented block (tasks must be top-level) */
 static int g_in_task = 0;       /* >0 while parsing a task body ('give' only works inside a task) */
+static int g_in_test = 0;       /* >0 while parsing a test body ('expect' only works inside a test) */
 static int g_repl_active = 0;   /* in the live REPL, `make` may re-bind a name (re-running a line) */
 static Stmt **block(int *count) {
   expect(T_COLON, "I expected a ':' to start the block.");
@@ -638,6 +641,21 @@ static Stmt *statement(void) {
       else fail(t.line, "say 'learn on' to explain each step, or 'learn off' to stop.");
       return s;
     }
+    case T_TEST: {
+      if (g_block_depth > 0) fail(t.line, "a test must be at the top level (the far-left margin).");
+      advance(); Stmt *s = new_stmt(S_TEST, t.line);
+      Token nm = expect(T_STR, "I expected a name in quotes here, like:  test \"greeting\":");
+      s->name = nm.text;
+      int save = g_in_test; g_in_test = 1;     /* 'expect' is allowed inside this body */
+      s->body = block(&s->nbody);
+      g_in_test = save;
+      return s;
+    }
+    case T_EXPECT: {
+      if (!g_in_test) fail(t.line, "'expect' only works inside a test (like:  test \"x\":  then  expect ...).");
+      advance(); Stmt *s = new_stmt(S_EXPECT, t.line); s->expr = expression();
+      return s;
+    }
     default:
       if (check(T_IDENT)) { Stmt *s = new_stmt(S_EXPR, t.line); s->expr = expression(); return s; }
       fail(t.line, "I didn't expect this at the start of a line.");
@@ -646,7 +664,7 @@ static Stmt *statement(void) {
 }
 
 static Stmt **parse_program(int *count) {
-  g_block_depth = 0; g_in_task = 0;   /* fresh per parse, so a prior error's longjmp can't leave them stuck */
+  g_block_depth = 0; g_in_task = 0; g_in_test = 0;   /* fresh per parse, so a prior error's longjmp can't leave them stuck */
   Stmt **list = NULL; int n = 0, cap = 0;
   while (!check(T_EOF)) {
     if (match(T_NEWLINE)) continue;
@@ -753,12 +771,16 @@ static Value return_value;
 static int call_depth = 0;
 static int repl_echo = 0;   /* in the live prompt, print the value of a bare expression */
 static int g_learn = 0;     /* `learn on`: narrate each step as the program runs */
+static int g_tpass = 0, g_tfail = 0;   /* test results so far */
+static const char *g_cur_test = NULL;  /* the test currently running (for expect messages) */
+static int g_test_failed = 0;          /* did the current test fail? */
 #define MAX_DEPTH 6000
 
 static Value eval(Expr *e, Env *env);
 static void exec(Stmt *s, Env *env);
 static void load_module(const char *name);   /* defined near main(); pulls in another project file */
 static char *module_basename(const char *path);   /* "server" from "modules/server.sprout" */
+static int test_report(void);                 /* prints the test summary + returns exit code */
 static void exec_block(Stmt **list, int n, Env *env) { for (int i = 0; i < n; i++) { exec(list[i], env); if (returning) return; } }
 /* run a block in its OWN child scope, so `make` inside it doesn't leak out */
 static void exec_scoped(Stmt **list, int n, Env *parent) { Env *be = env_new(parent); exec_block(list, n, be); }
@@ -1468,6 +1490,33 @@ static void exec(Stmt *s, Env *env) {
       fputc('\n', stdout); break;
     }
     case S_LEARN: g_learn = s->is_public; break;
+    case S_TEST: {
+      const char *prevn = g_cur_test; int prevf = g_test_failed;
+      g_cur_test = s->name; g_test_failed = 0;
+      jmp_buf tb; jmp_buf *saved = err_jmp; err_jmp = &tb;
+      int sdepth = call_depth, sret = returning;
+      if (setjmp(tb) == 0) {
+        exec_block(s->body, s->nbody, env_new(env));   /* each test runs in its own scope */
+      } else {                                          /* a runtime error stopped the test */
+        call_depth = sdepth; returning = sret;
+        if (!g_test_failed) { g_test_failed = 1; printf("  " C_RED "x" C_RESET "  %s " C_DIM "(stopped by an error)" C_RESET "\n", s->name); }
+      }
+      err_jmp = saved;
+      if (g_test_failed) g_tfail++; else { g_tpass++; printf("  " C_GREEN "ok" C_RESET "  %s\n", s->name); }
+      g_cur_test = prevn; g_test_failed = prevf;
+      break;
+    }
+    case S_EXPECT: {
+      if (!is_truthy(eval(s->expr, env))) {
+        char *src = render_str(s->expr, 0, env), *vals = render_str(s->expr, 1, env);
+        printf("  " C_RED "x" C_RESET "  %s\n        expected this to be true:  %s\n", g_cur_test ? g_cur_test : "(test)", src);
+        if (strcmp(src, vals) != 0) printf("        but it was:                %s\n", vals);
+        free(src); free(vals);
+        g_test_failed = 1;
+        if (err_jmp) longjmp(*err_jmp, 1);   /* stop this test, move to the next */
+      }
+      break;
+    }
     case S_WHEN: {
       for (int i = 0; i < s->nbranches; i++) if (is_truthy(eval(s->branches[i].cond, env))) { exec_scoped(s->branches[i].body, s->branches[i].nbody, env); return; }
       if (s->otherwise) exec_scoped(s->otherwise, s->notherwise, env);
@@ -1548,13 +1597,14 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.0.11"
+#define SPROUT_VERSION "0.0.12"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);
   printf("  sprout                   open the interactive screen\n");
   printf("  sprout new <folder>      create a new project folder\n");
   printf("  sprout build             run the project here (reads sprout.toml)\n");
+  printf("  sprout test [file]       run tests (a file, or every tests/*.sprout)\n");
   printf("  sprout <file.sprout>     run a single program\n");
   printf("  sprout run <file>        run a single program\n");
   printf("  sprout api <url>         show every field an API gives back\n");
@@ -2133,7 +2183,61 @@ static int cmd_build(void) {
   free(mainc);
   load_module(mainf);                                           /* entry point genuinely last */
   err_jmp = NULL;
-  return 0;
+  return test_report();   /* if the project ran any tests, report + set the exit code */
+}
+
+/* -------------------------------------------------------------------- tests */
+static int test_report(void) {
+  if (g_tpass + g_tfail == 0) return 0;
+  printf("\n  " C_BOLD "%d passed" C_RESET, g_tpass);
+  if (g_tfail) printf(", " C_RED C_BOLD "%d failed" C_RESET, g_tfail);
+  printf("\n\n");
+  return g_tfail > 0 ? 1 : 0;
+}
+
+/* run one file for its tests, in its own scope (per-test failures are tolerated) */
+static void run_test_file(const char *path) {
+  char *src = read_whole_file(path);
+  if (!src) { printf("  " C_DIM "couldn't open %s" C_RESET "\n", path); return; }
+  printf("\n  " C_DIM "%s" C_RESET "\n", path);
+  ntok = 0; pos = 0;
+  tokenize(src, (int)strlen(src));
+  int n; Stmt **prog = parse_program(&n);
+  free(src);
+  const char *prev = g_current_file; g_current_file = path;
+  Env *fe = env_new(global_env);
+  int pf = cur_fileid; Env *pe = cur_file_env;
+  cur_fileid = ++g_next_fileid; cur_file_env = fe;
+  { char *base = module_basename(path); modns_register(base, cur_fileid, fe); free(base); }
+  for (int i = 0; i < n; i++) if (prog[i]->kind == S_TASK) task_register(prog[i], cur_fileid, fe);
+  exec_block(prog, n, fe);
+  returning = 0;
+  cur_fileid = pf; cur_file_env = pe; g_current_file = prev;
+}
+
+/* sprout test [file] - run a test file, or every .sprout in the tests folder */
+static int cmd_test(int argc, char **argv) {
+  console_setup();
+  toml_load();
+  global_env = env_new(NULL);
+  cur_file_env = env_new(global_env); cur_fileid = ++g_next_fileid;
+  jmp_buf jb; err_jmp = &jb;
+  if (setjmp(jb) != 0) { err_jmp = NULL; g_current_file = NULL; call_depth = 0; returning = 0; test_report(); return 1; }
+  if (argc >= 3) {
+    run_test_file(argv[2]);
+  } else {
+    int found = 0;
+#ifdef _WIN32
+    WIN32_FIND_DATAA fd; HANDLE h = FindFirstFileA("tests\\*.sprout", &fd);
+    if (h != INVALID_HANDLE_VALUE) { do { char p[600]; snprintf(p, sizeof p, "tests/%s", fd.cFileName); run_test_file(p); found = 1; } while (FindNextFileA(h, &fd)); FindClose(h); }
+#else
+    DIR *d = opendir("tests");
+    if (d) { struct dirent *e; while ((e = readdir(d))) { size_t L = strlen(e->d_name); if (L > 7 && !strcmp(e->d_name + L - 7, ".sprout")) { char p[600]; snprintf(p, sizeof p, "tests/%s", e->d_name); run_test_file(p); found = 1; } } closedir(d); }
+#endif
+    if (!found) { fprintf(stderr, "\n  No tests found. Put them in a tests/ folder, or run one:  sprout test mytests.sprout\n\n"); err_jmp = NULL; return 1; }
+  }
+  err_jmp = NULL;
+  return test_report();
 }
 
 int main(int argc, char **argv) {
@@ -2146,6 +2250,7 @@ int main(int argc, char **argv) {
   if (!strcmp(arg, "template")) return cmd_template(argc, argv);
   if (!strcmp(arg, "new")) return cmd_new(argc, argv);
   if (!strcmp(arg, "build")) return cmd_build();
+  if (!strcmp(arg, "test")) return cmd_test(argc, argv);
   if (!strcmp(arg, "api")) {
     if (argc < 3) { fprintf(stderr, "  api needs a web address:  sprout api https://...\n"); return 1; }
     return cmd_api(argv[2]);
@@ -2168,5 +2273,5 @@ int main(int argc, char **argv) {
   { char *base = module_basename(file); modns_register(base, cur_fileid, cur_file_env); free(base); }  /* same as `sprout build` */
   for (int i = 0; i < ncount; i++) if (program[i]->kind == S_TASK) task_register(program[i], cur_fileid, cur_file_env);
   exec_block(program, ncount, cur_file_env);
-  return 0;
+  return test_report();   /* if the file had tests, report + set the exit code */
 }

@@ -185,11 +185,32 @@ learn off
 
 ---
 
+## Testing
+
+```sprout
+task greet(who):
+    give f"Hello, {who}!"
+
+test "greeting":
+    expect greet("Sam") == "Hello, Sam!"   ~ each 'expect' must be true
+    expect length([1, 2, 3]) == 3
+```
+
+```bash
+sprout test                  # run every tests/*.sprout (or: sprout test myfile.sprout)
+```
+
+Each `test` runs on its own; a failing `expect` shows what it expected and the
+run exits non-zero (handy for CI).
+
+---
+
 ## Running it
 
 ```bash
 sprout myprogram.sprout      # run one file
 sprout build                 # run a project (sprout.toml in this folder)
+sprout test                  # run your tests
 sprout                       # open the interactive screen (try code live)
 ```
 

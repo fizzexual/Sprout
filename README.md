@@ -95,6 +95,7 @@ language runs now:
 - `task` / `give`, function calls, **recursion**, proper scope
 - **Lists** `[1, 2, 3]` and **maps** `{name: "Sam"}` — indexing, `set xs[i] = …`, `for each`, `range`
 - **`learn on`** — Sprout explains each step as it runs (and **friendly errors** that say *"did you mean…?"*)
+- **Built-in testing** — `test "name": expect …`, run with `sprout test` (pass/fail report + exit code)
 - **Toolbox:** `length` `add` `keys` `contains` `first` `last` `range` · `sqrt` `abs` `round` `floor` `ceil` `min` `max` `random` `number` · `upper` `lower` `trim` `replace` `split` `join` · `now` `today` `wait` · `ask` · `color` (terminal colour)
 - **Superpowers — built in, no libraries:**
   - 🌐 `get(url)` — fetch any web page or API
@@ -169,10 +170,24 @@ build.cmd                     # or: gcc -O2 -Wall -s -o sprout.exe sprout.c -lm 
 
 # run a program:
 sprout run hello.sprout     # or just: sprout hello.sprout
-sprout version              # -> Sprout v0.0.11
+sprout version              # -> Sprout v0.0.12
 sprout new myapp            # create a full multi-file project folder
 sprout build                # run the project in the current folder (reads sprout.toml)
+sprout test                 # run your tests (a file, or every tests/*.sprout)
 sprout api <url>            # list every field an API returns
+```
+
+Tests use plain words too — `test` and `expect`:
+
+```sprout
+test "greeting":
+    expect greet("Sam") == "Hello, Sam!"
+    expect length([1, 2, 3]) == 3
+```
+```
+  ok  greeting
+
+  1 passed
 ```
 
 The result is a **~86 KB** native executable that links only against the operating
@@ -366,9 +381,10 @@ The core is done; the rest of the language is on its way back, slice by slice:
 4. ✅ **Superpowers & tooling** — math/text toolbox, files, web (`get` / `json` / `explore`), `run`, `color`, templates, `sprout api`
 5. ✅ **Projects & modules** — `sprout.toml`, `use`, `public`/`private`, `sprout new`, `sprout build`
 6. ✅ **f-strings, friendly errors & `learn` mode** — `f"Hi {name}"`, "did you mean?", step-by-step narration
-7. ⏭️ **`remember` / `recall`** — values that persist between runs
-8. **Testing & docs** — `test "…": expect …`, `sprout test`, `sprout docs`
-9. **Apps & more** — a package manager, then GUI windows
+7. ✅ **Built-in testing** — `test "…": expect …` and `sprout test`
+8. ⏭️ **`remember` / `recall`** — values that persist between runs; then `sprout docs`
+9. **Kinds** — a per-file `kind` in `sprout.toml` picks an outer loop: `script` · `module` · `test` · `server`/`handler` (a web runtime; the hard part is a per-request arena)
+10. **Apps & more** — a package manager, then GUI windows
 
 ## How it works (architecture)
 
@@ -404,7 +420,7 @@ There's a **[VS Code extension](vscode-extension)** for syntax highlighting too.
 
 ## Known limitations & open questions
 
-Sprout is **v0.0.11** — early, and deliberately small. Honest about the edges:
+Sprout is **v0.0.12** — early, and deliberately small. Honest about the edges:
 spotting more (or telling me which matter most) is exactly the feedback I want —
 [issues](https://github.com/fizzexual/Sprout/issues) /
 [discussions](https://github.com/fizzexual/Sprout/discussions) welcome.

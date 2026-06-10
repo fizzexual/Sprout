@@ -1,0 +1,17 @@
+~ the 'test' kind in action.  Run with:  sprout test   (or: sprout test tests/example_test.sprout)
+~ each `test "name":` block runs on its own; `expect <something true>` checks it.
+
+test "math works":
+    expect 2 + 2 == 4
+    expect 10 / 2 == 5
+
+test "text and lists":
+    expect upper("hi") == "HI"
+    expect length([1, 2, 3]) == 3
+    expect "hello"[0] == "h"
+
+task double(n):
+    give n * 2
+
+test "my own task":
+    expect double(21) == 42
