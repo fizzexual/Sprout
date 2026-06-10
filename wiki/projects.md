@@ -73,7 +73,7 @@ quiz.sprout        ← you run this   (the steps: ask questions, show the score)
 
 ## A full example
 
-The [`advanced/quiz-game`](https://github.com/fizzexual/Sprout-) project is three
+The [`advanced/quiz-game`](https://github.com/fizzexual/Sprout) project is three
 connected files:
 
 | File | Job |

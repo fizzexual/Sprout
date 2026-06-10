@@ -185,7 +185,7 @@ Call any web address and use what comes back — no libraries, no setup.
 | `explore(text)` | like `get_api_points`, but shows each field's value too | `explore(info)` |
 
 ```sprout
-make info = get("https://api.github.com/repos/fizzexual/Sprout-")
+make info = get("https://api.github.com/repos/fizzexual/Sprout")
 show "Stars:", jsonpick(info, "stargazers_count")
 show explore(info)        ~ see everything else you could pick out
 ```
@@ -212,7 +212,7 @@ A few helpful details:
 You don't even need to write a program to peek at an API. From your terminal:
 
 ```bash
-sprout api https://api.github.com/repos/fizzexual/Sprout-
+sprout api https://api.github.com/repos/fizzexual/Sprout
 ```
 
 It connects, then prints **every field with its path** — exactly the path you'd

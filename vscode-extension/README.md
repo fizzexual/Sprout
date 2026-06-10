@@ -1,6 +1,6 @@
 # Sprout for VS Code
 
-Language support for the [Sprout](https://github.com/fizzexual/Sprout-)
+Language support for the [Sprout](https://github.com/fizzexual/Sprout)
 programming language and its styling language **Bloom**.
 
 ## Features

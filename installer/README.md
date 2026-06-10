@@ -1,7 +1,7 @@
 # The Sprout installer
 
-**[Download `SproutSetup.exe`](https://github.com/fizzexual/Sprout-/releases/latest/download/SproutSetup.exe)**
-from the [latest release](https://github.com/fizzexual/Sprout-/releases/latest) and run it —
+**[Download `SproutSetup.exe`](https://github.com/fizzexual/Sprout/releases/latest/download/SproutSetup.exe)**
+from the [latest release](https://github.com/fizzexual/Sprout/releases/latest) and run it —
 that's how you get a *working* Sprout on Windows.
 
 > This GitHub repo is the **source** — clone it to read or change how Sprout
@@ -34,7 +34,7 @@ time you open the installer it offers to **update**.
 ## Building & publishing (for maintainers)
 
 `SproutSetup.exe` is **not committed** — it's built and published to
-[GitHub Releases](https://github.com/fizzexual/Sprout-/releases) automatically by
+[GitHub Releases](https://github.com/fizzexual/Sprout/releases) automatically by
 [`.github/workflows/release.yml`](../.github/workflows/release.yml). Bump
 [`VERSION`](../VERSION) (or change anything under `installer/`) and push: the CI
 compiles [`sprout-setup.iss`](sprout-setup.iss) with Inno Setup on a Windows

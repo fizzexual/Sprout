@@ -19,6 +19,7 @@ All from **one small, dependency-free language** with its own friendly vocabular
 | Page | What's inside |
 | --- | --- |
 | **[Getting Started](getting-started.md)** | install Sprout, run your first program |
+| **[How Sprout Works](architecture.md)** | the architecture — the pipeline, the two engines, the native runtime, where everything lives |
 | **[Sprout Syntax](sprout-syntax.md)** | the whole language — variables, math, text, conditions, loops, tasks |
 | **[Built-in Functions](builtins.md)** | `sqrt`, `max`, `length`, `upper`, `remember`/`recall`, `get`/`post`, `secret`… |
 | **[GUI & Servers](gui-and-servers.md)** | build native windows and websites in Sprout |
@@ -34,7 +35,7 @@ All from **one small, dependency-free language** with its own friendly vocabular
 ~ this is a comment
 
 make name = "world"
-show "Hello, " + name + "!"
+show f"Hello, {name}!"     ~ f"..." drops values into text
 
 repeat 3 times:
     show "🌱"
@@ -47,4 +48,5 @@ show add(2, 3)        ~ 5
 
 Sprout is a small, friendly language with its **own** vocabulary — it doesn't
 borrow `let`, `print`, or `if` from anyone. It can also build **native GUI apps**
-and **websites**, styled with **Bloom**.
+and **websites**, styled with **Bloom**. Curious how it all works under the hood?
+Read [How Sprout Works](architecture.md).

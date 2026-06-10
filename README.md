@@ -7,23 +7,26 @@
 <p align="center">A small, friendly programming language — built from scratch, with zero dependencies.</p>
 
 <p align="center">
-  <a href="https://github.com/fizzexual/Sprout-/releases/latest"><img src="https://img.shields.io/badge/version-0.6.1-2ea043?style=flat-square" alt="version" /></a>
+  <a href="https://github.com/fizzexual/Sprout/releases/latest"><img src="https://img.shields.io/badge/version-0.6.1-2ea043?style=flat-square" alt="version" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ea043?style=flat-square" alt="license" /></a>
   <img src="https://img.shields.io/badge/dependencies-0-2ea043?style=flat-square" alt="zero dependencies" />
-  <img src="https://img.shields.io/badge/node-%E2%89%A523.6-2ea043?style=flat-square" alt="node >=23.6" />
 </p>
 
 <p align="center">
-  <a href="https://github.com/fizzexual/Sprout-/releases/latest">Download</a> ·
-  <a href="wiki/README.md">Documentation</a> ·
-  <a href="wiki/cheatsheet.md">Cheat sheet</a>
+  <a href="https://github.com/fizzexual/Sprout/releases/latest">Download</a> ·
+  <a href="wiki/README.md">Docs</a> ·
+  <a href="wiki/cheatsheet.md">Cheat sheet</a> ·
+  <a href="wiki/architecture.md">How it works</a>
 </p>
 
 ---
 
-Sprout is a real interpreted language — its own lexer, parser, and tree-walking interpreter. No transpiling, no frameworks, no dependencies. It has one goal: **be the kindest language to learn programming with.**
+Sprout is a **real** interpreted language — its own lexer, parser, and tree-walking
+interpreter, no transpiling and no dependencies. It has one goal: **be the kindest
+language to learn programming with.**
 
-Where most languages throw cryptic errors, Sprout points at the exact spot and explains it in plain English:
+Where most languages throw cryptic errors, Sprout points at the exact spot and
+explains it in plain English:
 
 ```
 🌱 Oops — name problem on line 2:
@@ -47,104 +50,82 @@ show f"Hello, {name}!"
 sprout run hello.sprout
 ```
 
-Sprout has its own vocabulary — `make`, `set`, `show`, `when`, `repeat`, `task` — it doesn't borrow `let`, `print`, or `if` from anyone.
+Sprout has its own vocabulary — `make`, `set`, `show`, `when`, `repeat`, `task` —
+it doesn't borrow `let`, `print`, or `if` from anyone.
+
+## Why Sprout
+
+- 🧠 **The kindest errors** — every mistake points at the spot and explains it, often with a fix.
+- 📦 **Zero dependencies** — a real language in a handful of small files; nothing from npm to run it.
+- ⚡ **Two engines, one language** — an instant interpreter *and* a compile-to-JavaScript mode that's **faster than Python**. Same `.sprout` file, your choice.
+- 📤 **Ship a single `.exe`** — `sprout build` bundles your program so it runs on a PC with **no Node and no Sprout** installed.
+- 🪟 **Apps & websites** — the same code runs as a native window *or* a website, styled with **Bloom** (Sprout's own CSS).
+- 🌐 **Batteries included** — save data, call any API, keep secrets safe, and add powers with libraries (`discord-bot`, `networking`, `automations`).
+- 🛠️ **A native runtime in the works** — Sprout is being reimplemented in C so it can run with no Node at all (see [`native/`](native)).
 
 ## Install
 
-**Windows** — download [`SproutSetup.exe`](https://github.com/fizzexual/Sprout-/releases/latest/download/SproutSetup.exe) and run the wizard. It registers the `sprout` command, file types, and shortcuts.
+**Windows** — download [`SproutSetup.exe`](https://github.com/fizzexual/Sprout/releases/latest/download/SproutSetup.exe) and run the wizard. It registers the `sprout` command, file types, and shortcuts.
 
 **From source** (any OS, needs Node 23.6+) — Sprout runs its TypeScript directly, so there's no build step:
 
 ```bash
-git clone https://github.com/fizzexual/Sprout-.git
-cd Sprout-
+git clone https://github.com/fizzexual/Sprout.git
+cd Sprout
 npm link
 ```
-
-## What you can build
-
-- **Programs** — variables, math, text, conditions, loops, lists & maps, `for each`, and `task` functions
-- **Multi-file projects** — split your code across files with `use "file.sprout"`
-- **Desktop apps & websites** — `window("Title")` for a native window, `server("Title")` for a site — the same code, either way
-- **Styling** — Bloom, Sprout's own CSS, with `style "theme.bloom"`
-- **Data & the internet** — `remember` / `recall` to save between runs, `get` / `post` for any API, `secret(...)` to keep tokens out of your code
-- **Libraries** — `use "discord-bot"` (a real Discord bot + music player), `use "networking"` (IP, ping, downloads), `use "automations"` (scheduled tasks)
-
-## Libraries
-
-Add powers with `use "..."`, then install and browse them from a built-in terminal UI — `sprout modules`:
-
-<p align="center">
-  <img src="images/sprout_modules.png" alt="The sprout modules manager" width="760" />
-</p>
 
 ## Commands
 
 ```
 sprout run file.sprout          run a program
 sprout fast file.sprout         run it compiled to JavaScript (faster than Python)
-sprout build file.sprout        build an .exe (asks how): no-Node standalone, or a tiny needs-Node one
-sprout build file --standalone  the no-Node .exe, no questions (--no-compress / --needs-node)
-sprout bench file.sprout        time it on both engines and compare the speed
+sprout build file.sprout        build an .exe (asks how): a no-Node standalone, or a tiny needs-Node one
+sprout bench file.sprout        time it on both engines and compare
 sprout gui file.sprout          open it as a native window
 sprout serve file.sprout        run it as a website
 sprout check file.sprout        verify it without running
 sprout explain file.sprout      run it and narrate each step
 sprout trace file.sprout        step through it line-by-line, watching variables
-sprout new myapp                create a starter program to get going fast
+sprout new myapp                create a starter program
 sprout modules                  install / browse libraries
 sprout repl                     interactive prompt
 ```
 
-## How it works
-
-```
-source → lexer → parser → interpreter → output
-```
-
-A handful of small, dependency-free TypeScript files. The full pipeline is documented in the [wiki](wiki/README.md).
-
 ## How fast is it?
 
-Sprout has **two engines for the same language**:
-- **`sprout run`** — a tuned tree-walking interpreter: instant, friendliest errors, no build step.
-- **`sprout fast` / `sprout build`** — compiles your program to JavaScript and runs it on V8. **Faster than Python.**
+Sprout has **two engines for the same language**: `sprout run` (a tuned
+tree-walking interpreter — instant, friendliest errors) and `sprout fast` /
+`sprout build` (compiles to JavaScript and runs on V8 — **faster than Python**).
 
 Best-of-5 wall-clock, one machine (Node 25). Same three programs in each language:
 
-| Benchmark | `sprout run` | **`sprout build`** (compiled) | Python 3.11 | Node (JS) | Go | Java 21 |
+| Benchmark | `sprout run` | **`sprout build`** | Python 3.11 | Node (JS) | Go | Java 21 |
 | --- | --- | --- | --- | --- | --- | --- |
 | Recursion — `fib(30)` | 0.89s | **0.15s** | 0.25s | 0.09s | 0.03s | 0.10s |
 | Tight loop — 5,000,000× | 0.77s | **0.16s** | 0.62s | 0.10s | 0.03s | 0.10s |
 | Primes — < 80,000 | 0.65s | **0.18s** | 0.22s | 0.09s | 0.04s | 0.11s |
 
-**Compiled Sprout beats CPython on every benchmark** — it runs as real JavaScript on V8 (so it lands within ~2× of Node, and well ahead of Python). The interpreter stays the friendly default for quick scripts and the kindest errors; `sprout fast` is there when you want the speed — *same `.sprout` file, your choice of engine*. (Compile mode covers the core language; programs that `use` a library or open a GUI just run on the interpreter.) Reproduce: [`benchmarks/`](benchmarks) → `bash benchmarks/bench.sh`.
+Compiled Sprout beats CPython on every benchmark. Measure your own code with
+`sprout bench yourfile.sprout`. Reproduce: [`benchmarks/`](benchmarks).
 
-**Measure your own code:** `sprout bench yourfile.sprout` times it on both engines and prints the difference:
+## How it works
 
 ```
-🌱  sprout bench  fib.sprout   (execution time)
-
-  interpreter    168.3 ms  ±  5.7  (15 runs)   ████████████████████████████████████████
-  compiled         7.1 ms  ±  0.6  (40 runs)   ██
-
-  → compiled ran 23.9× faster than the interpreter
+source → lexer → parser → checker → [ interpreter | compiler ] → output
 ```
 
-## Share it — one file, no install
+A small, dependency-free pipeline shared by both engines — and a from-scratch C
+runtime taking shape in [`native/`](native). The full tour is in
+**[How Sprout Works](wiki/architecture.md)**.
 
-`sprout build my-game.sprout --standalone` bundles your whole program — runtime and all — into a **single `my-game.exe`** that runs on a machine with **no Node and no Sprout installed**. Just double-click it, or send it to a friend.
+## Documentation
 
-It's one command — `sprout build my-game.sprout` asks how you want it:
-
-- **No Node needed** → a standalone `.exe` that runs on any PC. It embeds a JavaScript engine (like every "compile to exe" tool), so it's ~90 MB — but it auto-compresses down to **~20 MB** (`--no-compress` keeps it full).
-- **Tiny** → a **~40 KB** `.exe` that runs on the system's Node (the recipient needs Node installed).
-
-Either way it's a single `.exe`. Multi-file projects (`use "other.sprout"`) and interactive ones (`ask`) bundle in too.
-
-## Documentation & tooling
-
-The **[wiki](wiki/README.md)** teaches the whole language and Bloom — the [cheat sheet](wiki/cheatsheet.md) is the one-page tour. A **VS Code extension** ([`vscode-extension/`](vscode-extension)) adds syntax highlighting, snippets, and run buttons, and the test suite runs with `npm test` — still zero dependencies.
+The **[wiki](wiki/README.md)** teaches the whole language and Bloom; the
+[cheat sheet](wiki/cheatsheet.md) is the one-page tour, and
+[How Sprout Works](wiki/architecture.md) is the architecture. A **VS Code
+extension** ([`vscode-extension/`](vscode-extension)) adds highlighting, snippets,
+and run buttons. Tests run with `npm test` — still zero dependencies.
 
 ---
 

@@ -314,7 +314,7 @@ function findLibrary(arg: string): Module | null {
 // Download a library (its folder + matching extension) from the repo into this
 // install — for `libinstall`, e.g. to restore one you uninstalled.
 function downloadLibrary(name: string): boolean {
-  const url = "https://github.com/fizzexual/Sprout-/archive/refs/heads/main.zip";
+  const url = "https://github.com/fizzexual/Sprout/archive/refs/heads/main.zip";
   const libDest = join(REPO, "libraries", name);
   const extDest = join(REPO, "extensions", name);
   const ps = [
