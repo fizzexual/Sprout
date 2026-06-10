@@ -85,7 +85,8 @@ cd src
 build.cmd                     # or: gcc -O2 -Wall -s -o sprout.exe sprout.c -lm
 
 # run a program:
-sprout.exe hello.sprout
+sprout run hello.sprout     # or just: sprout hello.sprout
+sprout version              # -> Sprout v0.0.1
 ```
 
 The result is a **~34 KB** native executable that links only against the operating

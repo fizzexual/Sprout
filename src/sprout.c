@@ -502,9 +502,29 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
+#define SPROUT_VERSION "0.0.1"
+
+static void usage(void) {
+  printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);
+  printf("  sprout <file.sprout>     run a program\n");
+  printf("  sprout run <file>        run a program\n");
+  printf("  sprout version           show the version\n");
+  printf("  sprout help              show this help\n");
+}
+
 int main(int argc, char **argv) {
-  if (argc < 2) { fprintf(stderr, "Sprout (native) - usage: sprout <file.sprout>\n"); return 1; }
-  int len; char *src = read_file(argv[1], &len);
+  if (argc < 2) { usage(); return 0; }
+  const char *arg = argv[1];
+  if (!strcmp(arg, "version") || !strcmp(arg, "--version") || !strcmp(arg, "-v")) { printf("Sprout v%s\n", SPROUT_VERSION); return 0; }
+  if (!strcmp(arg, "help") || !strcmp(arg, "--help") || !strcmp(arg, "-h")) { usage(); return 0; }
+
+  const char *file = arg;
+  if (!strcmp(arg, "run")) {
+    if (argc < 3) { fprintf(stderr, "\n  Sprout: 'run' needs a file - try:  sprout run hello.sprout\n\n"); return 1; }
+    file = argv[2];
+  }
+
+  int len; char *src = read_file(file, &len);
   tokenize(src, len);
   int ncount; Stmt **program = parse_program(&ncount);
   for (int i = 0; i < ncount; i++) if (program[i]->kind == S_TASK) task_register(program[i]);
