@@ -1,0 +1,9 @@
+~ v0.0.4: explore + color
+
+make data = json("{\"name\": \"Sam\", \"pets\": [\"cat\", \"dog\"], \"age\": 3}")
+for each line in explore(data):
+    show line
+~ expected: name = Sam / pets[0] = cat / pets[1] = dog / age = 3
+
+show length(explore(data))            ~ 4
+show contains(color("red", "x"), "x") ~ yes  (color wraps the text)

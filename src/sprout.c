@@ -92,7 +92,15 @@ static void sb_add(char **buf, size_t *cap, size_t *len, const char *s) {
   while (*len + sl + 1 > *cap) { *cap = *cap ? *cap * 2 : 16; char *nb = (char *)realloc(*buf, *cap); if (!nb) fail(0, "ran out of memory building text."); *buf = nb; }
   memcpy(*buf + *len, s, sl + 1); *len += sl;
 }
+static int g_str_depth = 0;
+static char *stringify_inner(Value v);
 static char *stringify(Value v) {
+  if (++g_str_depth > 300) { g_str_depth--; return dup_str("..."); }   /* guard self-referential values */
+  char *r = stringify_inner(v);
+  g_str_depth--;
+  return r;
+}
+static char *stringify_inner(Value v) {
   switch (v.type) {
     case V_NUM:  return num_to_str(v.num);
     case V_STR:  return dup_str(v.str ? v.str : "");
@@ -118,7 +126,15 @@ static const char *type_name(Value v) {
 static int is_truthy(Value v) {
   switch (v.type) { case V_NUM: return v.num != 0; case V_STR: return v.str && v.str[0]; case V_BOOL: return v.boolean; case V_LIST: return v.list && v.list->n > 0; case V_MAP: return v.map && v.map->n > 0; default: return 0; }
 }
+static int g_eq_depth = 0;
+static int values_equal_inner(Value a, Value b);
 static int values_equal(Value a, Value b) {
+  if (++g_eq_depth > 300) { g_eq_depth--; return 0; }   /* guard self-referential values */
+  int r = values_equal_inner(a, b);
+  g_eq_depth--;
+  return r;
+}
+static int values_equal_inner(Value a, Value b) {
   if (a.type != b.type) return 0;
   switch (a.type) {
     case V_NUM:  return a.num == b.num;
@@ -722,6 +738,37 @@ static char *str_replace_all(const char *s, const char *find, const char *repl) 
   out[len]=0; return out;
 }
 
+/* flatten a value into "path = value" lines — the heart of explore() / `sprout api` */
+static void explore_flatten(Value v, const char *prefix, SList *out, int depth) {
+  if (depth > 256) { list_push(out, vstr(dup_str("... (too deeply nested)"))); return; }
+  if (v.type == V_MAP && v.map && v.map->n > 0) {
+    for (int i = 0; i < v.map->n; i++) {
+      const char *k = v.map->keys[i];
+      size_t need = strlen(prefix) + strlen(k) + 2;
+      char *path = (char *)malloc(need);
+      if (prefix[0]) snprintf(path, need, "%s.%s", prefix, k);
+      else           snprintf(path, need, "%s", k);
+      explore_flatten(v.map->vals[i], path, out, depth + 1);
+      free(path);
+    }
+  } else if (v.type == V_LIST && v.list && v.list->n > 0) {
+    for (int i = 0; i < v.list->n; i++) {
+      size_t need = strlen(prefix) + 24;
+      char *path = (char *)malloc(need);
+      snprintf(path, need, "%s[%d]", prefix, i);
+      explore_flatten(v.list->items[i], path, out, depth + 1);
+      free(path);
+    }
+  } else {
+    char *val = stringify(v);
+    const char *p = prefix[0] ? prefix : "(value)";
+    size_t need = strlen(p) + strlen(val) + 8;
+    char *line = (char *)malloc(need);
+    snprintf(line, need, "%s = %s", p, val);
+    list_push(out, vstr(line));
+  }
+}
+
 static Value call_builtin(Expr *call, Env *env) {
   const char *name = call->name;
   int n = call->nargs;
@@ -887,6 +934,32 @@ static Value call_builtin(Expr *call, Env *env) {
     if (n!=1||a[0].type!=V_STR) fail(call->line,"run needs a command, like run(\"echo hi\").");
     char*out=run_command(a[0].str?a[0].str:""); return out ? vstr(out) : vnone();
   }
+  /* ---- discovery + color ---- */
+  if (!strcmp(name,"explore")) {
+    if (n!=1) fail(call->line,"explore needs one thing, like explore(json(get(url))).");
+    Value v = a[0];
+    if (v.type == V_STR) { Value parsed = parse_json(v.str?v.str:""); if (parsed.type==V_MAP || parsed.type==V_LIST) v = parsed; }
+    SList *out = list_new();
+    explore_flatten(v, "", out, 0);
+    return vlist(out);
+  }
+  if (!strcmp(name,"color")) {
+    if (n!=2 || a[0].type!=V_STR || a[1].type!=V_STR) fail(call->line,"color needs a color name and text, like color(\"red\", \"hi\").");
+    const char *cn=a[0].str?a[0].str:""; const char *code=NULL;
+    if      (!strcmp(cn,"red"))    code="31";
+    else if (!strcmp(cn,"green"))  code="32";
+    else if (!strcmp(cn,"yellow")) code="33";
+    else if (!strcmp(cn,"blue"))   code="34";
+    else if (!strcmp(cn,"magenta")||!strcmp(cn,"purple")) code="35";
+    else if (!strcmp(cn,"cyan"))   code="36";
+    else if (!strcmp(cn,"white"))  code="37";
+    else if (!strcmp(cn,"gray")||!strcmp(cn,"grey")) code="90";
+    else if (!strcmp(cn,"bold"))   code="1";
+    else if (!strcmp(cn,"dim"))    code="2";
+    else fail(call->line,"unknown color. Try: red green yellow blue magenta cyan white gray bold dim.");
+    const char *t=a[1].str?a[1].str:""; size_t need=strlen(t)+16; char*out=(char*)malloc(need);
+    snprintf(out,need,"\x1b[%sm%s\x1b[0m",code,t); return vstr(out);
+  }
 
   failf(call->line, "I don't know a task or function called '%s'.", name);
   return vnone();
@@ -1036,13 +1109,16 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.0.3"
+#define SPROUT_VERSION "0.0.4"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);
   printf("  sprout                   open the interactive screen\n");
   printf("  sprout <file.sprout>     run a program\n");
   printf("  sprout run <file>        run a program\n");
+  printf("  sprout api <url>         show every field an API gives back\n");
+  printf("  sprout template list     list project templates\n");
+  printf("  sprout template load <name>   scaffold a project (wipes the folder)\n");
   printf("  sprout version           show the version\n");
   printf("  sprout help              show this help\n");
 }
@@ -1163,12 +1239,149 @@ static void wizard(void) {
   printf("\n  " C_GREEN "bye! \xF0\x9F\x8C\xB1" C_RESET "\n\n");
 }
 
+/* ---------------------------------------------------------------- templates */
+typedef struct { const char *path; const char *content; } TplFile;
+typedef struct { const char *name; const char *desc; const TplFile *files; int nfiles; } Template;
+
+static const TplFile TPL_STARTER[] = {
+  { "main.sprout",
+    "make name = \"world\"\n"
+    "show \"Hello, \" + name + \"!\"\n\n"
+    "task greet(who):\n"
+    "    give \"Nice to meet you, \" + who\n\n"
+    "show greet(\"Sprout\")\n" },
+  { "README.md", "# My Sprout app\n\nRun it:\n\n    sprout run main.sprout\n" },
+};
+static const TplFile TPL_API[] = {
+  { "main.sprout",
+    "~ Fetch a web API and read it like a normal map - no libraries.\n"
+    "make repo = json(get(\"https://api.github.com/repos/fizzexual/Sprout\"))\n\n"
+    "show color(\"green\", \"name: \") + repo[\"name\"]\n"
+    "show \"language:\", repo[\"language\"]\n"
+    "show \"stars:\", repo[\"stargazers_count\"]\n\n"
+    "~ Discover everything this API gives you:\n"
+    "for each line in explore(repo):\n"
+    "    show line\n" },
+};
+static const TplFile TPL_CLI[] = {
+  { "main.sprout",
+    "~ A small interactive command-line tool.\n"
+    "make name = ask(\"What's your name? \")\n"
+    "show color(\"green\", \"Hi, \" + name + \"!\")\n\n"
+    "make n = number(ask(\"Pick a number: \"))\n"
+    "when n == nothing:\n"
+    "    show color(\"red\", \"that wasn't a number\")\n"
+    "otherwise:\n"
+    "    show \"double is\", n * 2\n" },
+};
+static const TplFile TPL_GAME[] = {
+  { "main.sprout",
+    "~ Guess the number between 1 and 10.\n"
+    "make secret = random(1, 10)\n"
+    "make won = no\n"
+    "repeat while not won:\n"
+    "    make g = number(ask(\"Your guess (1-10): \"))\n"
+    "    when g == nothing:\n"
+    "        show color(\"red\", \"please type a number\")\n"
+    "    orwhen g == secret:\n"
+    "        show color(\"green\", \"You got it!\")\n"
+    "        set won = yes\n"
+    "    orwhen g < secret:\n"
+    "        show \"higher...\"\n"
+    "    otherwise:\n"
+    "        show \"lower...\"\n" },
+};
+
+static const Template TEMPLATES[] = {
+  { "starter", "a tiny hello-world to start from",                 TPL_STARTER, 2 },
+  { "api",     "fetch a web API and read it (get / json / explore)", TPL_API, 1 },
+  { "cli",     "an interactive command-line tool (ask + color)",     TPL_CLI, 1 },
+  { "game",    "a guess-the-number game",                            TPL_GAME, 1 },
+};
+static const int NTEMPLATES = (int)(sizeof TEMPLATES / sizeof TEMPLATES[0]);
+
+#ifdef _WIN32
+static void wipe_dir(const char *dir) {
+  char pat[1024]; snprintf(pat, sizeof pat, "%s\\*", dir);
+  WIN32_FIND_DATAA fd; HANDLE h = FindFirstFileA(pat, &fd);
+  if (h == INVALID_HANDLE_VALUE) return;
+  do {
+    if (!strcmp(fd.cFileName, ".") || !strcmp(fd.cFileName, "..")) continue;
+    char full[1024]; snprintf(full, sizeof full, "%s\\%s", dir, fd.cFileName);
+    if (fd.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) {
+      /* a junction/symlink: remove the LINK itself, NEVER recurse into its real target */
+      SetFileAttributesA(full, FILE_ATTRIBUTE_NORMAL);
+      if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) RemoveDirectoryA(full); else DeleteFileA(full);
+    } else if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) { wipe_dir(full); RemoveDirectoryA(full); }
+    else { SetFileAttributesA(full, FILE_ATTRIBUTE_NORMAL); DeleteFileA(full); }
+  } while (FindNextFileA(h, &fd));
+  FindClose(h);
+}
+static void wipe_cwd(void) { wipe_dir("."); }
+#else
+static void wipe_cwd(void) { int rc = system("rm -rf -- ./* ./.[!.]* 2>/dev/null"); (void)rc; }
+#endif
+
+static int cmd_template(int argc, char **argv) {
+  console_setup();
+  if (argc < 3 || !strcmp(argv[2], "list")) {
+    printf("\n  " C_GREEN C_BOLD "Sprout templates" C_RESET "\n\n");
+    for (int i = 0; i < NTEMPLATES; i++)
+      printf("    " C_GREEN "%-9s" C_RESET " %s\n", TEMPLATES[i].name, TEMPLATES[i].desc);
+    printf("\n  Use:  " C_CYAN "sprout template load <name>" C_RESET "\n\n");
+    return 0;
+  }
+  if (!strcmp(argv[2], "load")) {
+    if (argc < 4) { fprintf(stderr, "  Which template? Try:  sprout template load starter\n"); return 1; }
+    const Template *t = NULL;
+    for (int i = 0; i < NTEMPLATES; i++) if (!strcmp(argv[3], TEMPLATES[i].name)) { t = &TEMPLATES[i]; break; }
+    if (!t) { fprintf(stderr, "  No template called '%s'. Try:  sprout template list\n", argv[3]); return 1; }
+    printf("\n  \x1b[33mWARNING:\x1b[0m this will " C_BOLD "DELETE everything in the current folder" C_RESET "\n");
+    printf("  and replace it with the '%s' template.\n\n", t->name);
+    printf("  Type " C_GREEN "yes" C_RESET " to continue: "); fflush(stdout);
+    char line[64]; if (!fgets(line, sizeof line, stdin)) return 1;
+    size_t L = strlen(line); while (L && (line[L-1]=='\n'||line[L-1]=='\r'||line[L-1]==' ')) line[--L] = 0;
+    if (strcmp(line, "yes") != 0) { printf("  Cancelled - nothing was changed.\n"); return 0; }
+    wipe_cwd();
+    for (int i = 0; i < t->nfiles; i++) {
+      FILE *f = fopen(t->files[i].path, "wb");
+      if (!f) { fprintf(stderr, "  couldn't write %s\n", t->files[i].path); continue; }
+      fputs(t->files[i].content, f); fclose(f);
+      printf("    " C_GREEN "+" C_RESET " %s\n", t->files[i].path);
+    }
+    printf("\n  " C_GREEN "Created the '%s' template." C_RESET "  Run it:  " C_CYAN "sprout run main.sprout" C_RESET "\n\n", t->name);
+    return 0;
+  }
+  fprintf(stderr, "  Usage:  sprout template list   |   sprout template load <name>\n");
+  return 1;
+}
+
+static int cmd_api(const char *url) {
+  console_setup();
+  char *body = http_get(url);
+  if (!body) { fprintf(stderr, "  Couldn't reach %s\n", url); return 1; }
+  Value v = parse_json(body);
+  if (v.type != V_MAP && v.type != V_LIST) { printf("%s\n", body); return 0; }
+  SList *out = list_new();
+  explore_flatten(v, "", out, 0);
+  printf("\n  " C_BOLD "%s" C_RESET "\n  " C_DIM "%d readable fields:" C_RESET "\n\n", url, out->n);
+  for (int i = 0; i < out->n; i++) printf("    %s\n", stringify(out->items[i]));
+  printf("\n");
+  return 0;
+}
+
 int main(int argc, char **argv) {
   srand((unsigned)time(NULL));
+  console_setup();   /* enable UTF-8 + ANSI colour for every run */
   if (argc < 2) { wizard(); return 0; }
   const char *arg = argv[1];
   if (!strcmp(arg, "version") || !strcmp(arg, "--version") || !strcmp(arg, "-v")) { printf("Sprout v%s\n", SPROUT_VERSION); return 0; }
   if (!strcmp(arg, "help") || !strcmp(arg, "--help") || !strcmp(arg, "-h")) { usage(); return 0; }
+  if (!strcmp(arg, "template")) return cmd_template(argc, argv);
+  if (!strcmp(arg, "api")) {
+    if (argc < 3) { fprintf(stderr, "  api needs a web address:  sprout api https://...\n"); return 1; }
+    return cmd_api(argv[2]);
+  }
 
   const char *file = arg;
   if (!strcmp(arg, "run")) {

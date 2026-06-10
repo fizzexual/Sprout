@@ -62,6 +62,8 @@ HTTP library *plus* a JSON parser *plus* shell glue — in Sprout it's all built
 | --- | --- |
 | `get("url")` | fetch a web page or API; gives back the text |
 | `json(text)` | parse JSON into native Sprout lists & maps |
+| `explore(value)` | list every `path = value` inside a value — point it at an API to see all its fields/targets |
+| `color(name, text)` | wrap text in a terminal colour (`red` `green` `yellow` `blue` `magenta` `cyan` `white` `gray` `bold` `dim`) |
 | `run("command")` | run any program, return its output |
 
 ```sprout
@@ -77,4 +79,18 @@ show person["name"], person["pets"][0]
 show run("echo hello from the shell")
 write("notes.txt", "remember the milk")
 show read("notes.txt")
+
+~ Discover everything an API offers, and add some colour:
+for each field in explore(json(get("https://api.github.com/repos/fizzexual/Sprout"))):
+    show field
+show color("green", "done!")
 ```
+
+## Commands
+
+| Command | Does |
+| --- | --- |
+| `sprout api <url>` | fetch a URL and print every field/target the API returns |
+| `sprout template list` | list the built-in project templates |
+| `sprout template load <name>` | scaffold a project into the current folder (asks before wiping it) |
+

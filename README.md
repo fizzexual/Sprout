@@ -69,12 +69,14 @@ language runs now:
 - `when` / `orwhen` / `otherwise`, `repeat N times`, `repeat while`
 - `task` / `give`, function calls, **recursion**, proper scope
 - **Lists** `[1, 2, 3]` and **maps** `{name: "Sam"}` — indexing, `set xs[i] = …`, `for each`, `range`
-- **Toolbox:** `length` `add` `keys` `contains` `first` `last` `range` · `sqrt` `abs` `round` `floor` `ceil` `min` `max` `random` `number` · `upper` `lower` `trim` `replace` `split` `join` · `now` `today` `wait` · `ask`
+- **Toolbox:** `length` `add` `keys` `contains` `first` `last` `range` · `sqrt` `abs` `round` `floor` `ceil` `min` `max` `random` `number` · `upper` `lower` `trim` `replace` `split` `join` · `now` `today` `wait` · `ask` · `color` (terminal colour)
 - **Superpowers — built in, no libraries:**
   - 🌐 `get(url)` — fetch any web page or API
   - 🧩 `json(text)` — parse JSON straight into native lists & maps
+  - 🔎 `explore(value)` — list every field/target inside an API response
   - 📄 `read` / `write` / `append` / `exists` — files
   - ⚙️ `run(command)` — run any program and capture its output
+- **Project templates:** `sprout template load <name>` scaffolds a project · **`sprout api <url>`** dumps every field an API returns
 - `~` comments, indentation blocks, friendly errors with line numbers
 
 ```sprout
@@ -98,7 +100,9 @@ build.cmd                     # or: gcc -O2 -Wall -s -o sprout.exe sprout.c -lm 
 
 # run a program:
 sprout run hello.sprout     # or just: sprout hello.sprout
-sprout version              # -> Sprout v0.0.3
+sprout version              # -> Sprout v0.0.4
+sprout template load api    # scaffold a starter project (asks before wiping the folder)
+sprout api <url>            # list every field an API returns
 ```
 
 The result is a **~34 KB** native executable that links only against the operating
@@ -111,7 +115,7 @@ The core is done; the rest of the language is on its way back, slice by slice:
 1. ✅ **Core** — variables, math, text, `when`, `repeat`
 2. ✅ **Tasks** — `task` / `give`, function calls, recursion, scope
 3. ✅ **Collections** — lists `[...]`, maps `{...}`, indexing, `for each`, `range`
-4. ✅ **Superpowers** — the toolbox (math/text), files, the web (`get`), JSON, `run`, `ask`
+4. ✅ **Superpowers & tooling** — math/text toolbox, files, web (`get` / `json` / `explore`), `run`, `color`, project templates, `sprout api`
 5. ⏭️ **f-strings** (`f"Hi {name}"`) and `remember` / `recall`
 6. **Richer errors** — the `^` pointer and "did you mean?" suggestions
 7. **Apps & more** — GUI windows, libraries
