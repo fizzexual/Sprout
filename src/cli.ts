@@ -16,23 +16,23 @@ import { basename, dirname, extname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL, fileURLToPath } from "node:url";
 
-import { tokenize } from "./lexer.ts";
-import { parse } from "./parser.ts";
-import { check } from "./checker.ts";
-import { compile } from "./compile.ts";
-import { Interpreter } from "./interpreter.ts";
-import { LangError, formatError, formatMessage } from "./errors.ts";
-import { startNativeGui } from "./gui-native.ts";
-import { startWebServer } from "./serve.ts";
-import { emptyTheme, parseBloom } from "./bloom.ts";
-import type { Theme } from "./bloom.ts";
-import { fileStorage, memoryStorage } from "./storage.ts";
-import { nodeNet, noNet } from "./net.ts";
-import { fileSecrets } from "./secrets.ts";
-import { consoleInput, noInput } from "./input.ts";
+import { tokenize } from "./lang/lexer.ts";
+import { parse } from "./lang/parser.ts";
+import { check } from "./lang/checker.ts";
+import { compile } from "./compile/compile.ts";
+import { Interpreter } from "./interp/interpreter.ts";
+import { LangError, formatError, formatMessage } from "./lang/errors.ts";
+import { startNativeGui } from "./ui/gui-native.ts";
+import { startWebServer } from "./ui/serve.ts";
+import { emptyTheme, parseBloom } from "./ui/bloom.ts";
+import type { Theme } from "./ui/bloom.ts";
+import { fileStorage, memoryStorage } from "./services/storage.ts";
+import { nodeNet, noNet } from "./services/net.ts";
+import { fileSecrets } from "./services/secrets.ts";
+import { consoleInput, noInput } from "./services/input.ts";
 import { modulesCommand } from "./modules.ts";
-import { describeJson } from "./explore.ts";
-import { bundleStandalone } from "./bundle.ts";
+import { describeJson } from "./interp/explore.ts";
+import { bundleStandalone } from "./compile/bundle.ts";
 
 const VERSION = "Sprout v0.6.1";
 
@@ -298,7 +298,7 @@ async function checkFile(path: string): Promise<void> {
 }
 
 // --- the fast build: compile a program to JavaScript and run it on V8 ---------
-const RUNTIME_URL = new URL("./jsruntime.ts", import.meta.url).href;
+const RUNTIME_URL = new URL("./compile/jsruntime.ts", import.meta.url).href;
 
 // Parse + (multi-file) combine + compile. Gathers the entry plus every .sprout
 // file it `use`s, merges their tasks, and compiles the whole project into one JS

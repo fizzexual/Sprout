@@ -14,7 +14,7 @@
 // nowhere in the code. Hacker-safe and GitHub-proof.
 
 import { existsSync, readFileSync } from "node:fs";
-import { LangError } from "./errors.ts";
+import { LangError } from "../lang/errors.ts";
 
 export interface Secrets {
   get(name: string): string | null;

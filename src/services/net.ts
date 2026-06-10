@@ -5,7 +5,7 @@
 // language simple — get(...) just returns the text — with no dependencies.
 
 import { spawnSync } from "node:child_process";
-import { LangError } from "./errors.ts";
+import { LangError } from "../lang/errors.ts";
 
 export interface Net {
   get(url: string): string;

@@ -4,7 +4,7 @@
 // sqrt(16) or max(3, 9). Each one validates its arguments and raises the
 // same friendly errors as the rest of the language.
 
-import { LangError } from "./errors.ts";
+import { LangError } from "../lang/errors.ts";
 import type { Value } from "./values.ts";
 import { NONE, typeName, SList, SMap, equalValues, stringify } from "./values.ts";
 import { apiPoints, describeJson } from "./explore.ts";

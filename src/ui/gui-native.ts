@@ -9,10 +9,10 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-import { LangError, formatError } from "./errors.ts";
+import { LangError, formatError } from "../lang/errors.ts";
 import { styleFor, windowStyle } from "./bloom.ts";
 import type { Theme } from "./bloom.ts";
-import type { Interpreter } from "./interpreter.ts";
+import type { Interpreter } from "../interp/interpreter.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 

@@ -23,10 +23,10 @@
 // time, USB drives, app open/close, wifi, battery and hotkeys are all things
 // only Windows exposes the way we read them here.
 
-import { NONE, stringify } from "../../src/values.ts";
-import type { Value } from "../../src/values.ts";
-import type { Interpreter } from "../../src/interpreter.ts";
-import { LangError } from "../../src/errors.ts";
+import { NONE, stringify } from "../../src/interp/values.ts";
+import type { Value } from "../../src/interp/values.ts";
+import type { Interpreter } from "../../src/interp/interpreter.ts";
+import { LangError } from "../../src/lang/errors.ts";
 import { spawnSync } from "node:child_process";
 
 type Site = { line: number; col: number } | undefined;

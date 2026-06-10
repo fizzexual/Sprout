@@ -15,10 +15,10 @@
 // (Wake-on-LAN) runs in a tiny short-lived Node subprocess via spawnSync — the
 // same trick the rest of the networking library uses for the web.
 
-import { NONE, stringify, SList } from "../../src/values.ts";
-import type { Value } from "../../src/values.ts";
-import type { Interpreter } from "../../src/interpreter.ts";
-import { LangError } from "../../src/errors.ts";
+import { NONE, stringify, SList } from "../../src/interp/values.ts";
+import type { Value } from "../../src/interp/values.ts";
+import type { Interpreter } from "../../src/interp/interpreter.ts";
+import { LangError } from "../../src/lang/errors.ts";
 import { spawnSync } from "node:child_process";
 
 type Site = { line: number; col: number } | undefined;

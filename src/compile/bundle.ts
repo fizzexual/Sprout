@@ -1,4 +1,4 @@
-// src/bundle.ts — inline a compiled program + the whole JS runtime into ONE
+// src/compile/bundle.ts — inline a compiled program + the whole JS runtime into ONE
 // self-contained, dependency-free JavaScript file. Used by
 // `sprout build --standalone` to make a program that needs no other files.
 //
@@ -12,13 +12,22 @@ import { fileURLToPath } from "node:url";
 import { stripTypeScriptTypes } from "node:module";
 
 // Dependency order doesn't matter — the registry loads lazily on first require.
-const RUNTIME_MODULES = ["values", "errors", "explore", "builtins", "jsruntime"];
+// name -> path relative to this file (src/compile/). The runtime modules live in
+// a few folders now; we read each from its real home and key them by basename in
+// the bundle's tiny require() registry.
+const RUNTIME_MODULES: Record<string, string> = {
+  values: "../interp/values.ts",
+  errors: "../lang/errors.ts",
+  explore: "../interp/explore.ts",
+  builtins: "../interp/builtins.ts",
+  jsruntime: "./jsruntime.ts",
+};
 
 // Turn one runtime .ts module into a CJS factory body: strip types, then rewrite
 // its ESM `import`/`export` to use our __req() registry. Returns the body plus an
 // Object.assign that publishes everything the module exported.
 function moduleBody(name: string): string {
-  const srcPath = fileURLToPath(new URL(`./${name}.ts`, import.meta.url));
+  const srcPath = fileURLToPath(new URL(RUNTIME_MODULES[name], import.meta.url));
   // stripTypeScriptTypes is experimental and prints a warning — quiet it.
   const realEmitWarning = process.emitWarning;
   process.emitWarning = () => {};
@@ -29,8 +38,10 @@ function moduleBody(name: string): string {
   js = js
     // import { a, b } from "..."  ->  registry __req for our modules, real
     // require() for Node built-ins like "node:fs".
+    // Relative imports point at runtime siblings — key them by basename so a
+    // cross-folder path like "../interp/values.ts" maps to the registry's "./values.ts".
     .replace(/import\s*\{([^}]*)\}\s*from\s*["']([^"']+)["'];?/g, (_m, names, from) =>
-      from.startsWith(".") ? `const {${names}} = __req(${JSON.stringify(from)});` : `const {${names}} = require(${JSON.stringify(from)});`)
+      from.startsWith(".") ? `const {${names}} = __req(${JSON.stringify("./" + from.split("/").pop())});` : `const {${names}} = require(${JSON.stringify(from)});`)
     // export { a, b }  (re-export of in-scope names) -> just record them
     .replace(/export\s*\{([^}]*)\}\s*;?/g, (_m, names: string) => { for (const n of names.split(",")) { const t = n.trim(); if (t) exported.push(t); } return ""; })
     // export function/class NAME -> function/class NAME
@@ -47,7 +58,7 @@ export function bundleStandalone(programJs: string): string {
   out.push("'use strict';");
   out.push("const __M = {};");
   out.push("function __req(id){ const m = __M[id]; if(!m) throw new Error('missing module '+id); if(m.e) return m.e; m.e = {}; m.f(m.e); return m.e; }");
-  for (const name of RUNTIME_MODULES) {
+  for (const name of Object.keys(RUNTIME_MODULES)) {
     out.push(`__M[${JSON.stringify("./" + name + ".ts")}] = { f: function(exports){\n${moduleBody(name)}\n} };`);
   }
   // The compiled program imports the runtime from "@runtime"; point it at our registry.

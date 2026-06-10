@@ -11,9 +11,9 @@
 // The widgets are collected into this GuiModel; gui-server.ts renders them in
 // the browser and routes button clicks back to the interpreter.
 
-import { LangError } from "./errors.ts";
-import type { Value } from "./values.ts";
-import { NONE, stringify, typeName, isTruthy } from "./values.ts";
+import { LangError } from "../lang/errors.ts";
+import type { Value } from "../interp/values.ts";
+import { NONE, stringify, typeName, isTruthy } from "../interp/values.ts";
 
 export interface Widget {
   kind: "label" | "button" | "field";

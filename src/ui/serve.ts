@@ -8,10 +8,10 @@ import { createServer } from "node:http";
 import type { ServerResponse } from "node:http";
 import { exec } from "node:child_process";
 
-import { LangError, formatError, formatMessage } from "./errors.ts";
+import { LangError, formatError, formatMessage } from "../lang/errors.ts";
 import { fontParts, styleFor, windowStyle } from "./bloom.ts";
 import type { Style, Theme } from "./bloom.ts";
-import type { Interpreter } from "./interpreter.ts";
+import type { Interpreter } from "../interp/interpreter.ts";
 
 export function startWebServer(interp: Interpreter, theme: Theme, opts: { open?: boolean } = {}): void {
   const basePort = Number(process.env.PORT ?? 3000);

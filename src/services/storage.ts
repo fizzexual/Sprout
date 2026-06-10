@@ -4,7 +4,7 @@
 // after the program closes and reopens. No database, no setup.
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import type { Value } from "./values.ts";
+import type { Value } from "../interp/values.ts";
 
 export interface Storage {
   load(): Record<string, Value>;

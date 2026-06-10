@@ -4,21 +4,21 @@
 // either evaluate it to a value (expressions) or perform its effect
 // (statements). Values are plain JS numbers, strings, booleans, and `nothing`.
 
-import { LangError } from "./errors.ts";
-import type { Expr, Stmt } from "./ast.ts";
+import { LangError } from "../lang/errors.ts";
+import type { Expr, Stmt } from "../lang/ast.ts";
 import type { Value } from "./values.ts";
 import { isTruthy, NONE, stringify, typeName, SList, SMap, equalValues } from "./values.ts";
 import { BUILTIN_NAMES, callBuiltin, isBuiltin } from "./builtins.ts";
-import { callGuiBuiltin, GUI_BUILTINS, isGuiBuiltin, newGui } from "./gui.ts";
-import type { GuiModel } from "./gui.ts";
-import { memoryStorage, PERSIST_BUILTINS } from "./storage.ts";
-import type { Storage } from "./storage.ts";
-import { NET_BUILTINS, noNet } from "./net.ts";
-import type { Net } from "./net.ts";
-import { SECRET_BUILTINS, noSecrets, missingSecret } from "./secrets.ts";
-import type { Secrets } from "./secrets.ts";
-import { INPUT_BUILTINS, noInput } from "./input.ts";
-import type { Input } from "./input.ts";
+import { callGuiBuiltin, GUI_BUILTINS, isGuiBuiltin, newGui } from "../ui/gui.ts";
+import type { GuiModel } from "../ui/gui.ts";
+import { memoryStorage, PERSIST_BUILTINS } from "../services/storage.ts";
+import type { Storage } from "../services/storage.ts";
+import { NET_BUILTINS, noNet } from "../services/net.ts";
+import type { Net } from "../services/net.ts";
+import { SECRET_BUILTINS, noSecrets, missingSecret } from "../services/secrets.ts";
+import type { Secrets } from "../services/secrets.ts";
+import { INPUT_BUILTINS, noInput } from "../services/input.ts";
+import type { Input } from "../services/input.ts";
 
 // Where `show` sends its output. The CLI prints to the console; tests capture it.
 export type OutputSink = (line: string) => void;

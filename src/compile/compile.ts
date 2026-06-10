@@ -1,6 +1,6 @@
-// src/compile.ts — compile a Sprout program to JavaScript (`sprout build`).
+// src/compile/compile.ts — compile a Sprout program to JavaScript (`sprout build`).
 //
-// The compiled program imports src/jsruntime.ts (which reuses the interpreter's
+// The compiled program imports src/compile/jsruntime.ts (which reuses the interpreter's
 // own value types + builtins), so it behaves EXACTLY like `sprout run` — just
 // much faster, because V8 runs it as real JS instead of walking the AST.
 //
@@ -9,8 +9,8 @@
 // a library (`use`), a styled GUI, or a capability builtin (get/ask/secret/…) is
 // refused with a friendly note to run it with `sprout run` instead.
 
-import type { Stmt, Expr } from "./ast.ts";
-import { BUILTIN_NAMES } from "./builtins.ts";
+import type { Stmt, Expr } from "../lang/ast.ts";
+import { BUILTIN_NAMES } from "../interp/builtins.ts";
 
 const BUILTIN = new Set(BUILTIN_NAMES);
 const BINOP: Record<string, string> = {

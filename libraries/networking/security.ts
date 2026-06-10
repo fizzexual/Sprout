@@ -20,10 +20,10 @@
 // and "new device" features read the ARP table (the list of gadgets your PC has
 // recently talked to on the local network).
 
-import { NONE, stringify, SList, SMap } from "../../src/values.ts";
-import type { Value } from "../../src/values.ts";
-import type { Interpreter } from "../../src/interpreter.ts";
-import { LangError } from "../../src/errors.ts";
+import { NONE, stringify, SList, SMap } from "../../src/interp/values.ts";
+import type { Value } from "../../src/interp/values.ts";
+import type { Interpreter } from "../../src/interp/interpreter.ts";
+import { LangError } from "../../src/lang/errors.ts";
 import { spawnSync } from "node:child_process";
 
 type Site = { line: number; col: number } | undefined;

@@ -12,8 +12,8 @@
 //
 // This file just wires the topic modules together.
 
-import type { Interpreter } from "../../src/interpreter.ts";
-import type { Value } from "../../src/values.ts";
+import type { Interpreter } from "../../src/interp/interpreter.ts";
+import type { Value } from "../../src/interp/values.ts";
 import { register as info } from "./info.ts";
 import { register as blocking } from "./blocking.ts";
 import { register as devices } from "./devices.ts";

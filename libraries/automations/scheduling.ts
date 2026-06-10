@@ -17,10 +17,10 @@
 // the jobs on with real timers and keeps Sprout alive. wait/now/today/weekday
 // are instant helpers that answer right away.
 
-import { NONE, stringify } from "../../src/values.ts";
-import type { Value } from "../../src/values.ts";
-import type { Interpreter } from "../../src/interpreter.ts";
-import { LangError } from "../../src/errors.ts";
+import { NONE, stringify } from "../../src/interp/values.ts";
+import type { Value } from "../../src/interp/values.ts";
+import type { Interpreter } from "../../src/interp/interpreter.ts";
+import { LangError } from "../../src/lang/errors.ts";
 import { watch as fsWatch } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";

@@ -1,4 +1,4 @@
-// src/jsruntime.ts — the tiny runtime for COMPILED Sprout (`sprout build`).
+// src/compile/jsruntime.ts — the tiny runtime for COMPILED Sprout (`sprout build`).
 //
 // `sprout build x.sprout` turns a program into plain JavaScript that imports the
 // helpers below and runs on V8 directly — much faster than the interpreter. These
@@ -6,8 +6,8 @@
 // builtins.ts), so a compiled program behaves EXACTLY like `sprout run`.
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { NONE, SList, SMap, stringify, isTruthy, equalValues, typeName } from "./values.ts";
-import { callBuiltin } from "./builtins.ts";
+import { NONE, SList, SMap, stringify, isTruthy, equalValues, typeName } from "../interp/values.ts";
+import { callBuiltin } from "../interp/builtins.ts";
 import { readSync } from "node:fs";
 
 export { NONE, SList, SMap };

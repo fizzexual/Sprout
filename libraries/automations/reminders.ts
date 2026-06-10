@@ -20,10 +20,10 @@
 // remind / timer / stopwatch / elapsed work anywhere; the on_* watchers and the
 // toast pop-ups read Windows-only signals, so those need Windows.
 
-import { NONE, stringify } from "../../src/values.ts";
-import type { Value } from "../../src/values.ts";
-import type { Interpreter } from "../../src/interpreter.ts";
-import { LangError } from "../../src/errors.ts";
+import { NONE, stringify } from "../../src/interp/values.ts";
+import type { Value } from "../../src/interp/values.ts";
+import type { Interpreter } from "../../src/interp/interpreter.ts";
+import { LangError } from "../../src/lang/errors.ts";
 import { spawnSync } from "node:child_process";
 import { showToast } from "./_notify.ts";
 

@@ -15,8 +15,8 @@
 //
 // This file just wires the topic modules together.
 
-import type { Interpreter } from "../../src/interpreter.ts";
-import type { Value } from "../../src/values.ts";
+import type { Interpreter } from "../../src/interp/interpreter.ts";
+import type { Value } from "../../src/interp/values.ts";
 import { register as scheduling } from "./scheduling.ts";
 import { register as startup } from "./startup.ts";
 import { register as apps } from "./apps.ts";

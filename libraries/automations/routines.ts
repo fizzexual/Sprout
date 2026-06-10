@@ -16,10 +16,10 @@
 // synchronous, so anything that waits (the weather fetch) runs in a short Node
 // subprocess, and the timed loops (pomodoro) live in start() as real timers.
 
-import { NONE, stringify, isTruthy } from "../../src/values.ts";
-import type { Value } from "../../src/values.ts";
-import type { Interpreter } from "../../src/interpreter.ts";
-import { LangError } from "../../src/errors.ts";
+import { NONE, stringify, isTruthy } from "../../src/interp/values.ts";
+import type { Value } from "../../src/interp/values.ts";
+import type { Interpreter } from "../../src/interp/interpreter.ts";
+import { LangError } from "../../src/lang/errors.ts";
 import { spawn, spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync, unlinkSync } from "node:fs";
 

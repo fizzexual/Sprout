@@ -16,7 +16,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Interpreter } from "../../../src/interpreter.ts";
+import type { Interpreter } from "../../../src/interp/interpreter.ts";
 import type { DiscordApi, CommandContext, SlashContext, ButtonContext } from "../../../libraries/discord-bot/index.ts";
 import { createLavalinkEngine, readLavalinkConfig } from "./lavalink.ts";
 

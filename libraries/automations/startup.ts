@@ -13,10 +13,10 @@
 // right away, so there's no background work to keep alive. They use the per-user
 // "Run" key in the registry, which means NO admin rights are needed.
 
-import { NONE, stringify, isTruthy } from "../../src/values.ts";
-import type { Value } from "../../src/values.ts";
-import type { Interpreter } from "../../src/interpreter.ts";
-import { LangError } from "../../src/errors.ts";
+import { NONE, stringify, isTruthy } from "../../src/interp/values.ts";
+import type { Value } from "../../src/interp/values.ts";
+import type { Interpreter } from "../../src/interp/interpreter.ts";
+import { LangError } from "../../src/lang/errors.ts";
 import { spawnSync } from "node:child_process";
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";

@@ -13,10 +13,10 @@
 // away. The one exception is keepawake, which keeps a tiny heartbeat going in the
 // background (so isActive() stays true while it's on).
 
-import { NONE, stringify, isTruthy } from "../../src/values.ts";
-import type { Value } from "../../src/values.ts";
-import type { Interpreter } from "../../src/interpreter.ts";
-import { LangError } from "../../src/errors.ts";
+import { NONE, stringify, isTruthy } from "../../src/interp/values.ts";
+import type { Value } from "../../src/interp/values.ts";
+import type { Interpreter } from "../../src/interp/interpreter.ts";
+import { LangError } from "../../src/lang/errors.ts";
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 

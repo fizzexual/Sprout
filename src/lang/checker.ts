@@ -12,12 +12,12 @@
 
 import { LangError } from "./errors.ts";
 import type { Expr, Stmt } from "./ast.ts";
-import { BUILTIN_NAMES } from "./builtins.ts";
-import { GUI_BUILTINS } from "./gui.ts";
-import { PERSIST_BUILTINS } from "./storage.ts";
-import { NET_BUILTINS } from "./net.ts";
-import { SECRET_BUILTINS } from "./secrets.ts";
-import { INPUT_BUILTINS } from "./input.ts";
+import { BUILTIN_NAMES } from "../interp/builtins.ts";
+import { GUI_BUILTINS } from "../ui/gui.ts";
+import { PERSIST_BUILTINS } from "../services/storage.ts";
+import { NET_BUILTINS } from "../services/net.ts";
+import { SECRET_BUILTINS } from "../services/secrets.ts";
+import { INPUT_BUILTINS } from "../services/input.ts";
 
 const BUILTIN_ARITY: Record<string, [number, number]> = {
   abs: [1, 1], round: [1, 1], floor: [1, 1], ceil: [1, 1], sqrt: [1, 1],

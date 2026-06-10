@@ -17,10 +17,10 @@
 // correction, Reed-Solomon over GF(256), one fixed data mask, versions 1–10).
 // No network needed. qr(text) prints it; qr(text, file) saves a 1-bit PNG.
 
-import { NONE, stringify } from "../../src/values.ts";
-import type { Value } from "../../src/values.ts";
-import type { Interpreter } from "../../src/interpreter.ts";
-import { LangError } from "../../src/errors.ts";
+import { NONE, stringify } from "../../src/interp/values.ts";
+import type { Value } from "../../src/interp/values.ts";
+import type { Interpreter } from "../../src/interp/interpreter.ts";
+import { LangError } from "../../src/lang/errors.ts";
 import { spawnSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { networkInterfaces } from "node:os";

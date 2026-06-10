@@ -12,9 +12,9 @@
 // { names, builtins, isActive, start } plus an `api` that *extensions* (like
 // the Music extension) hook into — see extensions/discord-bot/.
 
-import { NONE, stringify } from "../../src/values.ts";
-import type { Value } from "../../src/values.ts";
-import type { Interpreter } from "../../src/interpreter.ts";
+import { NONE, stringify } from "../../src/interp/values.ts";
+import type { Value } from "../../src/interp/values.ts";
+import type { Interpreter } from "../../src/interp/interpreter.ts";
 
 // GUILDS | GUILD_VOICE_STATES | GUILD_MESSAGES | MESSAGE_CONTENT
 const INTENTS = 1 | 128 | 512 | 32768;
