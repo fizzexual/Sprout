@@ -7,6 +7,58 @@ core"). It's deliberately ambitious — pick what fits the mission, in this orde
 > **Working model:** `unfreeze → batches (each its own version, reviewed + CI-green) → re-freeze`.
 > The "Not in v1 (deliberately)" list in the README shrinks as items here land.
 
+---
+
+## Is the base complete? — a pre-unfreeze audit
+
+Verified by running real programs on v0.0.13 (a word-tally with maps + recursion + f-strings
+runs fine — the core is genuinely usable and Turing-complete). But "usable" isn't "complete."
+Scorecard:
+
+**✅ Have (a real base):** numbers · text (indexable, f-strings, escapes) · yes/no · nothing ·
+lists · maps · `make`/`set`/`show`/`ask` · `+ - * / %` · comparisons + `and`/`or`/`not` ·
+`when`/`orwhen`/`otherwise` · `repeat times`/`while` · `for each` · `task`/`give` + recursion ·
+modules + `public`/`private` · files (read/write/append/exists) · `get`/`json` · `system.run` ·
+`test`/`expect` · friendly errors · `learn` mode.
+
+**⚠️ Table-stakes GAPS — I would NOT re-freeze the base without these.** Each is something where
+today you hit a wall or an ugly workaround:
+
+1. **Error recovery (`try`/`otherwise`, `fail`).** *Any* error kills the whole run. You can
+   dodge some (number→nothing, exists), but you can't recover from a failed file/web/json/
+   out-of-range. A base language needs at least one recovery path. (Confirmed: `try` doesn't parse.)
+2. **List mutation — `remove`, `insert`.** Lists are **append-only**: there is no way to delete
+   or insert an element (you must rebuild the whole list with a `for each`). No stack-pop, no
+   queue, no "delete the matching item." (Confirmed: no `remove`; `set xs[i] = nothing` keeps length 3.)
+3. **Loop control — `stop` (break) / `skip` (continue).** Search-and-stop / skip-bad-item need a
+   flag-and-`repeat while` dance today. (Confirmed: `stop` is unknown.)
+4. **`sort`** (and `reverse`, `index_of`). Extremely common; hand-rolling a sort is a lot for a
+   beginner. (Confirmed: no `sort`.)
+
+**🟨 Strongly expected (workable without, but a base usually has them):** text `starts_with`/
+`ends_with`/`index_of`/`pad`; math `pow`/`log`/`pi`; `const` (immutable bindings); counted
+`for i from a to b`.
+
+**⬜ Genuinely deferrable power (the base feels complete without these):** first-class
+functions/closures · `map`/`filter`/`reduce` · user types/records · pattern `match` · integers/
+decimals · concurrency · the server `kind` · GC · persistence (`remember`) · package manager.
+
+### → The "base-completion" milestone (do these FIRST on unfreeze, before the power phases)
+
+Pulled out of the phases below into one tight bundle, because *these* are what make the base
+**complete**, not just bigger:
+
+- [ ] `try`/`otherwise` + `fail`  (from Phase 1)
+- [ ] `remove`, `insert` for lists  (from Phase 3)
+- [ ] `stop` / `skip` in loops  (from Phase 5)
+- [ ] `sort`, `reverse`, `index_of`  (from Phase 3)
+- [ ] small builtin top-up: text `starts_with`/`ends_with`/`index_of`, math `pow`/`mod`  (from Phase 6)
+
+**Answer to "do we have everything a base language needs?":** *Computationally, yes — you can
+already write real programs. As a complete base, not quite:* the four ⚠️ items above are
+table stakes. Land that milestone, then the power phases are true extensions you can take or
+leave — and the base you re-freeze will be genuinely complete, not just larger.
+
 ## Markers
 
 - 🟢 **Mission-aligned** — makes *learning to program* better. Safe to add freely.
