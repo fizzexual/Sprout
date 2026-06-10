@@ -2,3 +2,5 @@
 sprout-installer.exe
 sprout.exe
 *.o
+dist/
+SproutSetup.exe
