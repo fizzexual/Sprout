@@ -1,0 +1,16 @@
+~ exercises the `use` module loader (path form resolves from the current folder)
+use "tests/lib.sprout"
+
+when triple(4) == 12:
+    show "ok: use loaded triple()"
+otherwise:
+    show "FAIL: triple()"
+
+when shout("hi") == "HI!":
+    show "ok: use loaded shout()"
+otherwise:
+    show "FAIL: shout()"
+
+~ using the same module twice must be a no-op (loads once), not an error
+use "tests/lib.sprout"
+show "ok: re-use is harmless"

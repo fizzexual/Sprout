@@ -28,6 +28,12 @@
 #include <urlmon.h>
 #endif
 
+#ifndef _WIN32
+#include <sys/stat.h>   /* mkdir() for `sprout new` on POSIX */
+#include <dirent.h>     /* opendir() to test if a folder is empty */
+#include <limits.h>     /* PATH_MAX for realpath() */
+#endif
+
 static char *dup_str(const char *s) { size_t n = strlen(s) + 1; char *p = (char *)malloc(n); memcpy(p, s, n); return p; }
 
 static void fail(int line, const char *msg);   /* defined below; declared early so allocators can bail out */
@@ -158,8 +164,10 @@ static int values_equal_inner(Value a, Value b) {
 
 /* ------------------------------------------------------------------- errors */
 static jmp_buf *err_jmp = NULL;   /* in interactive mode, fail() jumps here instead of exiting */
+static const char *g_current_file = NULL;   /* the file being parsed/run, for multi-file errors */
 static void fail(int line, const char *msg) {
   fprintf(stderr, "\n  Sprout error");
+  if (g_current_file) fprintf(stderr, " in %s", g_current_file);
   if (line > 0) fprintf(stderr, " (line %d)", line);
   fprintf(stderr, ": %s\n\n", msg);
   if (err_jmp) longjmp(*err_jmp, 1);
@@ -173,7 +181,7 @@ static void failf(int line, const char *fmt, const char *arg) {
 typedef enum {
   T_NUM, T_STR, T_IDENT,
   T_MAKE, T_SET, T_SHOW, T_WHEN, T_ORWHEN, T_OTHERWISE, T_REPEAT, T_WHILE, T_TIMES,
-  T_TASK, T_GIVE, T_FOR, T_EACH, T_IN,
+  T_TASK, T_GIVE, T_FOR, T_EACH, T_IN, T_USE,
   T_AND, T_OR, T_NOT, T_YES, T_NO, T_NOTHING,
   T_PLUS, T_MINUS, T_STAR, T_SLASH, T_PERCENT,
   T_EQ, T_EQEQ, T_BANGEQ, T_LT, T_LE, T_GT, T_GE,
@@ -194,7 +202,7 @@ static TokType keyword(const char *w) {
     { "make", T_MAKE }, { "set", T_SET }, { "show", T_SHOW }, { "when", T_WHEN },
     { "orwhen", T_ORWHEN }, { "otherwise", T_OTHERWISE }, { "repeat", T_REPEAT },
     { "while", T_WHILE }, { "times", T_TIMES }, { "task", T_TASK }, { "give", T_GIVE },
-    { "for", T_FOR }, { "each", T_EACH }, { "in", T_IN },
+    { "for", T_FOR }, { "each", T_EACH }, { "in", T_IN }, { "use", T_USE },
     { "and", T_AND }, { "or", T_OR },
     { "not", T_NOT }, { "yes", T_YES }, { "no", T_NO }, { "nothing", T_NOTHING },
   };
@@ -290,7 +298,7 @@ typedef struct Expr {
   struct Expr *target, *index;            /* E_INDEX: target[index] */
 } Expr;
 
-typedef enum { S_MAKE, S_SET, S_SHOW, S_WHEN, S_REPEAT_TIMES, S_REPEAT_WHILE, S_TASK, S_GIVE, S_EXPR, S_FOREACH, S_INDEXSET } SKind;
+typedef enum { S_MAKE, S_SET, S_SHOW, S_WHEN, S_REPEAT_TIMES, S_REPEAT_WHILE, S_TASK, S_GIVE, S_EXPR, S_FOREACH, S_INDEXSET, S_USE } SKind;
 typedef struct Stmt Stmt;
 typedef struct { Expr *cond; Stmt **body; int nbody; } Branch;
 struct Stmt {
@@ -500,6 +508,12 @@ static Stmt *statement(void) {
       if (!check(T_NEWLINE)) s->expr = expression();   /* bare `give` hands back nothing */
       return s;
     }
+    case T_USE: {
+      advance(); Stmt *s = new_stmt(S_USE, t.line);
+      if (check(T_IDENT) || check(T_STR)) s->name = advance().text;     /* use server   |   use "modules/server.sprout" */
+      else fail(t.line, "'use' needs a module name, like:  use server");
+      return s;
+    }
     default:
       if (check(T_IDENT)) { Stmt *s = new_stmt(S_EXPR, t.line); s->expr = expression(); return s; }
       fail(t.line, "I didn't expect this at the start of a line.");
@@ -557,6 +571,7 @@ static int repl_echo = 0;   /* in the live prompt, print the value of a bare exp
 
 static Value eval(Expr *e, Env *env);
 static void exec(Stmt *s, Env *env);
+static void load_module(const char *name);   /* defined near main(); pulls in another project file */
 static void exec_block(Stmt **list, int n, Env *env) { for (int i = 0; i < n; i++) { exec(list[i], env); if (returning) return; } }
 
 static Value call_task(Expr *call, Env *env) {
@@ -1058,6 +1073,7 @@ static void exec(Stmt *s, Env *env) {
       while (is_truthy(eval(s->expr, env))) { exec_block(s->body, s->nbody, env); if (returning) break; }
       break;
     case S_TASK: break;  /* registered before the run */
+    case S_USE:  load_module(s->name); break;   /* pull in another file from the project */
     case S_GIVE: return_value = s->expr ? eval(s->expr, env) : vnone(); returning = 1; break;
     case S_EXPR: { Value v = eval(s->expr, env); if (repl_echo && v.type != V_NONE) printf("%s\n", stringify(v)); break; }
     case S_FOREACH: {
@@ -1104,21 +1120,28 @@ static void exec(Stmt *s, Env *env) {
 static char *read_file(const char *path, int *out_len) {
   FILE *f = fopen(path, "rb");
   if (!f) { fprintf(stderr, "\n  I couldn't open the file: %s\n\n", path); exit(1); }
-  fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET);
-  char *buf = (char *)malloc(n + 1); size_t got = fread(buf, 1, n, f); buf[got] = 0; fclose(f);
+  if (fseek(f, 0, SEEK_END) != 0) { fclose(f); fprintf(stderr, "\n  I couldn't read '%s' (is it a folder?).\n\n", path); exit(1); }
+  long n = ftell(f);
+  if (n < 0) { fclose(f); fprintf(stderr, "\n  I couldn't read '%s' (is it a folder?).\n\n", path); exit(1); }
+  fseek(f, 0, SEEK_SET);
+  char *buf = (char *)malloc(n + 1);
+  if (!buf) { fclose(f); fprintf(stderr, "\n  Out of memory reading %s\n\n", path); exit(1); }
+  size_t got = fread(buf, 1, n, f); buf[got] = 0; fclose(f);
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.0.4"
+#define SPROUT_VERSION "0.0.5"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);
   printf("  sprout                   open the interactive screen\n");
-  printf("  sprout <file.sprout>     run a program\n");
-  printf("  sprout run <file>        run a program\n");
+  printf("  sprout new <folder>      create a new project folder\n");
+  printf("  sprout build             run the project here (reads sprout.toml)\n");
+  printf("  sprout <file.sprout>     run a single program\n");
+  printf("  sprout run <file>        run a single program\n");
   printf("  sprout api <url>         show every field an API gives back\n");
   printf("  sprout template list     list project templates\n");
-  printf("  sprout template load <name>   scaffold a project (wipes the folder)\n");
+  printf("  sprout template load <name>   scaffold into THIS folder (wipes it)\n");
   printf("  sprout version           show the version\n");
   printf("  sprout help              show this help\n");
 }
@@ -1174,10 +1197,10 @@ static void repl(void) {
       if (!strcmp(line, "back") || !strcmp(line, "quit") || !strcmp(line, "exit")) break;
       if (L == 0) { printf(PROMPT); fflush(stdout); continue; }
       if (opens_block(line)) { snprintf(buf, sizeof buf, "%s\n", line); inblock = 1; printf("  " C_DIM "...... " C_RESET); fflush(stdout); continue; }
-      if (setjmp(jb) == 0) run_snippet(line); else { call_depth = 0; returning = 0; }
+      if (setjmp(jb) == 0) run_snippet(line); else { call_depth = 0; returning = 0; g_current_file = NULL; }
       printf(PROMPT); fflush(stdout);
     } else if (L == 0) {                                        /* blank line ends the block */
-      if (setjmp(jb) == 0) run_snippet(buf); else { call_depth = 0; returning = 0; }
+      if (setjmp(jb) == 0) run_snippet(buf); else { call_depth = 0; returning = 0; g_current_file = NULL; }
       buf[0] = 0; inblock = 0; printf(PROMPT); fflush(stdout);
     } else {
       size_t cur = strlen(buf); snprintf(buf + cur, sizeof buf - cur, "%s\n", line);
@@ -1194,14 +1217,13 @@ static void run_file_prompt(void) {
   size_t L = strlen(line); while (L && (line[L-1] == '\n' || line[L-1] == '\r' || line[L-1] == ' ' || line[L-1] == '"')) line[--L] = 0;
   char *path = line; while (*path == ' ' || *path == '"') path++;
   if (!*path) return;
-  FILE *f = fopen(path, "rb");
-  if (!f) { printf("  " C_DIM "couldn't open '%s'" C_RESET "\n", path); return; }
-  fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET);
-  char *src = (char *)malloc(sz + 1); size_t got = fread(src, 1, sz, f); src[got] = 0; fclose(f);
+  char *src = read_whole_file(path);
+  if (!src) { printf("  " C_DIM "couldn't open '%s'" C_RESET "\n", path); return; }
   printf("\n");
-  jmp_buf jb; err_jmp = &jb;
+  jmp_buf jb; err_jmp = &jb; g_current_file = path;
   if (setjmp(jb) == 0) run_snippet(src); else { call_depth = 0; returning = 0; }
-  err_jmp = NULL;
+  err_jmp = NULL; g_current_file = NULL;
+  free(src);
 }
 
 static void wiz_help(void) {
@@ -1239,21 +1261,141 @@ static void wizard(void) {
   printf("\n  " C_GREEN "bye! \xF0\x9F\x8C\xB1" C_RESET "\n\n");
 }
 
+/* ----------------------------------------------------- filesystem helpers */
+static int path_exists(const char *p) { FILE *f = fopen(p, "rb"); if (f) { fclose(f); return 1; } return 0; }
+
+/* create every parent directory of a file path (like mkdir -p on the folder part) */
+static void ensure_parent_dirs(const char *file) {
+  char tmp[1024]; size_t L = strlen(file);
+  if (L >= sizeof tmp) return;
+  memcpy(tmp, file, L + 1);
+  for (size_t i = 1; i < L; i++) {
+    if (tmp[i] == '/' || tmp[i] == '\\') {
+      char c = tmp[i]; tmp[i] = 0;
+#ifdef _WIN32
+      CreateDirectoryA(tmp, NULL);
+#else
+      mkdir(tmp, 0777);
+#endif
+      tmp[i] = c;
+    }
+  }
+}
+
+/* does this directory exist and contain anything? (so `sprout new` won't clobber it) */
+static int dir_has_entries(const char *dir) {
+#ifdef _WIN32
+  char pat[1024]; snprintf(pat, sizeof pat, "%s\\*", dir);
+  WIN32_FIND_DATAA fd; HANDLE h = FindFirstFileA(pat, &fd);
+  if (h == INVALID_HANDLE_VALUE) return 0;          /* no such folder yet */
+  int found = 0;
+  do {
+    if (strcmp(fd.cFileName, ".") && strcmp(fd.cFileName, "..")) { found = 1; break; }
+  } while (FindNextFileA(h, &fd));
+  FindClose(h);
+  return found;
+#else
+  DIR *d = opendir(dir);
+  if (!d) return 0;                                 /* no such folder yet */
+  struct dirent *e; int found = 0;
+  while ((e = readdir(d))) { if (strcmp(e->d_name, ".") && strcmp(e->d_name, "..")) { found = 1; break; } }
+  closedir(d);
+  return found;
+#endif
+}
+
 /* ---------------------------------------------------------------- templates */
 typedef struct { const char *path; const char *content; } TplFile;
 typedef struct { const char *name; const char *desc; const TplFile *files; int nfiles; } Template;
 
+/* every project shares one simple manifest + readme; the flagship 'app' adds modules + tests */
+#define TOML_SIMPLE \
+  "# This file is the project. Run everything with:  sprout build\n\n" \
+  "project \"MyApp\"\n" \
+  "main \"app.sprout\"\n\n" \
+  "# As your project grows, add files here so they load together:\n" \
+  "# include [\n" \
+  "#     \"modules/thing.sprout\"\n" \
+  "# ]\n"
+#define README_SIMPLE \
+  "# MyApp\n\nA Sprout project.\n\n## Run it\n\n    sprout build\n\n" \
+  "`sprout build` reads `sprout.toml` and runs the `main` file.\n"
+
+static const TplFile TPL_APP[] = {
+  { "sprout.toml",
+    "# This file ties the whole project together.\n"
+    "# Run everything with:  sprout build\n\n"
+    "project \"MyApp\"\n"
+    "main \"app.sprout\"\n\n"
+    "include [\n"
+    "    \"modules/greeter.sprout\",\n"
+    "    \"modules/server.sprout\"\n"
+    "]\n" },
+  { "app.sprout",
+    "~ app.sprout - the entry point.  `sprout build` runs this last,\n"
+    "~ after loading the modules listed in sprout.toml.\n\n"
+    "use greeter\n"
+    "use server\n\n"
+    "show color(\"bold\", \"Welcome to MyApp!\")\n"
+    "show greet(\"world\")\n\n"
+    "start()\n" },
+  { "modules/greeter.sprout",
+    "~ The greeter module: turns a name into a friendly hello.\n"
+    "~ Any file that does `use greeter` can call greet().\n\n"
+    "task greet(who):\n"
+    "    give \"Hello, \" + who + \"!\"\n" },
+  { "modules/server.sprout",
+    "~ The server module - it uses the greeter.\n"
+    "~ Every file shares one space, so tasks are visible across the project.\n\n"
+    "use greeter\n\n"
+    "task start():\n"
+    "    show color(\"cyan\", \"server: handling 2 requests...\")\n"
+    "    show handle(\"Ada\")\n"
+    "    show handle(\"Lin\")\n\n"
+    "task handle(user):\n"
+    "    give \"  200 OK  ->  \" + greet(user)\n" },
+  { "tests/test.sprout",
+    "~ A tiny test. Run it on its own with:  sprout run tests/test.sprout\n"
+    "use greeter\n\n"
+    "when contains(greet(\"x\"), \"Hello\"):\n"
+    "    show color(\"green\", \"PASS: greet() says hello\")\n"
+    "otherwise:\n"
+    "    show color(\"red\", \"FAIL: greet() is broken\")\n" },
+  { "README.md",
+    "# MyApp\n\nA multi-file Sprout project.\n\n"
+    "## Run it\n\n    sprout build\n\n"
+    "That reads `sprout.toml`, loads every file, and runs `app.sprout` last.\n\n"
+    "## Structure\n\n"
+    "    sprout.toml        # the project: name, main file, files to include\n"
+    "    app.sprout         # the entry point (main)\n"
+    "    modules/\n"
+    "      greeter.sprout   # task: greet(who)\n"
+    "      server.sprout    # tasks: start(), handle(user)  - uses greeter\n"
+    "    tests/\n"
+    "      test.sprout      # a quick check\n\n"
+    "## How files connect\n\n"
+    "Every file in the project shares one space, so a `task` defined in any\n"
+    "file can be called from any other. Put `use <name>` at the top of a file\n"
+    "to pull a module in by name:\n\n"
+    "    use greeter        # loads modules/greeter.sprout\n"
+    "    use server         # loads modules/server.sprout\n\n"
+    "Add a file by dropping it in (e.g. `modules/database.sprout`) and listing\n"
+    "it under `include` in `sprout.toml`.\n" },
+};
 static const TplFile TPL_STARTER[] = {
-  { "main.sprout",
+  { "sprout.toml", TOML_SIMPLE },
+  { "app.sprout",
+    "~ Welcome to Sprout!  Edit me, then run:  sprout build\n"
     "make name = \"world\"\n"
-    "show \"Hello, \" + name + \"!\"\n\n"
+    "show color(\"green\", \"Hello, \" + name + \"!\")\n\n"
     "task greet(who):\n"
     "    give \"Nice to meet you, \" + who\n\n"
     "show greet(\"Sprout\")\n" },
-  { "README.md", "# My Sprout app\n\nRun it:\n\n    sprout run main.sprout\n" },
+  { "README.md", README_SIMPLE },
 };
 static const TplFile TPL_API[] = {
-  { "main.sprout",
+  { "sprout.toml", TOML_SIMPLE },
+  { "app.sprout",
     "~ Fetch a web API and read it like a normal map - no libraries.\n"
     "make repo = json(get(\"https://api.github.com/repos/fizzexual/Sprout\"))\n\n"
     "show color(\"green\", \"name: \") + repo[\"name\"]\n"
@@ -1262,9 +1404,11 @@ static const TplFile TPL_API[] = {
     "~ Discover everything this API gives you:\n"
     "for each line in explore(repo):\n"
     "    show line\n" },
+  { "README.md", README_SIMPLE },
 };
 static const TplFile TPL_CLI[] = {
-  { "main.sprout",
+  { "sprout.toml", TOML_SIMPLE },
+  { "app.sprout",
     "~ A small interactive command-line tool.\n"
     "make name = ask(\"What's your name? \")\n"
     "show color(\"green\", \"Hi, \" + name + \"!\")\n\n"
@@ -1273,9 +1417,11 @@ static const TplFile TPL_CLI[] = {
     "    show color(\"red\", \"that wasn't a number\")\n"
     "otherwise:\n"
     "    show \"double is\", n * 2\n" },
+  { "README.md", README_SIMPLE },
 };
 static const TplFile TPL_GAME[] = {
-  { "main.sprout",
+  { "sprout.toml", TOML_SIMPLE },
+  { "app.sprout",
     "~ Guess the number between 1 and 10.\n"
     "make secret = random(1, 10)\n"
     "make won = no\n"
@@ -1290,13 +1436,15 @@ static const TplFile TPL_GAME[] = {
     "        show \"higher...\"\n"
     "    otherwise:\n"
     "        show \"lower...\"\n" },
+  { "README.md", README_SIMPLE },
 };
 
 static const Template TEMPLATES[] = {
-  { "starter", "a tiny hello-world to start from",                 TPL_STARTER, 2 },
-  { "api",     "fetch a web API and read it (get / json / explore)", TPL_API, 1 },
-  { "cli",     "an interactive command-line tool (ask + color)",     TPL_CLI, 1 },
-  { "game",    "a guess-the-number game",                            TPL_GAME, 1 },
+  { "app",     "a full multi-file project (sprout.toml + modules + tests)", TPL_APP, 6 },
+  { "starter", "a tiny one-file project to start from",                     TPL_STARTER, 3 },
+  { "api",     "fetch a web API and read it (get / json / explore)",        TPL_API, 3 },
+  { "cli",     "an interactive command-line tool (ask + color)",            TPL_CLI, 3 },
+  { "game",    "a guess-the-number game",                                   TPL_GAME, 3 },
 };
 static const int NTEMPLATES = (int)(sizeof TEMPLATES / sizeof TEMPLATES[0]);
 
@@ -1322,19 +1470,42 @@ static void wipe_cwd(void) { wipe_dir("."); }
 static void wipe_cwd(void) { int rc = system("rm -rf -- ./* ./.[!.]* 2>/dev/null"); (void)rc; }
 #endif
 
+static const Template *find_template(const char *name) {
+  for (int i = 0; i < NTEMPLATES; i++) if (!strcmp(name, TEMPLATES[i].name)) return &TEMPLATES[i];
+  return NULL;
+}
+
+/* write a template's files; if destdir is non-empty, everything lands under destdir/ */
+static int scaffold(const Template *t, const char *destdir) {
+  for (int i = 0; i < t->nfiles; i++) {
+    char full[1024];
+    if (destdir && *destdir) {
+      int r = snprintf(full, sizeof full, "%s/%s", destdir, t->files[i].path);
+      if (r < 0 || (size_t)r >= sizeof full) { fprintf(stderr, "  path too long, skipped: %s\n", t->files[i].path); continue; }
+    } else { size_t L = strlen(t->files[i].path); if (L >= sizeof full) continue; memcpy(full, t->files[i].path, L + 1); }
+    ensure_parent_dirs(full);
+    FILE *f = fopen(full, "wb");
+    if (!f) { fprintf(stderr, "  couldn't write %s\n", full); continue; }
+    fputs(t->files[i].content, f); fclose(f);
+    printf("    " C_GREEN "+" C_RESET " %s\n", full);
+  }
+  return 0;
+}
+
+static void list_templates(void) {
+  printf("\n  " C_GREEN C_BOLD "Sprout templates" C_RESET "\n\n");
+  for (int i = 0; i < NTEMPLATES; i++)
+    printf("    " C_GREEN "%-9s" C_RESET " %s\n", TEMPLATES[i].name, TEMPLATES[i].desc);
+  printf("\n  New project:    " C_CYAN "sprout new <folder> [template]" C_RESET "\n");
+  printf("  In this folder: " C_CYAN "sprout template load <template>" C_RESET "\n\n");
+}
+
 static int cmd_template(int argc, char **argv) {
   console_setup();
-  if (argc < 3 || !strcmp(argv[2], "list")) {
-    printf("\n  " C_GREEN C_BOLD "Sprout templates" C_RESET "\n\n");
-    for (int i = 0; i < NTEMPLATES; i++)
-      printf("    " C_GREEN "%-9s" C_RESET " %s\n", TEMPLATES[i].name, TEMPLATES[i].desc);
-    printf("\n  Use:  " C_CYAN "sprout template load <name>" C_RESET "\n\n");
-    return 0;
-  }
+  if (argc < 3 || !strcmp(argv[2], "list")) { list_templates(); return 0; }
   if (!strcmp(argv[2], "load")) {
-    if (argc < 4) { fprintf(stderr, "  Which template? Try:  sprout template load starter\n"); return 1; }
-    const Template *t = NULL;
-    for (int i = 0; i < NTEMPLATES; i++) if (!strcmp(argv[3], TEMPLATES[i].name)) { t = &TEMPLATES[i]; break; }
+    if (argc < 4) { fprintf(stderr, "  Which template? Try:  sprout template load app\n"); return 1; }
+    const Template *t = find_template(argv[3]);
     if (!t) { fprintf(stderr, "  No template called '%s'. Try:  sprout template list\n", argv[3]); return 1; }
     printf("\n  \x1b[33mWARNING:\x1b[0m this will " C_BOLD "DELETE everything in the current folder" C_RESET "\n");
     printf("  and replace it with the '%s' template.\n\n", t->name);
@@ -1343,17 +1514,33 @@ static int cmd_template(int argc, char **argv) {
     size_t L = strlen(line); while (L && (line[L-1]=='\n'||line[L-1]=='\r'||line[L-1]==' ')) line[--L] = 0;
     if (strcmp(line, "yes") != 0) { printf("  Cancelled - nothing was changed.\n"); return 0; }
     wipe_cwd();
-    for (int i = 0; i < t->nfiles; i++) {
-      FILE *f = fopen(t->files[i].path, "wb");
-      if (!f) { fprintf(stderr, "  couldn't write %s\n", t->files[i].path); continue; }
-      fputs(t->files[i].content, f); fclose(f);
-      printf("    " C_GREEN "+" C_RESET " %s\n", t->files[i].path);
-    }
-    printf("\n  " C_GREEN "Created the '%s' template." C_RESET "  Run it:  " C_CYAN "sprout run main.sprout" C_RESET "\n\n", t->name);
+    scaffold(t, NULL);
+    printf("\n  " C_GREEN "Created the '%s' template." C_RESET "  Run it:  " C_CYAN "sprout build" C_RESET "\n\n", t->name);
     return 0;
   }
   fprintf(stderr, "  Usage:  sprout template list   |   sprout template load <name>\n");
   return 1;
+}
+
+/* sprout new <folder> [template] - scaffold a brand-new project folder (never wipes) */
+static int cmd_new(int argc, char **argv) {
+  console_setup();
+  if (argc < 3) { fprintf(stderr, "\n  Usage:  sprout new <folder> [template]\n  Example:  sprout new chat-app\n\n"); return 1; }
+  const char *name = argv[2];
+  if (strstr(name, "..")) { fprintf(stderr, "  Please pick a simple folder name (no '..').\n"); return 1; }
+  if (name[0] == '/' || name[0] == '\\' || (name[0] && name[1] == ':')) {
+    fprintf(stderr, "  Please pick a folder name, not an absolute path (e.g.  sprout new chat-app).\n"); return 1;
+  }
+  const char *tplname = (argc >= 4) ? argv[3] : "app";
+  const Template *t = find_template(tplname);
+  if (!t) { fprintf(stderr, "  No template called '%s'. Try:  sprout template list\n", tplname); return 1; }
+  if (dir_has_entries(name)) { fprintf(stderr, "\n  The folder '%s' already exists and isn't empty.\n  Pick another name, or use it in place:  sprout template load %s\n\n", name, tplname); return 1; }
+  printf("\n  " C_GREEN C_BOLD "Creating %s" C_RESET " " C_DIM "(%s template)" C_RESET "\n\n", name, t->name);
+  scaffold(t, name);
+  printf("\n  " C_GREEN "Done!" C_RESET "  Next:\n");
+  printf("    " C_CYAN "cd %s" C_RESET "\n", name);
+  printf("    " C_CYAN "sprout build" C_RESET "\n\n");
+  return 0;
 }
 
 static int cmd_api(const char *url) {
@@ -1370,6 +1557,158 @@ static int cmd_api(const char *url) {
   return 0;
 }
 
+/* ----------------------------------------------------- project / modules */
+/* the include map from sprout.toml: a module name (e.g. "server") -> its file path */
+static char **g_modname = NULL, **g_modpath = NULL; static int g_nmod = 0, g_capmod = 0;
+static char **g_incpath = NULL; static int g_ninc = 0, g_capinc = 0;   /* include[] in listed order */
+static char *g_main_file = NULL, *g_project_name = NULL;
+static int  g_toml_done = 0;
+
+/* the set of already-loaded files (by canonical path) so each loads exactly once */
+static char **g_loaded = NULL; static int g_nloaded = 0, g_caploaded = 0;
+
+static char *canon_path(const char *p) {
+#ifdef _WIN32
+  char buf[1024];
+  if (_fullpath(buf, p, sizeof buf)) { for (char *c = buf; *c; c++) *c = (char)tolower((unsigned char)*c); return dup_str(buf); }
+#else
+  char buf[PATH_MAX];
+  if (realpath(p, buf)) return dup_str(buf);   /* so './a.sprout' and 'a.sprout' dedup to one file */
+#endif
+  return dup_str(p);
+}
+static int loaded_has(const char *c) { for (int i = 0; i < g_nloaded; i++) if (!strcmp(g_loaded[i], c)) return 1; return 0; }
+static void loaded_add(const char *c) {
+  if (g_nloaded >= g_caploaded) { g_caploaded = g_caploaded ? g_caploaded * 2 : 8; g_loaded = (char **)realloc(g_loaded, g_caploaded * sizeof(char *)); }
+  g_loaded[g_nloaded++] = dup_str(c);
+}
+
+/* the module name for a path: drop the folder and the .sprout extension */
+static char *module_basename(const char *path) {
+  const char *b = path;
+  for (const char *p = path; *p; p++) if (*p == '/' || *p == '\\') b = p + 1;
+  int n = (int)strlen(b);
+  if (n > 7 && !strcmp(b + n - 7, ".sprout")) n -= 7;
+  char *r = (char *)malloc(n + 1); memcpy(r, b, n); r[n] = 0; return r;
+}
+static void map_add(const char *name, const char *path) {
+  for (int i = 0; i < g_nmod; i++) if (!strcmp(g_modname[i], name)) return;   /* first mention wins */
+  if (g_nmod >= g_capmod) { g_capmod = g_capmod ? g_capmod * 2 : 8;
+    g_modname = (char **)realloc(g_modname, g_capmod * sizeof(char *));
+    g_modpath = (char **)realloc(g_modpath, g_capmod * sizeof(char *)); }
+  g_modname[g_nmod] = dup_str(name); g_modpath[g_nmod] = dup_str(path); g_nmod++;
+}
+static void inc_add(const char *path) {
+  if (g_ninc >= g_capinc) { g_capinc = g_capinc ? g_capinc * 2 : 8; g_incpath = (char **)realloc(g_incpath, g_capinc * sizeof(char *)); }
+  g_incpath[g_ninc++] = dup_str(path);
+}
+
+/* read the next "..." string on the CURRENT line (so a value-less key can't steal the next line's) */
+static char *toml_string(const char *s, int *i, int len) {
+  while (*i < len && s[*i] != '"' && s[*i] != '\n') (*i)++;
+  if (*i >= len || s[*i] != '"') return NULL;          /* no string before end of line */
+  (*i)++; int start = *i;
+  while (*i < len && s[*i] != '"' && s[*i] != '\n') (*i)++;   /* an unterminated quote ends at the line */
+  int n = *i - start; char *r = (char *)malloc(n + 1); memcpy(r, s + start, n); r[n] = 0;
+  if (*i < len && s[*i] == '"') (*i)++;
+  return r;
+}
+
+/* parse sprout.toml (if present in the current folder): project name / main file / include map */
+static void toml_load(void) {
+  if (g_toml_done) return;
+  g_toml_done = 1;
+  char *s = read_whole_file("sprout.toml");
+  if (!s) return;
+  int len = (int)strlen(s), i = 0;
+  while (i < len) {
+    char c = s[i];
+    if (c == '#' || c == '~') { while (i < len && s[i] != '\n') i++; continue; }   /* comment to end of line */
+    if (isalpha((unsigned char)c)) {
+      int st = i; while (i < len && isalpha((unsigned char)s[i])) i++;
+      int wl = i - st;
+      if (wl == 7 && !strncmp(s + st, "project", 7)) { char *v = toml_string(s, &i, len); if (v) { free(g_project_name); g_project_name = v; } }
+      else if (wl == 4 && !strncmp(s + st, "main", 4)) { char *v = toml_string(s, &i, len); if (v) { free(g_main_file); g_main_file = v; } }
+      else if (wl == 7 && !strncmp(s + st, "include", 7)) {
+        while (i < len && s[i] != '[' && s[i] != '\n') i++;          /* find the opening bracket */
+        if (i < len && s[i] == '[') {
+          i++;
+          while (i < len && s[i] != ']') {
+            if (s[i] == '"') { char *v = toml_string(s, &i, len); if (v) { inc_add(v); char *nm = module_basename(v); map_add(nm, v); free(nm); free(v); } }
+            else if (s[i] == '#' || s[i] == '~') { while (i < len && s[i] != '\n') i++; }
+            else i++;
+          }
+        }
+      }
+    } else i++;
+  }
+  free(s);
+  if (g_main_file) { char *nm = module_basename(g_main_file); map_add(nm, g_main_file); free(nm); }
+}
+
+/* turn a `use` target into a file path: a path as-is, or a bare name via the map / common folders */
+static char *resolve_module(const char *name) {
+  toml_load();
+  int looks_path = strstr(name, ".sprout") || strchr(name, '/') || strchr(name, '\\');
+  if (looks_path) return path_exists(name) ? dup_str(name) : NULL;
+  for (int i = 0; i < g_nmod; i++) if (!strcmp(g_modname[i], name)) return dup_str(g_modpath[i]);
+  const char *pre[] = { "", "modules/", "src/", "lib/" };
+  char buf[1024];
+  for (int k = 0; k < 4; k++) { snprintf(buf, sizeof buf, "%s%s.sprout", pre[k], name); if (path_exists(buf)) return dup_str(buf); }
+  return NULL;
+}
+
+/* parse one file into a fresh AST (token strings live in the AST, so re-parsing is safe) */
+static Stmt **parse_file(const char *path, int *n) {
+  char *src = read_whole_file(path);
+  if (!src) { char m[600]; snprintf(m, sizeof m, "I couldn't open the file '%s'.", path); fail(0, m); return NULL; }
+  ntok = 0; pos = 0;
+  tokenize(src, (int)strlen(src));
+  Stmt **prog = parse_program(n);
+  free(src);
+  return prog;
+}
+
+/* load another project file once: register its tasks, then run its top level */
+static void load_module(const char *name) {
+  char *path = resolve_module(name);
+  if (!path) { char m[400]; snprintf(m, sizeof m, "I couldn't find a module called '%s' to use. (looked in sprout.toml, modules/, src/, lib/)", name); fail(0, m); return; }
+  char *c = canon_path(path);
+  if (loaded_has(c)) { free(path); free(c); return; }
+  const char *prev = g_current_file; g_current_file = path;
+  int n; Stmt **prog = parse_file(path, &n);   /* parse first: a parse error here must NOT poison the dedup set */
+  loaded_add(c); free(c);                       /* commit only after a clean parse (still set before exec, so cycles break) */
+  for (int i = 0; i < n; i++) if (prog[i]->kind == S_TASK) task_register(prog[i]);
+  exec_block(prog, n, global_env);
+  returning = 0;                 /* a module's top-level `give` (if any) doesn't return to the user */
+  g_current_file = prev;
+}
+
+/* sprout build - read sprout.toml, load every file, run the main file last */
+static int cmd_build(void) {
+  console_setup();
+  toml_load();
+  if (!path_exists("sprout.toml")) {
+    fprintf(stderr, "\n  No " C_BOLD "sprout.toml" C_RESET " here.  Start a project with:  " C_CYAN "sprout new myapp" C_RESET "\n  or run one file directly:  " C_CYAN "sprout run app.sprout" C_RESET "\n\n");
+    return 1;
+  }
+  const char *mainf = g_main_file ? g_main_file : "app.sprout";
+  printf("\n  " C_GREEN C_BOLD "Building %s" C_RESET "\n\n", g_project_name ? g_project_name : "project");
+  global_env = env_new(NULL);
+  jmp_buf jb; err_jmp = &jb;
+  if (setjmp(jb) != 0) { err_jmp = NULL; g_current_file = NULL; call_depth = 0; returning = 0; return 1; }
+  char *mainc = canon_path(mainf);
+  for (int i = 0; i < g_ninc; i++) {                            /* libraries first... */
+    char *ic = canon_path(g_incpath[i]); int is_main = !strcmp(ic, mainc); free(ic);
+    if (is_main) continue;                                      /* ...but never the entry file here */
+    load_module(g_incpath[i]);
+  }
+  free(mainc);
+  load_module(mainf);                                           /* entry point genuinely last */
+  err_jmp = NULL;
+  return 0;
+}
+
 int main(int argc, char **argv) {
   srand((unsigned)time(NULL));
   console_setup();   /* enable UTF-8 + ANSI colour for every run */
@@ -1378,6 +1717,8 @@ int main(int argc, char **argv) {
   if (!strcmp(arg, "version") || !strcmp(arg, "--version") || !strcmp(arg, "-v")) { printf("Sprout v%s\n", SPROUT_VERSION); return 0; }
   if (!strcmp(arg, "help") || !strcmp(arg, "--help") || !strcmp(arg, "-h")) { usage(); return 0; }
   if (!strcmp(arg, "template")) return cmd_template(argc, argv);
+  if (!strcmp(arg, "new")) return cmd_new(argc, argv);
+  if (!strcmp(arg, "build")) return cmd_build();
   if (!strcmp(arg, "api")) {
     if (argc < 3) { fprintf(stderr, "  api needs a web address:  sprout api https://...\n"); return 1; }
     return cmd_api(argv[2]);
@@ -1385,11 +1726,13 @@ int main(int argc, char **argv) {
 
   const char *file = arg;
   if (!strcmp(arg, "run")) {
-    if (argc < 3) { fprintf(stderr, "\n  Sprout: 'run' needs a file - try:  sprout run hello.sprout\n\n"); return 1; }
+    if (argc < 3) return cmd_build();   /* `sprout run` with no file builds the project here */
     file = argv[2];
   }
 
   int len; char *src = read_file(file, &len);
+  g_current_file = file;
+  { char *c = canon_path(file); loaded_add(c); free(c); }   /* so a `use` can't reload the entry file */
   tokenize(src, len);
   int ncount; Stmt **program = parse_program(&ncount);
   for (int i = 0; i < ncount; i++) if (program[i]->kind == S_TASK) task_register(program[i]);

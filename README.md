@@ -76,13 +76,55 @@ language runs now:
   - 🔎 `explore(value)` — list every field/target inside an API response
   - 📄 `read` / `write` / `append` / `exists` — files
   - ⚙️ `run(command)` — run any program and capture its output
-- **Project templates:** `sprout template load <name>` scaffolds a project · **`sprout api <url>`** dumps every field an API returns
+- **Projects & modules:** a `sprout.toml` ties many files into one program — `use server` pulls in another file by name, every file shares one space, and `sprout build` runs the whole thing
+- **Scaffolding:** `sprout new <folder>` creates a full multi-file project · `sprout template load <name>` scaffolds into the current folder · **`sprout api <url>`** dumps every field an API returns
 - `~` comments, indentation blocks, friendly errors with line numbers
 
 ```sprout
 ~ call any API and use the result like a normal value — no libraries, no glue
 make repo = json(get("https://api.github.com/repos/fizzexual/Sprout"))
 show repo["name"], "is written in", repo["language"]
+```
+
+### Real projects, many files
+
+Scaffold a project and run it — one command each:
+
+```bash
+sprout new chat-app       # creates the folder below
+cd chat-app
+sprout build              # reads sprout.toml, loads every file, runs main last
+```
+
+```
+chat-app/
+├─ sprout.toml            # the project: name, main file, files to include
+├─ app.sprout            # the entry point (main)
+├─ modules/
+│   ├─ greeter.sprout     # task: greet(who)
+│   └─ server.sprout      # tasks: start(), handle(user) — uses greeter
+└─ tests/
+    └─ test.sprout
+```
+
+```toml
+# sprout.toml
+project "chat-app"
+main "app.sprout"
+
+include [
+    "modules/greeter.sprout",
+    "modules/server.sprout"
+]
+```
+
+```sprout
+~ app.sprout — pull in modules by name; every file shares one space
+use greeter
+use server
+
+show greet("world")
+start()
 ```
 
 ## Build & run
@@ -100,8 +142,9 @@ build.cmd                     # or: gcc -O2 -Wall -s -o sprout.exe sprout.c -lm 
 
 # run a program:
 sprout run hello.sprout     # or just: sprout hello.sprout
-sprout version              # -> Sprout v0.0.4
-sprout template load api    # scaffold a starter project (asks before wiping the folder)
+sprout version              # -> Sprout v0.0.5
+sprout new myapp            # create a full multi-file project folder
+sprout build                # run the project in the current folder (reads sprout.toml)
 sprout api <url>            # list every field an API returns
 ```
 
@@ -115,10 +158,11 @@ The core is done; the rest of the language is on its way back, slice by slice:
 1. ✅ **Core** — variables, math, text, `when`, `repeat`
 2. ✅ **Tasks** — `task` / `give`, function calls, recursion, scope
 3. ✅ **Collections** — lists `[...]`, maps `{...}`, indexing, `for each`, `range`
-4. ✅ **Superpowers & tooling** — math/text toolbox, files, web (`get` / `json` / `explore`), `run`, `color`, project templates, `sprout api`
-5. ⏭️ **f-strings** (`f"Hi {name}"`) and `remember` / `recall`
-6. **Richer errors** — the `^` pointer and "did you mean?" suggestions
-7. **Apps & more** — GUI windows, libraries
+4. ✅ **Superpowers & tooling** — math/text toolbox, files, web (`get` / `json` / `explore`), `run`, `color`, templates, `sprout api`
+5. ✅ **Projects & modules** — `sprout.toml`, `use`, `sprout new`, `sprout build`
+6. ⏭️ **f-strings** (`f"Hi {name}"`) and `remember` / `recall`
+7. **Richer errors** — the `^` pointer and "did you mean?" suggestions
+8. **Apps & more** — GUI windows, libraries
 
 ## How it works
 

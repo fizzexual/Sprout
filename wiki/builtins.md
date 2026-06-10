@@ -90,7 +90,33 @@ show color("green", "done!")
 
 | Command | Does |
 | --- | --- |
+| `sprout new <folder> [template]` | create a brand-new project folder (never wipes anything) |
+| `sprout build` | run the project in this folder — reads `sprout.toml`, loads every file, runs `main` last |
 | `sprout api <url>` | fetch a URL and print every field/target the API returns |
 | `sprout template list` | list the built-in project templates |
-| `sprout template load <name>` | scaffold a project into the current folder (asks before wiping it) |
+| `sprout template load <name>` | scaffold a template into the **current** folder (asks before wiping it) |
+
+## Projects (`sprout.toml` + `use`)
+
+Bigger programs span many files. A `sprout.toml` ties them together, and
+`use <name>` pulls another file in by name. Every file in a project shares one
+space, so a `task` defined anywhere is callable everywhere. See
+**[Projects & modules](projects.md)** for the full guide.
+
+```toml
+# sprout.toml
+project "MyApp"
+main "app.sprout"
+
+include [
+    "modules/greeter.sprout",
+    "modules/server.sprout"
+]
+```
+
+```sprout
+~ app.sprout
+use greeter        ~ loads modules/greeter.sprout
+show greet("world")
+```
 

@@ -1,0 +1,6 @@
+~ a tiny library module, used by usemod.sprout
+task triple(n):
+    give n * 3
+
+task shout(t):
+    give upper(t) + "!"
