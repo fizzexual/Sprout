@@ -1,0 +1,29 @@
+~ grammar / semantics checks (v0.0.8)
+
+when (1 < 2) and (2 < 3):
+    show "ok: a single comparison composes with 'and'"
+
+~ 'and' binds tighter than 'or':  yes or (no and no) == yes
+when yes or no and no:
+    show "ok: and binds tighter than or"
+
+~ iterating a map yields its KEYS (in insertion order)
+make m = {a: 1, b: 2}
+make ks = ""
+for each k in m:
+    set ks = ks + k
+when ks == "ab":
+    show "ok: for-each over a map yields keys"
+
+~ repeat truncates a non-whole count toward zero
+make c = 0
+repeat 2.5 times:
+    set c = c + 1
+when c == 2:
+    show "ok: repeat truncates 2.5 to 2"
+
+~ set inserts a new map key; a bare key is the text of its name
+make d = {}
+set d["x"] = 1
+when d["x"] == 1:
+    show "ok: set inserts a new map key"

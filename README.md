@@ -39,8 +39,8 @@ suggests a fix:
   Did you mean 'name'?
 ```
 
-And with `learn on`, Sprout **narrates itself as it runs** — perfect for a first
-look at how code actually executes:
+And with `learn on`, Sprout **narrates each step's values as it runs** (`make` /
+`set` / `show`) — perfect for a first look at how code actually executes:
 
 ```sprout
 learn on
@@ -169,7 +169,7 @@ build.cmd                     # or: gcc -O2 -Wall -s -o sprout.exe sprout.c -lm 
 
 # run a program:
 sprout run hello.sprout     # or just: sprout hello.sprout
-sprout version              # -> Sprout v0.0.8
+sprout version              # -> Sprout v0.0.9
 sprout new myapp            # create a full multi-file project folder
 sprout build                # run the project in the current folder (reads sprout.toml)
 sprout api <url>            # list every field an API returns
@@ -194,6 +194,7 @@ is `2.5` and very large integers lose precision. `%` is `fmod`; division/modulo 
 zero is a runtime error. **Whole-number values display without a decimal point** —
 `range(3)` shows `[0, 1, 2]`, and indices/counts/`length` read as `0`, `1`, `2`
 (not `0.0`) — so the doubles-only choice is invisible until you do real division.
+(Very large whole numbers fall back to exponential form, e.g. `1e+21`.)
 
 **Text is UTF-8.** `length("café")` is `4` (characters, not bytes). Strings are
 immutable and **not indexable** (`"abc"[0]` is an error) — iterate with `for each`
@@ -213,13 +214,27 @@ through the **same** function, so the result is always identical:
 
 So `"L=" + [1, 2]` → `"L=[1, 2]"` and `f"{nothing}"` → `nothing`. For `+`, if
 either side is text the other is coerced to its display form; otherwise `+` is
-numeric addition (and `text + text` concatenates).
+numeric addition (and `text + text` concatenates). Inside an f-string each `{...}`
+keeps its own operator meaning and only the final splice is coerced, so
+`f"{2 + 3}"` is `"5"`, not `"23"`.
 
 **Truthiness** (for `when` / `repeat while` / `and` / `or` / `not`): `no`,
 `nothing`, `0`, `""`, and empty list/map are falsey; everything else is truthy.
-`and`/`or` short-circuit. **Equality** (`==`/`!=`) is structural and deep for
-lists/maps (with a depth guard against self-referential values); `< <= > >=`
-compare only two numbers or two pieces of text.
+`and`/`or` short-circuit, and **`and` binds tighter than `or`** (`a or b and c`
+means `a or (b and c)`). **Equality** (`==`/`!=`) is structural and deep for
+lists/maps (depth-guarded against self-reference); `< <= > >=` compare two numbers
+or two pieces of text. **Comparisons don't chain** — `1 < 2 < 3` is a friendly
+error; write `1 < 2 and 2 < 3`.
+
+**Lists & maps.** `[1, 2, 3]` and `{name: "Sam", age: 3}`. A **bare identifier key
+is shorthand for its text** — `{name: 1}` has the key `"name"`; keys are never
+evaluated as variables. Index with `x[i]` (a whole number for a list, text for a
+map). `set` can write through an index: `set xs[i] = v` requires the position to
+already exist (lists don't auto-grow — an out-of-range index is an error), while
+`set m[key] = v` **inserts** the key if it's absent. Index assignment may nest
+(`set grid[i][j] = v`), even though *module* member access is a single dot.
+**`for each` over a map yields its keys** (in insertion order); use `m[key]` for
+the value.
 
 **Variables & scope.** `make` introduces a **new** name; **`make` on a name that
 already exists in the same scope is an error** ("use 'set' to change it") — so a
@@ -245,14 +260,22 @@ may only name a module it has `use`d (otherwise: *"to call server.start, add 'us
 server' at the top of this file."*). Modules load **once** (so circular `use`
 terminates) and resolve via `sprout.toml` then by searching `modules/ src/ lib/ ./`;
 **two project files with the same basename are a load-time error** (module names
-must be unique). `system` is a **reserved** built-in module — you still write
-`use system` so OS access (`system.run`) is explicit, and you can't define your own
-module named `system`.
+must be unique). A `use` target that **looks like a path** (contains `/`, `\`, or
+`.sprout`, e.g. `use "modules/server.sprout"`) is taken literally, resolved from the
+project root, and skips the name search; any other target — bare *or* quoted —
+goes through the search above (so `use server` and `use "server"` behave the same).
+`system` is a **reserved**
+built-in module — you still write `use system` so OS access (`system.run`) is
+explicit, and you can't define your own module named `system`. (`private` is the
+**default**, so the keyword is optional — allowed for emphasis but redundant.)
 
 **`learn on` / `learn off`.** `learn` is a keyword; `learn on` and `learn off` are
 statements that flip a single **global** narration flag (it is *not* scoped and does
 *not* nest — the most recent one wins, and it persists across files in a run). While
-on, each `make` / `set` / `show` is narrated. Off by default.
+on, it narrates the **value of each step**: `make`/`set` (the name and its new
+value) and `show` (the expression with its values substituted, then the result). It
+does **not** (yet) narrate which `when` branch ran, each loop iteration, or task
+calls/returns. Off by default.
 
 **Evaluation & errors.** Eager, left-to-right; statements run top to bottom. The
 **first error aborts** the run (there is no batch diagnostics pass and no static
@@ -274,18 +297,18 @@ make       = [ "public" | "private" ] "make" ident "=" expr NEWLINE ;
 set        = "set" ( ident | postfix ) "=" expr NEWLINE ;
 show       = "show" expr { "," expr } NEWLINE ;        (* commas print with a space between *)
 when       = "when" expr block { "orwhen" expr block } [ "otherwise" block ] ;
-repeat     = "repeat" ( expr "times" | "while" expr ) block ;
-foreach    = "for" "each" ident "in" expr block ;
+repeat     = "repeat" ( expr "times" | "while" expr ) block ;  (* a 'times' count is truncated to a whole number; <= 0 runs 0 times *)
+foreach    = "for" "each" ident "in" expr block ;             (* over a map, ident takes each KEY *)
 task       = [ "public" | "private" ] "task" ident "(" [ ident { "," ident } ] ")" block ;  (* top level only *)
-give       = "give" [ expr ] NEWLINE ;                 (* only meaningful inside a task *)
-use        = "use" ( ident | string ) NEWLINE ;
+give       = "give" [ expr ] NEWLINE ;                 (* a parse error outside a task *)
+use        = "use" ( ident | string ) NEWLINE ;       (* a path-looking target (has / \ or .sprout) is literal; otherwise it's a searched module name *)
 learn      = "learn" ( "on" | "off" ) NEWLINE ;
 block      = ":" NEWLINE INDENT { statement } DEDENT ;
 
 expr       = or ;
 or         = and { "or" and } ;
 and        = cmp { "and" cmp } ;
-cmp        = term { ( "==" | "!=" | "<" | "<=" | ">" | ">=" ) term } ;
+cmp        = term [ ( "==" | "!=" | "<" | "<=" | ">" | ">=" ) term ] ;  (* non-associative: comparisons don't chain *)
 term       = factor { ( "+" | "-" ) factor } ;
 factor     = unary { ( "*" | "/" | "%" ) unary } ;
 unary      = ( "-" | "not" ) unary | postfix ;
@@ -378,7 +401,7 @@ There's a **[VS Code extension](vscode-extension)** for syntax highlighting too.
 
 ## Known limitations & open questions
 
-Sprout is **v0.0.7** — early, and deliberately small. These are the rough edges
+Sprout is **v0.0.9** — early, and deliberately small. These are the rough edges
 I already know about; **spotting more (or telling me which of these matter most)
 is exactly the kind of feedback I'm looking for** —
 [issues](https://github.com/fizzexual/Sprout/issues) /

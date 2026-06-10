@@ -494,9 +494,20 @@ static Expr *binary_level(Expr *(*next)(void), const TokType *ops, int nops, int
 }
 static Expr *factor(void)     { static const TokType o[] = { T_STAR, T_SLASH, T_PERCENT }; return binary_level(unary, o, 3, 0); }
 static Expr *term(void)       { static const TokType o[] = { T_PLUS, T_MINUS }; return binary_level(factor, o, 2, 0); }
-static Expr *comparison(void) { static const TokType o[] = { T_LT, T_LE, T_GT, T_GE }; return binary_level(term, o, 4, 0); }
-static Expr *equality(void)   { static const TokType o[] = { T_EQEQ, T_BANGEQ }; return binary_level(comparison, o, 2, 0); }
-static Expr *and_expr(void)   { static const TokType o[] = { T_AND }; return binary_level(equality, o, 1, 1); }
+/* comparisons do NOT chain: `a < b < c` is a friendly error (use 'and'), not a confusing
+   (a < b) < c type error. All six relational/equality ops share this one non-associative level. */
+static Expr *compare(void) {
+  static const TokType o[] = { T_LT, T_LE, T_GT, T_GE, T_EQEQ, T_BANGEQ };
+  Expr *left = term();
+  TokType op = T_EOF; int found = 0;
+  for (int k = 0; k < 6; k++) if (check(o[k])) { op = o[k]; found = 1; break; }
+  if (!found) return left;
+  int line = peek().line; advance();
+  Expr *right = term();
+  for (int k = 0; k < 6; k++) if (check(o[k])) fail(peek().line, "comparisons can't be chained - use 'and', like  a < b and b < c.");
+  Expr *e = new_expr(E_BINARY, line); e->op = op; e->left = left; e->right = right; return e;
+}
+static Expr *and_expr(void)   { static const TokType o[] = { T_AND }; return binary_level(compare, o, 1, 1); }
 static Expr *expression(void) { static const TokType o[] = { T_OR }; return binary_level(and_expr, o, 1, 1); }
 
 static Stmt *statement(void);
@@ -1492,7 +1503,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.0.8"
+#define SPROUT_VERSION "0.0.9"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);
