@@ -430,11 +430,10 @@ The core is done; the rest of the language is on its way back, slice by slice:
 7. ✅ **Built-in testing** — `test "…": expect …` and `sprout test`
 8. ✅ **The freeze (v0.0.13)** — every edge case decided, vocabulary locked, the Language Reference complete and tested. **The core language is now stable; from here, new things are libraries, not language changes.**
 
-After the freeze (each its own version, in order):
-
-9. ⏭️ **`remember` / `recall`** — values that persist between runs; then `sprout docs`
-10. **Kinds** — a per-file `kind` in `sprout.toml` picks an outer loop: `script` · `module` · `test` · `server`/`handler` (a web runtime; the hard part is a per-request arena)
-11. **The big rocks** — a GC/arena decision, a C extension API, a package manager, GUI windows
+After the freeze comes the **next core cycle** (unfreeze → grow → re-freeze as v0.1.0).
+The full, sequenced plan — error handling, first-class tasks, collections superpowers,
+user types, a memory model, the web `kind`, tooling — is in **[ROADMAP.md](ROADMAP.md)**.
+First moves: `remember`/`recall` and `try`/`otherwise`.
 
 ## How it works (architecture)
 
