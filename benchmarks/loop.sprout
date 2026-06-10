@@ -1,6 +1,0 @@
-make total = 0
-make i = 0
-repeat 5000000 times:
-    set total = total + i
-    set i = i + 1
-show total

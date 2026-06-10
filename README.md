@@ -4,18 +4,17 @@
 
 <h1 align="center">🌱 Sprout</h1>
 
-<p align="center"><b>The programming language that's kind to beginners.</b><br/>
-Plain-English code, errors that actually help, and zero dependencies.</p>
+<p align="center"><b>A small, friendly programming language — written from scratch in C.</b><br/>
+Plain-English code, helpful errors, and zero dependencies. No Node, no VM, no runtime to install.</p>
 
 <p align="center">
-  <a href="https://github.com/fizzexual/Sprout/releases/latest"><img src="https://img.shields.io/badge/version-0.6.1-2ea043?style=flat-square" alt="version" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ea043?style=flat-square" alt="license" /></a>
   <img src="https://img.shields.io/badge/dependencies-0-2ea043?style=flat-square" alt="zero dependencies" />
-  <img src="https://img.shields.io/badge/built-from%20scratch-2ea043?style=flat-square" alt="built from scratch" />
+  <img src="https://img.shields.io/badge/written%20in-C-2ea043?style=flat-square" alt="written in C" />
+  <img src="https://img.shields.io/badge/runtime-none-2ea043?style=flat-square" alt="no runtime needed" />
 </p>
 
 <p align="center">
-  <a href="https://github.com/fizzexual/Sprout/releases/latest">Download</a> ·
   <a href="wiki/getting-started.md">Get started</a> ·
   <a href="wiki/cheatsheet.md">Cheat sheet</a> ·
   <a href="wiki/architecture.md">How it works</a>
@@ -23,114 +22,100 @@ Plain-English code, errors that actually help, and zero dependencies.</p>
 
 ---
 
-Most people quit programming in the first week — not because it's too hard, but
-because the error messages are cruel. `SyntaxError: unexpected token` teaches you
-nothing.
+Sprout is a **real, from-scratch programming language** — its own lexer, parser, and
+tree-walking interpreter, written in **C**. It compiles to a tiny native executable
+that depends on **nothing but the operating system**: no Node, no JavaScript, no
+runtime to install. The same path Python (CPython) and Lua took.
 
-**Sprout is built around one idea: a language should help you learn it.** It's a
-real, from-scratch interpreted language — its own lexer, parser, and interpreter,
-no transpiling and nothing from npm — with the friendliest errors of any language.
-
-When something's wrong, Sprout points at the exact spot and explains it like a
-patient teacher:
+It has one goal: **be the kindest language to learn programming with.** When
+something's wrong, Sprout explains it in plain English and points at the line:
 
 ```
-🌱 Oops — name problem on line 2:
-
-  2 | show "Hi, " + nme
-    |               ^
-
-  I don't know what 'nme' is.
-
-  💡 Did you mean 'name'?
+  Sprout error (line 2): I don't know what 'nme' is.
 ```
 
 ## Code you can read out loud
 
 Sprout has its **own** vocabulary — `make`, `show`, `when`, `repeat`, `task` — so a
-beginner can guess what a program does just by reading it. No `let`, no `print`,
-no `if`.
+beginner can guess what a program does just by reading it. No `let`, no `print`, no `if`.
 
 ```sprout
-make name = "Sam"
-make score = 8
-show f"Nice work, {name} — you scored {score}/10!"
+make name = "world"
+show "Hello, " + name + "!"
 
+make score = 8
 when score >= 9:
-    show "outstanding 🌟"
+    show "outstanding"
 orwhen score >= 7:
     show "great job"
 otherwise:
     show "keep going"
 
 task greet(who):
-    give f"Hello, {who}!"
+    give "Hello, " + who + "!"
 
-show greet("world")
+show greet("Sprout")
 ```
+
+## What works today
+
+Sprout is being **rebuilt from scratch in C**, one slice at a time. The core
+language runs now:
+
+- Values: numbers, text, `yes` / `no`, `nothing`
+- `make`, `set`, `show` (commas join with spaces)
+- Math `+ - * / %` with precedence and `( )`; `+` also joins text
+- Compare `== != < <= > >=`, logic `and` `or` `not`
+- `when` / `orwhen` / `otherwise`
+- `repeat N times`, `repeat while`
+- `task` / `give`, function calls, **recursion**, proper scope
+- `~` comments, indentation blocks, friendly errors with line numbers
+
+## Build & run
+
+You need a C compiler **once** (to build it). The `sprout` executable it produces
+needs nothing.
 
 ```bash
-sprout run hello.sprout
+# get a compiler (Windows, one time):
+winget install --id BrechtSanders.WinLibs.POSIX.UCRT
+
+# build the interpreter:
+cd src
+build.cmd                     # or: gcc -O2 -Wall -s -o sprout.exe sprout.c -lm
+
+# run a program:
+sprout.exe hello.sprout
 ```
 
-## What you get
+The result is a **~34 KB** native executable that links only against the operating
+system's own libraries. Drop it anywhere and it runs.
 
-- 🧠 **Errors that teach** — every mistake points at the spot, explains it in plain English, and often suggests the fix.
-- 📦 **Zero dependencies** — a complete language in a handful of small files. Nothing to `npm install` to run it.
-- ⚡ **Two engines, one language** — an instant interpreter for learning, and a compile-to-JavaScript mode that's **faster than Python**. Same file, your choice.
-- 📤 **Ship a single `.exe`** — turn any program into one file that runs on a PC with **no Node and no Sprout** installed. Send it to a friend.
-- 🪟 **Apps & websites** — the same code runs as a native desktop window *or* a website, styled with **Bloom** (Sprout's own mini-CSS).
-- 🔌 **Real powers** — save data, call any web API, keep secrets out of your code, and add libraries (`discord-bot`, `networking`, `automations`).
-- 🛠️ **Going native** — Sprout is being rebuilt in C so it can one day run with no Node at all ([`native/`](native)).
+## Roadmap
 
-## Get started
+The core is done; the rest of the language is on its way back, slice by slice:
 
-**Windows** — download [`SproutSetup.exe`](https://github.com/fizzexual/Sprout/releases/latest/download/SproutSetup.exe) and run the wizard. It sets up the `sprout` command, file icons, and shortcuts.
+1. ✅ **Core** — variables, math, text, `when`, `repeat`
+2. ✅ **Tasks** — `task` / `give`, function calls, recursion, scope
+3. ⏭️ **Collections** — lists `[...]`, maps `{...}`, indexing, `for each`, `range`
+4. **Text & toolbox** — f-strings (`f"..."`) and the builtins (`length`, `upper`, `sqrt`, …)
+5. **Input & memory** — `ask`, `remember` / `recall`
+6. **Richer errors** — the `^` pointer and "did you mean?" suggestions
+7. **Apps & more** — GUI windows, the internet, libraries
 
-**Any OS** (needs Node 23.6+) — Sprout runs its source directly, so there's no build step:
-
-```bash
-git clone https://github.com/fizzexual/Sprout.git
-cd Sprout
-npm link
-sprout new myapp        # scaffold a starter program
-sprout run myapp.sprout
-```
-
-## Fast when you need it
-
-The same `.sprout` file runs two ways, and you choose per run:
-
-- **`sprout run`** — a tree-walking interpreter. Instant, with the friendliest errors. The default for learning.
-- **`sprout fast` / `sprout build`** — compiles your program to JavaScript on V8. **Beats CPython on every benchmark.**
-
-<sub>Best-of-5 wall-clock, one machine (Node 25) — the same three programs in each language:</sub>
-
-| Benchmark | `sprout run` | **`sprout build`** | Python 3.11 | Node | Go |
-| --- | --- | --- | --- | --- | --- |
-| `fib(30)` | 0.89s | **0.15s** | 0.25s | 0.09s | 0.03s |
-| loop ×5,000,000 | 0.77s | **0.16s** | 0.62s | 0.10s | 0.03s |
-| primes < 80,000 | 0.65s | **0.18s** | 0.22s | 0.09s | 0.04s |
-
-Measure your own code with `sprout bench yourfile.sprout`. Reproduce: [`benchmarks/`](benchmarks).
-
-## A taste of the commands
+## How it works
 
 ```
-sprout run file.sprout       run a program            sprout build file.sprout   bundle it into one .exe
-sprout fast file.sprout      run it compiled          sprout gui file.sprout     open it as a window
-sprout check file.sprout     verify without running   sprout serve file.sprout   run it as a website
-sprout explain file.sprout   narrate each step        sprout trace file.sprout   step through it live
-sprout new myapp             start a new program      sprout modules             browse libraries
+source.sprout → lexer → parser → interpreter → output
 ```
 
-## Learn more
+A small, dependency-free pipeline in one C file. The full tour is in
+[`src/README.md`](src/README.md) and **[How Sprout Works](wiki/architecture.md)**.
+There's a **[VS Code extension](vscode-extension)** for syntax highlighting too.
 
-The **[wiki](wiki/README.md)** teaches the whole language and Bloom from scratch.
-Start with the **[one-page cheat sheet](wiki/cheatsheet.md)**, or read
-**[How Sprout Works](wiki/architecture.md)** to see the pipeline, the two engines,
-and the native runtime under the hood. There's a **[VS Code extension](vscode-extension)**
-too, and the test suite runs with `npm test` — still zero dependencies.
+> Sprout previously had a TypeScript-on-Node implementation with a GUI, a
+> compile-to-JavaScript engine, and libraries. That has been retired so the
+> language can stand entirely on its own in C — it lives on in the git history.
 
 ---
 

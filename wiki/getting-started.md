@@ -1,82 +1,63 @@
 # Getting Started
 
-## Running a program
+Sprout is an interpreter written in C. You build it once into a tiny `sprout`
+executable, then use that to run your `.sprout` programs. The executable needs
+nothing installed to run.
 
-A Sprout program is a file ending in **`.sprout`**. There are several ways to run one:
+## 1. Get a C compiler (one time)
 
-| Way | How |
-| --- | --- |
-| **Open it to edit** | Double-click a `.sprout` or `.bloom` file — it opens in your editor (VS Code by default). |
-| **Run from Explorer** | Right-click a `.sprout` file → **Run with Sprout**. A GUI app opens its window; a `server` app opens in the browser; a plain program shows its output. |
-| **VS Code** | Open it in VS Code with the [Sprout extension](../vscode-extension) — highlighting + a **Run** button. |
-| **Command line** | `sprout run myprogram.sprout` |
+You only need this to *build* Sprout — not to run it.
 
-Set the double-click behavior up once (per-user, no admin needed):
-
-```powershell
-powershell -ExecutionPolicy Bypass -File tools\install-file-association.ps1
-```
-
-It opens files in **VS Code** if it's installed (otherwise Notepad). To choose a
-different editor, pass `-Editor notepad++`, `-Editor sublime`, `-Editor cursor`,
-or `-Editor "C:\Path\To\editor.exe"`.
-
-### The `sprout` command
+**Windows** (gcc via WinLibs):
 
 ```bash
-sprout run file.sprout      # run a program
-sprout fast file.sprout     # run it compiled to JavaScript (faster than Python)
-sprout build file.sprout    # build an .exe (asks how): no-Node standalone, or a tiny needs-Node one
-sprout gui file.sprout      # open it as a native window
-sprout serve file.sprout    # run it as a website
-sprout check file.sprout    # verify it WITHOUT running it
-sprout trace file.sprout    # step through it line-by-line, watching variables
-sprout bench file.sprout    # time it on both engines and compare the speed
-sprout build file.sprout --standalone   # bundle it into one file (and a no-Node .exe)
-sprout new myapp            # create a starter program to get going fast
-sprout repl                 # type code interactively
-sprout version
+winget install --id BrechtSanders.WinLibs.POSIX.UCRT
 ```
 
-> **`sprout run` vs `sprout fast`** — same language, two engines. `sprout run`
-> uses the friendly interpreter (best errors, instant). `sprout fast` compiles
-> your program to JavaScript and runs it on V8 — **faster than Python** — and
-> falls back to the interpreter automatically for programs that `use` a library
-> or open a GUI. See the [benchmarks](../benchmarks).
+**macOS / Linux** already have a C compiler (`cc` / `gcc` / `clang`).
 
-Sprout **checks your whole program for mistakes before running any of it** — so
-typos, unknown names, and wrong argument counts are caught up front, not
-halfway through. `sprout check` does just the check.
+## 2. Build the interpreter
 
-To make `sprout` available everywhere, run `npm link` once in the project folder.
+```bash
+git clone https://github.com/fizzexual/Sprout.git
+cd Sprout/src
+build.cmd          # Windows
+# or, any OS:
+gcc -O2 -Wall -s -o sprout.exe sprout.c -lm
+```
 
-## Hello, world
+This produces a **~34 KB** `sprout` executable that links only against the
+operating system's own libraries.
 
-Put this in `hello.sprout`:
+## 3. Write your first program
+
+Create `hello.sprout`:
 
 ```sprout
-show "Hello, world!"
+make name = "world"
+show "Hello, " + name + "!"
 ```
 
-Run it and you'll see `Hello, world!`.
+Run it:
 
-## Friendly errors
-
-When something is wrong, Sprout points at the exact spot and explains it in plain
-language:
+```bash
+sprout.exe hello.sprout
+```
 
 ```
-🌱 Oops — name problem on line 2:
+Hello, world!
+```
 
-  2 | show "Hi, " + nme
-    |               ^
+## What if I make a mistake?
 
-  I don't know what 'nme' is.
+Sprout tries to explain problems in plain English and tell you which line:
 
-  💡 Did you mean 'name'?
+```
+  Sprout error (line 2): I don't know what 'nme' is.
 ```
 
 ## Next
 
-- Learn the language: **[Sprout Syntax](sprout-syntax.md)**
-- Build an app with a window: **[GUI & Servers](gui-and-servers.md)**
+- The **[Cheat Sheet](cheatsheet.md)** — the whole language on one page.
+- **[Sprout Syntax](sprout-syntax.md)** — every part, explained slowly.
+- Try the smoke tests that ship with the source: `sprout.exe tests/core.sprout`.

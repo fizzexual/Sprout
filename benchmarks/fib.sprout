@@ -1,5 +1,0 @@
-task fib(n):
-    when n < 2:
-        give n
-    give fib(n - 1) + fib(n - 2)
-show fib(30)

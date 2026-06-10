@@ -1,12 +1,13 @@
-# Sprout, natively 🌱
+# Sprout — the interpreter (C) 🌱
 
-This folder is the **native rewrite of Sprout in C** — a `sprout` interpreter that
-depends on *nothing but the operating system*. No Node, no JavaScript, no runtime
-to install. The same path Python (CPython) and Lua took.
+This is **Sprout, written from scratch in C** — an interpreter that depends on
+*nothing but the operating system*. No Node, no JavaScript, no runtime to install.
+The same path Python (CPython) and Lua took.
 
-> The main interpreter (in [`../src`](../src)) is written in TypeScript and runs on
-> Node. That's how Sprout grows new features fastest. This native build is the
-> long-term goal: Sprout's *own* runtime. We're porting it one slice at a time.
+> Sprout began life as a TypeScript-on-Node implementation. That has been **retired**
+> in favour of this native C runtime — Sprout's *own* engine. The language is being
+> rebuilt here one slice at a time (see the roadmap below); git history keeps the old
+> TS version if it's ever needed.
 
 ## Build it
 

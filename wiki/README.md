@@ -1,33 +1,20 @@
 # 🌱 The Sprout Wiki
 
-Everything about the **Sprout** language and its styling language **Bloom**.
+Everything about **Sprout** — a small, friendly programming language written from
+scratch in **C**, depending on nothing but the operating system.
 
-## What can you build with Sprout?
-
-- 🧮 **Programs** — variables, math, text, conditions, loops, and `task` functions
-- 🪟 **Native desktop apps** — real windows with buttons, labels, and inputs
-- 🌐 **Websites** — the same app served in a browser, no extra code
-- 🎨 **Styled either way** with **Bloom**, Sprout's own CSS
-- 🤖 **A Discord bot** — chat + `/slash` commands, and a real **music player**
-- 🧩 **Multi-file projects** — split a program into files that `use` each other
-- 🔌 …and a growing library ecosystem (see [Libraries](libraries.md))
-
-All from **one small, dependency-free language** with its own friendly vocabulary.
+> Sprout is being (re)built in C one slice at a time. These pages document the
+> language **as it works today** (the core). The [roadmap](#roadmap) lists what's
+> coming next.
 
 ## Pages
 
 | Page | What's inside |
 | --- | --- |
-| **[Getting Started](getting-started.md)** | install Sprout, run your first program |
-| **[How Sprout Works](architecture.md)** | the architecture — the pipeline, the two engines, the native runtime, where everything lives |
-| **[Sprout Syntax](sprout-syntax.md)** | the whole language — variables, math, text, conditions, loops, tasks |
-| **[Built-in Functions](builtins.md)** | `sqrt`, `max`, `length`, `upper`, `remember`/`recall`, `get`/`post`, `secret`… |
-| **[GUI & Servers](gui-and-servers.md)** | build native windows and websites in Sprout |
-| **[Bloom Styling](bloom-syntax.md)** | Sprout's own CSS — style apps and embeds |
-| **[Libraries](libraries.md)** | add powers — `discord-bot`, `networking`, `automations`; manage with `sprout modules` |
-| **[Library Reference](libraries/README.md)** | one page per topic — every library function, grouped |
-| **[Projects](projects.md)** | connect files together with `use "file.sprout"` |
+| **[Getting Started](getting-started.md)** | build the interpreter and run your first program |
+| **[Sprout Syntax](sprout-syntax.md)** | the language explained slowly — variables, math, text, conditions, loops, tasks |
 | **[Cheat Sheet](cheatsheet.md)** | the whole language on one page |
+| **[How Sprout Works](architecture.md)** | the architecture — the pipeline and how the C interpreter is built |
 
 ## The 30-second tour
 
@@ -35,7 +22,7 @@ All from **one small, dependency-free language** with its own friendly vocabular
 ~ this is a comment
 
 make name = "world"
-show f"Hello, {name}!"     ~ f"..." drops values into text
+show "Hello, " + name + "!"
 
 repeat 3 times:
     show "🌱"
@@ -46,7 +33,15 @@ task add(a, b):
 show add(2, 3)        ~ 5
 ```
 
-Sprout is a small, friendly language with its **own** vocabulary — it doesn't
-borrow `let`, `print`, or `if` from anyone. It can also build **native GUI apps**
-and **websites**, styled with **Bloom**. Curious how it all works under the hood?
-Read [How Sprout Works](architecture.md).
+Sprout has its **own** vocabulary — `make`, `set`, `show`, `when`, `repeat`,
+`task` — it doesn't borrow `let`, `print`, or `if` from anyone.
+
+## Roadmap
+
+1. ✅ **Core** — variables, math, text, `when`, `repeat`
+2. ✅ **Tasks** — `task` / `give`, function calls, recursion, scope
+3. ⏭️ **Collections** — lists `[...]`, maps `{...}`, indexing, `for each`, `range`
+4. **Text & toolbox** — f-strings (`f"..."`) and the builtins (`length`, `upper`, `sqrt`, …)
+5. **Input & memory** — `ask`, `remember` / `recall`
+6. **Richer errors** — the `^` pointer and "did you mean?" suggestions
+7. **Apps & more** — GUI windows, the internet, libraries

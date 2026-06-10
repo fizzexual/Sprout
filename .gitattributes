@@ -7,17 +7,16 @@
 
 # Windows scripts must keep CRLF endings to run correctly.
 *.cmd text eol=crlf
-*.ps1 text eol=crlf
 
 # ==============================================================================
 # GitHub Linguist Override (The Sprout Flex)
 # ==============================================================================
 
-# Explicitly register .sprout files as a distinct language and make it detectable
+# Register .sprout as a distinct language and make it detectable.
 *.sprout linguist-language=Sprout
 *.sprout linguist-detectable=true
 
-# Ignore the compiler engine and tests in the language statistics bar chart 
-# so that the repository shows Sprout as the primary language.
-src/**/*.ts linguist-vendored
-test/**/*.ts linguist-vendored
+# The interpreter is written in C, but we vendor it so the repo's language bar
+# highlights Sprout itself rather than its implementation language.
+src/**/*.c linguist-vendored
+src/**/*.h linguist-vendored
