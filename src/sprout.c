@@ -544,6 +544,10 @@ static Stmt *statement(void) {
   switch (t.type) {
     case T_MAKE: {
       advance(); Token name = expect(T_IDENT, "I expected a name here.");
+      if (check(T_LBRACK)) {   /* make m["k"] = ... : a beginner reaching for set */
+        char m[256]; snprintf(m, sizeof m, "to put a value into '%s', use 'set' (like  set %s[\"key\"] = value) - 'make' is only for brand-new names.", name.text, name.text);
+        fail(t.line, m);
+      }
       expect(T_EQ, "I expected '=' here.");
       Stmt *s = new_stmt(S_MAKE, t.line); s->name = name.text; s->expr = expression(); s->is_public = is_public; return s;
     }
@@ -1503,7 +1507,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.0.9"
+#define SPROUT_VERSION "0.0.10"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);

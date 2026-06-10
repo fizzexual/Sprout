@@ -169,7 +169,7 @@ build.cmd                     # or: gcc -O2 -Wall -s -o sprout.exe sprout.c -lm 
 
 # run a program:
 sprout run hello.sprout     # or just: sprout hello.sprout
-sprout version              # -> Sprout v0.0.9
+sprout version              # -> Sprout v0.0.10
 sprout new myapp            # create a full multi-file project folder
 sprout build                # run the project in the current folder (reads sprout.toml)
 sprout api <url>            # list every field an API returns
@@ -231,10 +231,11 @@ is shorthand for its text** — `{name: 1}` has the key `"name"`; keys are never
 evaluated as variables. Index with `x[i]` (a whole number for a list, text for a
 map). `set` can write through an index: `set xs[i] = v` requires the position to
 already exist (lists don't auto-grow — an out-of-range index is an error), while
-`set m[key] = v` **inserts** the key if it's absent. Index assignment may nest
-(`set grid[i][j] = v`), even though *module* member access is a single dot.
-**`for each` over a map yields its keys** (in insertion order); use `m[key]` for
-the value.
+`set m[key] = v` **inserts** the key if it's absent — **new map keys use `set`**,
+not `make`, because the map itself already exists (you're changing it; `make` is
+only for brand-new *names*). Index assignment may nest (`set grid[i][j] = v`),
+even though *module* member access is a single dot. **`for each` over a map yields
+its keys** (in insertion order); use `m[key]` for the value.
 
 **Variables & scope.** `make` introduces a **new** name; **`make` on a name that
 already exists in the same scope is an error** ("use 'set' to change it") — so a
@@ -401,7 +402,7 @@ There's a **[VS Code extension](vscode-extension)** for syntax highlighting too.
 
 ## Known limitations & open questions
 
-Sprout is **v0.0.9** — early, and deliberately small. These are the rough edges
+Sprout is **v0.0.10** — early, and deliberately small. These are the rough edges
 I already know about; **spotting more (or telling me which of these matter most)
 is exactly the kind of feedback I'm looking for** —
 [issues](https://github.com/fizzexual/Sprout/issues) /
