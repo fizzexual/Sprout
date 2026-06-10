@@ -19,6 +19,12 @@
 #include <string.h>
 #include <ctype.h>
 #include <math.h>
+#include <setjmp.h>
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#endif
 
 static char *dup_str(const char *s) { size_t n = strlen(s) + 1; char *p = (char *)malloc(n); memcpy(p, s, n); return p; }
 
@@ -133,10 +139,12 @@ static int values_equal(Value a, Value b) {
 }
 
 /* ------------------------------------------------------------------- errors */
+static jmp_buf *err_jmp = NULL;   /* in interactive mode, fail() jumps here instead of exiting */
 static void fail(int line, const char *msg) {
   fprintf(stderr, "\n  Sprout error");
   if (line > 0) fprintf(stderr, " (line %d)", line);
   fprintf(stderr, ": %s\n\n", msg);
+  if (err_jmp) longjmp(*err_jmp, 1);
   exit(1);
 }
 static void failf(int line, const char *fmt, const char *arg) {
@@ -526,6 +534,7 @@ static void task_register(Stmt *s) {
 static int returning = 0;
 static Value return_value;
 static int call_depth = 0;
+static int repl_echo = 0;   /* in the live prompt, print the value of a bare expression */
 #define MAX_DEPTH 6000
 
 static Value eval(Expr *e, Env *env);
@@ -700,7 +709,7 @@ static void exec(Stmt *s, Env *env) {
       break;
     case S_TASK: break;  /* registered before the run */
     case S_GIVE: return_value = s->expr ? eval(s->expr, env) : vnone(); returning = 1; break;
-    case S_EXPR: eval(s->expr, env); break;
+    case S_EXPR: { Value v = eval(s->expr, env); if (repl_echo && v.type != V_NONE) printf("%s\n", stringify(v)); break; }
     case S_FOREACH: {
       Value it = eval(s->expr, env);
       if (it.type == V_LIST) {
@@ -754,14 +763,131 @@ static char *read_file(const char *path, int *out_len) {
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);
+  printf("  sprout                   open the interactive screen\n");
   printf("  sprout <file.sprout>     run a program\n");
   printf("  sprout run <file>        run a program\n");
   printf("  sprout version           show the version\n");
   printf("  sprout help              show this help\n");
 }
 
+/* --------------------------------------------------------- interactive (TUI) */
+#define C_RESET "\x1b[0m"
+#define C_GREEN "\x1b[32m"
+#define C_BOLD  "\x1b[1m"
+#define C_DIM   "\x1b[2m"
+#define C_CYAN  "\x1b[36m"
+#define PROMPT  "  " C_GREEN "sprout " C_CYAN "\xE2\x96\xB8 " C_RESET   /* "sprout > " in colour */
+
+static void console_setup(void) {
+#ifdef _WIN32
+  SetConsoleOutputCP(65001);                                   /* UTF-8 so the arrow + 🌱 render */
+  HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE); DWORD m;
+  if (GetConsoleMode(h, &m)) SetConsoleMode(h, m | 0x0004);    /* ENABLE_VIRTUAL_TERMINAL_PROCESSING */
+#endif
+}
+
+/* parse + run one snippet in the persistent global_env (used by the REPL + run-a-file) */
+static void run_snippet(const char *src) {
+  ntok = 0; pos = 0;
+  tokenize(src, (int)strlen(src));
+  int n; Stmt **prog = parse_program(&n);
+  for (int i = 0; i < n; i++) if (prog[i]->kind == S_TASK) task_register(prog[i]);
+  exec_block(prog, n, global_env);
+}
+
+/* does this line open a block? (ends with ':' once trailing spaces/comment are removed) */
+static int opens_block(const char *line) {
+  int last = -1;
+  for (int i = 0; line[i]; i++) {
+    if (line[i] == '~') break;
+    if (line[i] != ' ' && line[i] != '\t') last = i;
+  }
+  return last >= 0 && line[last] == ':';
+}
+
+static void banner(void) {
+  printf("\n  " C_GREEN C_BOLD "Sprout" C_RESET " " C_DIM "v%s" C_RESET "  \xF0\x9F\x8C\xB1\n", SPROUT_VERSION);
+  printf("  " C_DIM "a tiny language, written from scratch in C" C_RESET "\n\n");
+}
+
+static void repl(void) {
+  printf("\n  " C_GREEN "Try Sprout live" C_RESET " " C_DIM "- type code, press Enter. 'back' returns to the menu." C_RESET "\n\n");
+  jmp_buf jb; err_jmp = &jb; repl_echo = 1;
+  char buf[8192]; buf[0] = 0; int inblock = 0; char line[1024];
+  printf(PROMPT); fflush(stdout);
+  while (fgets(line, sizeof line, stdin)) {
+    size_t L = strlen(line); while (L && (line[L-1] == '\n' || line[L-1] == '\r')) line[--L] = 0;
+    if (!inblock) {
+      if (!strcmp(line, "back") || !strcmp(line, "quit") || !strcmp(line, "exit")) break;
+      if (L == 0) { printf(PROMPT); fflush(stdout); continue; }
+      if (opens_block(line)) { snprintf(buf, sizeof buf, "%s\n", line); inblock = 1; printf("  " C_DIM "...... " C_RESET); fflush(stdout); continue; }
+      if (setjmp(jb) == 0) run_snippet(line); else { call_depth = 0; returning = 0; }
+      printf(PROMPT); fflush(stdout);
+    } else if (L == 0) {                                        /* blank line ends the block */
+      if (setjmp(jb) == 0) run_snippet(buf); else { call_depth = 0; returning = 0; }
+      buf[0] = 0; inblock = 0; printf(PROMPT); fflush(stdout);
+    } else {
+      size_t cur = strlen(buf); snprintf(buf + cur, sizeof buf - cur, "%s\n", line);
+      printf("  " C_DIM "...... " C_RESET); fflush(stdout);
+    }
+  }
+  err_jmp = NULL; repl_echo = 0; printf("\n");
+}
+
+static void run_file_prompt(void) {
+  char line[1024];
+  printf("\n  " C_GREEN "file" C_RESET " " C_CYAN "\xE2\x96\xB8 " C_RESET); fflush(stdout);
+  if (!fgets(line, sizeof line, stdin)) return;
+  size_t L = strlen(line); while (L && (line[L-1] == '\n' || line[L-1] == '\r' || line[L-1] == ' ' || line[L-1] == '"')) line[--L] = 0;
+  char *path = line; while (*path == ' ' || *path == '"') path++;
+  if (!*path) return;
+  FILE *f = fopen(path, "rb");
+  if (!f) { printf("  " C_DIM "couldn't open '%s'" C_RESET "\n", path); return; }
+  fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET);
+  char *src = (char *)malloc(sz + 1); size_t got = fread(src, 1, sz, f); src[got] = 0; fclose(f);
+  printf("\n");
+  jmp_buf jb; err_jmp = &jb;
+  if (setjmp(jb) == 0) run_snippet(src); else { call_depth = 0; returning = 0; }
+  err_jmp = NULL;
+}
+
+static void wiz_help(void) {
+  printf("\n  " C_BOLD "Sprout in a nutshell" C_RESET "\n\n");
+  printf("    make x = 5                " C_DIM "make a variable" C_RESET "\n");
+  printf("    show \"hi\", x              " C_DIM "print things" C_RESET "\n");
+  printf("    when x > 3:               " C_DIM "a choice (orwhen / otherwise too)" C_RESET "\n");
+  printf("    repeat 3 times:           " C_DIM "a loop (or: repeat while ...)" C_RESET "\n");
+  printf("    for each i in range(3):   " C_DIM "walk a list / map / text" C_RESET "\n");
+  printf("    make xs = [1, 2, 3]       " C_DIM "lists, and maps {name: \"Sam\"}" C_RESET "\n");
+  printf("    task greet(who):          " C_DIM "your own action; 'give' hands a value back" C_RESET "\n\n");
+  printf("  " C_DIM "Full guide: https://github.com/fizzexual/Sprout" C_RESET "\n");
+}
+
+static void wizard(void) {
+  console_setup();
+  global_env = env_new(NULL);
+  for (;;) {
+    banner();
+    printf("  " C_BOLD "What would you like to do?" C_RESET "\n\n");
+    printf("    " C_GREEN "1" C_RESET "  Try Sprout live\n");
+    printf("    " C_GREEN "2" C_RESET "  Run a program " C_DIM "(.sprout file)" C_RESET "\n");
+    printf("    " C_GREEN "3" C_RESET "  Help\n");
+    printf("    " C_GREEN "4" C_RESET "  Quit\n\n");
+    printf("  " C_CYAN "choose \xE2\x96\xB8 " C_RESET); fflush(stdout);
+    char line[64];
+    if (!fgets(line, sizeof line, stdin)) break;
+    char c = line[0];
+    if (c == '1') repl();
+    else if (c == '2') run_file_prompt();
+    else if (c == '3') wiz_help();
+    else if (c == '4' || c == 'q' || c == 'Q') break;
+    else printf("\n  " C_DIM "please pick 1-4." C_RESET "\n");
+  }
+  printf("\n  " C_GREEN "bye! \xF0\x9F\x8C\xB1" C_RESET "\n\n");
+}
+
 int main(int argc, char **argv) {
-  if (argc < 2) { usage(); return 0; }
+  if (argc < 2) { wizard(); return 0; }
   const char *arg = argv[1];
   if (!strcmp(arg, "version") || !strcmp(arg, "--version") || !strcmp(arg, "-v")) { printf("Sprout v%s\n", SPROUT_VERSION); return 0; }
   if (!strcmp(arg, "help") || !strcmp(arg, "--help") || !strcmp(arg, "-h")) { usage(); return 0; }
