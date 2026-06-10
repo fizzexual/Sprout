@@ -1,2 +1,4 @@
-# build artifact — produced by build.cmd / gcc
+# build artifacts
 sprout-installer.exe
+sprout.exe
+*.o

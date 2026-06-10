@@ -1,39 +1,45 @@
 # Sprout Installer 🌱
 
 `sprout-installer.exe` is a friendly wizard that **installs, updates, or removes**
-Sprout for you. It downloads the latest `sprout.exe` from
-[GitHub Releases](https://github.com/fizzexual/Sprout/releases/latest) and puts it
-on your PATH — no admin rights, no dependencies.
+Sprout. The Sprout interpreter is **bundled inside it**, so it's a single
+self-contained download — no extra files, and install works offline.
 
 ## For users
 
 Download **`sprout-installer.exe`** from the
-[latest release](https://github.com/fizzexual/Sprout/releases/latest), run it, and
-choose:
+[latest release](https://github.com/fizzexual/Sprout/releases/latest) and run it:
 
 ```
   Sprout Installer  🌱
 
-    1  Install Sprout (latest)
-    2  Update to the latest
+    1  Install Sprout
+    2  Update to the latest (from GitHub)
     3  Uninstall
     4  Quit
 ```
 
 It installs per-user to `%LOCALAPPDATA%\Programs\Sprout` and adds that folder to
-your PATH. Open a **new** terminal afterward and run `sprout`.
+your PATH (no admin). Open a **new** terminal afterward and run `sprout`.
 
 ## How it works
 
 Pure C, using only Windows' own libraries:
 
-- **Download** — `URLDownloadToFileA` (urlmon) fetches the latest release asset.
+- **Install** — extracts the embedded `sprout.exe` (an `RCDATA` resource baked in
+  by `sprout.rc` + windres) to the install folder.
+- **Update** — downloads the latest `sprout-installer.exe` from GitHub
+  (`URLDownloadToFile`, urlmon) and launches it.
 - **PATH** — reads/writes `HKCU\Environment` (advapi32) and broadcasts
   `WM_SETTINGCHANGE` (user32) so new terminals pick it up.
 
 ## Build it
 
+Build the interpreter first, then the installer (which embeds it):
+
 ```bat
-build.cmd        :: needs gcc; or:
-gcc -O2 -Wall -s -o sprout-installer.exe sprout-installer.c -lurlmon -ladvapi32 -luser32 -lole32
+cd ..\src && build.cmd      :: produces src\sprout.exe
+cd ..\installer && build.cmd
 ```
+
+`build.cmd` copies in `sprout.exe`, runs `windres sprout.rc`, then links with
+`-lurlmon -ladvapi32 -luser32 -lole32 -lshell32`.

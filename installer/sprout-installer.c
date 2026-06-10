@@ -1,8 +1,10 @@
 /* sprout-installer.c — a friendly wizard that installs, updates, or removes
- * Sprout. It downloads the latest sprout.exe from GitHub Releases and puts it on
- * your PATH. Pure C, only Windows' own libraries — no dependencies.
+ * Sprout. The Sprout interpreter (sprout.exe) is EMBEDDED inside this installer
+ * (see sprout.rc), so installing needs no download and the GitHub release ships a
+ * single file. "Update" fetches the latest installer from GitHub.
  *
- *   gcc -O2 -Wall -s -o sprout-installer.exe sprout-installer.c -lurlmon -ladvapi32 -luser32 -lole32
+ * Pure C, only Windows' own libraries — no dependencies.
+ *   build.cmd            (copies in sprout.exe, runs windres, then gcc)
  *
  * Installs per-user to %LOCALAPPDATA%\Programs\Sprout (no administrator needed).
  */
@@ -13,9 +15,10 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#include <shellapi.h>
 #include <urlmon.h>
 
-#define DOWNLOAD_URL "https://github.com/fizzexual/Sprout/releases/latest/download/sprout.exe"
+#define LATEST_INSTALLER "https://github.com/fizzexual/Sprout/releases/latest/download/sprout-installer.exe"
 
 #define C_RESET "\x1b[0m"
 #define C_GREEN "\x1b[32m"
@@ -44,7 +47,7 @@ static void ensure_dir(const char *dir) {
   CreateDirectoryA(tmp, NULL);
 }
 
-/* read HKCU\Environment Path into a malloc'd string ("" if unset) */
+/* ---- PATH (HKCU\Environment) ---- */
 static char *path_read(void) {
   HKEY k;
   if (RegOpenKeyExA(HKEY_CURRENT_USER, "Environment", 0, KEY_READ, &k) != ERROR_SUCCESS) return _strdup("");
@@ -100,18 +103,43 @@ static void path_remove(const char *dir) {
   free(copy); free(nv); free(cur);
 }
 
-static int do_install(int updating) {
+/* write the embedded sprout.exe (RCDATA resource) to dest */
+static int write_embedded(const char *dest) {
+  HRSRC r = FindResourceA(NULL, "SPROUT_EXE", RT_RCDATA);
+  if (!r) return 0;
+  HGLOBAL g = LoadResource(NULL, r);
+  void *data = LockResource(g);
+  DWORD size = SizeofResource(NULL, r);
+  if (!data || !size) return 0;
+  FILE *f = fopen(dest, "wb");
+  if (!f) return 0;
+  size_t w = fwrite(data, 1, size, f);
+  fclose(f);
+  return w == (size_t)size;
+}
+
+static int do_install(void) {
   char dir[MAX_PATH]; install_dir(dir, sizeof dir);
   char exe[MAX_PATH + 16]; snprintf(exe, sizeof exe, "%s\\sprout.exe", dir);
-  printf("\n  %s%s%s\n  into %s%s%s\n", C_BOLD, updating ? "Updating Sprout" : "Installing Sprout", C_RESET, C_CYAN, dir, C_RESET);
+  printf("\n  Installing Sprout into %s%s%s ...\n", C_CYAN, dir, C_RESET);
   ensure_dir(dir);
-  printf("  downloading the latest sprout.exe ...\n");
-  HRESULT hr = URLDownloadToFileA(NULL, DOWNLOAD_URL, exe, 0, NULL);
-  if (hr != S_OK) { printf("  %sdownload failed%s - check your internet connection and try again.\n", C_RED, C_RESET); return 1; }
+  if (!write_embedded(exe)) { printf("  %sinstall failed%s - could not write sprout.exe (is it already running?)\n", C_RED, C_RESET); return 1; }
   path_add(dir);
-  printf("\n  %s%s%s Sprout is ready.\n", C_GREEN, updating ? "Updated!" : "Installed!", C_RESET);
-  printf("  Open a %snew%s terminal and run:  %ssprout%s\n", C_BOLD, C_RESET, C_GREEN, C_RESET);
+  printf("\n  %sInstalled!%s Open a %snew%s terminal and run:  %ssprout%s\n", C_GREEN, C_RESET, C_BOLD, C_RESET, C_GREEN, C_RESET);
   return 0;
+}
+
+static int do_update(void) {
+  char tmp[MAX_PATH]; GetTempPathA(MAX_PATH, tmp);
+  strcat(tmp, "sprout-installer-latest.exe");
+  printf("\n  Fetching the latest installer from GitHub ...\n");
+  if (URLDownloadToFileA(NULL, LATEST_INSTALLER, tmp, 0, NULL) != S_OK) {
+    printf("  %sdownload failed%s - check your internet connection.\n", C_RED, C_RESET);
+    return 1;
+  }
+  printf("  %sStarting the latest installer%s - choose Install in the new window.\n", C_GREEN, C_RESET);
+  ShellExecuteA(NULL, "open", tmp, NULL, NULL, SW_SHOWNORMAL);
+  exit(0);
 }
 
 static int do_uninstall(void) {
@@ -134,21 +162,21 @@ int main(void) {
   console_setup();
   for (;;) {
     banner();
-    printf("    %s1%s  Install Sprout " C_DIM "(latest)" C_RESET "\n", C_GREEN, C_RESET);
-    printf("    %s2%s  Update to the latest\n", C_GREEN, C_RESET);
+    printf("    %s1%s  Install Sprout\n", C_GREEN, C_RESET);
+    printf("    %s2%s  Update to the latest " C_DIM "(from GitHub)" C_RESET "\n", C_GREEN, C_RESET);
     printf("    %s3%s  Uninstall\n", C_GREEN, C_RESET);
     printf("    %s4%s  Quit\n\n", C_GREEN, C_RESET);
     printf("  %schoose \xE2\x96\xB8 %s", C_CYAN, C_RESET); fflush(stdout);
     char line[64];
     if (!fgets(line, sizeof line, stdin)) break;
     char c = line[0];
-    if      (c == '1') do_install(0);
-    else if (c == '2') do_install(1);
+    if      (c == '1') do_install();
+    else if (c == '2') do_update();
     else if (c == '3') do_uninstall();
     else if (c == '4' || c == 'q' || c == 'Q') break;
     else { printf("\n  %splease pick 1-4.%s\n", C_DIM, C_RESET); continue; }
     printf("\n  %spress Enter to return to the menu ...%s", C_DIM, C_RESET); fflush(stdout);
-    char tmp[16]; if (!fgets(tmp, sizeof tmp, stdin)) break;
+    char t[16]; if (!fgets(t, sizeof t, stdin)) break;
   }
   printf("\n  %sbye! \xF0\x9F\x8C\xB1%s\n\n", C_GREEN, C_RESET);
   return 0;

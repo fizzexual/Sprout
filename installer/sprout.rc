@@ -1,0 +1,3 @@
+/* Embeds the Sprout interpreter into the installer as a binary resource.
+ * build.cmd copies ..\src\sprout.exe here first, then windres bakes it in. */
+SPROUT_EXE RCDATA "sprout.exe"
