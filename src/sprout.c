@@ -32,6 +32,7 @@
 #include <sys/stat.h>   /* mkdir() for `sprout new` on POSIX */
 #include <dirent.h>     /* opendir() to test if a folder is empty */
 #include <limits.h>     /* PATH_MAX for realpath() */
+#include <unistd.h>     /* getpid() for the POSIX http_get temp file */
 #endif
 
 static char *dup_str(const char *s) { size_t n = strlen(s) + 1; char *p = (char *)malloc(n); memcpy(p, s, n); return p; }
@@ -877,7 +878,32 @@ static char *http_get(const char *url) {
   DeleteFileA(file);
   return body;
 #else
-  (void)url; return NULL;
+  /* POSIX: shell out to curl if it's available. Single-quote the URL (and escape any
+     embedded single quote) so it can't be a shell-injection vector. */
+  size_t ulen = strlen(url);
+  char *q = (char *)malloc(ulen * 4 + 3);
+  if (!q) return NULL;
+  int qi = 0; q[qi++] = '\'';
+  for (size_t i = 0; i < ulen; i++) {
+    if (url[i] == '\'') { q[qi++] = '\''; q[qi++] = '\\'; q[qi++] = '\''; q[qi++] = '\''; }
+    else q[qi++] = url[i];
+  }
+  q[qi++] = '\''; q[qi] = 0;
+  /* a safe, unpredictable temp file we own (no /tmp symlink/clobber) */
+  const char *tmpdir = getenv("TMPDIR"); if (!tmpdir || !*tmpdir) tmpdir = "/tmp";
+  char file[512]; snprintf(file, sizeof file, "%s/sprout_get_XXXXXX", tmpdir);
+  int fd = mkstemp(file);
+  if (fd < 0) { free(q); return NULL; }
+  close(fd);
+  char cmd[8192];
+  int need = snprintf(cmd, sizeof cmd, "curl -fsSL %s -o '%s' 2>/dev/null", q, file);
+  free(q);
+  if (need < 0 || (size_t)need >= sizeof cmd) { remove(file); return NULL; }   /* URL too long: fail, don't truncate */
+  int rc = system(cmd);
+  if (rc != 0) { remove(file); return NULL; }
+  char *body = read_whole_file(file);
+  remove(file);
+  return body;
 #endif
 }
 
@@ -1328,7 +1354,22 @@ static Value eval(Expr *e, Env *env) {
         int i = c.map ? map_index(c.map, ix.str) : -1;
         return i >= 0 ? c.map->vals[i] : vnone();
       }
-      fail(e->line, "I can only look inside a list or a map with [ ].");
+      if (c.type == V_STR) {                              /* text[i] -> the i-th character (UTF-8 aware) */
+        if (ix.type != V_NUM) fail(e->line, "a text position must be a number.");
+        if (ix.num != (double)(long long)ix.num) fail(e->line, "a text position must be a whole number.");
+        long long want = (long long)ix.num;
+        const char *p = c.str ? c.str : "";
+        long long idx = 0;
+        for (int i = 0; p[i]; ) {
+          int cl = utf8_clen((unsigned char)p[i]); int k = 0; char ch[5];
+          for (; k < cl && p[i + k]; k++) ch[k] = p[i + k];
+          ch[k] = 0;
+          if (idx == want) return vstr(dup_str(ch));
+          idx++; i += k ? k : 1;
+        }
+        fail(e->line, "that position doesn't exist in the text.");
+      }
+      fail(e->line, "I can only look inside a list, a map, or text with [ ].");
       return vnone();
     }
   }
@@ -1507,7 +1548,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.0.10"
+#define SPROUT_VERSION "0.0.11"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);

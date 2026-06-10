@@ -169,7 +169,7 @@ build.cmd                     # or: gcc -O2 -Wall -s -o sprout.exe sprout.c -lm 
 
 # run a program:
 sprout run hello.sprout     # or just: sprout hello.sprout
-sprout version              # -> Sprout v0.0.10
+sprout version              # -> Sprout v0.0.11
 sprout new myapp            # create a full multi-file project folder
 sprout build                # run the project in the current folder (reads sprout.toml)
 sprout api <url>            # list every field an API returns
@@ -197,8 +197,9 @@ zero is a runtime error. **Whole-number values display without a decimal point**
 (Very large whole numbers fall back to exponential form, e.g. `1e+21`.)
 
 **Text is UTF-8.** `length("café")` is `4` (characters, not bytes). Strings are
-immutable and **not indexable** (`"abc"[0]` is an error) — iterate with `for each`
-or `split`.
+immutable, but **indexable by character**: `s[i]` is the *i*-th character, 0-based
+and UTF-8 aware (`"café"[3]` is `"é"`; an out-of-range index errors). `for each`
+and `split` also walk the characters.
 
 **One display form.** `show`, f-strings (`f"{x}"`), and `+` all render a value
 through the **same** function, so the result is always identical:
@@ -332,10 +333,11 @@ fstring    = 'f"' { char | "{" expr "}" } '"' ;
   you get *"the indentation doesn't line up with the block."*
 - Blank lines and `~`-comment-only lines don't affect indentation.
 
-> **Tested vs. asserted.** The behaviors above are exercised by the suite in
-> [`src/tests/`](src/tests) and re-checked each release by an adversarial review on
-> Windows (MinGW). The POSIX code paths (`realpath`/`opendir`/`mkdir`) compile but
-> are **not** CI-tested yet — treat them as asserted-from-the-source.
+> **Tested.** The behaviors above are exercised by the suite in
+> [`src/tests/`](src/tests), run in **CI on Linux, macOS, and Windows**
+> ([workflow](.github/workflows/ci.yml)), and re-checked each release by an
+> adversarial review. The POSIX paths (`realpath`/`opendir`/`mkdir`, and `get`
+> via `curl`) are now built and tested there too.
 
 ## Design decisions & rationale
 
@@ -402,33 +404,38 @@ There's a **[VS Code extension](vscode-extension)** for syntax highlighting too.
 
 ## Known limitations & open questions
 
-Sprout is **v0.0.10** — early, and deliberately small. These are the rough edges
-I already know about; **spotting more (or telling me which of these matter most)
-is exactly the kind of feedback I'm looking for** —
+Sprout is **v0.0.11** — early, and deliberately small. Honest about the edges:
+spotting more (or telling me which matter most) is exactly the feedback I want —
 [issues](https://github.com/fizzexual/Sprout/issues) /
 [discussions](https://github.com/fizzexual/Sprout/discussions) welcome.
 
-- **No garbage collection.** Memory grows for the life of the process. Fine for
-  scripts/CLIs; wrong for a long-running server. The intended fix is a small GC or
-  arena — design input wanted.
-- **Performance.** Tree-walking, so tight numeric loops are slow. No bytecode/JIT.
-- **Numbers are doubles only** — no integers/bigints; precision and overflow can
-  surprise.
-- **No user-defined types.** Maps are the only record; no structs, no methods, no
-  shape/type checking.
-- **No closures or first-class functions.** Tasks are top-level only (defining one
-  inside a block is now a clear error, not a silent no-op).
-- **Strings aren't indexable** (`s[0]` errors); iterate or `split`.
-- **Errors abort on the first one** — no batch diagnostics, no static checks; all
-  type errors are caught at runtime.
-- **`system.run` shells out** — powerful and OS-dependent; gated behind
-  `use system`, but still a sharp edge for beginners.
-- **Portability.** Built and tested on Windows (MinGW). POSIX branches exist
-  (realpath/opendir/etc.) but aren't CI-tested yet.
+**On the roadmap — real gaps I want to close:**
+
+- **No garbage collection.** Memory grows for the life of the process — fine for
+  scripts/CLIs, wrong for a long-running server. The honest fix is a real GC or
+  arena; it's a sizeable change to a value model that currently passes values on
+  the C stack, so it's a deliberate slice, not a quick patch. Design input wanted.
+- **Performance.** Tree-walking, so tight numeric loops are slow. A bytecode VM
+  would help — a large rewrite, not yet started.
+- **Errors abort on the first one** — no batch diagnostics and no static type
+  checking; type errors surface at runtime.
 - **No package manager / versioning** for modules yet.
 
-Each release goes through an adversarial review pass before shipping, and the
-fixes are listed in the [release notes](https://github.com/fizzexual/Sprout/releases).
+**Deliberately small — design choices, not bugs (challenge them if you disagree):**
+
+- **One number type (doubles).** No separate int/bigint — simpler for a beginner;
+  the cost is precision/overflow at the extremes (`1e+21`).
+- **Maps are the only record** — no structs/methods/shape-checking. One concept,
+  not two.
+- **Tasks are top-level; no closures or first-class functions.** Keeps "what can
+  call what" obvious; a task inside a block is a clear error, not a silent no-op.
+- **`system.run` is the single, explicit escape hatch** for OS commands — gated
+  behind `use system` so it's never ambient, but it's still real power.
+
+Each release goes through an adversarial review before shipping; fixes are in the
+[release notes](https://github.com/fizzexual/Sprout/releases). **Recently closed:**
+string indexing (`s[i]`), `get` on POSIX (via `curl`), and **CI that builds &
+tests on Linux, macOS, and Windows**.
 
 ---
 

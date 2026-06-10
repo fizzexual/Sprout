@@ -1,0 +1,26 @@
+~ string indexing (v0.0.11) - text[i] is the i-th character, UTF-8 aware
+make w = "hello"
+
+when w[0] == "h":
+    show "ok: text[0] is the first character"
+otherwise:
+    show "FAIL: text[0]"
+
+when w[4] == "o":
+    show "ok: text[last] works"
+otherwise:
+    show "FAIL: text[last]"
+
+when "café"[3] == "é":
+    show "ok: indexing is UTF-8 aware"
+otherwise:
+    show "FAIL: utf-8 index"
+
+~ rebuild a string by index, to exercise w[i] in a loop
+make built = ""
+for each i in range(length(w)):
+    set built = built + w[i]
+when built == w:
+    show "ok: text[i] in a loop"
+otherwise:
+    show "FAIL: index loop"
