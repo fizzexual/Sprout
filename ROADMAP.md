@@ -50,14 +50,124 @@ Pulled out of the phases below into one tight bundle, because *these* are what m
 
 - [ ] `try`/`otherwise` + `fail`  (from Phase 1)
 - [ ] `remove`, `insert` for lists  (from Phase 3)
+- [ ] **`remove(map, key)` (delete a map key) + `values(map)`** — today maps can't delete a key, only add/update  (from Phase 3)
 - [ ] `stop` / `skip` in loops  (from Phase 5)
 - [ ] `sort`, `reverse`, `index_of`  (from Phase 3)
+- [ ] **compound assignment `set x += 1`** (and `-= *= /=`) — currently you must write `set x = x + 1`  (from Phase 5.5)
 - [ ] small builtin top-up: text `starts_with`/`ends_with`/`index_of`, math `pow`/`mod`  (from Phase 6)
 
 **Answer to "do we have everything a base language needs?":** *Computationally, yes — you can
 already write real programs. As a complete base, not quite:* the four ⚠️ items above are
 table stakes. Land that milestone, then the power phases are true extensions you can take or
 leave — and the base you re-freeze will be genuinely complete, not just larger.
+
+---
+
+## Full feature & syntax sweep (everything, checked)
+
+Every language dimension, each row probed against v0.0.13. Legend: **✅ in core** ·
+**📋 already planned (phase)** · **➕ NEW — was missing, added to the plan now** ·
+**🚫 non-goal (deliberately out)**.
+
+### Lexical surface (comments, literals)
+
+| Feature | Status |
+| --- | --- |
+| `~` line comment · indentation blocks · `"..."` + escapes | ✅ |
+| f-strings `f"{x}"` · UTF-8 text · text indexing | ✅ |
+| **Block / multi-line comment** (`~~ … ~~`) | ➕ Phase 5.5 |
+| Multi-line strings (`"""…"""`) | 📋 Phase 6 |
+| **Number underscores** `1_000_000` | ➕ Phase 5.5 |
+| **Hex / binary literals** `0xFF` `0b101` | ➕ Phase 5.5 (decide) |
+| **Scientific notation input** `1e3` | ➕ Phase 5.5 |
+| Raw strings | 🚫 (escapes cover it) |
+
+### Operators & expressions
+
+| Feature | Status |
+| --- | --- |
+| `+ - * / %`, comparisons, `and`/`or`/`not`, `( )`, unary `-`/`not` | ✅ |
+| `//` floor-div, `mod` | 📋 Phase 4 |
+| **Compound assignment** `+= -= *= /=` | ➕ 5.5 (base-completion) |
+| **`in` operator** `x in xs` (sugar for `contains`) | ➕ Phase 5.5 |
+| **Inline-if / ternary expression** (`give a when c otherwise b` as a *value*) | ➕ Phase 5.5 (decide) |
+| **Pipe** `xs \|> map(...) \|> sort()` | ➕ Phase 5.5 (power; decide) |
+| Spread `[...a, ...b]` · slicing `xs[1..3]` · ranges `1..10` | 📋 Phase 3 |
+| `or else` (fallback) | 📋 Phase 1 |
+| Bitwise `& \| ^ << >>` | 🚫 (not a teaching need) |
+| Operator overloading | 🚫 |
+
+### Control flow
+
+| Feature | Status |
+| --- | --- |
+| `when`/`orwhen`/`otherwise` · `repeat times`/`while` · `for each` · `give` · recursion | ✅ |
+| `stop`/`skip` (break/continue) · `repeat until` · `for i from a to b` · `match` | 📋 Phase 5 |
+| `try`/`otherwise` · `fail` | 📋 Phase 1 |
+| **`finally` / `always` (cleanup block)** | ➕ Phase 1 |
+| **`assert <cond>`** (outside tests) | ➕ Phase 1 |
+| Labeled break / `break N` · `goto` | 🚫 |
+
+### Functions
+
+| Feature | Status |
+| --- | --- |
+| `task`/`give`, recursion, top-level | ✅ |
+| first-class tasks · closures · lambdas (`do (x): …`) · default/named/variadic args | 📋 Phase 2 |
+| higher-order builtins (`map`/`filter`/`reduce`/…) | 📋 Phase 3 |
+| **Multiple return values** (or "return a list/map" — decide & document) | ➕ Phase 2 |
+| **Iterator protocol** (so `for each` walks a user-defined type) | ➕ Phase 2/4 |
+| currying / partial application · decorators | 🚫 |
+
+### Data types & values
+
+| Feature | Status |
+| --- | --- |
+| number (double) · text · yes/no · nothing · list · map | ✅ |
+| records · `const` · type-check (`is a number`) · enums/variants · sets · integers/decimals | 📋 Phase 4 |
+| tuples | 🚫 (use a list) |
+| classes / methods / inheritance / interfaces / generics · static typing | 🚫 (records are data-only; dynamic) |
+
+### Collection & string operations
+
+| Feature | Status |
+| --- | --- |
+| list: `add` · index · `set xs[i]` · `length`/`first`/`last`/`contains`/`range`/`keys` | ✅ |
+| list: `remove`/`insert`/`sort`/`reverse`/`index_of`/`unique`/`zip`/`flatten`/comprehensions | 📋 Phase 3 (remove/insert/sort = base-completion) |
+| map: get/`set`/`keys`/`contains` | ✅ |
+| **map: `remove(key)` (delete) + `values(map)`** | ➕ Phase 3 (base-completion) |
+| `for each key, value in map` | 📋 Phase 3 |
+| text: `split`/`join`/`replace`/`upper`/`lower`/`trim` | ✅ |
+| text: `starts_with`/`ends_with`/`index_of`/`pad`/`format`/`words`/`lines`/`title` | 📋 Phase 6 |
+
+### Modules & namespaces
+
+| Feature | Status |
+| --- | --- |
+| `sprout.toml` · `use` · `public`/`private` · namespaced (`server.start()`) | ✅ |
+| **`use x as y` (alias) + selective import (`use greet from greeter`)** | ➕ Phase 11 |
+| **Stdlib namespacing decision** (`math.`/`text.`/`time.`/`web.` vs. flat builtins) | ➕ Phase 11 |
+
+### I/O, system & runtime
+
+| Feature | Status |
+| --- | --- |
+| `show`/`ask` · files read/write/append/exists · `get`/`json` · `system.run` · `wait` · `random` | ✅ |
+| folder ops · `args` · `env(name)` · stdin lines · HTTP client (POST/headers) · date/time | 📋 Phase 7 |
+| **`exit(code)`** | ➕ Phase 7 |
+| `remember`/`recall` (persistence) | 📋 Phase 7 |
+| GC / arena · tail-call optimization · bytecode VM | 📋 Phase 8 |
+| `kind` system / HTTP server / handler 500-boundary | 📋 Phase 9 |
+| structured concurrency · timers | 📋 Phase 10 |
+
+### Metaprogramming & tooling
+
+| Feature | Status |
+| --- | --- |
+| REPL · `test`/`expect`/`sprout test` · `learn` mode · friendly errors · CI | ✅ |
+| `sprout docs` · `sprout format` · step debugger · LSP · package manager · C extension API | 📋 Phase 11 |
+| reflection (`kind of x`) | 📋 Phase 4 |
+| macros · `eval` / runtime code-gen | 🚫 (keeps it predictable for beginners) |
 
 ## Markers
 
@@ -92,6 +202,8 @@ files, the web, and the server kind. It's also literally where this project star
 - [ ] **`fail "message"`** — raise your own friendly error.
 - [ ] **`default`** — a fallback for an error/`nothing`: `make port = number(env("PORT")) or else 8080`.
 - [ ] **`expect error in: …`** — so tests can assert a failure (closes the freeze-test gap where errors can't be asserted today).
+- [ ] **`finally:` / `always:`** — a cleanup block that runs whether or not the `try` failed.
+- [ ] **`assert <cond>`** — a guard outside tests: stop with a clear message if something that must be true isn't.
 - [ ] Decide: is a caught error a value (a small `error` record with `.message`) or just a recovery branch? (Recommend: recovery branch + an `error` map you can read.)
 
 ## Phase 2 — Functions grow up 🟡 ⛓️(unblocks Phases 3, 9, 11)
@@ -105,6 +217,8 @@ biggest ergonomics unlock (map/filter, callbacks, cleaner libraries).
 - [ ] **Default parameters** — `task greet(who, mark = "!")`.
 - [ ] **Named arguments** — `area(width: 3, height: 4)`.
 - [ ] **Variadic tasks** — `task add(...numbers)`.
+- [ ] **Multiple return values** — decide: `give a, b` (and `make x, y = …`), or keep "return a list/map" and just document it.
+- [ ] **Iterator protocol** — let `for each` walk a user-defined type (needs records, Phase 4).
 - [ ] Re-decide: are nested `task` definitions allowed now? (Closures imply yes — relax the "top-level only" rule.)
 
 ## Phase 3 — Collections & iteration superpowers 🟢 ⛓️(needs Phase 2 for the task-taking ones)
@@ -113,6 +227,7 @@ biggest ergonomics unlock (map/filter, callbacks, cleaner libraries).
 - [ ] **`for each key, value in map`** (today you only get keys).
 - [ ] **Slicing** — `xs[1..3]`, `text[0..2]`; and **ranges as values** — `make r = 1..10`.
 - [ ] More list ops: **`reverse` `unique` `zip` `flatten` `insert` `remove` `index_of` `join`(have)**.
+- [ ] **Map ops:** **`remove(map, key)` (delete a key — currently impossible)**, **`values(map)`**, `merge`.
 - [ ] **Spread** — `[...a, ...b]` and `{...base, key: value}`.
 - [ ] Maybe: **comprehensions** — `[x * 2 for each x in xs when x > 0]` (decide vs. `map`/`filter`).
 
@@ -134,6 +249,17 @@ No user-defined types today (maps are the record). Add structure without losing 
 - [ ] **`for i from 1 to 10 [by 2]`** — counted loops without `range`.
 - [ ] **`repeat until …`** — the inverse of `repeat while`.
 
+## Phase 5.5 — Syntax sugar & literals 🟢 (small, high daily-value; the bits the first draft missed)
+
+Pure quality-of-life. None add a value kind; they just make everyday code shorter and friendlier.
+
+- [ ] **Compound assignment** — `set x += 1` (`-= *= /=`). The #1 ergonomic gap; do it in the base-completion bundle.
+- [ ] **`in` operator** — `when name in names:` (reads like English; sugar for `contains`).
+- [ ] **Block comments** — `~~ … ~~` for commenting out a span (today only `~` to end-of-line).
+- [ ] **Nicer number literals** — underscores `1_000_000`, scientific `1e3`, and (decide) hex `0xFF`.
+- [ ] **Inline-if (ternary) as a value** — `make label = "pass" when score >= 50 otherwise "try again"` (decide vs. statement-only `when`).
+- [ ] **Pipe** *(power, decide)* — `words \|> map(upper) \|> sort` reads top-to-bottom; needs Phase 2/3.
+
 ## Phase 6 — Text, numbers & time 🟢 (mostly builtins — low risk, high beginner value)
 
 - [ ] Text: **`starts_with` `ends_with` `index_of` `pad_left`/`pad_right` `repeat` `words` `lines` `title` `format`**.
@@ -145,7 +271,7 @@ No user-defined types today (maps are the record). Add structure without losing 
 
 - [ ] **`remember` / `recall`** — key/value that persists between runs (the smallest, friendliest first step — do this early).
 - [ ] Filesystem: **`list_folder` `delete` `copy` `make_folder`** (have `read`/`write`/`append`/`exists`).
-- [ ] **`args`** (command-line), **`env(name)`** (environment), **stdin lines**.
+- [ ] **`args`** (command-line), **`env(name)`** (environment), **stdin lines**, **`exit(code)`**.
 - [ ] HTTP client grows up: **headers, `POST`, methods, status code** (today `get` is GET-only) — likely lives in a `web` module.
 
 ## Phase 8 — Runtime foundations (the big rocks) 🔴 ⛓️(unblocks Phase 9, long-running programs)
@@ -178,6 +304,20 @@ Only if it stays beginner-legible. A teaching language probably wants *structure
 - [ ] **Package manager** — `sprout install <pkg>` / `sprout publish` + a registry.
 - [ ] **Step debugger** — extend `learn` mode into step/over/inspect.
 - [ ] **Editor support** — a Language Server (LSP) so any editor gets errors + completion; grow the VS Code extension.
+- [ ] **Module imports grow up** — `use greeter as g` (alias) and `use greet from greeter` (selective); decide a **standard-library namespacing** scheme (`math.` / `text.` / `time.` / `web.` modules vs. the current flat builtins).
+
+## Deliberately NOT planned (non-goals)
+
+So the roadmap is *complete* — these are decided-out, not forgotten. Each is a deliberate "no"
+for a small, beginner-first language; any could be reconsidered, but none is on the path to v0.1.0:
+
+- **Object orientation** — classes, methods, inheritance, interfaces/traits. Records are *data*, tasks are *behavior*; that split is the point.
+- **A static / gradual type system** — Sprout stays dynamically typed with friendly runtime errors.
+- **Generics**, operator overloading, currying/decorators — power-language complexity beyond the mission.
+- **Macros / `eval` / runtime code-gen** — keeps "what runs is what you read" true for beginners.
+- **Bitwise operators**, raw bytes/binary, manual memory/pointers, `goto`, labeled breaks.
+- **Raw threads / async-await** — concurrency, if it comes (Phase 10), is *structured* and legible, not a thread API.
+- **Tuples** (a list does the job) — one sequence type, not two.
 
 ---
 
