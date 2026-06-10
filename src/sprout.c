@@ -236,7 +236,7 @@ static void scan_token(const char *src, int *ip, int len, int line) {
   }
   if (c == '"') {
     i++; char *buf = (char *)malloc(len - i + 1); int b = 0;
-    while (i < len && src[i] != '"') {
+    while (i < len && src[i] != '"' && src[i] != '\n') {       /* text stays on one line */
       if (src[i] == '\\' && i + 1 < len) {
         char nx = src[i + 1];
         if (nx == 'n') buf[b++] = '\n'; else if (nx == 't') buf[b++] = '\t';
@@ -244,7 +244,7 @@ static void scan_token(const char *src, int *ip, int len, int line) {
         i += 2;
       } else buf[b++] = src[i++];
     }
-    if (i >= len || src[i] != '"') fail(line, "this text is missing its closing quote.");
+    if (i >= len || src[i] != '"') fail(line, "this text is missing its closing quote (text can't span lines - join with \\n).");
     i++; buf[b] = 0; push_tok(T_STR, buf, 0, line); *ip = i; return;
   }
   if (isalpha((unsigned char)c) || c == '_') {
@@ -281,7 +281,7 @@ static void scan_fstring(const char *src, int *ip, int len, int line) {
   int i = *ip + 2;                       /* skip the  f"  */
   push_tok(T_LPAREN, NULL, 0, line);
   char *lit = (char *)malloc(len - i + 2); int b = 0, emitted = 0;
-  while (i < len && src[i] != '"') {
+  while (i < len && src[i] != '"' && src[i] != '\n') {        /* f-strings stay on one line */
     char c = src[i];
     if (c == '\\' && i + 1 < len) {
       char nx = src[i + 1];
@@ -1112,11 +1112,13 @@ static Value call_builtin(Expr *call, Env *env) {
   }
   if (!strcmp(name, "first")) {
     if (n != 1 || a[0].type != V_LIST) fail(call->line, "first needs a list.");
-    return (a[0].list && a[0].list->n > 0) ? a[0].list->items[0] : vnone();
+    if (!a[0].list || a[0].list->n == 0) fail(call->line, "first() needs a list with at least one item (this list is empty).");
+    return a[0].list->items[0];
   }
   if (!strcmp(name, "last")) {
     if (n != 1 || a[0].type != V_LIST) fail(call->line, "last needs a list.");
-    return (a[0].list && a[0].list->n > 0) ? a[0].list->items[a[0].list->n - 1] : vnone();
+    if (!a[0].list || a[0].list->n == 0) fail(call->line, "last() needs a list with at least one item (this list is empty).");
+    return a[0].list->items[a[0].list->n - 1];
   }
   /* ---- numbers ---- */
   if (!strcmp(name, "abs"))   { if (n!=1||a[0].type!=V_NUM) fail(call->line,"abs needs a number.");   return vnum(fabs(a[0].num)); }
@@ -1333,9 +1335,13 @@ static Value eval(Expr *e, Env *env) {
     case E_VAR: {
       Value *v = env_find(env, e->name);
       if (!v) {
-        char msg[400]; const char *sug = suggest_name(e->name, env, 1);
-        if (sug) snprintf(msg, sizeof msg, "I don't know what '%s' is.\n\n  Did you mean '%s'?", e->name, sug);
-        else snprintf(msg, sizeof msg, "I don't know what '%s' is.\n\n  Variables are made with 'make', like:\n      make %s = \"Sam\"", e->name, e->name);
+        char msg[400];
+        if (task_find(e->name))   /* it's a task used as a value: no first-class functions (yet) */
+          snprintf(msg, sizeof msg, "'%s' is a task, and tasks can't be stored in a variable yet.\n\n  Call it instead, like:  %s(...)", e->name, e->name);
+        else { const char *sug = suggest_name(e->name, env, 1);
+          if (sug) snprintf(msg, sizeof msg, "I don't know what '%s' is.\n\n  Did you mean '%s'?", e->name, sug);
+          else snprintf(msg, sizeof msg, "I don't know what '%s' is.\n\n  Variables are made with 'make', like:\n      make %s = \"Sam\"", e->name, e->name);
+        }
         fail(e->line, msg);
       }
       return *v;
@@ -1368,7 +1374,7 @@ static Value eval(Expr *e, Env *env) {
         if (ix.type != V_NUM) fail(e->line, "a list position must be a number.");
         if (ix.num != (double)(long long)ix.num) fail(e->line, "a list position must be a whole number.");
         long long i = (long long)ix.num;
-        if (!c.list || i < 0 || i >= c.list->n) fail(e->line, "that position doesn't exist in the list.");
+        if (!c.list || i < 0 || i >= c.list->n) fail(e->line, "that position doesn't exist in the list (positions start at 0; for the end use last(...)).");
         return c.list->items[i];
       }
       if (c.type == V_MAP) {
@@ -1391,6 +1397,7 @@ static Value eval(Expr *e, Env *env) {
         }
         fail(e->line, "that position doesn't exist in the text.");
       }
+      if (c.type == V_NONE) fail(e->line, "you tried to look inside 'nothing' with [ ] - there's nothing there to index.");
       fail(e->line, "I can only look inside a list, a map, or text with [ ].");
       return vnone();
     }
@@ -1597,7 +1604,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.0.12"
+#define SPROUT_VERSION "0.0.13"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);

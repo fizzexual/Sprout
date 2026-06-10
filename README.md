@@ -170,7 +170,7 @@ build.cmd                     # or: gcc -O2 -Wall -s -o sprout.exe sprout.c -lm 
 
 # run a program:
 sprout run hello.sprout     # or just: sprout hello.sprout
-sprout version              # -> Sprout v0.0.12
+sprout version              # -> Sprout v0.0.13
 sprout new myapp            # create a full multi-file project folder
 sprout build                # run the project in the current folder (reads sprout.toml)
 sprout test                 # run your tests (a file, or every tests/*.sprout)
@@ -196,8 +196,9 @@ system's own libraries. Drop it anywhere and it runs.
 ## Language reference (the precise rules)
 
 A short, exact description of the semantics as implemented — written so a language
-designer can audit it. If something here reads as a mistake, it probably is:
-[open an issue](https://github.com/fizzexual/Sprout/issues).
+designer can audit it. **As of v0.0.13 the core language is frozen:** the rules
+below are locked and tested, so libraries can build on them. If something here
+reads as a mistake, it probably is: [open an issue](https://github.com/fizzexual/Sprout/issues).
 
 **Values & types.** Dynamically typed. Five value kinds: **number**, **text**,
 **yes/no** (boolean), **nothing**, and the collections **list** and **map**.
@@ -301,6 +302,51 @@ your session. Error messages are heuristic (edit-distance "did you mean?").
 
 **Concurrency.** None — single-threaded, synchronous. `wait(seconds)` blocks.
 
+### Locked edge cases (the v0.0.13 freeze)
+
+Every corner case decided, so libraries can rely on it. One rule each:
+
+- **Indexing is non-negative.** `xs[-1]` is an error — use `last(xs)`. Lists don't auto-grow: an out-of-range index errors, it doesn't extend.
+- **`first([])` / `last([])` error** on an empty list (rather than silently giving `nothing`) — beginners see the cause.
+- **`number("abc")` is `nothing`** (not an error), so you can safely check input: `when number(x) == nothing: …`. (`number` of real text like `"42"` is `42`.)
+- **Equality never crashes.** `5 == "5"` is `no` (different kinds are never equal); `==`/`!=` work across any types.
+- **String escapes** `\n` `\t` `\"` `\\` are real characters in text and f-strings (and `\{` `\}` in f-strings).
+- **Text is single-line.** A string literal can't span source lines — join with `\n`. (Multi-line string syntax is *not in v1*.)
+- **Using `nothing` wrongly is a friendly error** — `nothing[0]` and `nothing + 1` say so plainly, rather than guessing.
+- **`when` with no matching branch and no `otherwise` does nothing.**
+- **`give` with no value, and a task that never `give`s, both return `nothing`.**
+- **A task name isn't a value (yet).** `make f = greet` is a friendly error ("tasks can't be stored in a variable yet") — there are no first-class functions.
+
+### Reserved words & identifiers
+
+**Identifiers** start with a letter or `_`, then letters/digits/`_` (ASCII), and are
+**case-sensitive** (`Name` and `name` are different).
+
+**Keywords** (reserved — you can't use them as names):
+
+```
+make set show when orwhen otherwise repeat while times task give
+for each in use public private learn test expect and or not yes no nothing
+```
+
+**Built-in functions** are predefined names — `length sqrt abs round floor ceil
+min max random number upper lower trim replace split join range add keys contains
+first last ask now today wait read write append exists get json explore color`
+(plus `system.run`). You *may* shadow one with your own variable, but the function
+stays callable, so it's clearer not to.
+
+> **`orwhen` stays.** It's the committed spelling for "else-if" (not `else when` /
+> `or when`) — one word, in keeping with Sprout's own vocabulary.
+
+### Not in v1 (deliberately)
+
+So a library author knows what they can't assume: **no closures**, **no
+first-class / stored tasks**, **no user-defined types** (maps are the record),
+**no `try`/`catch`** (the first error stops the run; the REPL and a test boundary
+are the only recoveries), **no multi-line string syntax**, **no negative
+indexing**, **no integer type** (numbers are doubles). These are choices, and each
+could become a future, opt-in addition — but the v1 core does not include them.
+
 ### Grammar (core, EBNF)
 
 Descriptive, not yet a formal spec — the source is the truth — but enough to spot
@@ -382,9 +428,13 @@ The core is done; the rest of the language is on its way back, slice by slice:
 5. ✅ **Projects & modules** — `sprout.toml`, `use`, `public`/`private`, `sprout new`, `sprout build`
 6. ✅ **f-strings, friendly errors & `learn` mode** — `f"Hi {name}"`, "did you mean?", step-by-step narration
 7. ✅ **Built-in testing** — `test "…": expect …` and `sprout test`
-8. ⏭️ **`remember` / `recall`** — values that persist between runs; then `sprout docs`
-9. **Kinds** — a per-file `kind` in `sprout.toml` picks an outer loop: `script` · `module` · `test` · `server`/`handler` (a web runtime; the hard part is a per-request arena)
-10. **Apps & more** — a package manager, then GUI windows
+8. ✅ **The freeze (v0.0.13)** — every edge case decided, vocabulary locked, the Language Reference complete and tested. **The core language is now stable; from here, new things are libraries, not language changes.**
+
+After the freeze (each its own version, in order):
+
+9. ⏭️ **`remember` / `recall`** — values that persist between runs; then `sprout docs`
+10. **Kinds** — a per-file `kind` in `sprout.toml` picks an outer loop: `script` · `module` · `test` · `server`/`handler` (a web runtime; the hard part is a per-request arena)
+11. **The big rocks** — a GC/arena decision, a C extension API, a package manager, GUI windows
 
 ## How it works (architecture)
 
@@ -420,7 +470,7 @@ There's a **[VS Code extension](vscode-extension)** for syntax highlighting too.
 
 ## Known limitations & open questions
 
-Sprout is **v0.0.12** — early, and deliberately small. Honest about the edges:
+Sprout is **v0.0.13** — early, and deliberately small. Honest about the edges:
 spotting more (or telling me which matter most) is exactly the feedback I want —
 [issues](https://github.com/fizzexual/Sprout/issues) /
 [discussions](https://github.com/fizzexual/Sprout/discussions) welcome.

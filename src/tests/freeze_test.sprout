@@ -1,0 +1,34 @@
+~ v0.0.13 "freeze" - locks the edge-case rules that libraries depend on.
+~ (Rules that are ERRORS - xs[-1], first([]), multi-line text, nothing[0], make f = greet -
+~  are verified by hand; 'expect' can only assert values, not that something fails.)
+
+task nada():
+    give                       ~ give with no value
+
+task silent():
+    make y = 1                 ~ a task that never gives
+
+test "equality never crashes across types":
+    expect not (5 == "5")
+    expect not ("5" == 5)
+    expect 5 == 5
+    expect "hi" == "hi"
+
+test "give with no value, and a task that never gives, both return nothing":
+    expect nada() == nothing
+    expect silent() == nothing
+
+test "when with no match and no otherwise does nothing":
+    make x = 1
+    when no:
+        set x = 2
+    expect x == 1
+
+test "number of non-number text is nothing (safe to check)":
+    expect number("abc") == nothing
+    expect number("42") == 42
+
+test "string escapes are real characters":
+    expect length("a\tb") == 3
+    expect "a\nb"[1] == "\n"
+    expect "quote: \"" == "quote: " + "\""
