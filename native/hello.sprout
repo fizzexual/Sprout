@@ -1,0 +1,2 @@
+make name = "world"
+show "Hello, " + name + "!"

@@ -1,0 +1,47 @@
+~ native slice-1 smoke test: every core feature in one file
+
+~ variables + math precedence
+make a = 2 + 3 * 4
+show "a is", a              ~ a is 14
+
+make b = (2 + 3) * 4
+show "b is", b              ~ b is 20
+
+~ set + remainder + division
+set a = a - 4
+show "a now", a            ~ a now 10
+show "half", a / 2, "rem", 10 % 3   ~ half 5 rem 1
+
+~ text + concat with +
+make name = "Sam"
+show "hi " + name + "!"     ~ hi Sam!
+
+~ booleans, nothing, comparisons, logic
+show 3 < 5, 5 <= 5, 9 > 10, "a" < "b"    ~ yes yes no yes
+show yes and no, yes or no, not no       ~ no yes yes
+show 2 == 2, 2 != 3, "x" == "x"          ~ yes yes yes
+show nothing                              ~ nothing
+
+~ when / orwhen / otherwise
+make score = 5
+when score > 8:
+    show "great"
+orwhen score == 5:
+    show "okay"            ~ okay
+otherwise:
+    show "keep going"
+
+~ repeat N times
+repeat 3 times:
+    show "*"               ~ * * * (three lines)
+
+~ repeat while
+make n = 3
+repeat while n > 0:
+    show n                 ~ 3 2 1
+    set n = n - 1
+
+~ nested blocks
+repeat 2 times:
+    when a == 10:
+        show "still ten"   ~ twice
