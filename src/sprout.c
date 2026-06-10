@@ -36,6 +36,13 @@
 
 static char *dup_str(const char *s) { size_t n = strlen(s) + 1; char *p = (char *)malloc(n); memcpy(p, s, n); return p; }
 
+/* terminal colours, used across messages, the TUI, and learn mode */
+#define C_RESET "\x1b[0m"
+#define C_GREEN "\x1b[32m"
+#define C_BOLD  "\x1b[1m"
+#define C_DIM   "\x1b[2m"
+#define C_CYAN  "\x1b[36m"
+
 static void fail(int line, const char *msg);   /* defined below; declared early so allocators can bail out */
 
 /* byte-length of the UTF-8 character starting at byte c (1..4; 1 for an invalid byte) */
@@ -181,7 +188,7 @@ static void failf(int line, const char *fmt, const char *arg) {
 typedef enum {
   T_NUM, T_STR, T_IDENT,
   T_MAKE, T_SET, T_SHOW, T_WHEN, T_ORWHEN, T_OTHERWISE, T_REPEAT, T_WHILE, T_TIMES,
-  T_TASK, T_GIVE, T_FOR, T_EACH, T_IN, T_USE,
+  T_TASK, T_GIVE, T_FOR, T_EACH, T_IN, T_USE, T_PUBLIC, T_PRIVATE, T_LEARN,
   T_AND, T_OR, T_NOT, T_YES, T_NO, T_NOTHING,
   T_PLUS, T_MINUS, T_STAR, T_SLASH, T_PERCENT,
   T_EQ, T_EQEQ, T_BANGEQ, T_LT, T_LE, T_GT, T_GE,
@@ -203,12 +210,120 @@ static TokType keyword(const char *w) {
     { "orwhen", T_ORWHEN }, { "otherwise", T_OTHERWISE }, { "repeat", T_REPEAT },
     { "while", T_WHILE }, { "times", T_TIMES }, { "task", T_TASK }, { "give", T_GIVE },
     { "for", T_FOR }, { "each", T_EACH }, { "in", T_IN }, { "use", T_USE },
+    { "public", T_PUBLIC }, { "private", T_PRIVATE }, { "learn", T_LEARN },
     { "and", T_AND }, { "or", T_OR },
     { "not", T_NOT }, { "yes", T_YES }, { "no", T_NO }, { "nothing", T_NOTHING },
   };
   for (size_t k = 0; k < sizeof table / sizeof table[0]; k++)
     if (!strcmp(w, table[k].word)) return table[k].type;
   return T_IDENT;
+}
+
+static void scan_fstring(const char *src, int *ip, int len, int line);
+
+/* scan exactly one token at *ip (the caller has already skipped spaces/comments) */
+static void scan_token(const char *src, int *ip, int len, int line) {
+  int i = *ip;
+  char c = src[i];
+  if (c == 'f' && i + 1 < len && src[i + 1] == '"') { scan_fstring(src, ip, len, line); return; }
+  if (isdigit((unsigned char)c) || (c == '.' && i + 1 < len && isdigit((unsigned char)src[i + 1]))) {
+    int s = i; while (i < len && (isdigit((unsigned char)src[i]) || src[i] == '.')) i++;
+    char *t = (char *)malloc(i - s + 1); memcpy(t, src + s, i - s); t[i - s] = 0;
+    push_tok(T_NUM, t, atof(t), line); *ip = i; return;
+  }
+  if (c == '"') {
+    i++; char *buf = (char *)malloc(len - i + 1); int b = 0;
+    while (i < len && src[i] != '"') {
+      if (src[i] == '\\' && i + 1 < len) {
+        char nx = src[i + 1];
+        if (nx == 'n') buf[b++] = '\n'; else if (nx == 't') buf[b++] = '\t';
+        else if (nx == '"') buf[b++] = '"'; else if (nx == '\\') buf[b++] = '\\'; else buf[b++] = nx;
+        i += 2;
+      } else buf[b++] = src[i++];
+    }
+    if (i >= len || src[i] != '"') fail(line, "this text is missing its closing quote.");
+    i++; buf[b] = 0; push_tok(T_STR, buf, 0, line); *ip = i; return;
+  }
+  if (isalpha((unsigned char)c) || c == '_') {
+    int s = i; while (i < len && (isalnum((unsigned char)src[i]) || src[i] == '_')) i++;
+    char *w = (char *)malloc(i - s + 1); memcpy(w, src + s, i - s); w[i - s] = 0;
+    push_tok(keyword(w), w, 0, line); *ip = i; return;
+  }
+  switch (c) {
+    case '+': push_tok(T_PLUS, NULL, 0, line); i++; break;
+    case '-': push_tok(T_MINUS, NULL, 0, line); i++; break;
+    case '*': push_tok(T_STAR, NULL, 0, line); i++; break;
+    case '/': push_tok(T_SLASH, NULL, 0, line); i++; break;
+    case '%': push_tok(T_PERCENT, NULL, 0, line); i++; break;
+    case '(': push_tok(T_LPAREN, NULL, 0, line); i++; break;
+    case ')': push_tok(T_RPAREN, NULL, 0, line); i++; break;
+    case '[': push_tok(T_LBRACK, NULL, 0, line); i++; break;
+    case ']': push_tok(T_RBRACK, NULL, 0, line); i++; break;
+    case '{': push_tok(T_LBRACE, NULL, 0, line); i++; break;
+    case '}': push_tok(T_RBRACE, NULL, 0, line); i++; break;
+    case ',': push_tok(T_COMMA, NULL, 0, line); i++; break;
+    case ':': push_tok(T_COLON, NULL, 0, line); i++; break;
+    case '=': if (i + 1 < len && src[i + 1] == '=') { push_tok(T_EQEQ, NULL, 0, line); i += 2; } else { push_tok(T_EQ, NULL, 0, line); i++; } break;
+    case '!': if (i + 1 < len && src[i + 1] == '=') { push_tok(T_BANGEQ, NULL, 0, line); i += 2; } else fail(line, "I didn't expect a '!' here (use 'not', or '!=' for not-equal)."); break;
+    case '<': if (i + 1 < len && src[i + 1] == '=') { push_tok(T_LE, NULL, 0, line); i += 2; } else { push_tok(T_LT, NULL, 0, line); i++; } break;
+    case '>': if (i + 1 < len && src[i + 1] == '=') { push_tok(T_GE, NULL, 0, line); i += 2; } else { push_tok(T_GT, NULL, 0, line); i++; } break;
+    default: { char m[64]; snprintf(m, sizeof m, "I don't understand the character '%c'.", c); fail(line, m); }
+  }
+  *ip = i;
+}
+
+/* f"Hello, {name}!" desugars to  ( "Hello, " + (name) + "!" )  so it needs no new AST/eval. */
+static void scan_fstring(const char *src, int *ip, int len, int line) {
+  int i = *ip + 2;                       /* skip the  f"  */
+  push_tok(T_LPAREN, NULL, 0, line);
+  char *lit = (char *)malloc(len - i + 2); int b = 0, emitted = 0;
+  while (i < len && src[i] != '"') {
+    char c = src[i];
+    if (c == '\\' && i + 1 < len) {
+      char nx = src[i + 1];
+      if (nx == 'n') lit[b++] = '\n'; else if (nx == 't') lit[b++] = '\t';
+      else if (nx == '"') lit[b++] = '"'; else if (nx == '\\') lit[b++] = '\\';
+      else if (nx == '{') lit[b++] = '{'; else if (nx == '}') lit[b++] = '}';
+      else lit[b++] = nx;
+      i += 2; continue;
+    }
+    if (c == '{') {
+      /* flush the literal collected so far as a string token */
+      if (emitted) push_tok(T_PLUS, NULL, 0, line);
+      char *s = (char *)malloc(b + 1); memcpy(s, lit, b); s[b] = 0; push_tok(T_STR, s, 0, line);
+      emitted = 1; b = 0;
+      i++;                               /* skip {  */
+      while (i < len && (src[i] == ' ' || src[i] == '\t')) i++;
+      if (i < len && src[i] == '}') fail(line, "this f-string has an empty {} - put a value inside, like {name}.");
+      push_tok(T_PLUS, NULL, 0, line); push_tok(T_LPAREN, NULL, 0, line);
+      int depth = 1;                     /* lex the inner expression up to the matching } */
+      while (i < len && src[i] != '\n') {
+        while (i < len && (src[i] == ' ' || src[i] == '\t')) i++;
+        if (i >= len || src[i] == '\n') break;
+        char ic = src[i];
+        if (ic == '}') { if (--depth == 0) { i++; break; } }
+        else if (ic == '{') depth++;
+        else if (ic == '"') {
+          /* a string literal inside {...} must close on the same line; if not, this " is really
+             the f-string's own terminator and the { was left unclosed */
+          int j = i + 1; while (j < len && src[j] != '"' && src[j] != '\n') { if (src[j] == '\\') j++; j++; }
+          if (j >= len || src[j] == '\n') break;          /* no same-line close -> stop (depth>0 -> error below) */
+        }
+        scan_token(src, &i, len, line);
+      }
+      if (depth > 0) fail(line, "this f-string has a '{' that was never closed with '}'.");
+      push_tok(T_RPAREN, NULL, 0, line);
+      continue;
+    }
+    lit[b++] = c; i++;
+  }
+  if (i >= len || src[i] != '"') fail(line, "this f-string is missing its closing quote.");
+  i++;                                   /* skip closing "  */
+  if (emitted) push_tok(T_PLUS, NULL, 0, line);
+  char *s = (char *)malloc(b + 1); memcpy(s, lit, b); s[b] = 0; push_tok(T_STR, s, 0, line);
+  free(lit);
+  push_tok(T_RPAREN, NULL, 0, line);
+  *ip = i;
 }
 
 /* Tokenize the whole source, handling Python-style indentation. */
@@ -235,49 +350,7 @@ static void tokenize(const char *src, int len) {
       char c = src[i];
       if (c == ' ' || c == '\t') { i++; continue; }
       if (c == '~') { while (i < len && src[i] != '\n') i++; break; }
-      if (isdigit((unsigned char)c) || (c == '.' && i + 1 < len && isdigit((unsigned char)src[i + 1]))) {
-        int s = i; while (i < len && (isdigit((unsigned char)src[i]) || src[i] == '.')) i++;
-        char *t = (char *)malloc(i - s + 1); memcpy(t, src + s, i - s); t[i - s] = 0;
-        push_tok(T_NUM, t, atof(t), line); continue;
-      }
-      if (c == '"') {
-        i++; char *buf = (char *)malloc(len - i + 1); int b = 0;
-        while (i < len && src[i] != '"') {
-          if (src[i] == '\\' && i + 1 < len) {
-            char nx = src[i + 1];
-            if (nx == 'n') buf[b++] = '\n'; else if (nx == 't') buf[b++] = '\t';
-            else if (nx == '"') buf[b++] = '"'; else if (nx == '\\') buf[b++] = '\\'; else buf[b++] = nx;
-            i += 2;
-          } else buf[b++] = src[i++];
-        }
-        if (i >= len || src[i] != '"') fail(line, "this text is missing its closing quote.");
-        i++; buf[b] = 0; push_tok(T_STR, buf, 0, line); continue;
-      }
-      if (isalpha((unsigned char)c) || c == '_') {
-        int s = i; while (i < len && (isalnum((unsigned char)src[i]) || src[i] == '_')) i++;
-        char *w = (char *)malloc(i - s + 1); memcpy(w, src + s, i - s); w[i - s] = 0;
-        push_tok(keyword(w), w, 0, line); continue;
-      }
-      switch (c) {
-        case '+': push_tok(T_PLUS, NULL, 0, line); i++; break;
-        case '-': push_tok(T_MINUS, NULL, 0, line); i++; break;
-        case '*': push_tok(T_STAR, NULL, 0, line); i++; break;
-        case '/': push_tok(T_SLASH, NULL, 0, line); i++; break;
-        case '%': push_tok(T_PERCENT, NULL, 0, line); i++; break;
-        case '(': push_tok(T_LPAREN, NULL, 0, line); i++; break;
-        case ')': push_tok(T_RPAREN, NULL, 0, line); i++; break;
-        case '[': push_tok(T_LBRACK, NULL, 0, line); i++; break;
-        case ']': push_tok(T_RBRACK, NULL, 0, line); i++; break;
-        case '{': push_tok(T_LBRACE, NULL, 0, line); i++; break;
-        case '}': push_tok(T_RBRACE, NULL, 0, line); i++; break;
-        case ',': push_tok(T_COMMA, NULL, 0, line); i++; break;
-        case ':': push_tok(T_COLON, NULL, 0, line); i++; break;
-        case '=': if (i + 1 < len && src[i + 1] == '=') { push_tok(T_EQEQ, NULL, 0, line); i += 2; } else { push_tok(T_EQ, NULL, 0, line); i++; } break;
-        case '!': if (i + 1 < len && src[i + 1] == '=') { push_tok(T_BANGEQ, NULL, 0, line); i += 2; } else fail(line, "I didn't expect a '!' here (use 'not', or '!=' for not-equal)."); break;
-        case '<': if (i + 1 < len && src[i + 1] == '=') { push_tok(T_LE, NULL, 0, line); i += 2; } else { push_tok(T_LT, NULL, 0, line); i++; } break;
-        case '>': if (i + 1 < len && src[i + 1] == '=') { push_tok(T_GE, NULL, 0, line); i += 2; } else { push_tok(T_GT, NULL, 0, line); i++; } break;
-        default: { char m[64]; snprintf(m, sizeof m, "I don't understand the character '%c'.", c); fail(line, m); }
-      }
+      scan_token(src, &i, len, line);
     }
     push_tok(T_NEWLINE, NULL, 0, line);
     while (i < len && src[i] != '\n') i++;
@@ -298,7 +371,7 @@ typedef struct Expr {
   struct Expr *target, *index;            /* E_INDEX: target[index] */
 } Expr;
 
-typedef enum { S_MAKE, S_SET, S_SHOW, S_WHEN, S_REPEAT_TIMES, S_REPEAT_WHILE, S_TASK, S_GIVE, S_EXPR, S_FOREACH, S_INDEXSET, S_USE } SKind;
+typedef enum { S_MAKE, S_SET, S_SHOW, S_WHEN, S_REPEAT_TIMES, S_REPEAT_WHILE, S_TASK, S_GIVE, S_EXPR, S_FOREACH, S_INDEXSET, S_USE, S_LEARN } SKind;
 typedef struct Stmt Stmt;
 typedef struct { Expr *cond; Stmt **body; int nbody; } Branch;
 struct Stmt {
@@ -308,6 +381,7 @@ struct Stmt {
   Expr *count; Stmt **body; int nbody;   /* repeat / task / for-each body */
   char **params; int nparams;            /* task */
   Expr *target, *index;                   /* S_INDEXSET: target[index] = expr */
+  int is_public;                          /* make/task: shared across the whole project? */
   int line;
 };
 
@@ -435,11 +509,18 @@ static Stmt **block(int *count) {
 
 static Stmt *statement(void) {
   Token t = peek();
+  int is_public = 0;
+  if (t.type == T_PUBLIC || t.type == T_PRIVATE) {       /* a visibility marker before make/task */
+    is_public = (t.type == T_PUBLIC);
+    advance(); t = peek();
+    if (t.type != T_MAKE && t.type != T_TASK)
+      fail(t.line, "'public' and 'private' can only go before 'make' or 'task'.");
+  }
   switch (t.type) {
     case T_MAKE: {
       advance(); Token name = expect(T_IDENT, "I expected a name here.");
       expect(T_EQ, "I expected '=' here.");
-      Stmt *s = new_stmt(S_MAKE, t.line); s->name = name.text; s->expr = expression(); return s;
+      Stmt *s = new_stmt(S_MAKE, t.line); s->name = name.text; s->expr = expression(); s->is_public = is_public; return s;
     }
     case T_SET: {
       advance();
@@ -501,7 +582,7 @@ static Stmt *statement(void) {
       }
       expect(T_RPAREN, "I expected ')' to close the inputs.");
       Stmt *s = new_stmt(S_TASK, t.line); s->name = name.text; s->params = params; s->nparams = n;
-      s->body = block(&s->nbody); return s;
+      s->is_public = is_public; s->body = block(&s->nbody); return s;
     }
     case T_GIVE: {
       advance(); Stmt *s = new_stmt(S_GIVE, t.line);
@@ -512,6 +593,13 @@ static Stmt *statement(void) {
       advance(); Stmt *s = new_stmt(S_USE, t.line);
       if (check(T_IDENT) || check(T_STR)) s->name = advance().text;     /* use server   |   use "modules/server.sprout" */
       else fail(t.line, "'use' needs a module name, like:  use server");
+      return s;
+    }
+    case T_LEARN: {
+      advance(); Stmt *s = new_stmt(S_LEARN, t.line);
+      if (check(T_IDENT) && !strcmp(peek().text, "on"))  { s->is_public = 1; advance(); }
+      else if (check(T_IDENT) && !strcmp(peek().text, "off")) { s->is_public = 0; advance(); }
+      else fail(t.line, "say 'learn on' to explain each step, or 'learn off' to stop.");
       return s;
     }
     default:
@@ -534,7 +622,10 @@ static Stmt **parse_program(int *count) {
 /* -------------------------------------------------------------- interpreter */
 typedef struct { char *name; Value val; } Var;
 typedef struct Env { Var *vars; int n, cap; struct Env *parent; } Env;
-static Env *global_env;
+static Env *global_env;           /* the PUBLIC space: shared by every file in the project */
+static Env *cur_file_env = NULL;  /* the file scope currently running its top-level code */
+static int  cur_fileid = 0;       /* which file's code is executing (for private-task visibility) */
+static int  g_next_fileid = 0;
 
 static Env *env_new(Env *parent) { Env *e = (Env *)calloc(1, sizeof(Env)); e->parent = parent; return e; }
 static Value *env_local(Env *e, const char *name) { for (int i = 0; i < e->n; i++) if (!strcmp(e->vars[i].name, name)) return &e->vars[i].val; return NULL; }
@@ -545,21 +636,40 @@ static void env_define(Env *e, const char *name, Value v) {
   if (e->n >= e->cap) { e->cap = e->cap ? e->cap * 2 : 8; e->vars = (Var *)realloc(e->vars, e->cap * sizeof(Var)); }
   e->vars[e->n].name = dup_str(name); e->vars[e->n].val = v; e->n++;
 }
+static const char *suggest_name(const char *name, Env *env, int include_vars);   /* defined below */
 static void env_assign(Env *e, const char *name, Value v, int line) {
   Value *slot = env_find(e, name);
-  if (!slot) failf(line, "I can't set '%s' because it was never made.", name);
+  if (!slot) {
+    char msg[400]; const char *sug = suggest_name(name, e, 1);
+    if (sug) snprintf(msg, sizeof msg, "I can't set '%s' because it was never made.\n\n  Did you mean '%s'?  (or make it first:  make %s = ...)", name, sug, name);
+    else snprintf(msg, sizeof msg, "I can't set '%s' because it was never made.\n\n  Make it first, like:  make %s = ...", name, name);
+    fail(line, msg);
+  }
   *slot = v;
 }
 
 /* tasks: top-level functions, hoisted so call order doesn't matter */
-typedef struct { char *name; char **params; int nparams; Stmt **body; int nbody; int line; } TaskDef;
+typedef struct { char *name; char **params; int nparams; Stmt **body; int nbody; int line;
+                 int is_public; int fileid; Env *home; } TaskDef;
 static TaskDef *tasks = NULL; static int ntasks = 0, captasks = 0;
-static TaskDef *task_find(const char *name) { for (int i = 0; i < ntasks; i++) if (!strcmp(tasks[i].name, name)) return &tasks[i]; return NULL; }
-static void task_register(Stmt *s) {
-  if (task_find(s->name)) failf(s->line, "there are two tasks named '%s'.", s->name);
+/* visible from the current file: a public task (any file) or a private task of this file */
+static TaskDef *task_find(const char *name) {
+  TaskDef *pub = NULL;
+  for (int i = 0; i < ntasks; i++) if (!strcmp(tasks[i].name, name)) {
+    if (tasks[i].fileid == cur_fileid) return &tasks[i];   /* same file: private or public, wins */
+    if (tasks[i].is_public && !pub) pub = &tasks[i];
+  }
+  return pub;
+}
+static void task_register(Stmt *s, int fileid, Env *home) {
+  for (int i = 0; i < ntasks; i++) if (!strcmp(tasks[i].name, s->name)) {
+    if (tasks[i].fileid == fileid)            failf(s->line, "there are two tasks named '%s' in this file.", s->name);
+    if (tasks[i].is_public && s->is_public)   failf(s->line, "there are two public tasks named '%s' in this project.", s->name);
+  }
   if (ntasks >= captasks) { captasks = captasks ? captasks * 2 : 8; tasks = (TaskDef *)realloc(tasks, captasks * sizeof(TaskDef)); }
   TaskDef *t = &tasks[ntasks++];
   t->name = s->name; t->params = s->params; t->nparams = s->nparams; t->body = s->body; t->nbody = s->nbody; t->line = s->line;
+  t->is_public = s->is_public; t->fileid = fileid; t->home = home;
 }
 
 /* `give` is signalled with a flag + slot so it unwinds cleanly through blocks/loops */
@@ -567,6 +677,7 @@ static int returning = 0;
 static Value return_value;
 static int call_depth = 0;
 static int repl_echo = 0;   /* in the live prompt, print the value of a bare expression */
+static int g_learn = 0;     /* `learn on`: narrate each step as the program runs */
 #define MAX_DEPTH 6000
 
 static Value eval(Expr *e, Env *env);
@@ -582,15 +693,59 @@ static Value call_task(Expr *call, Env *env) {
     fail(call->line, m);
   }
   if (++call_depth > MAX_DEPTH) fail(call->line, "this went too deep — a task may be calling itself with no way to stop.");
-  Env *frame = env_new(global_env);   /* a task sees globals + its own locals, not the caller's */
+  Env *frame = env_new(t->home);      /* a task sees its OWN file (privates + publics) + its locals */
   for (int i = 0; i < t->nparams; i++) env_define(frame, t->params[i], eval(call->args[i], env));
   int saved_ret = returning; Value saved_rv = return_value;
+  int saved_fid = cur_fileid; cur_fileid = t->fileid;   /* inside the body, see THIS task's file */
   returning = 0;
   exec_block(t->body, t->nbody, frame);
   Value result = returning ? return_value : vnone();
   returning = saved_ret; return_value = saved_rv;
+  cur_fileid = saved_fid;
   call_depth--;
   return result;
+}
+
+/* ---- "did you mean?" suggestions, so errors can teach instead of just scold ---- */
+static int edit_distance(const char *a, const char *b) {
+  int la = (int)strlen(a), lb = (int)strlen(b);
+  if (la > 64 || lb > 64) return 99;
+  int prev[66], cur[66];
+  for (int j = 0; j <= lb; j++) prev[j] = j;
+  for (int i = 1; i <= la; i++) {
+    cur[0] = i;
+    for (int j = 1; j <= lb; j++) {
+      int cost = (tolower((unsigned char)a[i-1]) == tolower((unsigned char)b[j-1])) ? 0 : 1;
+      int del = prev[j] + 1, ins = cur[j-1] + 1, sub = prev[j-1] + cost;
+      int m = del < ins ? del : ins; if (sub < m) m = sub;
+      cur[j] = m;
+    }
+    for (int j = 0; j <= lb; j++) prev[j] = cur[j];
+  }
+  return prev[lb];
+}
+
+static const char *const BUILTIN_NAMES[] = {
+  "range","length","add","keys","contains","first","last",
+  "abs","round","floor","ceil","sqrt","min","max","random","number",
+  "upper","lower","trim","replace","split","join",
+  "ask","now","today","wait","read","write","append","exists",
+  "get","json","run","explore","color",
+};
+static const int NBUILTIN_NAMES = (int)(sizeof BUILTIN_NAMES / sizeof BUILTIN_NAMES[0]);
+
+/* the closest known name to `name` within a small edit distance, or NULL if nothing is close */
+static const char *suggest_name(const char *name, Env *env, int include_vars) {
+  const char *best = NULL; int bestd = 1000;
+  if (include_vars)
+    for (Env *e = env; e; e = e->parent)
+      for (int i = 0; i < e->n; i++) { int d = edit_distance(name, e->vars[i].name); if (d < bestd) { bestd = d; best = e->vars[i].name; } }
+  for (int i = 0; i < ntasks; i++) { int d = edit_distance(name, tasks[i].name); if (d < bestd) { bestd = d; best = tasks[i].name; } }
+  for (int i = 0; i < NBUILTIN_NAMES; i++) { int d = edit_distance(name, BUILTIN_NAMES[i]); if (d < bestd) { bestd = d; best = BUILTIN_NAMES[i]; } }
+  int L = (int)strlen(name); int thr = L <= 3 ? 1 : 2;
+  /* bestd == 0 means a same-spelled name exists but isn't usable here (e.g. another file's
+     private) — suggesting the identical word back is unhelpful, so skip it. */
+  return (best && bestd >= 1 && bestd <= thr) ? best : NULL;
 }
 
 /* built-in functions — called like tasks: name(args). */
@@ -976,7 +1131,12 @@ static Value call_builtin(Expr *call, Env *env) {
     snprintf(out,need,"\x1b[%sm%s\x1b[0m",code,t); return vstr(out);
   }
 
-  failf(call->line, "I don't know a task or function called '%s'.", name);
+  {
+    char msg[400]; const char *sug = suggest_name(name, NULL, 0);
+    if (sug) snprintf(msg, sizeof msg, "I don't know a task or function called '%s'.\n\n  Did you mean '%s'?", name, sug);
+    else snprintf(msg, sizeof msg, "I don't know a task or function called '%s'.", name);
+    fail(call->line, msg);
+  }
   return vnone();
 }
 
@@ -1016,7 +1176,16 @@ static Value eval(Expr *e, Env *env) {
     case E_STR:  return vstr(e->str);
     case E_BOOL: return vbool(e->boolean);
     case E_NONE: return vnone();
-    case E_VAR: { Value *v = env_find(env, e->name); if (!v) failf(e->line, "I don't know what '%s' is.", e->name); return *v; }
+    case E_VAR: {
+      Value *v = env_find(env, e->name);
+      if (!v) {
+        char msg[400]; const char *sug = suggest_name(e->name, env, 1);
+        if (sug) snprintf(msg, sizeof msg, "I don't know what '%s' is.\n\n  Did you mean '%s'?", e->name, sug);
+        else snprintf(msg, sizeof msg, "I don't know what '%s' is.\n\n  Variables are made with 'make', like:\n      make %s = \"Sam\"", e->name, e->name);
+        fail(e->line, msg);
+      }
+      return *v;
+    }
     case E_UNARY:
       if (e->op == T_NOT) return vbool(!is_truthy(eval(e->operand, env)));
       { Value v = eval(e->operand, env); if (v.type != V_NUM) fail(e->line, "I can only put a minus sign in front of a number."); return vnum(-v.num); }
@@ -1050,14 +1219,89 @@ static Value eval(Expr *e, Env *env) {
   return vnone();
 }
 
+/* ---- learn mode: narrate each step so the reader can watch a program think ---- */
+static const char *op_sym(TokType op) {
+  switch (op) {
+    case T_PLUS: return "+"; case T_MINUS: return "-"; case T_STAR: return "*"; case T_SLASH: return "/"; case T_PERCENT: return "%";
+    case T_EQEQ: return "=="; case T_BANGEQ: return "!="; case T_LT: return "<"; case T_LE: return "<="; case T_GT: return ">"; case T_GE: return ">=";
+    case T_AND: return "and"; case T_OR: return "or"; case T_NOT: return "not"; default: return "?";
+  }
+}
+/* render an expression back to text; if with_values, substitute each variable's current value
+   (it never calls functions, so it has no side effects — the real value comes from one eval) */
+static int g_render_depth = 0;
+static void render_expr(Expr *e, int wv, Env *env, char **o, size_t *c, size_t *l) {
+  if (!e) return;
+  if (++g_render_depth > 256) { sb_add(o, c, l, "..."); g_render_depth--; return; }   /* guard deep nesting */
+  switch (e->kind) {
+    case E_NUM:  { char *t = num_to_str(e->num); sb_add(o, c, l, t); free(t); break; }
+    case E_STR:  sb_add(o, c, l, "\""); sb_add(o, c, l, e->str ? e->str : ""); sb_add(o, c, l, "\""); break;
+    case E_BOOL: sb_add(o, c, l, e->boolean ? "yes" : "no"); break;
+    case E_NONE: sb_add(o, c, l, "nothing"); break;
+    case E_VAR:  {
+      if (wv) { Value *v = env_find(env, e->name); if (v) { char *t = stringify(*v); sb_add(o, c, l, t); free(t); break; } }
+      sb_add(o, c, l, e->name); break;
+    }
+    case E_UNARY: sb_add(o, c, l, op_sym(e->op)); if (e->op == T_NOT) sb_add(o, c, l, " "); render_expr(e->operand, wv, env, o, c, l); break;
+    case E_BINARY: case E_LOGICAL: {
+      if (e->op == T_PLUS) {   /* hide the empty-string pieces f-strings desugar into */
+        int le = (e->left->kind == E_STR && (!e->left->str || !e->left->str[0]));
+        int re = (e->right->kind == E_STR && (!e->right->str || !e->right->str[0]));
+        if (le && !re) { render_expr(e->right, wv, env, o, c, l); break; }
+        if (re && !le) { render_expr(e->left, wv, env, o, c, l); break; }
+      }
+      render_expr(e->left, wv, env, o, c, l); sb_add(o, c, l, " "); sb_add(o, c, l, op_sym(e->op)); sb_add(o, c, l, " "); render_expr(e->right, wv, env, o, c, l); break;
+    }
+    case E_CALL: sb_add(o, c, l, e->name); sb_add(o, c, l, "(");
+      for (int i = 0; i < e->nargs; i++) { if (i) sb_add(o, c, l, ", "); render_expr(e->args[i], wv, env, o, c, l); } sb_add(o, c, l, ")"); break;
+    case E_LIST: sb_add(o, c, l, "[");
+      for (int i = 0; i < e->nargs; i++) { if (i) sb_add(o, c, l, ", "); render_expr(e->args[i], wv, env, o, c, l); } sb_add(o, c, l, "]"); break;
+    case E_MAP: sb_add(o, c, l, "{");
+      for (int i = 0; i < e->nargs; i++) { if (i) sb_add(o, c, l, ", "); sb_add(o, c, l, e->keys[i]); sb_add(o, c, l, ": "); render_expr(e->args[i], wv, env, o, c, l); } sb_add(o, c, l, "}"); break;
+    case E_INDEX: render_expr(e->target, wv, env, o, c, l); sb_add(o, c, l, "["); render_expr(e->index, wv, env, o, c, l); sb_add(o, c, l, "]"); break;
+  }
+  g_render_depth--;
+}
+static char *render_str(Expr *e, int wv, Env *env) {
+  char *o = NULL; size_t c = 0, l = 0; render_expr(e, wv, env, &o, &c, &l); return o ? o : dup_str("");
+}
+static void learn_show(Stmt *s, Env *env) {
+  for (int i = 0; i < s->nvalues; i++) {
+    Expr *e = s->values[i];
+    char *src = render_str(e, 0, env);
+    printf("  " C_DIM "Evaluating:" C_RESET "\n      %s\n\n", src);
+    if (e->kind == E_BINARY || e->kind == E_LOGICAL || e->kind == E_UNARY) {
+      char *vf = render_str(e, 1, env);
+      Value res = eval(e, env); char *rs = stringify(res);
+      if (strcmp(vf, src) != 0) printf("      %s = %s\n\n", vf, rs);
+      printf("  " C_DIM "Output:" C_RESET "\n      %s\n\n", rs);
+      free(vf); free(rs);
+    } else {
+      Value res = eval(e, env); char *rs = stringify(res);
+      printf("  " C_DIM "Output:" C_RESET "\n      %s\n\n", rs); free(rs);
+    }
+    free(src);
+  }
+}
+
 static void exec(Stmt *s, Env *env) {
   switch (s->kind) {
-    case S_MAKE: env_define(env, s->name, eval(s->expr, env)); break;
-    case S_SET:  env_assign(env, s->name, eval(s->expr, env), s->line); break;
+    case S_MAKE: {
+      Value v = eval(s->expr, env); env_define(s->is_public ? global_env : env, s->name, v);
+      if (g_learn) { char *t = stringify(v); printf("  " C_DIM "Created variable" C_RESET " %s = %s\n\n", s->name, t); free(t); }
+      break;
+    }
+    case S_SET: {
+      Value v = eval(s->expr, env); env_assign(env, s->name, v, s->line);
+      if (g_learn) { char *t = stringify(v); printf("  " C_DIM "Updated" C_RESET " %s to %s\n\n", s->name, t); free(t); }
+      break;
+    }
     case S_SHOW: {
+      if (g_learn) { learn_show(s, env); break; }
       for (int i = 0; i < s->nvalues; i++) { if (i) fputc(' ', stdout); char *t = stringify(eval(s->values[i], env)); fputs(t, stdout); }
       fputc('\n', stdout); break;
     }
+    case S_LEARN: g_learn = s->is_public; break;
     case S_WHEN: {
       for (int i = 0; i < s->nbranches; i++) if (is_truthy(eval(s->branches[i].cond, env))) { exec_block(s->branches[i].body, s->branches[i].nbody, env); return; }
       if (s->otherwise) exec_block(s->otherwise, s->notherwise, env);
@@ -1130,7 +1374,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.0.5"
+#define SPROUT_VERSION "0.0.6"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);
@@ -1147,11 +1391,6 @@ static void usage(void) {
 }
 
 /* --------------------------------------------------------- interactive (TUI) */
-#define C_RESET "\x1b[0m"
-#define C_GREEN "\x1b[32m"
-#define C_BOLD  "\x1b[1m"
-#define C_DIM   "\x1b[2m"
-#define C_CYAN  "\x1b[36m"
 #define PROMPT  "  " C_GREEN "sprout " C_CYAN "\xE2\x96\xB8 " C_RESET   /* "sprout > " in colour */
 
 static void console_setup(void) {
@@ -1162,13 +1401,13 @@ static void console_setup(void) {
 #endif
 }
 
-/* parse + run one snippet in the persistent global_env (used by the REPL + run-a-file) */
+/* parse + run one snippet in the persistent REPL file scope (used by the REPL + run-a-file) */
 static void run_snippet(const char *src) {
   ntok = 0; pos = 0;
   tokenize(src, (int)strlen(src));
   int n; Stmt **prog = parse_program(&n);
-  for (int i = 0; i < n; i++) if (prog[i]->kind == S_TASK) task_register(prog[i]);
-  exec_block(prog, n, global_env);
+  for (int i = 0; i < n; i++) if (prog[i]->kind == S_TASK) task_register(prog[i], cur_fileid, cur_file_env);
+  exec_block(prog, n, cur_file_env);
 }
 
 /* does this line open a block? (ends with ':' once trailing spaces/comment are removed) */
@@ -1189,6 +1428,7 @@ static void banner(void) {
 static void repl(void) {
   printf("\n  " C_GREEN "Try Sprout live" C_RESET " " C_DIM "- type code, press Enter. 'back' returns to the menu." C_RESET "\n\n");
   jmp_buf jb; err_jmp = &jb; repl_echo = 1;
+  int repl_fid = cur_fileid; Env *repl_env = cur_file_env;   /* the session scope to restore after an error */
   char buf[8192]; buf[0] = 0; int inblock = 0; char line[1024];
   printf(PROMPT); fflush(stdout);
   while (fgets(line, sizeof line, stdin)) {
@@ -1197,10 +1437,10 @@ static void repl(void) {
       if (!strcmp(line, "back") || !strcmp(line, "quit") || !strcmp(line, "exit")) break;
       if (L == 0) { printf(PROMPT); fflush(stdout); continue; }
       if (opens_block(line)) { snprintf(buf, sizeof buf, "%s\n", line); inblock = 1; printf("  " C_DIM "...... " C_RESET); fflush(stdout); continue; }
-      if (setjmp(jb) == 0) run_snippet(line); else { call_depth = 0; returning = 0; g_current_file = NULL; }
+      if (setjmp(jb) == 0) run_snippet(line); else { call_depth = 0; returning = 0; g_current_file = NULL; cur_fileid = repl_fid; cur_file_env = repl_env; }
       printf(PROMPT); fflush(stdout);
     } else if (L == 0) {                                        /* blank line ends the block */
-      if (setjmp(jb) == 0) run_snippet(buf); else { call_depth = 0; returning = 0; g_current_file = NULL; }
+      if (setjmp(jb) == 0) run_snippet(buf); else { call_depth = 0; returning = 0; g_current_file = NULL; cur_fileid = repl_fid; cur_file_env = repl_env; }
       buf[0] = 0; inblock = 0; printf(PROMPT); fflush(stdout);
     } else {
       size_t cur = strlen(buf); snprintf(buf + cur, sizeof buf - cur, "%s\n", line);
@@ -1221,7 +1461,8 @@ static void run_file_prompt(void) {
   if (!src) { printf("  " C_DIM "couldn't open '%s'" C_RESET "\n", path); return; }
   printf("\n");
   jmp_buf jb; err_jmp = &jb; g_current_file = path;
-  if (setjmp(jb) == 0) run_snippet(src); else { call_depth = 0; returning = 0; }
+  int save_fid = cur_fileid; Env *save_env = cur_file_env;
+  if (setjmp(jb) == 0) run_snippet(src); else { call_depth = 0; returning = 0; cur_fileid = save_fid; cur_file_env = save_env; }
   err_jmp = NULL; g_current_file = NULL;
   free(src);
 }
@@ -1240,7 +1481,9 @@ static void wiz_help(void) {
 
 static void wizard(void) {
   console_setup();
-  global_env = env_new(NULL);
+  global_env = env_new(NULL);                 /* the shared/public space */
+  cur_file_env = env_new(global_env);         /* one persistent scope for this session */
+  cur_fileid = ++g_next_fileid;
   for (;;) {
     banner();
     printf("  " C_BOLD "What would you like to do?" C_RESET "\n\n");
@@ -1340,20 +1583,20 @@ static const TplFile TPL_APP[] = {
     "show greet(\"world\")\n\n"
     "start()\n" },
   { "modules/greeter.sprout",
-    "~ The greeter module: turns a name into a friendly hello.\n"
-    "~ Any file that does `use greeter` can call greet().\n\n"
-    "task greet(who):\n"
-    "    give \"Hello, \" + who + \"!\"\n" },
+    "~ The greeter module. 'public' means any file in the project can call it.\n\n"
+    "public task greet(who):\n"
+    "    give f\"Hello, {who}!\"\n" },
   { "modules/server.sprout",
     "~ The server module - it uses the greeter.\n"
-    "~ Every file shares one space, so tasks are visible across the project.\n\n"
+    "~ 'public' = callable across the project.  Plain tasks stay private to this file.\n\n"
     "use greeter\n\n"
-    "task start():\n"
+    "public task start():\n"
     "    show color(\"cyan\", \"server: handling 2 requests...\")\n"
     "    show handle(\"Ada\")\n"
     "    show handle(\"Lin\")\n\n"
     "task handle(user):\n"
-    "    give \"  200 OK  ->  \" + greet(user)\n" },
+    "    ~ private helper: only server.sprout can call this one\n"
+    "    give f\"  200 OK  ->  {greet(user)}\"\n" },
   { "tests/test.sprout",
     "~ A tiny test. Run it on its own with:  sprout run tests/test.sprout\n"
     "use greeter\n\n"
@@ -1387,9 +1630,9 @@ static const TplFile TPL_STARTER[] = {
   { "app.sprout",
     "~ Welcome to Sprout!  Edit me, then run:  sprout build\n"
     "make name = \"world\"\n"
-    "show color(\"green\", \"Hello, \" + name + \"!\")\n\n"
+    "show color(\"green\", f\"Hello, {name}!\")\n\n"
     "task greet(who):\n"
-    "    give \"Nice to meet you, \" + who\n\n"
+    "    give f\"Nice to meet you, {who}\"\n\n"
     "show greet(\"Sprout\")\n" },
   { "README.md", README_SIMPLE },
 };
@@ -1678,9 +1921,13 @@ static void load_module(const char *name) {
   const char *prev = g_current_file; g_current_file = path;
   int n; Stmt **prog = parse_file(path, &n);   /* parse first: a parse error here must NOT poison the dedup set */
   loaded_add(c); free(c);                       /* commit only after a clean parse (still set before exec, so cycles break) */
-  for (int i = 0; i < n; i++) if (prog[i]->kind == S_TASK) task_register(prog[i]);
-  exec_block(prog, n, global_env);
+  Env *fe = env_new(global_env);               /* this file's own scope (its privates live here) */
+  int prevfid = cur_fileid; Env *prevfe = cur_file_env;
+  cur_fileid = ++g_next_fileid; cur_file_env = fe;
+  for (int i = 0; i < n; i++) if (prog[i]->kind == S_TASK) task_register(prog[i], cur_fileid, fe);
+  exec_block(prog, n, fe);
   returning = 0;                 /* a module's top-level `give` (if any) doesn't return to the user */
+  cur_fileid = prevfid; cur_file_env = prevfe;
   g_current_file = prev;
 }
 
@@ -1735,8 +1982,10 @@ int main(int argc, char **argv) {
   { char *c = canon_path(file); loaded_add(c); free(c); }   /* so a `use` can't reload the entry file */
   tokenize(src, len);
   int ncount; Stmt **program = parse_program(&ncount);
-  for (int i = 0; i < ncount; i++) if (program[i]->kind == S_TASK) task_register(program[i]);
-  global_env = env_new(NULL);
-  exec_block(program, ncount, global_env);
+  global_env = env_new(NULL);                  /* the shared/public space */
+  cur_file_env = env_new(global_env);          /* the entry file's own scope */
+  cur_fileid = ++g_next_fileid;
+  for (int i = 0; i < ncount; i++) if (program[i]->kind == S_TASK) task_register(program[i], cur_fileid, cur_file_env);
+  exec_block(program, ncount, cur_file_env);
   return 0;
 }

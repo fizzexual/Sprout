@@ -1,6 +1,7 @@
 ~ a tiny library module, used by usemod.sprout
-task triple(n):
+~ 'public' so another file can call these after `use`
+public task triple(n):
     give n * 3
 
-task shout(t):
+public task shout(t):
     give upper(t) + "!"

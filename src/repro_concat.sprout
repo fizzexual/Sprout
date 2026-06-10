@@ -1,0 +1,3 @@
+learn on
+make name = "Sam"
+show "" + name

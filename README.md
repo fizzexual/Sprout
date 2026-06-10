@@ -23,15 +23,39 @@ Plain-English code, helpful errors, and zero dependencies. No Node, no VM, no ru
 ---
 
 Sprout is a **real, from-scratch programming language** — its own lexer, parser, and
-tree-walking interpreter, written in **C**. It compiles to a tiny native executable
-that depends on **nothing but the operating system**: no Node, no JavaScript, no
-runtime to install. The same path Python (CPython) and Lua took.
+tree-walking interpreter, written in **C**. **Sprout itself** is compiled to a tiny
+native executable that depends on **nothing but the operating system** (no Node, no
+JavaScript, no runtime to install); your **`.sprout` programs are then interpreted by
+that executable** — they aren't turned into machine code. The same path Python
+(CPython) and Lua took.
 
 It has one goal: **be the kindest language to learn programming with.** When
-something's wrong, Sprout explains it in plain English and points at the line:
+something's wrong, Sprout explains it in plain English, points at the line, and
+suggests a fix:
 
 ```
   Sprout error (line 2): I don't know what 'nme' is.
+
+  Did you mean 'name'?
+```
+
+And with `learn on`, Sprout **narrates itself as it runs** — perfect for a first
+look at how code actually executes:
+
+```sprout
+learn on
+make x = 5
+make y = 10
+show x + y
+```
+```
+  Created variable x = 5
+  Created variable y = 10
+  Evaluating:
+      x + y
+      5 + 10 = 15
+  Output:
+      15
 ```
 
 ## Code you can read out loud
@@ -41,7 +65,7 @@ beginner can guess what a program does just by reading it. No `let`, no `print`,
 
 ```sprout
 make name = "world"
-show "Hello, " + name + "!"
+show f"Hello, {name}!"
 
 make score = 8
 when score >= 9:
@@ -64,11 +88,13 @@ language runs now:
 
 - Values: numbers, text, `yes` / `no`, `nothing`
 - `make`, `set`, `show` (commas join with spaces)
+- **Text templates:** `f"Hi {name}, you have {x + y} points"` — values drop straight in
 - Math `+ - * / %` with precedence and `( )`; `+` also joins text
 - Compare `== != < <= > >=`, logic `and` `or` `not`
 - `when` / `orwhen` / `otherwise`, `repeat N times`, `repeat while`
 - `task` / `give`, function calls, **recursion**, proper scope
 - **Lists** `[1, 2, 3]` and **maps** `{name: "Sam"}` — indexing, `set xs[i] = …`, `for each`, `range`
+- **`learn on`** — Sprout explains each step as it runs (and **friendly errors** that say *"did you mean…?"*)
 - **Toolbox:** `length` `add` `keys` `contains` `first` `last` `range` · `sqrt` `abs` `round` `floor` `ceil` `min` `max` `random` `number` · `upper` `lower` `trim` `replace` `split` `join` · `now` `today` `wait` · `ask` · `color` (terminal colour)
 - **Superpowers — built in, no libraries:**
   - 🌐 `get(url)` — fetch any web page or API
@@ -76,7 +102,7 @@ language runs now:
   - 🔎 `explore(value)` — list every field/target inside an API response
   - 📄 `read` / `write` / `append` / `exists` — files
   - ⚙️ `run(command)` — run any program and capture its output
-- **Projects & modules:** a `sprout.toml` ties many files into one program — `use server` pulls in another file by name, every file shares one space, and `sprout build` runs the whole thing
+- **Projects & modules:** a `sprout.toml` ties many files into one program — `use server` pulls in another file by name, `public` shares a task across the project (private by default), and `sprout build` runs the whole thing
 - **Scaffolding:** `sprout new <folder>` creates a full multi-file project · `sprout template load <name>` scaffolds into the current folder · **`sprout api <url>`** dumps every field an API returns
 - `~` comments, indentation blocks, friendly errors with line numbers
 
@@ -142,7 +168,7 @@ build.cmd                     # or: gcc -O2 -Wall -s -o sprout.exe sprout.c -lm 
 
 # run a program:
 sprout run hello.sprout     # or just: sprout hello.sprout
-sprout version              # -> Sprout v0.0.5
+sprout version              # -> Sprout v0.0.6
 sprout new myapp            # create a full multi-file project folder
 sprout build                # run the project in the current folder (reads sprout.toml)
 sprout api <url>            # list every field an API returns
@@ -159,10 +185,11 @@ The core is done; the rest of the language is on its way back, slice by slice:
 2. ✅ **Tasks** — `task` / `give`, function calls, recursion, scope
 3. ✅ **Collections** — lists `[...]`, maps `{...}`, indexing, `for each`, `range`
 4. ✅ **Superpowers & tooling** — math/text toolbox, files, web (`get` / `json` / `explore`), `run`, `color`, templates, `sprout api`
-5. ✅ **Projects & modules** — `sprout.toml`, `use`, `sprout new`, `sprout build`
-6. ⏭️ **f-strings** (`f"Hi {name}"`) and `remember` / `recall`
-7. **Richer errors** — the `^` pointer and "did you mean?" suggestions
-8. **Apps & more** — GUI windows, libraries
+5. ✅ **Projects & modules** — `sprout.toml`, `use`, `public`/`private`, `sprout new`, `sprout build`
+6. ✅ **f-strings, friendly errors & `learn` mode** — `f"Hi {name}"`, "did you mean?", step-by-step narration
+7. ⏭️ **`remember` / `recall`** — values that persist between runs
+8. **Testing & docs** — `test "…": expect …`, `sprout test`, `sprout docs`
+9. **Apps & more** — a package manager, then GUI windows
 
 ## How it works
 
@@ -170,7 +197,9 @@ The core is done; the rest of the language is on its way back, slice by slice:
 source.sprout → lexer → parser → interpreter → output
 ```
 
-A small, dependency-free pipeline in one C file. The full tour is in
+Your `.sprout` program is **interpreted** (walked as a tree), not compiled to
+machine code — only the Sprout interpreter itself is compiled (to that ~34 KB
+native `sprout.exe`). A small, dependency-free pipeline in one C file. The full tour is in
 [`src/README.md`](src/README.md) and **[How Sprout Works](wiki/architecture.md)**.
 There's a **[VS Code extension](vscode-extension)** for syntax highlighting too.
 

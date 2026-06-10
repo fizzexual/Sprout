@@ -1,0 +1,9 @@
+~ exercises learn mode (narration); should run cleanly with no error
+learn on
+make a = 2
+make b = 3
+show a + b
+set a = 10
+show a
+learn off
+show "ok: learn mode ran"

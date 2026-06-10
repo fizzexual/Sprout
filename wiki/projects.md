@@ -69,31 +69,40 @@ You can also `use` an exact path: `use "modules/greeter.sprout"`.
 A file is loaded **once**, no matter how many times it's `use`d, so circular
 uses (A uses B, B uses A) are fine.
 
-## One shared space
+## public and private
 
-Every file in a project shares the same space. A `task` defined in any file is
-callable from any other — the connection goes both ways. There's no `export`
-and no `import list`; `use` just makes sure the other file is loaded.
+By default, a `task` or a top-level variable is **private** — it belongs to its
+own file. Put **`public`** in front to share it with the whole project:
 
 ```sprout
 ~ modules/greeter.sprout
-task greet(who):
-    give "Hello, " + who + "!"
+public task greet(who):        ~ any file can call greet()
+    give f"Hello, {who}!"
+
+task polish(text):             ~ private: only greeter.sprout can use this
+    give trim(text)
 ```
 
 ```sprout
 ~ modules/server.sprout
 use greeter
 
-task start():
+public task start():
     show handle("Ada")
 
-task handle(user):
-    give "200 OK — " + greet(user)     ~ greet() comes from the greeter module
+task handle(user):                       ~ private helper
+    give f"200 OK — {greet(user)}"       ~ greet() is public, so it's callable here
 ```
 
-Two files can't define a task with the **same name** — Sprout will tell you
-which file the clash is in.
+This keeps things simple **and** safe:
+
+- A `make name = ...` at the top of one file won't clobber a `name` in another —
+  each file keeps its own. Mark it `public make` to share one value project-wide.
+- Two files can each have a private task with the **same name**; they don't clash.
+- Two **public** tasks with the same name *do* clash — Sprout tells you which file.
+
+Think of `public` as your project's front door: it's the short list of things the
+rest of the project is allowed to use.
 
 ## Running a project
 

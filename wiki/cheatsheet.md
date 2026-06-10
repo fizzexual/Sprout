@@ -3,8 +3,8 @@
 The whole language — as it works today — on one page. Skim it, copy a snippet,
 change a number, run it. 🌱
 
-> Sprout is being rebuilt in C; this sheet covers what runs today. f-strings, more
-> builtins, and input are on the [roadmap](README.md#roadmap).
+> Sprout is being rebuilt in C; this sheet covers what runs today. See the
+> [roadmap](README.md#roadmap) for what's next.
 
 ---
 
@@ -17,10 +17,14 @@ make x = 10           ~ create a variable
 set x = x + 1         ~ change one you already made
 
 show "hi", x          ~ print (commas join with spaces)  ->  hi 11
+show f"hi {x}"        ~ f-string: drop values right into text  ->  hi 11
 ```
 
 **Values:** numbers (`3`, `2.5`), text (`"hello"`), `yes` / `no` (booleans), and
 `nothing` (the empty value).
+
+**Text templates (f-strings):** `f"Hi {name}, score {x + y}"` — anything in `{ }`
+is worked out and dropped in. Use `\{` for a literal brace.
 
 **Math:** `+  -  *  /  %`  — use `(` `)` to group. `+` also joins text:
 `"a" + "b"` → `ab`.
@@ -139,10 +143,47 @@ show fib(10)          ~ ->  55
 
 ---
 
+## Projects: many files
+
+Tie files together with a `sprout.toml`, share things with `public`, and run it
+all with `sprout build`. Full guide: **[Projects & modules](projects.md)**.
+
+```sprout
+~ modules/greeter.sprout
+public task greet(who):     ~ 'public' = the whole project can call it
+    give f"Hello, {who}!"
+```
+
+```sprout
+~ app.sprout
+use greeter                 ~ pull the module in by name
+show greet("world")
+```
+
+```bash
+sprout new myapp     # scaffold a whole project folder
+sprout build         # run the project (reads sprout.toml)
+```
+
+---
+
+## learn mode: watch it run
+
+```sprout
+learn on
+make x = 5
+show x + 2          ~ narrates: Created x = 5, then 5 + 2 = 7, Output: 7
+learn off
+```
+
+---
+
 ## Running it
 
 ```bash
-sprout.exe myprogram.sprout
+sprout myprogram.sprout      # run one file
+sprout build                 # run a project (sprout.toml in this folder)
+sprout                       # open the interactive screen (try code live)
 ```
 
 See [Getting Started](getting-started.md) to build the `sprout` executable.

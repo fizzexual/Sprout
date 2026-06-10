@@ -1,0 +1,32 @@
+~ f-string checks
+make name = "Sam"
+make x = 5
+make y = 10
+
+when f"{name}-{x + y}" == "Sam-15":
+    show "ok: fstring with expression"
+otherwise:
+    show "FAIL: fstring expression"
+
+when f"no braces here" == "no braces here":
+    show "ok: fstring plain text"
+otherwise:
+    show "FAIL: fstring plain"
+
+make items = [1, 2, 3]
+when f"len={length(items)}, first={items[0]}" == "len=3, first=1":
+    show "ok: fstring call + index"
+otherwise:
+    show "FAIL: fstring call/index"
+
+when f"escaped \{x\} stays literal" == "escaped {x} stays literal":
+    show "ok: fstring escapes"
+otherwise:
+    show "FAIL: fstring escapes"
+
+task wrap(w):
+    give f"[{w}]"
+when wrap("hi") == "[hi]":
+    show "ok: fstring in a task"
+otherwise:
+    show "FAIL: fstring in task"
