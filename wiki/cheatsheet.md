@@ -145,19 +145,26 @@ show fib(10)          ~ ->  55
 
 ## Projects: many files
 
-Tie files together with a `sprout.toml`, share things with `public`, and run it
+Tie files together with a `sprout.toml`, expose things with `public`, and run it
 all with `sprout build`. Full guide: **[Projects & modules](projects.md)**.
 
 ```sprout
 ~ modules/greeter.sprout
-public task greet(who):     ~ 'public' = the whole project can call it
+public task greet(who):     ~ 'public' = reachable as greeter.greet(...)
     give f"Hello, {who}!"
 ```
 
 ```sprout
 ~ app.sprout
-use greeter                 ~ pull the module in by name
-show greet("world")
+use greeter                 ~ import the module
+show greeter.greet("world") ~ call it by name (no hidden global sharing)
+```
+
+OS commands live in the **system** module:
+
+```sprout
+use system
+show system.run("echo hi")
 ```
 
 ```bash

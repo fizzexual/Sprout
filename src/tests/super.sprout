@@ -1,4 +1,5 @@
 ~ v0.0.3 "superpowers" smoke test (offline parts)
+use system
 
 ~ math
 show sqrt(16), abs(-4), round(2.6), floor(2.9), ceil(2.1)   ~ 4 4 3 2 3
@@ -21,8 +22,8 @@ write("test_out.txt", "hello from sprout")
 show read("test_out.txt")                                   ~ hello from sprout
 show exists("test_out.txt"), exists("nope.txt")            ~ yes no
 
-~ shell
-show trim(run("echo from the shell"))                       ~ from the shell
+~ shell (run now lives in the system module)
+show trim(system.run("echo from the shell"))                ~ from the shell
 
 ~ time
 show length(today()) == 10                                  ~ yes

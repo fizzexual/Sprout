@@ -1,15 +1,15 @@
-~ exercises the `use` module loader (path form resolves from the current folder)
+~ exercises the `use` module loader + namespaced access (module.name)
 use "tests/lib.sprout"
 
-when triple(4) == 12:
-    show "ok: use loaded triple()"
+when lib.triple(4) == 12:
+    show "ok: lib.triple()"
 otherwise:
-    show "FAIL: triple()"
+    show "FAIL: lib.triple()"
 
-when shout("hi") == "HI!":
-    show "ok: use loaded shout()"
+when lib.shout("hi") == "HI!":
+    show "ok: lib.shout()"
 otherwise:
-    show "FAIL: shout()"
+    show "FAIL: lib.shout()"
 
 ~ using the same module twice must be a no-op (loads once), not an error
 use "tests/lib.sprout"

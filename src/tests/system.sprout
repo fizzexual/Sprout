@@ -1,0 +1,7 @@
+~ the system module: run() moved here and needs an explicit `use system`
+use system
+
+when contains(system.run("echo hello"), "hello"):
+    show "ok: system.run works"
+otherwise:
+    show "FAIL: system.run"

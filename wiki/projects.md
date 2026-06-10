@@ -46,18 +46,22 @@ include [                 # every file that's part of the project
 Comments start with `#` (or `~`). Paths are relative to the folder the
 `sprout.toml` lives in.
 
-## `use` — pull in a file by name
+## `use` — import a module, then call it by name
 
-Put `use <name>` at the top of a file to load another module:
+Put `use <name>` at the top of a file to import another module, then reach its
+**public** tasks and values through its name, `module.thing`:
 
 ```sprout
 ~ app.sprout
-use greeter        ~ loads the module whose file is greeter.sprout
+use greeter        ~ import the module whose file is greeter.sprout
 use server
 
-show greet("world")
-start()
+show greeter.greet("world")
+server.start()
 ```
+
+There's **no hidden sharing** between files: a file can only name a module it has
+`use`d, and only that module's `public` parts are reachable.
 
 `use greeter` finds the file by:
 
@@ -72,14 +76,15 @@ uses (A uses B, B uses A) are fine.
 ## public and private
 
 By default, a `task` or a top-level variable is **private** — it belongs to its
-own file. Put **`public`** in front to share it with the whole project:
+own file and is only reachable there (call it bare). Put **`public`** in front to
+expose it on the module's name, `module.thing`:
 
 ```sprout
 ~ modules/greeter.sprout
-public task greet(who):        ~ any file can call greet()
-    give f"Hello, {who}!"
+public task greet(who):        ~ reachable as greeter.greet(...)
+    give f"Hello, {polish(who)}!"
 
-task polish(text):             ~ private: only greeter.sprout can use this
+task polish(text):             ~ private: only greeter.sprout can call it (bare)
     give trim(text)
 ```
 
@@ -87,22 +92,25 @@ task polish(text):             ~ private: only greeter.sprout can use this
 ~ modules/server.sprout
 use greeter
 
-public task start():
+public task start():           ~ reachable as server.start()
     show handle("Ada")
 
-task handle(user):                       ~ private helper
-    give f"200 OK — {greet(user)}"       ~ greet() is public, so it's callable here
+task handle(user):                              ~ private helper, called bare
+    give f"200 OK — {greeter.greet(user)}"      ~ greet is from another module
 ```
 
-This keeps things simple **and** safe:
+The rules — predictable, no magic:
 
-- A `make name = ...` at the top of one file won't clobber a `name` in another —
-  each file keeps its own. Mark it `public make` to share one value project-wide.
-- Two files can each have a private task with the **same name**; they don't clash.
-- Two **public** tasks with the same name *do* clash — Sprout tells you which file.
+- **Within a file** you call your own tasks bare (`polish(...)`, `handle(...)`).
+- **Across files** you go through the module name (`greeter.greet(...)`) — and only
+  for things marked `public`.
+- A `make name = ...` in one file never clobbers a `name` in another; each file
+  keeps its own. `public make config = ...` exposes it as `module.config`.
+- Two files can each have a private task with the **same name**; no clash (they're
+  `a.thing` and `b.thing`, never both bare).
 
-Think of `public` as your project's front door: it's the short list of things the
-rest of the project is allowed to use.
+Think of `public` as your module's front door: the short list of things other
+files are allowed to reach.
 
 ## Running a project
 

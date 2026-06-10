@@ -190,7 +190,7 @@ typedef enum {
   T_MAKE, T_SET, T_SHOW, T_WHEN, T_ORWHEN, T_OTHERWISE, T_REPEAT, T_WHILE, T_TIMES,
   T_TASK, T_GIVE, T_FOR, T_EACH, T_IN, T_USE, T_PUBLIC, T_PRIVATE, T_LEARN,
   T_AND, T_OR, T_NOT, T_YES, T_NO, T_NOTHING,
-  T_PLUS, T_MINUS, T_STAR, T_SLASH, T_PERCENT,
+  T_PLUS, T_MINUS, T_STAR, T_SLASH, T_PERCENT, T_DOT,
   T_EQ, T_EQEQ, T_BANGEQ, T_LT, T_LE, T_GT, T_GE,
   T_LPAREN, T_RPAREN, T_LBRACK, T_RBRACK, T_LBRACE, T_RBRACE, T_COMMA, T_COLON,
   T_NEWLINE, T_INDENT, T_DEDENT, T_EOF
@@ -262,6 +262,7 @@ static void scan_token(const char *src, int *ip, int len, int line) {
     case '{': push_tok(T_LBRACE, NULL, 0, line); i++; break;
     case '}': push_tok(T_RBRACE, NULL, 0, line); i++; break;
     case ',': push_tok(T_COMMA, NULL, 0, line); i++; break;
+    case '.': push_tok(T_DOT, NULL, 0, line); i++; break;
     case ':': push_tok(T_COLON, NULL, 0, line); i++; break;
     case '=': if (i + 1 < len && src[i + 1] == '=') { push_tok(T_EQEQ, NULL, 0, line); i += 2; } else { push_tok(T_EQ, NULL, 0, line); i++; } break;
     case '!': if (i + 1 < len && src[i + 1] == '=') { push_tok(T_BANGEQ, NULL, 0, line); i += 2; } else fail(line, "I didn't expect a '!' here (use 'not', or '!=' for not-equal)."); break;
@@ -362,9 +363,9 @@ static void tokenize(const char *src, int len) {
 }
 
 /* ---------------------------------------------------------------------- AST */
-typedef enum { E_NUM, E_STR, E_BOOL, E_NONE, E_VAR, E_UNARY, E_BINARY, E_LOGICAL, E_CALL, E_LIST, E_MAP, E_INDEX } EKind;
+typedef enum { E_NUM, E_STR, E_BOOL, E_NONE, E_VAR, E_UNARY, E_BINARY, E_LOGICAL, E_CALL, E_LIST, E_MAP, E_INDEX, E_MEMBER } EKind;
 typedef struct Expr {
-  EKind kind; double num; char *str; int boolean; char *name;
+  EKind kind; double num; char *str; int boolean; char *name; char *module;  /* module: server.name */
   TokType op; struct Expr *left, *right, *operand; int line;
   struct Expr **args; int nargs;         /* call inputs / list items / map values */
   char **keys;                            /* E_MAP keys (parallel to args) */
@@ -436,9 +437,16 @@ static Expr *primary(void) {
     e->keys = keys; e->args = vals; e->nargs = n; return e;
   }
   if (match(T_IDENT)) {
-    if (check(T_LPAREN)) {           /* a call: name(args) */
+    char *module = NULL; char *who = t.text; int line = t.line;
+    if (check(T_DOT)) {              /* a module member: server.start(...) or server.config */
       advance();
-      Expr *e = new_expr(E_CALL, t.line); e->name = t.text;
+      Token m = expect(T_IDENT, "I expected a name after '.' (like server.start).");
+      module = who; who = m.text;
+      if (check(T_DOT)) fail(peek().line, "you can only use one '.' here (like module.name). To go deeper, store it first or use [ ].");
+    }
+    if (check(T_LPAREN)) {           /* a call: name(args) or module.name(args) */
+      advance();
+      Expr *e = new_expr(E_CALL, line); e->name = who; e->module = module;
       Expr **args = NULL; int n = 0, cap = 0;
       if (!check(T_RPAREN)) {
         do {
@@ -449,7 +457,8 @@ static Expr *primary(void) {
       expect(T_RPAREN, "I expected a ')' to close the inputs.");
       e->args = args; e->nargs = n; return e;
     }
-    Expr *e = new_expr(E_VAR, t.line); e->name = t.text; return e;
+    if (module) { Expr *e = new_expr(E_MEMBER, line); e->module = module; e->name = who; return e; }
+    Expr *e = new_expr(E_VAR, line); e->name = who; return e;
   }
   if (match(T_LPAREN))  { Expr *e = expression(); expect(T_RPAREN, "I expected a ')' to close this group."); return e; }
   fail(t.line, "I expected a value here (a number, some text, or a name).");
@@ -652,24 +661,59 @@ static void env_assign(Env *e, const char *name, Value v, int line) {
 typedef struct { char *name; char **params; int nparams; Stmt **body; int nbody; int line;
                  int is_public; int fileid; Env *home; } TaskDef;
 static TaskDef *tasks = NULL; static int ntasks = 0, captasks = 0;
-/* visible from the current file: a public task (any file) or a private task of this file */
+/* bare calls only see tasks of the CURRENT file; cross-file goes through a module namespace */
 static TaskDef *task_find(const char *name) {
-  TaskDef *pub = NULL;
-  for (int i = 0; i < ntasks; i++) if (!strcmp(tasks[i].name, name)) {
-    if (tasks[i].fileid == cur_fileid) return &tasks[i];   /* same file: private or public, wins */
-    if (tasks[i].is_public && !pub) pub = &tasks[i];
-  }
-  return pub;
+  for (int i = 0; i < ntasks; i++) if (tasks[i].fileid == cur_fileid && !strcmp(tasks[i].name, name)) return &tasks[i];
+  return NULL;
+}
+/* a PUBLIC task of a specific file, reached as module.name() */
+static TaskDef *task_find_public(int fileid, const char *name) {
+  for (int i = 0; i < ntasks; i++) if (tasks[i].fileid == fileid && tasks[i].is_public && !strcmp(tasks[i].name, name)) return &tasks[i];
+  return NULL;
 }
 static void task_register(Stmt *s, int fileid, Env *home) {
-  for (int i = 0; i < ntasks; i++) if (!strcmp(tasks[i].name, s->name)) {
-    if (tasks[i].fileid == fileid)            failf(s->line, "there are two tasks named '%s' in this file.", s->name);
-    if (tasks[i].is_public && s->is_public)   failf(s->line, "there are two public tasks named '%s' in this project.", s->name);
-  }
+  for (int i = 0; i < ntasks; i++)
+    if (tasks[i].fileid == fileid && !strcmp(tasks[i].name, s->name))
+      failf(s->line, "there are two tasks named '%s' in this file.", s->name);
   if (ntasks >= captasks) { captasks = captasks ? captasks * 2 : 8; tasks = (TaskDef *)realloc(tasks, captasks * sizeof(TaskDef)); }
   TaskDef *t = &tasks[ntasks++];
   t->name = s->name; t->params = s->params; t->nparams = s->nparams; t->body = s->body; t->nbody = s->nbody; t->line = s->line;
   t->is_public = s->is_public; t->fileid = fileid; t->home = home;
+}
+
+/* module namespaces: a use'd file is reachable as  name.member  */
+typedef struct { char *name; int fileid; Env *env; } ModNS;
+static ModNS *g_mods = NULL; static int g_nmods = 0, g_capmods = 0;
+static void modns_register(const char *name, int fileid, Env *env) {
+  for (int i = 0; i < g_nmods; i++) if (!strcmp(g_mods[i].name, name)) return;   /* first file with a basename wins (no silent overwrite) */
+  if (g_nmods >= g_capmods) { g_capmods = g_capmods ? g_capmods * 2 : 8; g_mods = (ModNS *)realloc(g_mods, g_capmods * sizeof(ModNS)); }
+  g_mods[g_nmods].name = dup_str(name); g_mods[g_nmods].fileid = fileid; g_mods[g_nmods].env = env; g_nmods++;
+}
+static ModNS *modns_get(const char *name) { for (int i = 0; i < g_nmods; i++) if (!strcmp(g_mods[i].name, name)) return &g_mods[i]; return NULL; }
+
+/* per-file imports: a file may only name a module it has `use`d */
+typedef struct { int fileid; char *name; } Pair;
+static Pair *g_uses = NULL; static int g_nuses = 0, g_capuses = 0;
+static void mark_use(int fileid, const char *name) {
+  for (int i = 0; i < g_nuses; i++) if (g_uses[i].fileid == fileid && !strcmp(g_uses[i].name, name)) return;
+  if (g_nuses >= g_capuses) { g_capuses = g_capuses ? g_capuses * 2 : 8; g_uses = (Pair *)realloc(g_uses, g_capuses * sizeof(Pair)); }
+  g_uses[g_nuses].fileid = fileid; g_uses[g_nuses].name = dup_str(name); g_nuses++;
+}
+static int has_use(int fileid, const char *name) {
+  for (int i = 0; i < g_nuses; i++) if (g_uses[i].fileid == fileid && !strcmp(g_uses[i].name, name)) return 1;
+  return 0;
+}
+
+/* public variables, exposed on a module namespace as name.var */
+static Pair *g_pubvars = NULL; static int g_npv = 0, g_cappv = 0;
+static void mark_public_var(int fileid, const char *name) {
+  for (int i = 0; i < g_npv; i++) if (g_pubvars[i].fileid == fileid && !strcmp(g_pubvars[i].name, name)) return;
+  if (g_npv >= g_cappv) { g_cappv = g_cappv ? g_cappv * 2 : 8; g_pubvars = (Pair *)realloc(g_pubvars, g_cappv * sizeof(Pair)); }
+  g_pubvars[g_npv].fileid = fileid; g_pubvars[g_npv].name = dup_str(name); g_npv++;
+}
+static int is_public_var(int fileid, const char *name) {
+  for (int i = 0; i < g_npv; i++) if (g_pubvars[i].fileid == fileid && !strcmp(g_pubvars[i].name, name)) return 1;
+  return 0;
 }
 
 /* `give` is signalled with a flag + slot so it unwinds cleanly through blocks/loops */
@@ -683,11 +727,10 @@ static int g_learn = 0;     /* `learn on`: narrate each step as the program runs
 static Value eval(Expr *e, Env *env);
 static void exec(Stmt *s, Env *env);
 static void load_module(const char *name);   /* defined near main(); pulls in another project file */
+static char *module_basename(const char *path);   /* "server" from "modules/server.sprout" */
 static void exec_block(Stmt **list, int n, Env *env) { for (int i = 0; i < n; i++) { exec(list[i], env); if (returning) return; } }
 
-static Value call_task(Expr *call, Env *env) {
-  TaskDef *t = task_find(call->name);
-  if (!t) failf(call->line, "I don't know a task called '%s'.", call->name);
+static Value call_task_def(TaskDef *t, Expr *call, Env *env) {
   if (call->nargs != t->nparams) {
     char m[160]; snprintf(m, sizeof m, "the task '%s' wants %d input%s, but got %d.", t->name, t->nparams, t->nparams == 1 ? "" : "s", call->nargs);
     fail(call->line, m);
@@ -696,14 +739,20 @@ static Value call_task(Expr *call, Env *env) {
   Env *frame = env_new(t->home);      /* a task sees its OWN file (privates + publics) + its locals */
   for (int i = 0; i < t->nparams; i++) env_define(frame, t->params[i], eval(call->args[i], env));
   int saved_ret = returning; Value saved_rv = return_value;
-  int saved_fid = cur_fileid; cur_fileid = t->fileid;   /* inside the body, see THIS task's file */
+  int saved_fid = cur_fileid; cur_fileid = t->fileid;          /* inside the body, see THIS task's file */
+  Env *saved_fe = cur_file_env; cur_file_env = t->home;        /* ...and a `public make` lands in it */
   returning = 0;
   exec_block(t->body, t->nbody, frame);
   Value result = returning ? return_value : vnone();
   returning = saved_ret; return_value = saved_rv;
-  cur_fileid = saved_fid;
+  cur_fileid = saved_fid; cur_file_env = saved_fe;
   call_depth--;
   return result;
+}
+static Value call_task(Expr *call, Env *env) {
+  TaskDef *t = task_find(call->name);
+  if (!t) failf(call->line, "I don't know a task called '%s'.", call->name);
+  return call_task_def(t, call, env);
 }
 
 /* ---- "did you mean?" suggestions, so errors can teach instead of just scold ---- */
@@ -730,7 +779,7 @@ static const char *const BUILTIN_NAMES[] = {
   "abs","round","floor","ceil","sqrt","min","max","random","number",
   "upper","lower","trim","replace","split","join",
   "ask","now","today","wait","read","write","append","exists",
-  "get","json","run","explore","color",
+  "get","json","explore","color",
 };
 static const int NBUILTIN_NAMES = (int)(sizeof BUILTIN_NAMES / sizeof BUILTIN_NAMES[0]);
 
@@ -1100,10 +1149,8 @@ static Value call_builtin(Expr *call, Env *env) {
     if (n!=1||a[0].type!=V_STR) fail(call->line,"json needs some text to read.");
     return parse_json(a[0].str?a[0].str:"");
   }
-  if (!strcmp(name,"run")) {
-    if (n!=1||a[0].type!=V_STR) fail(call->line,"run needs a command, like run(\"echo hi\").");
-    char*out=run_command(a[0].str?a[0].str:""); return out ? vstr(out) : vnone();
-  }
+  /* `run` moved into the system module: use system  ->  system.run("...") */
+  if (!strcmp(name,"run")) fail(call->line, "run now lives in the system module.\n\n  Put 'use system' at the top, then call:  system.run(\"echo hi\")");
   /* ---- discovery + color ---- */
   if (!strcmp(name,"explore")) {
     if (n!=1) fail(call->line,"explore needs one thing, like explore(json(get(url))).");
@@ -1170,6 +1217,33 @@ static Value eval_binary(Expr *e, Env *env) {
   return vnone();
 }
 
+/* the built-in `system` module: OS-level, explicit (use system) actions like system.run(...) */
+static Value call_system(Expr *e, Env *env) {
+  if (!strcmp(e->name, "run")) {
+    if (e->nargs != 1) fail(e->line, "system.run needs one piece of text, like system.run(\"echo hi\").");
+    Value a = eval(e->args[0], env);
+    if (a.type != V_STR) fail(e->line, "system.run needs text (the command to run).");
+    char *out = run_command(a.str ? a.str : "");
+    return out ? vstr(out) : vnone();
+  }
+  { char m[200]; snprintf(m, sizeof m, "the system module has no '%s' (it has: run).", e->name); fail(e->line, m); }
+  return vnone();
+}
+
+/* a namespaced call:  server.start(...)  or  system.run(...)  */
+static Value call_module(Expr *e, Env *env) {
+  if (!has_use(cur_fileid, e->module)) {
+    char m[256]; snprintf(m, sizeof m, "this file hasn't done 'use %s', so it can't use %s.%s.", e->module, e->module, e->name);
+    fail(e->line, m);
+  }
+  if (!strcmp(e->module, "system")) return call_system(e, env);
+  ModNS *mod = modns_get(e->module);
+  if (!mod) { char m[200]; snprintf(m, sizeof m, "I don't know a module called '%s'.", e->module); fail(e->line, m); }
+  TaskDef *t = task_find_public(mod->fileid, e->name);
+  if (!t) { char m[256]; snprintf(m, sizeof m, "the module '%s' has no public task called '%s'.", e->module, e->name); fail(e->line, m); }
+  return call_task_def(t, e, env);
+}
+
 static Value eval(Expr *e, Env *env) {
   switch (e->kind) {
     case E_NUM:  return vnum(e->num);
@@ -1195,7 +1269,17 @@ static Value eval(Expr *e, Env *env) {
       return vbool(l ? 1 : is_truthy(eval(e->right, env)));
     }
     case E_BINARY: return eval_binary(e, env);
-    case E_CALL:   return task_find(e->name) ? call_task(e, env) : call_builtin(e, env);
+    case E_CALL:   if (e->module) return call_module(e, env);
+                   return task_find(e->name) ? call_task(e, env) : call_builtin(e, env);
+    case E_MEMBER: {
+      if (!has_use(cur_fileid, e->module)) { char m[256]; snprintf(m, sizeof m, "this file hasn't done 'use %s', so it can't read %s.%s.", e->module, e->module, e->name); fail(e->line, m); }
+      if (!strcmp(e->module, "system")) { char m[200]; snprintf(m, sizeof m, "system.%s is an action - call it, like system.%s(...).", e->name, e->name); fail(e->line, m); }
+      ModNS *mod = modns_get(e->module);
+      if (!mod) { char m[200]; snprintf(m, sizeof m, "I don't know a module called '%s'.", e->module); fail(e->line, m); }
+      if (!is_public_var(mod->fileid, e->name)) { char m[256]; snprintf(m, sizeof m, "the module '%s' has no public value called '%s'.", e->module, e->name); fail(e->line, m); }
+      Value *v = env_local(mod->env, e->name);
+      return v ? *v : vnone();
+    }
     case E_LIST: { SList *l = list_new(); for (int i = 0; i < e->nargs; i++) list_push(l, eval(e->args[i], env)); return vlist(l); }
     case E_MAP:  { SMap *m = map_new(); for (int i = 0; i < e->nargs; i++) map_set(m, e->keys[i], eval(e->args[i], env)); return vmap(m); }
     case E_INDEX: {
@@ -1252,8 +1336,9 @@ static void render_expr(Expr *e, int wv, Env *env, char **o, size_t *c, size_t *
       }
       render_expr(e->left, wv, env, o, c, l); sb_add(o, c, l, " "); sb_add(o, c, l, op_sym(e->op)); sb_add(o, c, l, " "); render_expr(e->right, wv, env, o, c, l); break;
     }
-    case E_CALL: sb_add(o, c, l, e->name); sb_add(o, c, l, "(");
+    case E_CALL: if (e->module) { sb_add(o, c, l, e->module); sb_add(o, c, l, "."); } sb_add(o, c, l, e->name); sb_add(o, c, l, "(");
       for (int i = 0; i < e->nargs; i++) { if (i) sb_add(o, c, l, ", "); render_expr(e->args[i], wv, env, o, c, l); } sb_add(o, c, l, ")"); break;
+    case E_MEMBER: sb_add(o, c, l, e->module); sb_add(o, c, l, "."); sb_add(o, c, l, e->name); break;
     case E_LIST: sb_add(o, c, l, "[");
       for (int i = 0; i < e->nargs; i++) { if (i) sb_add(o, c, l, ", "); render_expr(e->args[i], wv, env, o, c, l); } sb_add(o, c, l, "]"); break;
     case E_MAP: sb_add(o, c, l, "{");
@@ -1287,7 +1372,9 @@ static void learn_show(Stmt *s, Env *env) {
 static void exec(Stmt *s, Env *env) {
   switch (s->kind) {
     case S_MAKE: {
-      Value v = eval(s->expr, env); env_define(s->is_public ? global_env : env, s->name, v);
+      Value v = eval(s->expr, env);
+      if (s->is_public) { env_define(cur_file_env, s->name, v); mark_public_var(cur_fileid, s->name); }  /* lives in the file env, reachable as module.name */
+      else env_define(env, s->name, v);
       if (g_learn) { char *t = stringify(v); printf("  " C_DIM "Created variable" C_RESET " %s = %s\n\n", s->name, t); free(t); }
       break;
     }
@@ -1317,7 +1404,14 @@ static void exec(Stmt *s, Env *env) {
       while (is_truthy(eval(s->expr, env))) { exec_block(s->body, s->nbody, env); if (returning) break; }
       break;
     case S_TASK: break;  /* registered before the run */
-    case S_USE:  load_module(s->name); break;   /* pull in another file from the project */
+    case S_USE: {                                /* import a module so this file can name it */
+      char *base = module_basename(s->name);
+      mark_use(cur_fileid, base);
+      int builtin = !strcmp(base, "system");     /* system is built in - no file to load */
+      free(base);
+      if (!builtin) load_module(s->name);
+      break;
+    }
     case S_GIVE: return_value = s->expr ? eval(s->expr, env) : vnone(); returning = 1; break;
     case S_EXPR: { Value v = eval(s->expr, env); if (repl_echo && v.type != V_NONE) printf("%s\n", stringify(v)); break; }
     case S_FOREACH: {
@@ -1374,7 +1468,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.0.6"
+#define SPROUT_VERSION "0.0.7"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);
@@ -1580,27 +1674,27 @@ static const TplFile TPL_APP[] = {
     "use greeter\n"
     "use server\n\n"
     "show color(\"bold\", \"Welcome to MyApp!\")\n"
-    "show greet(\"world\")\n\n"
-    "start()\n" },
+    "show greeter.greet(\"world\")\n\n"
+    "server.start()\n" },
   { "modules/greeter.sprout",
-    "~ The greeter module. 'public' means any file in the project can call it.\n\n"
+    "~ The greeter module. 'public' means other files can call it as greeter.greet(...).\n\n"
     "public task greet(who):\n"
     "    give f\"Hello, {who}!\"\n" },
   { "modules/server.sprout",
-    "~ The server module - it uses the greeter.\n"
-    "~ 'public' = callable across the project.  Plain tasks stay private to this file.\n\n"
+    "~ The server module - it uses the greeter, and calls it as greeter.greet(...).\n"
+    "~ 'public' tasks are reachable as server.<name>.  Plain tasks stay private to this file.\n\n"
     "use greeter\n\n"
     "public task start():\n"
     "    show color(\"cyan\", \"server: handling 2 requests...\")\n"
     "    show handle(\"Ada\")\n"
     "    show handle(\"Lin\")\n\n"
     "task handle(user):\n"
-    "    ~ private helper: only server.sprout can call this one\n"
-    "    give f\"  200 OK  ->  {greet(user)}\"\n" },
+    "    ~ private helper - called bare (same file); greeter.greet is from another module\n"
+    "    give f\"  200 OK  ->  {greeter.greet(user)}\"\n" },
   { "tests/test.sprout",
     "~ A tiny test. Run it on its own with:  sprout run tests/test.sprout\n"
     "use greeter\n\n"
-    "when contains(greet(\"x\"), \"Hello\"):\n"
+    "when contains(greeter.greet(\"x\"), \"Hello\"):\n"
     "    show color(\"green\", \"PASS: greet() says hello\")\n"
     "otherwise:\n"
     "    show color(\"red\", \"FAIL: greet() is broken\")\n" },
@@ -1617,11 +1711,12 @@ static const TplFile TPL_APP[] = {
     "    tests/\n"
     "      test.sprout      # a quick check\n\n"
     "## How files connect\n\n"
-    "Every file in the project shares one space, so a `task` defined in any\n"
-    "file can be called from any other. Put `use <name>` at the top of a file\n"
-    "to pull a module in by name:\n\n"
-    "    use greeter        # loads modules/greeter.sprout\n"
-    "    use server         # loads modules/server.sprout\n\n"
+    "Put `use <name>` at the top of a file to import a module, then call its\n"
+    "`public` tasks through its name:\n\n"
+    "    use greeter            # import the greeter module\n"
+    "    show greeter.greet(\"x\")  # call a public task as module.name(...)\n\n"
+    "Each file keeps its own (private) tasks and variables; only `public` ones\n"
+    "are reachable as `module.name`. Within a file you call your own tasks bare.\n\n"
     "Add a file by dropping it in (e.g. `modules/database.sprout`) and listing\n"
     "it under `include` in `sprout.toml`.\n" },
 };
@@ -1924,6 +2019,7 @@ static void load_module(const char *name) {
   Env *fe = env_new(global_env);               /* this file's own scope (its privates live here) */
   int prevfid = cur_fileid; Env *prevfe = cur_file_env;
   cur_fileid = ++g_next_fileid; cur_file_env = fe;
+  { char *base = module_basename(path); modns_register(base, cur_fileid, fe); free(base); }   /* reachable as base.member */
   for (int i = 0; i < n; i++) if (prog[i]->kind == S_TASK) task_register(prog[i], cur_fileid, fe);
   exec_block(prog, n, fe);
   returning = 0;                 /* a module's top-level `give` (if any) doesn't return to the user */
@@ -1985,6 +2081,7 @@ int main(int argc, char **argv) {
   global_env = env_new(NULL);                  /* the shared/public space */
   cur_file_env = env_new(global_env);          /* the entry file's own scope */
   cur_fileid = ++g_next_fileid;
+  { char *base = module_basename(file); modns_register(base, cur_fileid, cur_file_env); free(base); }  /* same as `sprout build` */
   for (int i = 0; i < ncount; i++) if (program[i]->kind == S_TASK) task_register(program[i], cur_fileid, cur_file_env);
   exec_block(program, ncount, cur_file_env);
   return 0;

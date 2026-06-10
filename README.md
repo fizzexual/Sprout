@@ -101,8 +101,9 @@ language runs now:
   - 🧩 `json(text)` — parse JSON straight into native lists & maps
   - 🔎 `explore(value)` — list every field/target inside an API response
   - 📄 `read` / `write` / `append` / `exists` — files
-  - ⚙️ `run(command)` — run any program and capture its output
-- **Projects & modules:** a `sprout.toml` ties many files into one program — `use server` pulls in another file by name, `public` shares a task across the project (private by default), and `sprout build` runs the whole thing
+  - ⚙️ `system.run(command)` — run any program and capture its output (after `use system`)
+- **Projects & modules:** a `sprout.toml` ties many files into one program — `use server` then call it by name (`server.start()`), `public` exposes a task/value (private by default — no hidden global sharing), and `sprout build` runs the whole thing
+- **System module:** OS-level actions are explicit — `use system` then `system.run("...")`
 - **Scaffolding:** `sprout new <folder>` creates a full multi-file project · `sprout template load <name>` scaffolds into the current folder · **`sprout api <url>`** dumps every field an API returns
 - `~` comments, indentation blocks, friendly errors with line numbers
 
@@ -145,12 +146,12 @@ include [
 ```
 
 ```sprout
-~ app.sprout — pull in modules by name; every file shares one space
+~ app.sprout — import a module, then call it by name
 use greeter
 use server
 
-show greet("world")
-start()
+show greeter.greet("world")
+server.start()
 ```
 
 ## Build & run
@@ -168,13 +169,13 @@ build.cmd                     # or: gcc -O2 -Wall -s -o sprout.exe sprout.c -lm 
 
 # run a program:
 sprout run hello.sprout     # or just: sprout hello.sprout
-sprout version              # -> Sprout v0.0.6
+sprout version              # -> Sprout v0.0.7
 sprout new myapp            # create a full multi-file project folder
 sprout build                # run the project in the current folder (reads sprout.toml)
 sprout api <url>            # list every field an API returns
 ```
 
-The result is a **~34 KB** native executable that links only against the operating
+The result is a **~86 KB** native executable that links only against the operating
 system's own libraries. Drop it anywhere and it runs.
 
 ## Roadmap
@@ -198,7 +199,7 @@ source.sprout → lexer → parser → interpreter → output
 ```
 
 Your `.sprout` program is **interpreted** (walked as a tree), not compiled to
-machine code — only the Sprout interpreter itself is compiled (to that ~34 KB
+machine code — only the Sprout interpreter itself is compiled (to that ~86 KB
 native `sprout.exe`). A small, dependency-free pipeline in one C file. The full tour is in
 [`src/README.md`](src/README.md) and **[How Sprout Works](wiki/architecture.md)**.
 There's a **[VS Code extension](vscode-extension)** for syntax highlighting too.

@@ -64,7 +64,9 @@ HTTP library *plus* a JSON parser *plus* shell glue — in Sprout it's all built
 | `json(text)` | parse JSON into native Sprout lists & maps |
 | `explore(value)` | list every `path = value` inside a value — point it at an API to see all its fields/targets |
 | `color(name, text)` | wrap text in a terminal colour (`red` `green` `yellow` `blue` `magenta` `cyan` `white` `gray` `bold` `dim`) |
-| `run("command")` | run any program, return its output |
+
+Running OS commands lives in the **system module** (it's powerful, so it's explicit):
+`use system` then `system.run("...")`.
 
 ```sprout
 ~ Call an API and use the result like a normal map — no libraries:
@@ -75,8 +77,9 @@ show repo["name"], "has", repo["stargazers_count"], "stars"
 make person = json("{\"name\": \"Sam\", \"pets\": [\"cat\", \"dog\"]}")
 show person["name"], person["pets"][0]
 
-~ Drive your computer:
-show run("echo hello from the shell")
+~ Drive your computer (run lives in the system module):
+use system
+show system.run("echo hello from the shell")
 write("notes.txt", "remember the milk")
 show read("notes.txt")
 
