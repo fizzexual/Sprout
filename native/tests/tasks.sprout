@@ -1,0 +1,47 @@
+~ slice-2 smoke test: tasks, give, calls, recursion, scope, hoisting
+
+task greet(who):
+    give "Hello, " + who + "!"
+
+show greet("Sam")            ~ Hello, Sam!
+
+~ recursion: factorial
+task fact(n):
+    when n <= 1:
+        give 1
+    give n * fact(n - 1)
+
+show "5! =", fact(5)         ~ 5! = 120
+
+~ recursion: fibonacci
+task fib(n):
+    when n < 2:
+        give n
+    give fib(n - 1) + fib(n - 2)
+
+show "fib(10) =", fib(10)    ~ fib(10) = 55
+
+~ a task with no give returns nothing; call it as a statement too
+task banner(text):
+    show "== " + text + " =="
+
+banner("menu")               ~ == menu ==
+show banner("x")             ~ == x ==  then  nothing
+
+~ scope: a task sees globals + its own locals, not the caller's locals
+make base = 100
+task addbase(n):
+    give n + base
+
+show addbase(5)              ~ 105
+
+~ call-before-define works (tasks are hoisted)
+show twice(21)               ~ 42
+task twice(x):
+    give x + x
+
+~ locals stay local
+task work():
+    make secret = 7
+    give secret * 2
+show work()                  ~ 14

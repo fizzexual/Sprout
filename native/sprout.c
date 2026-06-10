@@ -75,6 +75,7 @@ static void failf(int line, const char *fmt, const char *arg) {
 typedef enum {
   T_NUM, T_STR, T_IDENT,
   T_MAKE, T_SET, T_SHOW, T_WHEN, T_ORWHEN, T_OTHERWISE, T_REPEAT, T_WHILE, T_TIMES,
+  T_TASK, T_GIVE,
   T_AND, T_OR, T_NOT, T_YES, T_NO, T_NOTHING,
   T_PLUS, T_MINUS, T_STAR, T_SLASH, T_PERCENT,
   T_EQ, T_EQEQ, T_BANGEQ, T_LT, T_LE, T_GT, T_GE,
@@ -94,7 +95,8 @@ static TokType keyword(const char *w) {
   static const struct { const char *word; TokType type; } table[] = {
     { "make", T_MAKE }, { "set", T_SET }, { "show", T_SHOW }, { "when", T_WHEN },
     { "orwhen", T_ORWHEN }, { "otherwise", T_OTHERWISE }, { "repeat", T_REPEAT },
-    { "while", T_WHILE }, { "times", T_TIMES }, { "and", T_AND }, { "or", T_OR },
+    { "while", T_WHILE }, { "times", T_TIMES }, { "task", T_TASK }, { "give", T_GIVE },
+    { "and", T_AND }, { "or", T_OR },
     { "not", T_NOT }, { "yes", T_YES }, { "no", T_NO }, { "nothing", T_NOTHING },
   };
   for (size_t k = 0; k < sizeof table / sizeof table[0]; k++)
@@ -176,20 +178,22 @@ static void tokenize(const char *src, int len) {
 }
 
 /* ---------------------------------------------------------------------- AST */
-typedef enum { E_NUM, E_STR, E_BOOL, E_NONE, E_VAR, E_UNARY, E_BINARY, E_LOGICAL } EKind;
+typedef enum { E_NUM, E_STR, E_BOOL, E_NONE, E_VAR, E_UNARY, E_BINARY, E_LOGICAL, E_CALL } EKind;
 typedef struct Expr {
   EKind kind; double num; char *str; int boolean; char *name;
   TokType op; struct Expr *left, *right, *operand; int line;
+  struct Expr **args; int nargs;         /* call */
 } Expr;
 
-typedef enum { S_MAKE, S_SET, S_SHOW, S_WHEN, S_REPEAT_TIMES, S_REPEAT_WHILE } SKind;
+typedef enum { S_MAKE, S_SET, S_SHOW, S_WHEN, S_REPEAT_TIMES, S_REPEAT_WHILE, S_TASK, S_GIVE, S_EXPR } SKind;
 typedef struct Stmt Stmt;
 typedef struct { Expr *cond; Stmt **body; int nbody; } Branch;
 struct Stmt {
   SKind kind; char *name; Expr *expr;
   Expr **values; int nvalues;            /* show */
   Branch *branches; int nbranches; Stmt **otherwise; int notherwise; /* when */
-  Expr *count; Stmt **body; int nbody;   /* repeat */
+  Expr *count; Stmt **body; int nbody;   /* repeat / task body */
+  char **params; int nparams;            /* task */
   int line;
 };
 
@@ -213,7 +217,22 @@ static Expr *primary(void) {
   if (match(T_YES))     { Expr *e = new_expr(E_BOOL, t.line); e->boolean = 1; return e; }
   if (match(T_NO))      { Expr *e = new_expr(E_BOOL, t.line); e->boolean = 0; return e; }
   if (match(T_NOTHING)) { return new_expr(E_NONE, t.line); }
-  if (match(T_IDENT))   { Expr *e = new_expr(E_VAR, t.line); e->name = t.text; return e; }
+  if (match(T_IDENT)) {
+    if (check(T_LPAREN)) {           /* a call: name(args) */
+      advance();
+      Expr *e = new_expr(E_CALL, t.line); e->name = t.text;
+      Expr **args = NULL; int n = 0, cap = 0;
+      if (!check(T_RPAREN)) {
+        do {
+          if (n >= cap) { cap = cap ? cap * 2 : 4; args = (Expr **)realloc(args, cap * sizeof(Expr *)); }
+          args[n++] = expression();
+        } while (match(T_COMMA));
+      }
+      expect(T_RPAREN, "I expected a ')' to close the inputs.");
+      e->args = args; e->nargs = n; return e;
+    }
+    Expr *e = new_expr(E_VAR, t.line); e->name = t.text; return e;
+  }
   if (match(T_LPAREN))  { Expr *e = expression(); expect(T_RPAREN, "I expected a ')' to close this group."); return e; }
   fail(t.line, "I expected a value here (a number, some text, or a name).");
   return NULL;
@@ -298,7 +317,29 @@ static Stmt *statement(void) {
       expect(T_TIMES, "I expected 'times' here (like: repeat 3 times:).");
       s->body = block(&s->nbody); return s;
     }
-    default: fail(t.line, "I didn't expect this at the start of a line.");
+    case T_TASK: {
+      advance(); Token name = expect(T_IDENT, "I expected the task's name here.");
+      expect(T_LPAREN, "I expected '(' after the task name.");
+      char **params = NULL; int n = 0, cap = 0;
+      if (!check(T_RPAREN)) {
+        do {
+          Token p = expect(T_IDENT, "I expected an input name here.");
+          if (n >= cap) { cap = cap ? cap * 2 : 4; params = (char **)realloc(params, cap * sizeof(char *)); }
+          params[n++] = p.text;
+        } while (match(T_COMMA));
+      }
+      expect(T_RPAREN, "I expected ')' to close the inputs.");
+      Stmt *s = new_stmt(S_TASK, t.line); s->name = name.text; s->params = params; s->nparams = n;
+      s->body = block(&s->nbody); return s;
+    }
+    case T_GIVE: {
+      advance(); Stmt *s = new_stmt(S_GIVE, t.line);
+      if (!check(T_NEWLINE)) s->expr = expression();   /* bare `give` hands back nothing */
+      return s;
+    }
+    default:
+      if (check(T_IDENT)) { Stmt *s = new_stmt(S_EXPR, t.line); s->expr = expression(); return s; }
+      fail(t.line, "I didn't expect this at the start of a line.");
   }
   return NULL;
 }
@@ -315,19 +356,66 @@ static Stmt **parse_program(int *count) {
 
 /* -------------------------------------------------------------- interpreter */
 typedef struct { char *name; Value val; } Var;
-static Var *env = NULL; static int nenv = 0, capenv = 0;
-static Value *env_find(const char *name) { for (int i = 0; i < nenv; i++) if (!strcmp(env[i].name, name)) return &env[i].val; return NULL; }
-static void env_set(const char *name, Value v) {
-  Value *slot = env_find(name);
+typedef struct Env { Var *vars; int n, cap; struct Env *parent; } Env;
+static Env *global_env;
+
+static Env *env_new(Env *parent) { Env *e = (Env *)calloc(1, sizeof(Env)); e->parent = parent; return e; }
+static Value *env_local(Env *e, const char *name) { for (int i = 0; i < e->n; i++) if (!strcmp(e->vars[i].name, name)) return &e->vars[i].val; return NULL; }
+static Value *env_find(Env *e, const char *name) { for (; e; e = e->parent) { Value *v = env_local(e, name); if (v) return v; } return NULL; }
+static void env_define(Env *e, const char *name, Value v) {
+  Value *slot = env_local(e, name);
   if (slot) { *slot = v; return; }
-  if (nenv >= capenv) { capenv = capenv ? capenv * 2 : 16; env = (Var *)realloc(env, capenv * sizeof(Var)); }
-  env[nenv].name = dup_str(name); env[nenv].val = v; nenv++;
+  if (e->n >= e->cap) { e->cap = e->cap ? e->cap * 2 : 8; e->vars = (Var *)realloc(e->vars, e->cap * sizeof(Var)); }
+  e->vars[e->n].name = dup_str(name); e->vars[e->n].val = v; e->n++;
+}
+static void env_assign(Env *e, const char *name, Value v, int line) {
+  Value *slot = env_find(e, name);
+  if (!slot) failf(line, "I can't set '%s' because it was never made.", name);
+  *slot = v;
 }
 
-static Value eval(Expr *e);
+/* tasks: top-level functions, hoisted so call order doesn't matter */
+typedef struct { char *name; char **params; int nparams; Stmt **body; int nbody; int line; } TaskDef;
+static TaskDef *tasks = NULL; static int ntasks = 0, captasks = 0;
+static TaskDef *task_find(const char *name) { for (int i = 0; i < ntasks; i++) if (!strcmp(tasks[i].name, name)) return &tasks[i]; return NULL; }
+static void task_register(Stmt *s) {
+  if (task_find(s->name)) failf(s->line, "there are two tasks named '%s'.", s->name);
+  if (ntasks >= captasks) { captasks = captasks ? captasks * 2 : 8; tasks = (TaskDef *)realloc(tasks, captasks * sizeof(TaskDef)); }
+  TaskDef *t = &tasks[ntasks++];
+  t->name = s->name; t->params = s->params; t->nparams = s->nparams; t->body = s->body; t->nbody = s->nbody; t->line = s->line;
+}
 
-static Value eval_binary(Expr *e) {
-  Value l = eval(e->left), r = eval(e->right);
+/* `give` is signalled with a flag + slot so it unwinds cleanly through blocks/loops */
+static int returning = 0;
+static Value return_value;
+static int call_depth = 0;
+#define MAX_DEPTH 6000
+
+static Value eval(Expr *e, Env *env);
+static void exec(Stmt *s, Env *env);
+static void exec_block(Stmt **list, int n, Env *env) { for (int i = 0; i < n; i++) { exec(list[i], env); if (returning) return; } }
+
+static Value call_task(Expr *call, Env *env) {
+  TaskDef *t = task_find(call->name);
+  if (!t) failf(call->line, "I don't know a task called '%s'.", call->name);
+  if (call->nargs != t->nparams) {
+    char m[160]; snprintf(m, sizeof m, "the task '%s' wants %d input%s, but got %d.", t->name, t->nparams, t->nparams == 1 ? "" : "s", call->nargs);
+    fail(call->line, m);
+  }
+  if (++call_depth > MAX_DEPTH) fail(call->line, "this went too deep — a task may be calling itself with no way to stop.");
+  Env *frame = env_new(global_env);   /* a task sees globals + its own locals, not the caller's */
+  for (int i = 0; i < t->nparams; i++) env_define(frame, t->params[i], eval(call->args[i], env));
+  int saved_ret = returning; Value saved_rv = return_value;
+  returning = 0;
+  exec_block(t->body, t->nbody, frame);
+  Value result = returning ? return_value : vnone();
+  returning = saved_ret; return_value = saved_rv;
+  call_depth--;
+  return result;
+}
+
+static Value eval_binary(Expr *e, Env *env) {
+  Value l = eval(e->left, env), r = eval(e->right, env);
   switch (e->op) {
     case T_PLUS:
       if (l.type == V_STR || r.type == V_STR) { char *a = stringify(l), *b = stringify(r); char *out = (char *)malloc(strlen(a) + strlen(b) + 1); strcpy(out, a); strcat(out, b); return vstr(out); }
@@ -356,49 +444,52 @@ static Value eval_binary(Expr *e) {
   return vnone();
 }
 
-static Value eval(Expr *e) {
+static Value eval(Expr *e, Env *env) {
   switch (e->kind) {
     case E_NUM:  return vnum(e->num);
     case E_STR:  return vstr(e->str);
     case E_BOOL: return vbool(e->boolean);
     case E_NONE: return vnone();
-    case E_VAR: { Value *v = env_find(e->name); if (!v) failf(e->line, "I don't know what '%s' is.", e->name); return *v; }
+    case E_VAR: { Value *v = env_find(env, e->name); if (!v) failf(e->line, "I don't know what '%s' is.", e->name); return *v; }
     case E_UNARY:
-      if (e->op == T_NOT) return vbool(!is_truthy(eval(e->operand)));
-      { Value v = eval(e->operand); if (v.type != V_NUM) fail(e->line, "I can only put a minus sign in front of a number."); return vnum(-v.num); }
+      if (e->op == T_NOT) return vbool(!is_truthy(eval(e->operand, env)));
+      { Value v = eval(e->operand, env); if (v.type != V_NUM) fail(e->line, "I can only put a minus sign in front of a number."); return vnum(-v.num); }
     case E_LOGICAL: {
-      int l = is_truthy(eval(e->left));
-      if (e->op == T_AND) return vbool(l ? is_truthy(eval(e->right)) : 0);
-      return vbool(l ? 1 : is_truthy(eval(e->right)));
+      int l = is_truthy(eval(e->left, env));
+      if (e->op == T_AND) return vbool(l ? is_truthy(eval(e->right, env)) : 0);
+      return vbool(l ? 1 : is_truthy(eval(e->right, env)));
     }
-    case E_BINARY: return eval_binary(e);
+    case E_BINARY: return eval_binary(e, env);
+    case E_CALL:   return call_task(e, env);
   }
   return vnone();
 }
 
-static void exec(Stmt *s);
-static void exec_block(Stmt **list, int n) { for (int i = 0; i < n; i++) exec(list[i]); }
-
-static void exec(Stmt *s) {
+static void exec(Stmt *s, Env *env) {
   switch (s->kind) {
-    case S_MAKE: case S_SET: env_set(s->name, eval(s->expr)); break;
+    case S_MAKE: env_define(env, s->name, eval(s->expr, env)); break;
+    case S_SET:  env_assign(env, s->name, eval(s->expr, env), s->line); break;
     case S_SHOW: {
-      for (int i = 0; i < s->nvalues; i++) { if (i) fputc(' ', stdout); char *t = stringify(eval(s->values[i])); fputs(t, stdout); }
+      for (int i = 0; i < s->nvalues; i++) { if (i) fputc(' ', stdout); char *t = stringify(eval(s->values[i], env)); fputs(t, stdout); }
       fputc('\n', stdout); break;
     }
     case S_WHEN: {
-      for (int i = 0; i < s->nbranches; i++) if (is_truthy(eval(s->branches[i].cond))) { exec_block(s->branches[i].body, s->branches[i].nbody); return; }
-      if (s->otherwise) exec_block(s->otherwise, s->notherwise);
+      for (int i = 0; i < s->nbranches; i++) if (is_truthy(eval(s->branches[i].cond, env))) { exec_block(s->branches[i].body, s->branches[i].nbody, env); return; }
+      if (s->otherwise) exec_block(s->otherwise, s->notherwise, env);
       break;
     }
     case S_REPEAT_TIMES: {
-      Value c = eval(s->count); if (c.type != V_NUM) fail(s->line, "'repeat ... times' needs a number.");
-      long long times = (long long)c.num; for (long long k = 0; k < times; k++) exec_block(s->body, s->nbody);
+      Value c = eval(s->count, env); if (c.type != V_NUM) fail(s->line, "'repeat ... times' needs a number.");
+      long long times = (long long)c.num;
+      for (long long k = 0; k < times; k++) { exec_block(s->body, s->nbody, env); if (returning) break; }
       break;
     }
     case S_REPEAT_WHILE:
-      while (is_truthy(eval(s->expr))) exec_block(s->body, s->nbody);
+      while (is_truthy(eval(s->expr, env))) { exec_block(s->body, s->nbody, env); if (returning) break; }
       break;
+    case S_TASK: break;  /* registered before the run */
+    case S_GIVE: return_value = s->expr ? eval(s->expr, env) : vnone(); returning = 1; break;
+    case S_EXPR: eval(s->expr, env); break;
   }
 }
 
@@ -416,6 +507,8 @@ int main(int argc, char **argv) {
   int len; char *src = read_file(argv[1], &len);
   tokenize(src, len);
   int ncount; Stmt **program = parse_program(&ncount);
-  exec_block(program, ncount);
+  for (int i = 0; i < ncount; i++) if (program[i]->kind == S_TASK) task_register(program[i]);
+  global_env = env_new(NULL);
+  exec_block(program, ncount, global_env);
   return 0;
 }
