@@ -130,7 +130,45 @@ export function tokenize(source: string): Token[] {
         continue;
       }
 
-      // Strings: "..." with \n \t \" \\ escapes
+      // f-strings: f"Hi {name}!" — like a string, but {…} inserts values.
+      // A " only closes it at brace-depth 0, so quotes can live inside a {…}
+      // (e.g. f"City: {m["city"]}"). {{ and }} are literal braces. Plain "..."
+      // (below) never interpolates, so JSON like "{\"a\":1}" stays untouched.
+      if (c === "f" && rest[j + 1] === '"') {
+        const start = j;
+        j += 2; // skip f and opening quote
+        let text = "";
+        let depth = 0;
+        while (j < rest.length && !(depth === 0 && rest[j] === '"')) {
+          if (rest[j] === "\\") {
+            const nx = rest[j + 1];
+            if (nx === "n") text += "\n";
+            else if (nx === "t") text += "\t";
+            else if (nx === '"') text += '"';
+            else if (nx === "\\") text += "\\";
+            else text += nx ?? "";
+            j += 2;
+          } else if (rest[j] === "{" && rest[j + 1] === "{") {
+            text += "{{"; j += 2;
+          } else if (rest[j] === "}" && rest[j + 1] === "}") {
+            text += "}}"; j += 2;
+          } else {
+            if (rest[j] === "{") depth++;
+            else if (rest[j] === "}" && depth > 0) depth--;
+            text += rest[j];
+            j++;
+          }
+        }
+        if (j >= rest.length) {
+          throw new LangError("Syntax", "This f\"...\" text is missing its closing quote.", lineNo, colOf(start),
+            depth > 0 ? "A { starts an inserted value — close it with }, or use {{ for a real { character." : 'Add a " at the end.');
+        }
+        j++;
+        push("FSTRING", text, lineNo, colOf(start));
+        continue;
+      }
+
+      // Strings: "..." with \n \t \" \\ escapes (no interpolation — JSON-safe).
       if (c === '"') {
         const start = j;
         j++;

@@ -47,6 +47,7 @@ export function compile(program: Stmt[], runtimeUrl: string): { js: string } | {
   const scanExpr = (e: Expr): void => {
     switch (e.type) {
       case "Unary": scanExpr(e.operand); break;
+      case "Interp": e.parts.forEach(scanExpr); break;
       case "Logical": case "Binary": scanExpr(e.left); scanExpr(e.right); break;
       case "Call": if (!tasks.has(e.name) && !BUILTIN.has(e.name) && e.name !== "ask") note(`the fast build doesn't support '${e.name}' yet`); e.args.forEach(scanExpr); break;
       case "List": e.items.forEach(scanExpr); break;
@@ -77,6 +78,7 @@ export function compile(program: Stmt[], runtimeUrl: string): { js: string } | {
     switch (e.type) {
       case "Number": return JSON.stringify(e.value);
       case "String": return JSON.stringify(e.value);
+      case "Interp": return `_str(${e.parts.map(genExpr).join(", ")})`;
       case "Bool": return e.value ? "true" : "false";
       case "Nothing": return "NONE";
       case "Identifier": return v(e.name);
@@ -117,7 +119,7 @@ export function compile(program: Stmt[], runtimeUrl: string): { js: string } | {
   };
 
   const out: string[] = [];
-  out.push(`import { NONE, SList, SMap, _show, _add, _sub, _mul, _div, _mod, _neg, _lt, _le, _gt, _ge, _eq, _ne, _truthy, _not, _index, _iset, _iter, _count, _smap, _b, _ask } from ${JSON.stringify(runtimeUrl)};`);
+  out.push(`import { NONE, SList, SMap, _show, _add, _sub, _mul, _div, _mod, _neg, _lt, _le, _gt, _ge, _eq, _ne, _truthy, _not, _index, _iset, _iter, _count, _smap, _b, _ask, _str } from ${JSON.stringify(runtimeUrl)};`);
   out.push("");
 
   // tasks (function declarations hoist, so order/forward-refs are fine)

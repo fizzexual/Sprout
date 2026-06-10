@@ -5,6 +5,7 @@
 // precedence (or) down to highest (primary values).
 
 import { LangError } from "./errors.ts";
+import { tokenize } from "./lexer.ts";
 import type { Token, TokenType } from "./token.ts";
 import type { Branch, Expr, Stmt } from "./ast.ts";
 
@@ -381,10 +382,60 @@ class Parser {
     return { type: "Call", name: nameTok.value, args, line: nameTok.line, col: nameTok.col };
   }
 
+  // Turn f"Hi {name}, you have {coins}" into an Interp of text + parsed exprs.
+  // {{ and }} are literal braces.
+  private interpolate(t: Token): Expr {
+    const s = t.value;
+    const parts: Expr[] = [];
+    let buf = "";
+    const flush = (): void => { if (buf) { parts.push({ type: "String", value: buf, line: t.line, col: t.col }); buf = ""; } };
+    let i = 0;
+    while (i < s.length) {
+      const c = s[i];
+      if (c === "{" && s[i + 1] === "{") { buf += "{"; i += 2; continue; }
+      if (c === "}" && s[i + 1] === "}") { buf += "}"; i += 2; continue; }
+      if (c === "}") throw new LangError("Syntax", "There's a stray '}' in this text.", t.line, t.col, "Use }} if you meant a real } character.");
+      if (c === "{") {
+        let depth = 1, j = i + 1, code = "", inStr = false;
+        while (j < s.length) {
+          const ch = s[j];
+          if (inStr) {                         // inside a "…" — don't count braces
+            if (ch === "\\") { code += ch + (s[j + 1] ?? ""); j += 2; continue; }
+            if (ch === '"') inStr = false;
+            code += ch; j++; continue;
+          }
+          if (ch === '"') { inStr = true; code += ch; j++; continue; }
+          if (ch === "{") depth++;
+          else if (ch === "}") { depth--; if (depth === 0) break; }
+          code += ch; j++;
+        }
+        if (depth !== 0) throw new LangError("Syntax", "A '{…}' in this text is missing its closing '}'.", t.line, t.col, 'Like: "Hi {name}". Use {{ for a real { character.');
+        code = code.trim();
+        if (!code) throw new LangError("Syntax", "There's an empty '{}' in this text.", t.line, t.col, "Put something inside, like {name}, or use {{ }} for real braces.");
+        flush();
+        let sub: Expr;
+        try { sub = new Parser(tokenize(code)).expression(); }
+        catch (e) {
+          if (e instanceof LangError) throw new LangError("Syntax", `I couldn't understand {${code}} inside this text — ${e.message}`, t.line, t.col);
+          throw e;
+        }
+        parts.push(sub);
+        i = j + 1;
+        continue;
+      }
+      buf += c; i++;
+    }
+    flush();
+    if (parts.length === 0) return { type: "String", value: "", line: t.line, col: t.col };
+    if (parts.length === 1 && parts[0].type === "String") return parts[0];
+    return { type: "Interp", parts, line: t.line, col: t.col };
+  }
+
   private primary(): Expr {
     const t = this.peek();
     if (this.match("NUMBER")) return { type: "Number", value: Number(t.value), line: t.line, col: t.col };
     if (this.match("STRING")) return { type: "String", value: t.value, line: t.line, col: t.col };
+    if (this.match("FSTRING")) return this.interpolate(t);
     if (this.match("YES")) return { type: "Bool", value: true, line: t.line, col: t.col };
     if (this.match("NO")) return { type: "Bool", value: false, line: t.line, col: t.col };
     if (this.match("NOTHING")) return { type: "Nothing", line: t.line, col: t.col };

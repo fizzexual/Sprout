@@ -19,6 +19,8 @@ show "hi", x          ~ print (commas join with spaces)  ->  hi 11
 
 **Values:** numbers (`3`, `2.5`), text (`"hello"`), `yes` / `no` (booleans), and `nothing` (the empty value).
 
+**Text templates:** `f"Hi {name}, you scored {score}/{total}!"` — `f"..."` drops values into text with `{ }` (any expression works). `{{ }}` = literal braces. Plain `"..."` never interpolates (JSON-safe).
+
 **Math:** `+  -  *  /  %`  — use `(` `)` to group.
 
 **Compare:** `==  !=  <  <=  >  >=`

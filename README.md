@@ -40,7 +40,7 @@ Where most languages throw cryptic errors, Sprout points at the exact spot and e
 
 ```sprout
 make name = "world"
-show "Hello, " + name + "!"
+show f"Hello, {name}!"
 ```
 
 ```bash

@@ -80,6 +80,23 @@ test("parentheses override precedence", () => {
   assert.deepEqual(run("show (2 + 3) * 2"), ["10"]);
 });
 
+test("f-strings interpolate values and expressions", () => {
+  assert.deepEqual(run('make n = "Sam"\nmake s = 4\nshow f"Hi {n}, score {s}, {s * 2}!"'), ["Hi Sam, score 4, 8!"]);
+});
+
+test("f-strings: {{ }} are literal braces; plain strings never interpolate", () => {
+  assert.deepEqual(run('make x = 5\nshow f"{{x}} = {x}"'), ["{x} = 5"]);
+  assert.deepEqual(run('make x = 5\nshow "{x} stays literal"'), ["{x} stays literal"]); // plain string = JSON-safe
+});
+
+test("f-strings allow quotes and calls inside {…}", () => {
+  assert.deepEqual(run('make m = {city: "Paris"}\nshow f"From {m["city"]} ({length([1,2,3])} stops)"'), ["From Paris (3 stops)"]);
+});
+
+test("f-string with an empty {} is a friendly error", () => {
+  assert.throws(() => run('show f"oops {}"'), /empty/i);
+});
+
 test("text joins with anything via +", () => {
   assert.deepEqual(run('show "n=" + 5'), ["n=5"]);
 });

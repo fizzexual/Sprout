@@ -128,6 +128,25 @@ show "Hi " + "there"   ~ Hi there
 
 So `+` does double duty: add two numbers, or join text to anything.
 
+## Inserting values with `f"..."` (text templates)
+
+Put an `f` before the quotes and you can drop values straight into the text with
+`{ }` — no `+` needed. This is usually the clearest way to build a message:
+
+```sprout
+make name = "Sam"
+make score = 4
+show f"Hi {name}! You scored {score}/5 = {score * 100 / 5}%"
+~ Hi Sam! You scored 4/5 = 80%
+```
+
+Anything that fits in `{ }` works — a variable, math, an item like `{cart["total"]}`,
+or a call like `{length(items)}`.
+
+- Want a **real** curly brace? Double it: `f"{{not a value}}"` shows `{not a value}`.
+- A **plain** string (no `f`) never inserts anything — so JSON like
+  `"{\"name\": \"Sam\"}"` stays exactly as written.
+
 ---
 
 ## Comparisons: `== != < <= > >=`

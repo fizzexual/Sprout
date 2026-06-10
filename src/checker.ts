@@ -129,6 +129,8 @@ export function check(program: Stmt[], extra: Set<string> = new Set<string>()): 
     switch (e.type) {
       case "Number": case "String": case "Bool": case "Nothing":
         return;
+      case "Interp":
+        e.parts.forEach((p) => checkExpr(p, vars)); return;
       case "Identifier":
         if (!vars.has(e.name)) {
           errors.push(new LangError("Name", `I don't know what '${e.name}' is.`, e.line, e.col, varHint(e.name, vars) ?? `Create it first with: make ${e.name} = ...`));

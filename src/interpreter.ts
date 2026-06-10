@@ -431,6 +431,7 @@ export class Interpreter {
     switch (expr.type) {
       case "Number": return expr.value;
       case "String": return expr.value;
+      case "Interp": return expr.parts.map((p) => stringify(this.evaluate(p, env))).join("");
       case "Bool": return expr.value;
       case "Nothing": return NONE;
       case "Identifier": {

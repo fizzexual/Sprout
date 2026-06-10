@@ -17,6 +17,9 @@ function err(msg: string): never { throw new Error(msg); }
 
 export function _show(...args: any[]): void { console.log(args.map((a) => stringify(a)).join(" ")); }
 
+// String interpolation: stringify every piece of "Hi {name}!" and join them.
+export function _str(...args: any[]): string { return args.map((a) => stringify(a)).join(""); }
+
 // + joins text, adds numbers, or concatenates two lists (same as the interpreter).
 export function _add(a: any, b: any): any {
   if (typeof a === "string" || typeof b === "string") return stringify(a) + stringify(b);

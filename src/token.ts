@@ -3,7 +3,7 @@
 
 export type TokenType =
   // literals & names
-  | "NUMBER" | "STRING" | "IDENT"
+  | "NUMBER" | "STRING" | "FSTRING" | "IDENT"
   // keywords
   | "MAKE" | "SET" | "SHOW"
   | "WHEN" | "ORWHEN" | "OTHERWISE"
