@@ -87,7 +87,7 @@ Sprout is being **rebuilt from scratch in C**, one slice at a time. The core
 language runs now:
 
 - Values: numbers, text, `yes` / `no`, `nothing`
-- `make`, `set`, `show` (commas join with spaces)
+- `make` (new name), `set` (change an existing one), `show` (print — *its* commas print with a space between; `make`/`set` take a single value)
 - **Text templates:** `f"Hi {name}, you have {x + y} points"` — values drop straight in
 - Math `+ - * / %` with precedence and `( )`; `+` also joins text
 - Compare `== != < <= > >=`, logic `and` `or` `not`
@@ -99,7 +99,7 @@ language runs now:
 - **Superpowers — built in, no libraries:**
   - 🌐 `get(url)` — fetch any web page or API
   - 🧩 `json(text)` — parse JSON straight into native lists & maps
-  - 🔎 `explore(value)` — list every field/target inside an API response
+  - 🔎 `explore(value)` — a *function* that returns a list of every `path = value` inside a value (the `sprout api <url>` *command* is just the CLI shortcut that fetches a URL and prints this)
   - 📄 `read` / `write` / `append` / `exists` — files
   - ⚙️ `system.run(command)` — run any program and capture its output (after `use system`)
 - **Projects & modules:** a `sprout.toml` ties many files into one program — `use server` then call it by name (`server.start()`), `public` exposes a task/value (private by default — no hidden global sharing), and `sprout build` runs the whole thing
@@ -169,7 +169,7 @@ build.cmd                     # or: gcc -O2 -Wall -s -o sprout.exe sprout.c -lm 
 
 # run a program:
 sprout run hello.sprout     # or just: sprout hello.sprout
-sprout version              # -> Sprout v0.0.7
+sprout version              # -> Sprout v0.0.8
 sprout new myapp            # create a full multi-file project folder
 sprout build                # run the project in the current folder (reads sprout.toml)
 sprout api <url>            # list every field an API returns
@@ -190,13 +190,30 @@ There are no user-defined types/structs/classes — a **map** (`{name: "Sam"}`) 
 the record type. Maps preserve **insertion order**; keys are text.
 
 **Numbers are IEEE-754 doubles.** There is no separate integer type, so `5 / 2`
-is `2.5` and very large integers lose precision. `%` is `fmod`. Division/modulo by
-zero is a runtime error.
+is `2.5` and very large integers lose precision. `%` is `fmod`; division/modulo by
+zero is a runtime error. **Whole-number values display without a decimal point** —
+`range(3)` shows `[0, 1, 2]`, and indices/counts/`length` read as `0`, `1`, `2`
+(not `0.0`) — so the doubles-only choice is invisible until you do real division.
 
 **Text is UTF-8.** `length("café")` is `4` (characters, not bytes). Strings are
 immutable and **not indexable** (`"abc"[0]` is an error) — iterate with `for each`
-or `split`. `+` concatenates, and if either side of `+` is text the other side is
-coerced via its display form (`"n=" + 3` → `"n=3"`).
+or `split`.
+
+**One display form.** `show`, f-strings (`f"{x}"`), and `+` all render a value
+through the **same** function, so the result is always identical:
+
+| value | displays as |
+| --- | --- |
+| number | `3`, `2.5` (no trailing `.0` for whole numbers) |
+| text | the text itself (no quotes) |
+| yes / no | `yes` / `no` |
+| nothing | `nothing` |
+| list | `[1, 2, 3]` |
+| map | `{name: Sam, age: 3}` |
+
+So `"L=" + [1, 2]` → `"L=[1, 2]"` and `f"{nothing}"` → `nothing`. For `+`, if
+either side is text the other is coerced to its display form; otherwise `+` is
+numeric addition (and `text + text` concatenates).
 
 **Truthiness** (for `when` / `repeat while` / `and` / `or` / `not`): `no`,
 `nothing`, `0`, `""`, and empty list/map are falsey; everything else is truthy.
@@ -204,24 +221,38 @@ coerced via its display form (`"n=" + 3` → `"n=3"`).
 lists/maps (with a depth guard against self-referential values); `< <= > >=`
 compare only two numbers or two pieces of text.
 
-**Scope.** Variables are **function/file scoped — blocks do not introduce scope.**
-A `make` inside a `when`/`repeat`/`for each` writes into the enclosing scope, and a
-loop variable is still in scope after the loop. `set` requires the name to already
-exist. Top-level code of each file runs in that file's own scope.
+**Variables & scope.** `make` introduces a **new** name; **`make` on a name that
+already exists in the same scope is an error** ("use 'set' to change it") — so a
+typo'd `make` can't silently become a reassignment. `set` changes an existing name
+(searching outward to enclosing scopes) and errors if it was never made.
+**Blocks have their own scope:** names `make`d inside a `when`/`repeat`/`for each`
+body are gone when the block ends and may *shadow* an outer name; `set` still
+reaches outward to mutate an enclosing variable. A `for each` variable is scoped to
+the loop body — each iteration gets a fresh one, and it does not exist after the loop.
 
-**Tasks** (`task f(...) ... give`) are **top-level only** — no nested functions and
-**no closures**. A task sees its own file's top-level names plus its parameters and
-locals, *not* the caller's locals (so calls are referentially clean). Recursion is
-supported, bounded by a call-depth guard (~6000) on a 64 MB stack.
+**Tasks** (`task f(...) ... give`) are **top-level only** — defining a `task`
+inside a block is a parse error. No nested functions and **no closures**: a task
+sees its own file's top-level names plus its parameters and locals, *not* the
+caller's locals (so calls are referentially clean). Recursion is supported, bounded
+by a fixed call-depth guard of **6000** on a 64 MB stack.
 
 **Modules & visibility.** A `sprout.toml` (`project`, `main`, `include [...]`)
 defines a project. `use server` imports a module; you then reach its **`public`**
-tasks/values as `server.start()` / `server.config`. Everything is **private by
-default** (file-local, called bare within the file). There is **no implicit global
-sharing** between files, and a file may only name a module it has `use`d. Modules
-load **once** (so circular `use` terminates), are resolved by `sprout.toml` then by
-searching `modules/ src/ lib/ ./`, and are keyed by basename (first file with a
-given basename wins). `system` is a **reserved** built-in module (`system.run`).
+tasks/values as `server.start()` / `server.config` (member access is a **single**
+dot — `a.b.c` is a syntax error). Everything is **private by default** (file-local,
+called bare within the file). There is **no implicit global sharing**, and a file
+may only name a module it has `use`d (otherwise: *"to call server.start, add 'use
+server' at the top of this file."*). Modules load **once** (so circular `use`
+terminates) and resolve via `sprout.toml` then by searching `modules/ src/ lib/ ./`;
+**two project files with the same basename are a load-time error** (module names
+must be unique). `system` is a **reserved** built-in module — you still write
+`use system` so OS access (`system.run`) is explicit, and you can't define your own
+module named `system`.
+
+**`learn on` / `learn off`.** `learn` is a keyword; `learn on` and `learn off` are
+statements that flip a single **global** narration flag (it is *not* scoped and does
+*not* nest — the most recent one wins, and it persists across files in a run). While
+on, each `make` / `set` / `show` is narrated. Off by default.
 
 **Evaluation & errors.** Eager, left-to-right; statements run top to bottom. The
 **first error aborts** the run (there is no batch diagnostics pass and no static
@@ -229,6 +260,58 @@ type checking) — except in the interactive REPL, which catches the error and k
 your session. Error messages are heuristic (edit-distance "did you mean?").
 
 **Concurrency.** None — single-threaded, synchronous. `wait(seconds)` blocks.
+
+### Grammar (core, EBNF)
+
+Descriptive, not yet a formal spec — the source is the truth — but enough to spot
+ambiguities. `INDENT`/`DEDENT`/`NEWLINE` come from the lexer (see below).
+
+```ebnf
+program    = { statement } ;
+statement  = make | set | show | when | repeat | foreach
+           | task | give | use | learn | ( expr NEWLINE ) ;
+make       = [ "public" | "private" ] "make" ident "=" expr NEWLINE ;
+set        = "set" ( ident | postfix ) "=" expr NEWLINE ;
+show       = "show" expr { "," expr } NEWLINE ;        (* commas print with a space between *)
+when       = "when" expr block { "orwhen" expr block } [ "otherwise" block ] ;
+repeat     = "repeat" ( expr "times" | "while" expr ) block ;
+foreach    = "for" "each" ident "in" expr block ;
+task       = [ "public" | "private" ] "task" ident "(" [ ident { "," ident } ] ")" block ;  (* top level only *)
+give       = "give" [ expr ] NEWLINE ;                 (* only meaningful inside a task *)
+use        = "use" ( ident | string ) NEWLINE ;
+learn      = "learn" ( "on" | "off" ) NEWLINE ;
+block      = ":" NEWLINE INDENT { statement } DEDENT ;
+
+expr       = or ;
+or         = and { "or" and } ;
+and        = cmp { "and" cmp } ;
+cmp        = term { ( "==" | "!=" | "<" | "<=" | ">" | ">=" ) term } ;
+term       = factor { ( "+" | "-" ) factor } ;
+factor     = unary { ( "*" | "/" | "%" ) unary } ;
+unary      = ( "-" | "not" ) unary | postfix ;
+postfix    = primary { "[" expr "]" } ;
+primary    = number | string | fstring | "yes" | "no" | "nothing"
+           | list | map | "(" expr ")"
+           | ident [ "." ident ] [ "(" [ expr { "," expr } ] ")" ] ;
+list       = "[" [ expr { "," expr } ] "]" ;
+map        = "{" [ key ":" expr { "," key ":" expr } ] "}" ;
+key        = ident | string ;
+fstring    = 'f"' { char | "{" expr "}" } '"' ;
+```
+
+### Indentation rules
+
+- Leading whitespace is significant. **A tab counts as one column, the same as one
+  space** — so don't mix tabs and spaces, or levels won't line up.
+- **Any** increase in indentation opens a block (the unit is whatever you used —
+  there's no fixed size). A decrease must return **exactly** to a previous level, or
+  you get *"the indentation doesn't line up with the block."*
+- Blank lines and `~`-comment-only lines don't affect indentation.
+
+> **Tested vs. asserted.** The behaviors above are exercised by the suite in
+> [`src/tests/`](src/tests) and re-checked each release by an adversarial review on
+> Windows (MinGW). The POSIX code paths (`realpath`/`opendir`/`mkdir`) compile but
+> are **not** CI-tested yet — treat them as asserted-from-the-source.
 
 ## Design decisions & rationale
 
@@ -241,6 +324,7 @@ The interesting choices, and what each one costs — the places worth challengin
 | **No GC — allocate and leak until exit** | Trivial, no pauses, correct for short CLI runs | Memory grows in long-running programs; **the biggest known weakness** |
 | **Doubles only, no integer type** | One number type is simpler for beginners | Precision/overflow surprises; no bigint |
 | **Namespaced modules + `private` default** | Predictable, scales, no hidden global sharing | More to type across files (`module.name`) |
+| **Block scope + strict `make`** | Loop/`when` vars can't leak; a typo'd `make` can't silently reassign | You must `set` (not re-`make`) to change a value; shadowing is allowed |
 | **Maps as the only record type** | Fewer concepts to learn | No fields/methods/type checking on shapes |
 | **First error aborts** | Simple, clear single message | No "here are all 12 errors" batch reporting |
 | **Own keywords** (`make`/`show`/`task`) | Readable out loud for first-timers | Unfamiliar to experienced devs; not C/JS-like |
@@ -308,9 +392,8 @@ is exactly the kind of feedback I'm looking for** —
   surprise.
 - **No user-defined types.** Maps are the only record; no structs, no methods, no
   shape/type checking.
-- **No closures or first-class functions.** Tasks are top-level only; a task
-  defined inside a block is silently not registered (a gotcha I'd like to error on).
-- **No block scope.** Loop/`when` variables leak into the enclosing scope.
+- **No closures or first-class functions.** Tasks are top-level only (defining one
+  inside a block is now a clear error, not a silent no-op).
 - **Strings aren't indexable** (`s[0]` errors); iterate or `split`.
 - **Errors abort on the first one** — no batch diagnostics, no static checks; all
   type errors are caught at runtime.

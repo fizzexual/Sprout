@@ -502,16 +502,21 @@ static Expr *expression(void) { static const TokType o[] = { T_OR }; return bina
 static Stmt *statement(void);
 
 /* a `:` then a NEWLINE then an indented run of statements */
+static int g_block_depth = 0;   /* >0 while parsing inside an indented block (tasks must be top-level) */
+static int g_in_task = 0;       /* >0 while parsing a task body ('give' only works inside a task) */
+static int g_repl_active = 0;   /* in the live REPL, `make` may re-bind a name (re-running a line) */
 static Stmt **block(int *count) {
   expect(T_COLON, "I expected a ':' to start the block.");
   expect(T_NEWLINE, "the block should begin on the next line.");
   expect(T_INDENT, "I expected the next lines to be indented (that's the block).");
   Stmt **list = NULL; int n = 0, cap = 0;
+  g_block_depth++;
   while (!check(T_DEDENT) && !check(T_EOF)) {
     if (match(T_NEWLINE)) continue;
     if (n >= cap) { cap = cap ? cap * 2 : 8; list = (Stmt **)realloc(list, cap * sizeof(Stmt *)); }
     list[n++] = statement();
   }
+  g_block_depth--;
   expect(T_DEDENT, "I expected this block to finish here.");
   *count = n; return list;
 }
@@ -579,6 +584,7 @@ static Stmt *statement(void) {
       s->body = block(&s->nbody); return s;
     }
     case T_TASK: {
+      if (g_block_depth > 0) fail(t.line, "a task must be defined at the top level (the far-left margin), not inside another block.");
       advance(); Token name = expect(T_IDENT, "I expected the task's name here.");
       expect(T_LPAREN, "I expected '(' after the task name.");
       char **params = NULL; int n = 0, cap = 0;
@@ -591,9 +597,14 @@ static Stmt *statement(void) {
       }
       expect(T_RPAREN, "I expected ')' to close the inputs.");
       Stmt *s = new_stmt(S_TASK, t.line); s->name = name.text; s->params = params; s->nparams = n;
-      s->is_public = is_public; s->body = block(&s->nbody); return s;
+      s->is_public = is_public;
+      int save_in_task = g_in_task; g_in_task = 1;   /* 'give' is allowed inside this body */
+      s->body = block(&s->nbody);
+      g_in_task = save_in_task;
+      return s;
     }
     case T_GIVE: {
+      if (!g_in_task) fail(t.line, "'give' only works inside a task (it hands a value back to whoever called it).");
       advance(); Stmt *s = new_stmt(S_GIVE, t.line);
       if (!check(T_NEWLINE)) s->expr = expression();   /* bare `give` hands back nothing */
       return s;
@@ -619,6 +630,7 @@ static Stmt *statement(void) {
 }
 
 static Stmt **parse_program(int *count) {
+  g_block_depth = 0; g_in_task = 0;   /* fresh per parse, so a prior error's longjmp can't leave them stuck */
   Stmt **list = NULL; int n = 0, cap = 0;
   while (!check(T_EOF)) {
     if (match(T_NEWLINE)) continue;
@@ -685,7 +697,10 @@ static void task_register(Stmt *s, int fileid, Env *home) {
 typedef struct { char *name; int fileid; Env *env; } ModNS;
 static ModNS *g_mods = NULL; static int g_nmods = 0, g_capmods = 0;
 static void modns_register(const char *name, int fileid, Env *env) {
-  for (int i = 0; i < g_nmods; i++) if (!strcmp(g_mods[i].name, name)) return;   /* first file with a basename wins (no silent overwrite) */
+  for (int i = 0; i < g_nmods; i++) if (!strcmp(g_mods[i].name, name)) {
+    if (g_mods[i].fileid == fileid) return;     /* same file (shouldn't re-register, but harmless) */
+    failf(0, "two files in this project are both named '%s' - module names must be unique. Rename one.", name);
+  }
   if (g_nmods >= g_capmods) { g_capmods = g_capmods ? g_capmods * 2 : 8; g_mods = (ModNS *)realloc(g_mods, g_capmods * sizeof(ModNS)); }
   g_mods[g_nmods].name = dup_str(name); g_mods[g_nmods].fileid = fileid; g_mods[g_nmods].env = env; g_nmods++;
 }
@@ -729,6 +744,8 @@ static void exec(Stmt *s, Env *env);
 static void load_module(const char *name);   /* defined near main(); pulls in another project file */
 static char *module_basename(const char *path);   /* "server" from "modules/server.sprout" */
 static void exec_block(Stmt **list, int n, Env *env) { for (int i = 0; i < n; i++) { exec(list[i], env); if (returning) return; } }
+/* run a block in its OWN child scope, so `make` inside it doesn't leak out */
+static void exec_scoped(Stmt **list, int n, Env *parent) { Env *be = env_new(parent); exec_block(list, n, be); }
 
 static Value call_task_def(TaskDef *t, Expr *call, Env *env) {
   if (call->nargs != t->nparams) {
@@ -1233,7 +1250,7 @@ static Value call_system(Expr *e, Env *env) {
 /* a namespaced call:  server.start(...)  or  system.run(...)  */
 static Value call_module(Expr *e, Env *env) {
   if (!has_use(cur_fileid, e->module)) {
-    char m[256]; snprintf(m, sizeof m, "this file hasn't done 'use %s', so it can't use %s.%s.", e->module, e->module, e->name);
+    char m[256]; snprintf(m, sizeof m, "to call %s.%s, add 'use %s' at the top of this file.", e->module, e->name, e->module);
     fail(e->line, m);
   }
   if (!strcmp(e->module, "system")) return call_system(e, env);
@@ -1272,7 +1289,7 @@ static Value eval(Expr *e, Env *env) {
     case E_CALL:   if (e->module) return call_module(e, env);
                    return task_find(e->name) ? call_task(e, env) : call_builtin(e, env);
     case E_MEMBER: {
-      if (!has_use(cur_fileid, e->module)) { char m[256]; snprintf(m, sizeof m, "this file hasn't done 'use %s', so it can't read %s.%s.", e->module, e->module, e->name); fail(e->line, m); }
+      if (!has_use(cur_fileid, e->module)) { char m[256]; snprintf(m, sizeof m, "to read %s.%s, add 'use %s' at the top of this file.", e->module, e->name, e->module); fail(e->line, m); }
       if (!strcmp(e->module, "system")) { char m[200]; snprintf(m, sizeof m, "system.%s is an action - call it, like system.%s(...).", e->name, e->name); fail(e->line, m); }
       ModNS *mod = modns_get(e->module);
       if (!mod) { char m[200]; snprintf(m, sizeof m, "I don't know a module called '%s'.", e->module); fail(e->line, m); }
@@ -1373,8 +1390,14 @@ static void exec(Stmt *s, Env *env) {
   switch (s->kind) {
     case S_MAKE: {
       Value v = eval(s->expr, env);
-      if (s->is_public) { env_define(cur_file_env, s->name, v); mark_public_var(cur_fileid, s->name); }  /* lives in the file env, reachable as module.name */
-      else env_define(env, s->name, v);
+      Env *target = s->is_public ? cur_file_env : env;     /* public vars live in the file env */
+      /* re-running a `public make` (loop / a task called twice) just updates the file-level slot;
+         the live REPL also lets you re-`make` a name. Otherwise a duplicate in THIS scope is an error. */
+      int relaxed = g_repl_active || (s->is_public && is_public_var(cur_fileid, s->name));
+      if (!relaxed && env_local(target, s->name))
+        failf(s->line, "'%s' already exists here - use 'set' to change it (make is only for new names).", s->name);
+      env_define(target, s->name, v);
+      if (s->is_public) mark_public_var(cur_fileid, s->name);
       if (g_learn) { char *t = stringify(v); printf("  " C_DIM "Created variable" C_RESET " %s = %s\n\n", s->name, t); free(t); }
       break;
     }
@@ -1390,18 +1413,18 @@ static void exec(Stmt *s, Env *env) {
     }
     case S_LEARN: g_learn = s->is_public; break;
     case S_WHEN: {
-      for (int i = 0; i < s->nbranches; i++) if (is_truthy(eval(s->branches[i].cond, env))) { exec_block(s->branches[i].body, s->branches[i].nbody, env); return; }
-      if (s->otherwise) exec_block(s->otherwise, s->notherwise, env);
+      for (int i = 0; i < s->nbranches; i++) if (is_truthy(eval(s->branches[i].cond, env))) { exec_scoped(s->branches[i].body, s->branches[i].nbody, env); return; }
+      if (s->otherwise) exec_scoped(s->otherwise, s->notherwise, env);
       break;
     }
     case S_REPEAT_TIMES: {
       Value c = eval(s->count, env); if (c.type != V_NUM) fail(s->line, "'repeat ... times' needs a number.");
       long long times = (long long)c.num;
-      for (long long k = 0; k < times; k++) { exec_block(s->body, s->nbody, env); if (returning) break; }
+      for (long long k = 0; k < times; k++) { exec_scoped(s->body, s->nbody, env); if (returning) break; }
       break;
     }
     case S_REPEAT_WHILE:
-      while (is_truthy(eval(s->expr, env))) { exec_block(s->body, s->nbody, env); if (returning) break; }
+      while (is_truthy(eval(s->expr, env))) { exec_scoped(s->body, s->nbody, env); if (returning) break; }
       break;
     case S_TASK: break;  /* registered before the run */
     case S_USE: {                                /* import a module so this file can name it */
@@ -1416,20 +1439,21 @@ static void exec(Stmt *s, Env *env) {
     case S_EXPR: { Value v = eval(s->expr, env); if (repl_echo && v.type != V_NONE) printf("%s\n", stringify(v)); break; }
     case S_FOREACH: {
       Value it = eval(s->expr, env);
+      /* each iteration runs in its own scope; the loop variable lives there (gone after the loop) */
       if (it.type == V_LIST) {
         int len = it.list ? it.list->n : 0;            /* snapshot: appending inside the loop won't extend it */
-        for (int i = 0; i < len; i++) { env_define(env, s->name, it.list->items[i]); exec_block(s->body, s->nbody, env); if (returning) break; }
+        for (int i = 0; i < len; i++) { Env *be = env_new(env); env_define(be, s->name, it.list->items[i]); exec_block(s->body, s->nbody, be); if (returning) break; }
       } else if (it.type == V_MAP) {
         int len = it.map ? it.map->n : 0;
-        for (int i = 0; i < len; i++) { env_define(env, s->name, vstr(dup_str(it.map->keys[i]))); exec_block(s->body, s->nbody, env); if (returning) break; }
+        for (int i = 0; i < len; i++) { Env *be = env_new(env); env_define(be, s->name, vstr(dup_str(it.map->keys[i]))); exec_block(s->body, s->nbody, be); if (returning) break; }
       } else if (it.type == V_STR) {
         const char *p = it.str ? it.str : "";
         for (int i = 0; p[i]; ) {                       /* one whole UTF-8 character per step */
           int cl = utf8_clen((unsigned char)p[i]); char ch[5]; int k = 0;
           for (; k < cl && p[i + k]; k++) ch[k] = p[i + k];
           ch[k] = 0;
-          env_define(env, s->name, vstr(dup_str(ch)));
-          exec_block(s->body, s->nbody, env); if (returning) break;
+          Env *be = env_new(env); env_define(be, s->name, vstr(dup_str(ch)));
+          exec_block(s->body, s->nbody, be); if (returning) break;
           i += k ? k : 1;
         }
       } else fail(s->line, "I can only loop over a list, a map, or text with 'for each'.");
@@ -1468,7 +1492,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.0.7"
+#define SPROUT_VERSION "0.0.8"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);
@@ -1502,6 +1526,7 @@ static void run_snippet(const char *src) {
   int n; Stmt **prog = parse_program(&n);
   for (int i = 0; i < n; i++) if (prog[i]->kind == S_TASK) task_register(prog[i], cur_fileid, cur_file_env);
   exec_block(prog, n, cur_file_env);
+  returning = 0;   /* don't let a stray flag carry over to the next snippet */
 }
 
 /* does this line open a block? (ends with ':' once trailing spaces/comment are removed) */
@@ -1521,7 +1546,7 @@ static void banner(void) {
 
 static void repl(void) {
   printf("\n  " C_GREEN "Try Sprout live" C_RESET " " C_DIM "- type code, press Enter. 'back' returns to the menu." C_RESET "\n\n");
-  jmp_buf jb; err_jmp = &jb; repl_echo = 1;
+  jmp_buf jb; err_jmp = &jb; repl_echo = 1; g_repl_active = 1;   /* allow re-`make` while experimenting */
   int repl_fid = cur_fileid; Env *repl_env = cur_file_env;   /* the session scope to restore after an error */
   char buf[8192]; buf[0] = 0; int inblock = 0; char line[1024];
   printf(PROMPT); fflush(stdout);
@@ -1541,7 +1566,7 @@ static void repl(void) {
       printf("  " C_DIM "...... " C_RESET); fflush(stdout);
     }
   }
-  err_jmp = NULL; repl_echo = 0; printf("\n");
+  err_jmp = NULL; repl_echo = 0; g_repl_active = 0; printf("\n");
 }
 
 static void run_file_prompt(void) {
@@ -1556,7 +1581,10 @@ static void run_file_prompt(void) {
   printf("\n");
   jmp_buf jb; err_jmp = &jb; g_current_file = path;
   int save_fid = cur_fileid; Env *save_env = cur_file_env;
-  if (setjmp(jb) == 0) run_snippet(src); else { call_depth = 0; returning = 0; cur_fileid = save_fid; cur_file_env = save_env; }
+  cur_file_env = env_new(global_env); cur_fileid = ++g_next_fileid;   /* each run gets a fresh scope, so re-running works */
+  if (setjmp(jb) != 0) { call_depth = 0; returning = 0; }
+  else run_snippet(src);
+  cur_fileid = save_fid; cur_file_env = save_env;                     /* restore the session scope */
   err_jmp = NULL; g_current_file = NULL;
   free(src);
 }

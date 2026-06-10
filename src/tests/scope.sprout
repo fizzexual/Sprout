@@ -1,0 +1,22 @@
+~ block scope + strict make (v0.0.8) - positive behaviours
+
+make x = 1
+when yes:
+    make x = 99             ~ a fresh x, shadows the outer one in this block
+    when x == 99:
+        show "ok: make shadows inside a block"
+when x == 1:
+    show "ok: outer x is unchanged after the block"
+
+make total = 0
+repeat 3 times:
+    make step = 2          ~ re-made each iteration (fresh scope) - not a redefinition
+    set total = total + step
+when total == 6:
+    show "ok: make-in-loop is fresh each iteration; set reaches the outer total"
+
+make sum = 0
+for each n in [1, 2, 3]:
+    set sum = sum + n
+when sum == 6:
+    show "ok: for-each body is scoped; set reaches the outer sum"
