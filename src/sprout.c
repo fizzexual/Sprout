@@ -20,10 +20,12 @@
 #include <ctype.h>
 #include <math.h>
 #include <setjmp.h>
+#include <time.h>
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#include <urlmon.h>
 #endif
 
 static char *dup_str(const char *s) { size_t n = strlen(s) + 1; char *p = (char *)malloc(n); memcpy(p, s, n); return p; }
@@ -561,6 +563,165 @@ static Value call_task(Expr *call, Env *env) {
 }
 
 /* built-in functions — called like tasks: name(args). */
+/* ---- helpers for the "superpower" builtins: files, shell, web, json, text ---- */
+
+static char *read_whole_file(const char *path) {
+  FILE *f = fopen(path, "rb");
+  if (!f) return NULL;
+  if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return NULL; }
+  long sz = ftell(f);
+  if (sz < 0) { fclose(f); return NULL; }       /* not a normal seekable file (e.g. a directory) */
+  fseek(f, 0, SEEK_SET);
+  char *buf = (char *)malloc(sz + 1);
+  if (!buf) { fclose(f); return NULL; }
+  size_t got = fread(buf, 1, sz, f); buf[got] = 0; fclose(f);
+  return buf;
+}
+
+/* run a shell command and capture its output */
+static char *run_command(const char *cmd) {
+#ifdef _WIN32
+  FILE *p = _popen(cmd, "r");
+#else
+  FILE *p = popen(cmd, "r");
+#endif
+  if (!p) return NULL;
+  size_t cap = 256, len = 0; char *buf = (char *)malloc(cap); char chunk[1024]; size_t r;
+  while ((r = fread(chunk, 1, sizeof chunk, p)) > 0) {
+    while (len + r + 1 > cap) { cap *= 2; buf = (char *)realloc(buf, cap); }
+    memcpy(buf + len, chunk, r); len += r;
+  }
+  buf[len] = 0;
+#ifdef _WIN32
+  _pclose(p);
+#else
+  pclose(p);
+#endif
+  return buf;
+}
+
+/* fetch a URL's body (downloads to a temp file, reads it back) */
+static char *http_get(const char *url) {
+#ifdef _WIN32
+  char tmp[MAX_PATH]; GetTempPathA(MAX_PATH, tmp);
+  char file[MAX_PATH + 48]; snprintf(file, sizeof file, "%ssprout_get_%lu.tmp", tmp, (unsigned long)GetCurrentProcessId());
+  if (URLDownloadToFileA(NULL, url, file, 0, NULL) != S_OK) { DeleteFileA(file); return NULL; }
+  char *body = read_whole_file(file);
+  DeleteFileA(file);
+  return body;
+#else
+  (void)url; return NULL;
+#endif
+}
+
+/* ---- tiny JSON parser: text -> a Sprout value (map / list / text / number / yes-no / nothing) ---- */
+typedef struct { const char *s; int pos, len, ok, depth; } JParse;
+static Value jvalue(JParse *j);
+static Value jvalue_inner(JParse *j);
+static int jhex4(const char *p) {
+  int v = 0;
+  for (int k = 0; k < 4; k++) { char h = p[k]; int d;
+    if (h>='0'&&h<='9') d=h-'0'; else if (h>='a'&&h<='f') d=h-'a'+10; else if (h>='A'&&h<='F') d=h-'A'+10; else return -1;
+    v = v*16 + d; }
+  return v;
+}
+static void jskip(JParse *j) { while (j->pos < j->len) { char c = j->s[j->pos]; if (c==' '||c=='\t'||c=='\n'||c=='\r') j->pos++; else break; } }
+static Value jstring(JParse *j) {
+  j->pos++;  /* opening quote */
+  char *buf = (char *)malloc(j->len - j->pos + 1); int b = 0;
+  while (j->pos < j->len && j->s[j->pos] != '"') {
+    char c = j->s[j->pos];
+    if (c == '\\' && j->pos + 1 < j->len) {
+      char nx = j->s[j->pos + 1];
+      if (nx=='n') buf[b++]='\n'; else if (nx=='t') buf[b++]='\t'; else if (nx=='r') buf[b++]='\r';
+      else if (nx=='"') buf[b++]='"'; else if (nx=='\\') buf[b++]='\\'; else if (nx=='/') buf[b++]='/';
+      else if (nx=='u' && j->pos + 5 < j->len) {
+        int cp = jhex4(j->s + j->pos + 2);
+        if (cp < 0) { j->ok = 0; break; }
+        j->pos += 6;
+        if (cp >= 0xD800 && cp <= 0xDBFF && j->pos + 5 < j->len && j->s[j->pos]=='\\' && j->s[j->pos+1]=='u') {
+          int lo = jhex4(j->s + j->pos + 2);
+          if (lo >= 0xDC00 && lo <= 0xDFFF) { cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00); j->pos += 6; }
+        }
+        if (cp < 0x80) buf[b++]=(char)cp;
+        else if (cp < 0x800) { buf[b++]=(char)(0xC0|(cp>>6)); buf[b++]=(char)(0x80|(cp&0x3F)); }
+        else if (cp < 0x10000) { buf[b++]=(char)(0xE0|(cp>>12)); buf[b++]=(char)(0x80|((cp>>6)&0x3F)); buf[b++]=(char)(0x80|(cp&0x3F)); }
+        else { buf[b++]=(char)(0xF0|(cp>>18)); buf[b++]=(char)(0x80|((cp>>12)&0x3F)); buf[b++]=(char)(0x80|((cp>>6)&0x3F)); buf[b++]=(char)(0x80|(cp&0x3F)); }
+        continue;
+      } else buf[b++]=nx;
+      j->pos += 2;
+    } else { buf[b++]=c; j->pos++; }
+  }
+  if (j->pos < j->len) j->pos++; else j->ok = 0;
+  buf[b]=0; return vstr(buf);
+}
+static Value jvalue(JParse *j) {
+  if (++j->depth > 200) { j->ok = 0; j->depth--; return vnone(); }   /* guard the C stack against deeply nested JSON */
+  Value r = jvalue_inner(j);
+  j->depth--;
+  return r;
+}
+static Value jvalue_inner(JParse *j) {
+  jskip(j);
+  if (j->pos >= j->len) { j->ok=0; return vnone(); }
+  char c = j->s[j->pos];
+  if (c=='"') return jstring(j);
+  if (c=='{') {
+    j->pos++; SMap *m = map_new(); jskip(j);
+    if (j->pos<j->len && j->s[j->pos]=='}') { j->pos++; return vmap(m); }
+    for (;;) {
+      jskip(j);
+      if (j->pos>=j->len || j->s[j->pos]!='"') { j->ok=0; break; }
+      Value k = jstring(j); jskip(j);
+      if (j->pos<j->len && j->s[j->pos]==':') j->pos++; else { j->ok=0; break; }
+      Value v = jvalue(j); if (!j->ok) break; map_set(m, k.str?k.str:"", v); jskip(j);
+      if (j->pos<j->len && j->s[j->pos]==',') { j->pos++; continue; }
+      if (j->pos<j->len && j->s[j->pos]=='}') { j->pos++; break; }
+      j->ok=0; break;
+    }
+    return vmap(m);
+  }
+  if (c=='[') {
+    j->pos++; SList *l = list_new(); jskip(j);
+    if (j->pos<j->len && j->s[j->pos]==']') { j->pos++; return vlist(l); }
+    for (;;) {
+      Value v = jvalue(j); if (!j->ok) break; list_push(l, v); jskip(j);
+      if (j->pos<j->len && j->s[j->pos]==',') { j->pos++; continue; }
+      if (j->pos<j->len && j->s[j->pos]==']') { j->pos++; break; }
+      j->ok=0; break;
+    }
+    return vlist(l);
+  }
+  if (c=='t') { if (j->pos+4<=j->len && strncmp(j->s+j->pos,"true",4)==0){ j->pos+=4; return vbool(1);} j->ok=0; return vnone(); }
+  if (c=='f') { if (j->pos+5<=j->len && strncmp(j->s+j->pos,"false",5)==0){ j->pos+=5; return vbool(0);} j->ok=0; return vnone(); }
+  if (c=='n') { if (j->pos+4<=j->len && strncmp(j->s+j->pos,"null",4)==0){ j->pos+=4; return vnone();} j->ok=0; return vnone(); }
+  if (c=='-' || (c>='0'&&c<='9')) {
+    int s0=j->pos; if (c=='-') j->pos++;
+    while (j->pos<j->len) { char d=j->s[j->pos]; if ((d>='0'&&d<='9')||d=='.'||d=='e'||d=='E'||d=='+'||d=='-') j->pos++; else break; }
+    char tmp[64]; int ln=j->pos-s0; if (ln>63) ln=63; memcpy(tmp,j->s+s0,ln); tmp[ln]=0; return vnum(atof(tmp));
+  }
+  j->ok=0; return vnone();
+}
+static Value parse_json(const char *text) {
+  JParse j; j.s=text; j.pos=0; j.len=(int)strlen(text); j.ok=1; j.depth=0;
+  Value v = jvalue(&j);
+  jskip(&j);
+  if (!j.ok || j.pos != j.len) return vnone();   /* malformed or trailing garbage -> nothing */
+  return v;
+}
+
+/* replace every occurrence of `find` in `s` with `repl` */
+static char *str_replace_all(const char *s, const char *find, const char *repl) {
+  if (!find || !*find) return dup_str(s);
+  size_t fl=strlen(find), rl=strlen(repl), cap=strlen(s)+1, len=0;
+  char *out=(char*)malloc(cap); const char *p=s;
+  while (*p) {
+    if (strncmp(p, find, fl)==0) { while (len+rl+1>cap){cap=cap*2+rl;out=(char*)realloc(out,cap);} memcpy(out+len,repl,rl); len+=rl; p+=fl; }
+    else { if (len+2>cap){cap*=2;out=(char*)realloc(out,cap);} out[len++]=*p++; }
+  }
+  out[len]=0; return out;
+}
+
 static Value call_builtin(Expr *call, Env *env) {
   const char *name = call->name;
   int n = call->nargs;
@@ -611,6 +772,122 @@ static Value call_builtin(Expr *call, Env *env) {
     if (n != 1 || a[0].type != V_LIST) fail(call->line, "last needs a list.");
     return (a[0].list && a[0].list->n > 0) ? a[0].list->items[a[0].list->n - 1] : vnone();
   }
+  /* ---- numbers ---- */
+  if (!strcmp(name, "abs"))   { if (n!=1||a[0].type!=V_NUM) fail(call->line,"abs needs a number.");   return vnum(fabs(a[0].num)); }
+  if (!strcmp(name, "round")) { if (n!=1||a[0].type!=V_NUM) fail(call->line,"round needs a number."); return vnum(floor(a[0].num+0.5)); }
+  if (!strcmp(name, "floor")) { if (n!=1||a[0].type!=V_NUM) fail(call->line,"floor needs a number."); return vnum(floor(a[0].num)); }
+  if (!strcmp(name, "ceil"))  { if (n!=1||a[0].type!=V_NUM) fail(call->line,"ceil needs a number.");  return vnum(ceil(a[0].num)); }
+  if (!strcmp(name, "sqrt"))  { if (n!=1||a[0].type!=V_NUM) fail(call->line,"sqrt needs a number."); if (a[0].num<0) fail(call->line,"sqrt can't take a negative number."); return vnum(sqrt(a[0].num)); }
+  if (!strcmp(name, "min") || !strcmp(name, "max")) {
+    if (n<1) fail(call->line,"min/max need at least one number.");
+    double best=0; int set=0; int wantMin = (name[1]=='i');
+    for (int i=0;i<n;i++){ if(a[i].type!=V_NUM) fail(call->line,"min/max work on numbers."); if(!set||(wantMin?a[i].num<best:a[i].num>best)){best=a[i].num;set=1;} }
+    return vnum(best);
+  }
+  if (!strcmp(name, "random")) {
+    if (n==0) return vnum((double)rand()/((double)RAND_MAX+1.0));
+    if (n==1 && a[0].type==V_NUM) { long long hi=(long long)a[0].num; if(hi<=0) return vnum(0); return vnum((double)(rand()%hi)); }
+    if (n==2 && a[0].type==V_NUM && a[1].type==V_NUM) { long long lo=(long long)a[0].num,hi=(long long)a[1].num; if(hi<lo){long long t=lo;lo=hi;hi=t;} return vnum((double)(lo+rand()%(hi-lo+1))); }
+    fail(call->line,"random() gives 0..1; random(n) or random(a,b) give whole numbers.");
+  }
+  if (!strcmp(name, "number")) {
+    if (n!=1) fail(call->line,"number needs one input.");
+    if (a[0].type==V_NUM) return a[0];
+    if (a[0].type==V_STR) {
+      const char*p=a[0].str?a[0].str:"";
+      while(*p==' '||*p=='\t'||*p=='\n'||*p=='\r')p++;
+      if(*p!='+'&&*p!='-'&&*p!='.'&&!(*p>='0'&&*p<='9')) return vnone();   /* reject inf/nan/text */
+      if(p[0]=='0'&&(p[1]=='x'||p[1]=='X')) return vnone();                /* reject hex */
+      char*end; double d=strtod(p,&end);
+      while(*end==' '||*end=='\t'||*end=='\n'||*end=='\r')end++;
+      if(end!=p && *end==0 && isfinite(d)) return vnum(d);
+    }
+    return vnone();
+  }
+  /* ---- text ---- */
+  if (!strcmp(name,"upper")||!strcmp(name,"lower")) {
+    if (n!=1||a[0].type!=V_STR) fail(call->line,"upper/lower need text.");
+    char *s=dup_str(a[0].str?a[0].str:""); int up=(name[0]=='u');
+    for (char*p=s;*p;p++) *p = up ? (char)toupper((unsigned char)*p) : (char)tolower((unsigned char)*p);
+    return vstr(s);
+  }
+  if (!strcmp(name,"trim")) {
+    if (n!=1||a[0].type!=V_STR) fail(call->line,"trim needs text.");
+    const char*p=a[0].str?a[0].str:""; while(*p==' '||*p=='\t'||*p=='\n'||*p=='\r')p++;
+    int e=(int)strlen(p); while(e>0&&(p[e-1]==' '||p[e-1]=='\t'||p[e-1]=='\n'||p[e-1]=='\r'))e--;
+    char*s=(char*)malloc(e+1); memcpy(s,p,e); s[e]=0; return vstr(s);
+  }
+  if (!strcmp(name,"replace")) {
+    if (n!=3||a[0].type!=V_STR||a[1].type!=V_STR||a[2].type!=V_STR) fail(call->line,"replace needs three pieces of text: replace(text, find, with).");
+    return vstr(str_replace_all(a[0].str?a[0].str:"", a[1].str?a[1].str:"", a[2].str?a[2].str:""));
+  }
+  if (!strcmp(name,"split")) {
+    if (n!=2||a[0].type!=V_STR||a[1].type!=V_STR) fail(call->line,"split needs text and a separator.");
+    const char*s=a[0].str?a[0].str:""; const char*sep=a[1].str?a[1].str:""; SList*l=list_new();
+    if (!*sep) { for(int i=0;s[i];){int cl=utf8_clen((unsigned char)s[i]);char ch[5];int k=0;for(;k<cl&&s[i+k];k++)ch[k]=s[i+k];ch[k]=0;list_push(l,vstr(dup_str(ch)));i+=k?k:1;} return vlist(l); }
+    size_t sl=strlen(sep); const char*start=s;
+    for(;;){ const char*hit=strstr(start,sep); if(!hit){ list_push(l,vstr(dup_str(start))); break; } int ln=(int)(hit-start); char*part=(char*)malloc(ln+1); memcpy(part,start,ln); part[ln]=0; list_push(l,vstr(part)); start=hit+sl; }
+    return vlist(l);
+  }
+  if (!strcmp(name,"join")) {
+    if (n!=2||a[0].type!=V_LIST) fail(call->line,"join needs a list and a separator.");
+    const char*sep=(a[1].type==V_STR&&a[1].str)?a[1].str:""; size_t cap=0,len=0; char*out=NULL;
+    for(int i=0;a[0].list&&i<a[0].list->n;i++){ if(i) sb_add(&out,&cap,&len,sep); char*t=stringify(a[0].list->items[i]); sb_add(&out,&cap,&len,t); }
+    if(!out) out=dup_str("");
+    return vstr(out);
+  }
+  /* ---- input ---- */
+  if (!strcmp(name,"ask")) {
+    if (n>=1 && a[0].type==V_STR) { fputs(a[0].str?a[0].str:"", stdout); fflush(stdout); }
+    char line[4096]; if (!fgets(line,sizeof line,stdin)) return vnone();
+    size_t L=strlen(line); while(L&&(line[L-1]=='\n'||line[L-1]=='\r')) line[--L]=0;
+    return vstr(dup_str(line));
+  }
+  /* ---- time ---- */
+  if (!strcmp(name,"now")||!strcmp(name,"today")) {
+    time_t tt=time(NULL); struct tm*lt=localtime(&tt); char buf[64];
+    if (name[0]=='n') strftime(buf,sizeof buf,"%Y-%m-%d %H:%M:%S",lt); else strftime(buf,sizeof buf,"%Y-%m-%d",lt);
+    return vstr(dup_str(buf));
+  }
+  if (!strcmp(name,"wait")) {
+    if (n!=1||a[0].type!=V_NUM) fail(call->line,"wait needs a number of seconds.");
+    if (a[0].num>0) {
+#ifdef _WIN32
+      Sleep((DWORD)(a[0].num*1000));
+#else
+      struct timespec ts; ts.tv_sec=(time_t)a[0].num; ts.tv_nsec=(long)((a[0].num-(double)(time_t)a[0].num)*1e9); nanosleep(&ts,NULL);
+#endif
+    }
+    return vnone();
+  }
+  /* ---- files ---- */
+  if (!strcmp(name,"read")) {
+    if (n!=1||a[0].type!=V_STR) fail(call->line,"read needs a file name.");
+    char*c=read_whole_file(a[0].str?a[0].str:""); return c ? vstr(c) : vnone();
+  }
+  if (!strcmp(name,"write")||!strcmp(name,"append")) {
+    if (n!=2||a[0].type!=V_STR) fail(call->line,"write/append need a file name and some text.");
+    FILE*f=fopen(a[0].str?a[0].str:"", name[0]=='a'?"ab":"wb"); if(!f) fail(call->line,"I couldn't open that file to write.");
+    char*t=stringify(a[1]); fwrite(t,1,strlen(t),f); fclose(f); return vnone();
+  }
+  if (!strcmp(name,"exists")) {
+    if (n!=1||a[0].type!=V_STR) fail(call->line,"exists needs a file name.");
+    FILE*f=fopen(a[0].str?a[0].str:"","rb"); if(f){fclose(f);return vbool(1);} return vbool(0);
+  }
+  /* ---- the superpowers: web, json, shell ---- */
+  if (!strcmp(name,"get")) {
+    if (n!=1||a[0].type!=V_STR) fail(call->line,"get needs a web address, like get(\"https://...\").");
+    char*body=http_get(a[0].str?a[0].str:""); return body ? vstr(body) : vnone();
+  }
+  if (!strcmp(name,"json")) {
+    if (n!=1||a[0].type!=V_STR) fail(call->line,"json needs some text to read.");
+    return parse_json(a[0].str?a[0].str:"");
+  }
+  if (!strcmp(name,"run")) {
+    if (n!=1||a[0].type!=V_STR) fail(call->line,"run needs a command, like run(\"echo hi\").");
+    char*out=run_command(a[0].str?a[0].str:""); return out ? vstr(out) : vnone();
+  }
+
   failf(call->line, "I don't know a task or function called '%s'.", name);
   return vnone();
 }
@@ -759,7 +1036,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.0.2"
+#define SPROUT_VERSION "0.0.3"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);
@@ -887,6 +1164,7 @@ static void wizard(void) {
 }
 
 int main(int argc, char **argv) {
+  srand((unsigned)time(NULL));
   if (argc < 2) { wizard(); return 0; }
   const char *arg = argv[1];
   if (!strcmp(arg, "version") || !strcmp(arg, "--version") || !strcmp(arg, "-v")) { printf("Sprout v%s\n", SPROUT_VERSION); return 0; }

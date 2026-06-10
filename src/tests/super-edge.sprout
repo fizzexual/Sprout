@@ -1,0 +1,25 @@
+~ v0.0.3 review-fix verification
+
+~ malformed JSON -> nothing (not a garbage partial)
+show json("not json")             ~ nothing
+show json("{bad}")                ~ nothing
+show json("[1, 2")                ~ nothing  (incomplete)
+show json("{} extra")             ~ nothing  (trailing garbage)
+
+~ valid JSON still works
+show json("[1, 2, 3]")            ~ [1, 2, 3]
+show json("{\"a\": 1, \"b\": [2, 3]}")["b"][1]   ~ 3
+show json("[[[[[1]]]]]")          ~ [[[[[1]]]]]
+
+~ surrogate emoji (U+1F600) decodes to ONE codepoint, not two garbage bytes
+make e = json("\"\\uD83D\\uDE00\"")
+show length(e)                    ~ 1
+
+~ number edge cases
+show number("12") + 0             ~ 12
+show number("  42  ")             ~ 42
+show number("3.5")                ~ 3.5
+show number("inf")                ~ nothing
+show number("0x1f")               ~ nothing
+show number("12abc")              ~ nothing
+show number("hello")              ~ nothing

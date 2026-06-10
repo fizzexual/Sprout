@@ -1,0 +1,28 @@
+~ v0.0.3 "superpowers" smoke test (offline parts)
+
+~ math
+show sqrt(16), abs(-4), round(2.6), floor(2.9), ceil(2.1)   ~ 4 4 3 2 3
+show min(3, 9, 5), max(3, 9, 5)                              ~ 3 9
+
+~ text
+show upper("hi"), lower("HI"), trim("  x  ")                ~ HI hi x
+show replace("a-b-c", "-", "+")                             ~ a+b+c
+show split("a,b,c", ",")                                    ~ [a, b, c]
+show join(["a", "b", "c"], "-")                             ~ a-b-c
+show number("42") + 8                                       ~ 50
+
+~ JSON -> native Sprout values (the API superpower)
+make data = json("{\"name\": \"Sam\", \"scores\": [10, 20, 30], \"active\": true}")
+show data["name"], data["scores"][1], data["active"]        ~ Sam 20 yes
+show length(data["scores"])                                 ~ 3
+
+~ files
+write("test_out.txt", "hello from sprout")
+show read("test_out.txt")                                   ~ hello from sprout
+show exists("test_out.txt"), exists("nope.txt")            ~ yes no
+
+~ shell
+show trim(run("echo from the shell"))                       ~ from the shell
+
+~ time
+show length(today()) == 10                                  ~ yes

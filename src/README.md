@@ -24,7 +24,7 @@ Or directly: `gcc -O2 -Wall -s -o sprout.exe sprout.c -lm`
 The result is a **~32 KB** native executable. It links only against `KERNEL32.dll`
 and the Windows system C runtime (`api-ms-win-crt-*`) — both ship with Windows.
 
-## What runs today (slices 1-3)
+## What runs today (slices 1-4)
 
 - Values: numbers, text, `yes` / `no`, `nothing`
 - `make`, `set`, `show` (commas join with spaces)
@@ -34,7 +34,8 @@ and the Windows system C runtime (`api-ms-win-crt-*`) — both ship with Windows
 - `repeat N times`, `repeat while`
 - `task` / `give`, function calls, **recursion**, lexical scope (a task sees globals + its own locals)
 - Lists `[1, 2, 3]` and maps `{name: "Sam"}` — indexing `xs[0]` / `m["k"]`, `set xs[i] = …`, `for each x in …`, `range`
-- Builtins: `length`, `add`, `keys`, `contains`, `first`, `last`, `range`
+- Toolbox: `length` `add` `keys` `contains` `first` `last` `range` `sqrt` `abs` `round` `floor` `ceil` `min` `max` `random` `number` `upper` `lower` `trim` `replace` `split` `join` `now` `today` `wait` `ask`
+- **Superpowers (built in):** `get(url)` (web), `json(text)` (parse to native lists/maps), `read`/`write`/`append`/`exists` (files), `run(command)` (shell)
 - Comments (`~`), indentation-based blocks, friendly errors with line numbers
 
 ```sprout
@@ -55,8 +56,8 @@ Run the smoke tests: `sprout.exe tests/core.sprout` and `sprout.exe tests/tasks.
 1. ✅ **Core** — variables, math, text, `when`, `repeat`
 2. ✅ **Tasks** — `task` / `give`, function calls, recursion, scope
 3. ✅ **Collections** — lists `[...]`, maps `{...}`, indexing, `for each`, `range`
-4. f-strings (`f"..."`) + the rest of the toolbox (`upper`, `lower`, `sqrt`, `round`, `min`, `max`, ...) *(next)*
-5. `ask` / input, `remember` / `recall`
+4. ✅ **Superpowers** — toolbox (math/text), files, web (`get`), JSON, `run`, `ask`
+5. f-strings (`f"..."`) + `remember` / `recall` *(next)*
 6. A small garbage collector (today memory is never freed — fine for short programs)
 7. The GUI, the internet, libraries
 
