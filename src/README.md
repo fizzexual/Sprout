@@ -24,7 +24,7 @@ Or directly: `gcc -O2 -Wall -s -o sprout.exe sprout.c -lm`
 The result is a **~32 KB** native executable. It links only against `KERNEL32.dll`
 and the Windows system C runtime (`api-ms-win-crt-*`) — both ship with Windows.
 
-## What runs today (slices 1-2)
+## What runs today (slices 1-3)
 
 - Values: numbers, text, `yes` / `no`, `nothing`
 - `make`, `set`, `show` (commas join with spaces)
@@ -33,6 +33,8 @@ and the Windows system C runtime (`api-ms-win-crt-*`) — both ship with Windows
 - `when` / `orwhen` / `otherwise`
 - `repeat N times`, `repeat while`
 - `task` / `give`, function calls, **recursion**, lexical scope (a task sees globals + its own locals)
+- Lists `[1, 2, 3]` and maps `{name: "Sam"}` — indexing `xs[0]` / `m["k"]`, `set xs[i] = …`, `for each x in …`, `range`
+- Builtins: `length`, `add`, `keys`, `contains`, `first`, `last`, `range`
 - Comments (`~`), indentation-based blocks, friendly errors with line numbers
 
 ```sprout
@@ -52,8 +54,8 @@ Run the smoke tests: `sprout.exe tests/core.sprout` and `sprout.exe tests/tasks.
 
 1. ✅ **Core** — variables, math, text, `when`, `repeat`
 2. ✅ **Tasks** — `task` / `give`, function calls, recursion, scope
-3. Lists `[...]`, maps `{...}`, indexing, `for each`, `range` *(next)*
-4. f-strings (`f"..."`), the built-in toolbox (`length`, `upper`, `sqrt`, ...)
+3. ✅ **Collections** — lists `[...]`, maps `{...}`, indexing, `for each`, `range`
+4. f-strings (`f"..."`) + the rest of the toolbox (`upper`, `lower`, `sqrt`, `round`, `min`, `max`, ...) *(next)*
 5. `ask` / input, `remember` / `recall`
 6. A small garbage collector (today memory is never freed — fine for short programs)
 7. The GUI, the internet, libraries

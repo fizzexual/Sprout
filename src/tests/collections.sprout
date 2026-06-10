@@ -1,0 +1,58 @@
+~ slice-3 smoke test: lists, maps, indexing, for each, range, builtins
+
+~ --- lists ---
+make xs = [10, 20, 30]
+show xs                    ~ [10, 20, 30]
+show xs[0], xs[2]          ~ 10 30
+show length(xs)            ~ 3
+add(xs, 40)
+show xs                    ~ [10, 20, 30, 40]
+set xs[1] = 99
+show xs[1]                 ~ 99
+show first(xs), last(xs)   ~ 10 40
+show contains(xs, 30), contains(xs, 5)   ~ yes no
+
+~ --- maps ---
+make person = {name: "Sam", age: 3}
+show person                ~ {name: Sam, age: 3}
+show person["name"]        ~ Sam
+set person["age"] = 4
+show person["age"]         ~ 4
+show person["missing"]     ~ nothing
+show length(person)        ~ 2
+show keys(person)          ~ [name, age]
+show contains(person, "name")   ~ yes
+
+~ --- range ---
+show range(3)              ~ [0, 1, 2]
+show range(2, 5)           ~ [2, 3, 4]
+
+~ --- for each over a list ---
+make total = 0
+for each n in [1, 2, 3, 4]:
+    set total = total + n
+show total                 ~ 10
+
+~ --- for each over range ---
+for each i in range(3):
+    show i                 ~ 0, 1, 2
+
+~ --- for each over map keys ---
+for each k in {a: 1, b: 2}:
+    show k                 ~ a, b
+
+~ --- for each over text ---
+for each ch in "hi":
+    show ch                ~ h, i
+
+~ --- nested lists ---
+make grid = [[1, 2], [3, 4]]
+show grid[1][0]            ~ 3
+
+~ --- collections through a task ---
+task sumlist(items):
+    make t = 0
+    for each x in items:
+        set t = t + x
+    give t
+show sumlist([5, 10, 15])  ~ 30

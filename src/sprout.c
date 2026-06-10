@@ -4,10 +4,11 @@
  *   gcc -O2 -o sprout sprout.c
  *   ./sprout program.sprout
  *
- * Slice 1 of the native rewrite: the core language — make/set/show, numbers,
- * text, booleans, nothing, the math/compare/and/or/not operators, `when` /
- * `orwhen` / `otherwise`, and `repeat`. (Tasks, lists, maps, for-each, f-strings
- * and the libraries come in later slices.)
+ * Implements the core language: make/set/show, numbers, text, booleans, nothing,
+ * the math/compare/and/or/not operators, `when`/`orwhen`/`otherwise`, `repeat`,
+ * `task`/`give` with recursion, and lists/maps with indexing, `for each`, and the
+ * collection builtins (range, length, add, keys, contains, first, last).
+ * (f-strings, input, and the libraries come in later slices.)
  *
  * Memory is intentionally never freed — a Sprout program is short-lived and the
  * OS reclaims everything on exit. A later slice can add a small garbage collector.
@@ -21,14 +22,55 @@
 
 static char *dup_str(const char *s) { size_t n = strlen(s) + 1; char *p = (char *)malloc(n); memcpy(p, s, n); return p; }
 
-/* ------------------------------------------------------------------ values */
-typedef enum { V_NUM, V_STR, V_BOOL, V_NONE } VType;
-typedef struct { VType type; double num; char *str; int boolean; } Value;
+static void fail(int line, const char *msg);   /* defined below; declared early so allocators can bail out */
 
-static Value vnum(double n)  { Value v; v.type = V_NUM;  v.num = n; v.str = NULL; v.boolean = 0; return v; }
-static Value vstr(char *s)   { Value v; v.type = V_STR;  v.str = s; v.num = 0;    v.boolean = 0; return v; }
-static Value vbool(int b)    { Value v; v.type = V_BOOL; v.boolean = b; v.num = 0; v.str = NULL; return v; }
-static Value vnone(void)     { Value v; v.type = V_NONE; v.num = 0; v.str = NULL; v.boolean = 0; return v; }
+/* byte-length of the UTF-8 character starting at byte c (1..4; 1 for an invalid byte) */
+static int utf8_clen(unsigned char c) {
+  if (c < 0x80) return 1;
+  if ((c >> 5) == 0x6) return 2;
+  if ((c >> 4) == 0xE) return 3;
+  if ((c >> 3) == 0x1E) return 4;
+  return 1;
+}
+
+/* ------------------------------------------------------------------ values */
+typedef enum { V_NUM, V_STR, V_BOOL, V_NONE, V_LIST, V_MAP } VType;
+typedef struct Value Value;
+typedef struct { Value *items; int n, cap; } SList;
+typedef struct { char **keys; Value *vals; int n, cap; } SMap;
+struct Value { VType type; double num; char *str; int boolean; SList *list; SMap *map; };
+
+static Value vnum(double n)  { Value v = {0}; v.type = V_NUM;  v.num = n; return v; }
+static Value vstr(char *s)   { Value v = {0}; v.type = V_STR;  v.str = s; return v; }
+static Value vbool(int b)    { Value v = {0}; v.type = V_BOOL; v.boolean = b; return v; }
+static Value vnone(void)     { Value v = {0}; v.type = V_NONE; return v; }
+static Value vlist(SList *l) { Value v = {0}; v.type = V_LIST; v.list = l; return v; }
+static Value vmap(SMap *m)   { Value v = {0}; v.type = V_MAP;  v.map = m;  return v; }
+
+static SList *list_new(void) { return (SList *)calloc(1, sizeof(SList)); }
+static void list_push(SList *l, Value x) {
+  if (l->n >= l->cap) {
+    l->cap = l->cap ? l->cap * 2 : 8;
+    Value *ni = (Value *)realloc(l->items, l->cap * sizeof(Value));
+    if (!ni) fail(0, "ran out of memory building a list.");
+    l->items = ni;
+  }
+  l->items[l->n++] = x;
+}
+static SMap *map_new(void) { return (SMap *)calloc(1, sizeof(SMap)); }
+static int map_index(SMap *m, const char *k) { for (int i = 0; i < m->n; i++) if (!strcmp(m->keys[i], k)) return i; return -1; }
+static void map_set(SMap *m, const char *k, Value x) {
+  int i = map_index(m, k);
+  if (i >= 0) { m->vals[i] = x; return; }
+  if (m->n >= m->cap) {
+    m->cap = m->cap ? m->cap * 2 : 8;
+    char **nk = (char **)realloc(m->keys, m->cap * sizeof(char *));
+    Value *nv = (Value *)realloc(m->vals, m->cap * sizeof(Value));
+    if (!nk || !nv) fail(0, "ran out of memory building a map.");
+    m->keys = nk; m->vals = nv;
+  }
+  m->keys[m->n] = dup_str(k); m->vals[m->n] = x; m->n++;
+}
 
 static char *num_to_str(double n) {
   char buf[64];
@@ -36,19 +78,37 @@ static char *num_to_str(double n) {
   else snprintf(buf, sizeof buf, "%g", n);
   return dup_str(buf);
 }
+/* a tiny growing-string helper for stringify */
+static void sb_add(char **buf, size_t *cap, size_t *len, const char *s) {
+  size_t sl = strlen(s);
+  while (*len + sl + 1 > *cap) { *cap = *cap ? *cap * 2 : 16; char *nb = (char *)realloc(*buf, *cap); if (!nb) fail(0, "ran out of memory building text."); *buf = nb; }
+  memcpy(*buf + *len, s, sl + 1); *len += sl;
+}
 static char *stringify(Value v) {
   switch (v.type) {
     case V_NUM:  return num_to_str(v.num);
     case V_STR:  return dup_str(v.str ? v.str : "");
     case V_BOOL: return dup_str(v.boolean ? "yes" : "no");
+    case V_LIST: {
+      SList *l = v.list; size_t cap = 0, len = 0; char *out = NULL;
+      sb_add(&out, &cap, &len, "[");
+      for (int i = 0; l && i < l->n; i++) { if (i) sb_add(&out, &cap, &len, ", "); char *p = stringify(l->items[i]); sb_add(&out, &cap, &len, p); }
+      sb_add(&out, &cap, &len, "]"); return out;
+    }
+    case V_MAP: {
+      SMap *m = v.map; size_t cap = 0, len = 0; char *out = NULL;
+      sb_add(&out, &cap, &len, "{");
+      for (int i = 0; m && i < m->n; i++) { if (i) sb_add(&out, &cap, &len, ", "); sb_add(&out, &cap, &len, m->keys[i]); sb_add(&out, &cap, &len, ": "); char *p = stringify(m->vals[i]); sb_add(&out, &cap, &len, p); }
+      sb_add(&out, &cap, &len, "}"); return out;
+    }
     default:     return dup_str("nothing");
   }
 }
 static const char *type_name(Value v) {
-  switch (v.type) { case V_NUM: return "a number"; case V_STR: return "text"; case V_BOOL: return "a yes/no"; default: return "nothing"; }
+  switch (v.type) { case V_NUM: return "a number"; case V_STR: return "text"; case V_BOOL: return "a yes/no"; case V_LIST: return "a list"; case V_MAP: return "a map"; default: return "nothing"; }
 }
 static int is_truthy(Value v) {
-  switch (v.type) { case V_NUM: return v.num != 0; case V_STR: return v.str && v.str[0]; case V_BOOL: return v.boolean; default: return 0; }
+  switch (v.type) { case V_NUM: return v.num != 0; case V_STR: return v.str && v.str[0]; case V_BOOL: return v.boolean; case V_LIST: return v.list && v.list->n > 0; case V_MAP: return v.map && v.map->n > 0; default: return 0; }
 }
 static int values_equal(Value a, Value b) {
   if (a.type != b.type) return 0;
@@ -56,6 +116,18 @@ static int values_equal(Value a, Value b) {
     case V_NUM:  return a.num == b.num;
     case V_STR:  return strcmp(a.str ? a.str : "", b.str ? b.str : "") == 0;
     case V_BOOL: return a.boolean == b.boolean;
+    case V_LIST: {
+      SList *x = a.list, *y = b.list; if (!x || !y) return x == y;
+      if (x->n != y->n) return 0;
+      for (int i = 0; i < x->n; i++) if (!values_equal(x->items[i], y->items[i])) return 0;
+      return 1;
+    }
+    case V_MAP: {
+      SMap *x = a.map, *y = b.map; if (!x || !y) return x == y;
+      if (x->n != y->n) return 0;
+      for (int i = 0; i < x->n; i++) { int j = map_index(y, x->keys[i]); if (j < 0 || !values_equal(x->vals[i], y->vals[j])) return 0; }
+      return 1;
+    }
     default:     return 1;
   }
 }
@@ -75,11 +147,11 @@ static void failf(int line, const char *fmt, const char *arg) {
 typedef enum {
   T_NUM, T_STR, T_IDENT,
   T_MAKE, T_SET, T_SHOW, T_WHEN, T_ORWHEN, T_OTHERWISE, T_REPEAT, T_WHILE, T_TIMES,
-  T_TASK, T_GIVE,
+  T_TASK, T_GIVE, T_FOR, T_EACH, T_IN,
   T_AND, T_OR, T_NOT, T_YES, T_NO, T_NOTHING,
   T_PLUS, T_MINUS, T_STAR, T_SLASH, T_PERCENT,
   T_EQ, T_EQEQ, T_BANGEQ, T_LT, T_LE, T_GT, T_GE,
-  T_LPAREN, T_RPAREN, T_COMMA, T_COLON,
+  T_LPAREN, T_RPAREN, T_LBRACK, T_RBRACK, T_LBRACE, T_RBRACE, T_COMMA, T_COLON,
   T_NEWLINE, T_INDENT, T_DEDENT, T_EOF
 } TokType;
 
@@ -96,6 +168,7 @@ static TokType keyword(const char *w) {
     { "make", T_MAKE }, { "set", T_SET }, { "show", T_SHOW }, { "when", T_WHEN },
     { "orwhen", T_ORWHEN }, { "otherwise", T_OTHERWISE }, { "repeat", T_REPEAT },
     { "while", T_WHILE }, { "times", T_TIMES }, { "task", T_TASK }, { "give", T_GIVE },
+    { "for", T_FOR }, { "each", T_EACH }, { "in", T_IN },
     { "and", T_AND }, { "or", T_OR },
     { "not", T_NOT }, { "yes", T_YES }, { "no", T_NO }, { "nothing", T_NOTHING },
   };
@@ -159,6 +232,10 @@ static void tokenize(const char *src, int len) {
         case '%': push_tok(T_PERCENT, NULL, 0, line); i++; break;
         case '(': push_tok(T_LPAREN, NULL, 0, line); i++; break;
         case ')': push_tok(T_RPAREN, NULL, 0, line); i++; break;
+        case '[': push_tok(T_LBRACK, NULL, 0, line); i++; break;
+        case ']': push_tok(T_RBRACK, NULL, 0, line); i++; break;
+        case '{': push_tok(T_LBRACE, NULL, 0, line); i++; break;
+        case '}': push_tok(T_RBRACE, NULL, 0, line); i++; break;
         case ',': push_tok(T_COMMA, NULL, 0, line); i++; break;
         case ':': push_tok(T_COLON, NULL, 0, line); i++; break;
         case '=': if (i + 1 < len && src[i + 1] == '=') { push_tok(T_EQEQ, NULL, 0, line); i += 2; } else { push_tok(T_EQ, NULL, 0, line); i++; } break;
@@ -178,22 +255,25 @@ static void tokenize(const char *src, int len) {
 }
 
 /* ---------------------------------------------------------------------- AST */
-typedef enum { E_NUM, E_STR, E_BOOL, E_NONE, E_VAR, E_UNARY, E_BINARY, E_LOGICAL, E_CALL } EKind;
+typedef enum { E_NUM, E_STR, E_BOOL, E_NONE, E_VAR, E_UNARY, E_BINARY, E_LOGICAL, E_CALL, E_LIST, E_MAP, E_INDEX } EKind;
 typedef struct Expr {
   EKind kind; double num; char *str; int boolean; char *name;
   TokType op; struct Expr *left, *right, *operand; int line;
-  struct Expr **args; int nargs;         /* call */
+  struct Expr **args; int nargs;         /* call inputs / list items / map values */
+  char **keys;                            /* E_MAP keys (parallel to args) */
+  struct Expr *target, *index;            /* E_INDEX: target[index] */
 } Expr;
 
-typedef enum { S_MAKE, S_SET, S_SHOW, S_WHEN, S_REPEAT_TIMES, S_REPEAT_WHILE, S_TASK, S_GIVE, S_EXPR } SKind;
+typedef enum { S_MAKE, S_SET, S_SHOW, S_WHEN, S_REPEAT_TIMES, S_REPEAT_WHILE, S_TASK, S_GIVE, S_EXPR, S_FOREACH, S_INDEXSET } SKind;
 typedef struct Stmt Stmt;
 typedef struct { Expr *cond; Stmt **body; int nbody; } Branch;
 struct Stmt {
   SKind kind; char *name; Expr *expr;
   Expr **values; int nvalues;            /* show */
   Branch *branches; int nbranches; Stmt **otherwise; int notherwise; /* when */
-  Expr *count; Stmt **body; int nbody;   /* repeat / task body */
+  Expr *count; Stmt **body; int nbody;   /* repeat / task / for-each body */
   char **params; int nparams;            /* task */
+  Expr *target, *index;                   /* S_INDEXSET: target[index] = expr */
   int line;
 };
 
@@ -217,6 +297,36 @@ static Expr *primary(void) {
   if (match(T_YES))     { Expr *e = new_expr(E_BOOL, t.line); e->boolean = 1; return e; }
   if (match(T_NO))      { Expr *e = new_expr(E_BOOL, t.line); e->boolean = 0; return e; }
   if (match(T_NOTHING)) { return new_expr(E_NONE, t.line); }
+  if (match(T_LBRACK)) {              /* a list: [a, b, c] */
+    Expr *e = new_expr(E_LIST, t.line);
+    Expr **items = NULL; int n = 0, cap = 0;
+    if (!check(T_RBRACK)) {
+      do {
+        if (n >= cap) { cap = cap ? cap * 2 : 4; items = (Expr **)realloc(items, cap * sizeof(Expr *)); }
+        items[n++] = expression();
+      } while (match(T_COMMA));
+    }
+    expect(T_RBRACK, "I expected a ']' to close the list.");
+    e->args = items; e->nargs = n; return e;
+  }
+  if (match(T_LBRACE)) {              /* a map: {key: value, ...} */
+    Expr *e = new_expr(E_MAP, t.line);
+    Expr **vals = NULL; char **keys = NULL; int n = 0, cap = 0;
+    if (!check(T_RBRACE)) {
+      do {
+        Token k = peek();
+        int wordlike = (k.type == T_IDENT || k.type == T_STR || (k.type >= T_MAKE && k.type <= T_NOTHING));
+        if (!wordlike) fail(k.line, "I expected a key name in this map.");
+        advance();
+        expect(T_COLON, "I expected a ':' between a map key and its value.");
+        Expr *val = expression();
+        if (n >= cap) { cap = cap ? cap * 2 : 4; keys = (char **)realloc(keys, cap * sizeof(char *)); vals = (Expr **)realloc(vals, cap * sizeof(Expr *)); }
+        keys[n] = k.text; vals[n] = val; n++;
+      } while (match(T_COMMA));
+    }
+    expect(T_RBRACE, "I expected a '}' to close the map.");
+    e->keys = keys; e->args = vals; e->nargs = n; return e;
+  }
   if (match(T_IDENT)) {
     if (check(T_LPAREN)) {           /* a call: name(args) */
       advance();
@@ -237,10 +347,20 @@ static Expr *primary(void) {
   fail(t.line, "I expected a value here (a number, some text, or a name).");
   return NULL;
 }
+static Expr *postfix(void) {        /* primary followed by any number of [index] */
+  Expr *e = primary();
+  while (check(T_LBRACK)) {
+    int line = peek().line; advance();
+    Expr *idx = expression();
+    expect(T_RBRACK, "I expected a ']' to close the index.");
+    Expr *ix = new_expr(E_INDEX, line); ix->target = e; ix->index = idx; e = ix;
+  }
+  return e;
+}
 static Expr *unary(void) {
   Token t = peek();
   if (check(T_MINUS) || check(T_NOT)) { advance(); Expr *e = new_expr(E_UNARY, t.line); e->op = t.type; e->operand = unary(); return e; }
-  return primary();
+  return postfix();
 }
 static Expr *binary_level(Expr *(*next)(void), const TokType *ops, int nops, int logical) {
   Expr *left = next();
@@ -282,11 +402,28 @@ static Stmt **block(int *count) {
 static Stmt *statement(void) {
   Token t = peek();
   switch (t.type) {
-    case T_MAKE: case T_SET: {
+    case T_MAKE: {
       advance(); Token name = expect(T_IDENT, "I expected a name here.");
       expect(T_EQ, "I expected '=' here.");
-      Stmt *s = new_stmt(t.type == T_MAKE ? S_MAKE : S_SET, t.line);
-      s->name = name.text; s->expr = expression(); return s;
+      Stmt *s = new_stmt(S_MAKE, t.line); s->name = name.text; s->expr = expression(); return s;
+    }
+    case T_SET: {
+      advance();
+      Expr *lhs = postfix();             /* a name, name[i], or grid[i][j] */
+      expect(T_EQ, "I expected '=' here.");
+      Expr *val = expression();
+      if (lhs->kind == E_VAR)   { Stmt *s = new_stmt(S_SET, t.line); s->name = lhs->name; s->expr = val; return s; }
+      if (lhs->kind == E_INDEX) { Stmt *s = new_stmt(S_INDEXSET, t.line); s->target = lhs->target; s->index = lhs->index; s->expr = val; return s; }
+      fail(t.line, "you can only 'set' a name, or an item inside a list or map.");
+      return NULL;
+    }
+    case T_FOR: {
+      advance();
+      expect(T_EACH, "I expected 'each' here (like: for each item in things:).");
+      Token name = expect(T_IDENT, "I expected a name for each item.");
+      expect(T_IN, "I expected 'in' here (like: for each item in things:).");
+      Stmt *s = new_stmt(S_FOREACH, t.line); s->name = name.text; s->expr = expression();
+      s->body = block(&s->nbody); return s;
     }
     case T_SHOW: {
       advance(); Stmt *s = new_stmt(S_SHOW, t.line);
@@ -414,6 +551,61 @@ static Value call_task(Expr *call, Env *env) {
   return result;
 }
 
+/* built-in functions — called like tasks: name(args). */
+static Value call_builtin(Expr *call, Env *env) {
+  const char *name = call->name;
+  int n = call->nargs;
+  if (n > 16) fail(call->line, "that's too many inputs for a builtin.");
+  Value a[16];
+  for (int i = 0; i < n; i++) a[i] = eval(call->args[i], env);
+
+  if (!strcmp(name, "range")) {
+    if ((n != 1 && n != 2) || a[0].type != V_NUM || (n == 2 && a[1].type != V_NUM)) fail(call->line, "range needs 1 or 2 numbers, like range(5) or range(2, 8).");
+    long long start = (n == 2) ? (long long)a[0].num : 0;
+    long long end   = (n == 2) ? (long long)a[1].num : (long long)a[0].num;
+    if (end - start > 100000000LL) fail(call->line, "that range is too big.");
+    SList *l = list_new();
+    for (long long i = start; i < end; i++) list_push(l, vnum((double)i));
+    return vlist(l);
+  }
+  if (!strcmp(name, "length")) {
+    if (n != 1) fail(call->line, "length needs one thing.");
+    if (a[0].type == V_LIST) return vnum(a[0].list ? a[0].list->n : 0);
+    if (a[0].type == V_MAP)  return vnum(a[0].map ? a[0].map->n : 0);
+    if (a[0].type == V_STR)  { const char *p = a[0].str ? a[0].str : ""; long long c = 0; for (int i = 0; p[i]; i += utf8_clen((unsigned char)p[i])) c++; return vnum((double)c); }
+    fail(call->line, "length works on a list, a map, or text.");
+  }
+  if (!strcmp(name, "add")) {
+    if (n != 2) fail(call->line, "add needs a list and a value, like add(things, 5).");
+    if (a[0].type != V_LIST || !a[0].list) fail(call->line, "add's first input must be a list.");
+    list_push(a[0].list, a[1]);
+    return vnone();
+  }
+  if (!strcmp(name, "keys")) {
+    if (n != 1 || a[0].type != V_MAP) fail(call->line, "keys needs a map.");
+    SList *l = list_new();
+    for (int i = 0; a[0].map && i < a[0].map->n; i++) list_push(l, vstr(dup_str(a[0].map->keys[i])));
+    return vlist(l);
+  }
+  if (!strcmp(name, "contains")) {
+    if (n != 2) fail(call->line, "contains needs a collection and a value.");
+    if (a[0].type == V_LIST) { for (int i = 0; a[0].list && i < a[0].list->n; i++) if (values_equal(a[0].list->items[i], a[1])) return vbool(1); return vbool(0); }
+    if (a[0].type == V_MAP)  return vbool(a[1].type == V_STR && a[0].map && map_index(a[0].map, a[1].str) >= 0);
+    if (a[0].type == V_STR && a[1].type == V_STR) return vbool(strstr(a[0].str ? a[0].str : "", a[1].str ? a[1].str : "") != NULL);
+    fail(call->line, "contains works on a list, a map, or text.");
+  }
+  if (!strcmp(name, "first")) {
+    if (n != 1 || a[0].type != V_LIST) fail(call->line, "first needs a list.");
+    return (a[0].list && a[0].list->n > 0) ? a[0].list->items[0] : vnone();
+  }
+  if (!strcmp(name, "last")) {
+    if (n != 1 || a[0].type != V_LIST) fail(call->line, "last needs a list.");
+    return (a[0].list && a[0].list->n > 0) ? a[0].list->items[a[0].list->n - 1] : vnone();
+  }
+  failf(call->line, "I don't know a task or function called '%s'.", name);
+  return vnone();
+}
+
 static Value eval_binary(Expr *e, Env *env) {
   Value l = eval(e->left, env), r = eval(e->right, env);
   switch (e->op) {
@@ -460,7 +652,26 @@ static Value eval(Expr *e, Env *env) {
       return vbool(l ? 1 : is_truthy(eval(e->right, env)));
     }
     case E_BINARY: return eval_binary(e, env);
-    case E_CALL:   return call_task(e, env);
+    case E_CALL:   return task_find(e->name) ? call_task(e, env) : call_builtin(e, env);
+    case E_LIST: { SList *l = list_new(); for (int i = 0; i < e->nargs; i++) list_push(l, eval(e->args[i], env)); return vlist(l); }
+    case E_MAP:  { SMap *m = map_new(); for (int i = 0; i < e->nargs; i++) map_set(m, e->keys[i], eval(e->args[i], env)); return vmap(m); }
+    case E_INDEX: {
+      Value c = eval(e->target, env), ix = eval(e->index, env);
+      if (c.type == V_LIST) {
+        if (ix.type != V_NUM) fail(e->line, "a list position must be a number.");
+        if (ix.num != (double)(long long)ix.num) fail(e->line, "a list position must be a whole number.");
+        long long i = (long long)ix.num;
+        if (!c.list || i < 0 || i >= c.list->n) fail(e->line, "that position doesn't exist in the list.");
+        return c.list->items[i];
+      }
+      if (c.type == V_MAP) {
+        if (ix.type != V_STR) fail(e->line, "a map key must be text.");
+        int i = c.map ? map_index(c.map, ix.str) : -1;
+        return i >= 0 ? c.map->vals[i] : vnone();
+      }
+      fail(e->line, "I can only look inside a list or a map with [ ].");
+      return vnone();
+    }
   }
   return vnone();
 }
@@ -490,6 +701,43 @@ static void exec(Stmt *s, Env *env) {
     case S_TASK: break;  /* registered before the run */
     case S_GIVE: return_value = s->expr ? eval(s->expr, env) : vnone(); returning = 1; break;
     case S_EXPR: eval(s->expr, env); break;
+    case S_FOREACH: {
+      Value it = eval(s->expr, env);
+      if (it.type == V_LIST) {
+        int len = it.list ? it.list->n : 0;            /* snapshot: appending inside the loop won't extend it */
+        for (int i = 0; i < len; i++) { env_define(env, s->name, it.list->items[i]); exec_block(s->body, s->nbody, env); if (returning) break; }
+      } else if (it.type == V_MAP) {
+        int len = it.map ? it.map->n : 0;
+        for (int i = 0; i < len; i++) { env_define(env, s->name, vstr(dup_str(it.map->keys[i]))); exec_block(s->body, s->nbody, env); if (returning) break; }
+      } else if (it.type == V_STR) {
+        const char *p = it.str ? it.str : "";
+        for (int i = 0; p[i]; ) {                       /* one whole UTF-8 character per step */
+          int cl = utf8_clen((unsigned char)p[i]); char ch[5]; int k = 0;
+          for (; k < cl && p[i + k]; k++) ch[k] = p[i + k];
+          ch[k] = 0;
+          env_define(env, s->name, vstr(dup_str(ch)));
+          exec_block(s->body, s->nbody, env); if (returning) break;
+          i += k ? k : 1;
+        }
+      } else fail(s->line, "I can only loop over a list, a map, or text with 'for each'.");
+      break;
+    }
+    case S_INDEXSET: {
+      Value c = eval(s->target, env);                  /* the list/map to set into (a reference) */
+      Value ix = eval(s->index, env), val = eval(s->expr, env);
+      if (c.type == V_LIST) {
+        if (ix.type != V_NUM) fail(s->line, "a list position must be a number.");
+        if (ix.num != (double)(long long)ix.num) fail(s->line, "a list position must be a whole number.");
+        long long i = (long long)ix.num;
+        if (!c.list || i < 0 || i >= c.list->n) fail(s->line, "that position doesn't exist in the list.");
+        c.list->items[i] = val;
+      } else if (c.type == V_MAP) {
+        if (ix.type != V_STR) fail(s->line, "a map key must be text.");
+        if (!c.map) fail(s->line, "this map isn't ready to set into.");
+        map_set(c.map, ix.str, val);
+      } else fail(s->line, "I can only set inside a list or a map with [ ].");
+      break;
+    }
   }
 }
 
@@ -502,7 +750,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.0.1"
+#define SPROUT_VERSION "0.0.2"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);

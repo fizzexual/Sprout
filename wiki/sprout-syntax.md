@@ -104,6 +104,60 @@ repeat while n > 0:
     set n = n - 1
 ```
 
+## Lists
+
+A list holds many values in order, written on one line. Positions start at **0**.
+
+```sprout
+make xs = [10, 20, 30]
+show xs[0]                ~ 10  (read by position)
+set xs[1] = 99            ~ change an item
+add(xs, 40)              ~ add to the end
+show length(xs)           ~ 4
+show first(xs), last(xs)  ~ 10 40
+```
+
+## Maps
+
+A map pairs keys with values, on one line. Look things up by key.
+
+```sprout
+make person = {name: "Sam", age: 3}
+show person["name"]       ~ Sam
+set person["age"] = 4     ~ change (or add) a value
+show keys(person)         ~ [name, age]
+```
+
+A missing key gives back `nothing`, so `when person["x"] == nothing:` works.
+
+## for each
+
+Walk a list's items, a map's keys, or a text's letters. Pair it with `range` to count.
+
+```sprout
+for each item in [1, 2, 3]:
+    show item
+
+for each i in range(5):       ~ 0 1 2 3 4
+    show i
+
+for each k in {a: 1, b: 2}:   ~ the keys: a, b
+    show k
+```
+
+## Built-in helpers
+
+These work everywhere — call them like `length(xs)`:
+
+| Call | Does |
+| --- | --- |
+| `length(x)` | how many items in a list/map, or letters in text |
+| `add(list, x)` | add `x` to the end of a list |
+| `keys(map)` | a list of the map's keys |
+| `contains(coll, x)` | is `x` in the list / a map's keys / inside the text? `yes`/`no` |
+| `first(list)` / `last(list)` | the first / last item (`nothing` if empty) |
+| `range(n)` / `range(a, b)` | a list `0..n-1`, or `a..b-1` |
+
 ## Tasks: your own actions
 
 `task` defines a named action; `give` hands a value back.

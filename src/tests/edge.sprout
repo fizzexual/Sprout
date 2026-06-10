@@ -1,0 +1,31 @@
+~ regression tests for the slice-3 review fixes
+
+~ nested index assignment: set grid[r][c] = v  (was a parse error)
+make grid = [[1, 2], [3, 4]]
+set grid[1][0] = 99
+show grid[1][0]            ~ 99
+show grid                  ~ [[1, 2], [99, 4]]
+
+~ nested map set
+make data = {user: {name: "Sam"}}
+set data["user"]["name"] = "Alex"
+show data["user"]["name"]  ~ Alex
+
+~ reserved-word map keys (in / set / for were rejected before)
+make cfg = {in: 1, set: 2, for: 3, name: "ok"}
+show cfg["in"], cfg["set"], cfg["for"], cfg["name"]   ~ 1 2 3 ok
+
+~ for each over a list we append to MUST terminate (length is snapshotted)
+make src = [1, 2, 3]
+make out = []
+for each x in src:
+    add(out, x * 10)
+show out                   ~ [10, 20, 30]
+show length(src)           ~ 3
+
+~ UTF-8: a character is a whole code point, not a byte
+show length("café")        ~ 4
+make letters = []
+for each ch in "café":
+    add(letters, ch)
+show length(letters)       ~ 4

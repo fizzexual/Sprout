@@ -40,8 +40,8 @@ Sprout has its **own** vocabulary — `make`, `set`, `show`, `when`, `repeat`,
 
 1. ✅ **Core** — variables, math, text, `when`, `repeat`
 2. ✅ **Tasks** — `task` / `give`, function calls, recursion, scope
-3. ⏭️ **Collections** — lists `[...]`, maps `{...}`, indexing, `for each`, `range`
-4. **Text & toolbox** — f-strings (`f"..."`) and the builtins (`length`, `upper`, `sqrt`, …)
+3. ✅ **Collections** — lists `[...]`, maps `{...}`, indexing, `for each`, `range`
+4. ⏭️ **Text & toolbox** — f-strings (`f"..."`) and the rest of the builtins (`upper`, `lower`, `sqrt`, `round`, `min`, `max`, …)
 5. **Input & memory** — `ask`, `remember` / `recall`
 6. **Richer errors** — the `^` pointer and "did you mean?" suggestions
 7. **Apps & more** — GUI windows, the internet, libraries

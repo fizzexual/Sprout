@@ -3,8 +3,8 @@
 The whole language — as it works today — on one page. Skim it, copy a snippet,
 change a number, run it. 🌱
 
-> Sprout is being rebuilt in C; this sheet covers the **core** language. Lists,
-> maps, `for each`, f-strings, builtins, and input are on the [roadmap](README.md#roadmap).
+> Sprout is being rebuilt in C; this sheet covers what runs today. f-strings, more
+> builtins, and input are on the [roadmap](README.md#roadmap).
 
 ---
 
@@ -63,6 +63,50 @@ make n = 3
 repeat while n > 0:    ~ keep going while something is true
     show n
     set n = n - 1
+```
+
+---
+
+## Lists
+
+A list holds many values in order. Counting starts at **0**.
+
+```sprout
+make xs = [1, 2, 3]       ~ lists are written on one line
+show xs[0]                ~ read by position  ->  1
+set xs[1] = 9             ~ change an item
+add(xs, 4)               ~ stick a value on the end
+show length(xs)           ~ how many  ->  4
+show first(xs), last(xs)  ~ ends
+show contains(xs, 9)      ~ yes
+```
+
+## Maps
+
+A map pairs **keys** with **values**.
+
+```sprout
+make person = {name: "Sam", age: 3}
+show person["name"]       ~ look up by key  ->  Sam
+set person["age"] = 4     ~ change a value
+show keys(person)         ~ all the keys  ->  [name, age]
+```
+
+A missing key gives back `nothing`, so you can check `when person["x"] == nothing:`.
+
+## for each
+
+Walk a list's items, a map's keys, or the letters of some text.
+
+```sprout
+for each item in [10, 20, 30]:
+    show item
+
+for each i in range(3):   ~ 0, 1, 2
+    show i
+
+for each letter in "hi":
+    show letter
 ```
 
 ---
