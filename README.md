@@ -178,6 +178,74 @@ sprout api <url>            # list every field an API returns
 The result is a **~86 KB** native executable that links only against the operating
 system's own libraries. Drop it anywhere and it runs.
 
+## Language reference (the precise rules)
+
+A short, exact description of the semantics as implemented — written so a language
+designer can audit it. If something here reads as a mistake, it probably is:
+[open an issue](https://github.com/fizzexual/Sprout/issues).
+
+**Values & types.** Dynamically typed. Five value kinds: **number**, **text**,
+**yes/no** (boolean), **nothing**, and the collections **list** and **map**.
+There are no user-defined types/structs/classes — a **map** (`{name: "Sam"}`) is
+the record type. Maps preserve **insertion order**; keys are text.
+
+**Numbers are IEEE-754 doubles.** There is no separate integer type, so `5 / 2`
+is `2.5` and very large integers lose precision. `%` is `fmod`. Division/modulo by
+zero is a runtime error.
+
+**Text is UTF-8.** `length("café")` is `4` (characters, not bytes). Strings are
+immutable and **not indexable** (`"abc"[0]` is an error) — iterate with `for each`
+or `split`. `+` concatenates, and if either side of `+` is text the other side is
+coerced via its display form (`"n=" + 3` → `"n=3"`).
+
+**Truthiness** (for `when` / `repeat while` / `and` / `or` / `not`): `no`,
+`nothing`, `0`, `""`, and empty list/map are falsey; everything else is truthy.
+`and`/`or` short-circuit. **Equality** (`==`/`!=`) is structural and deep for
+lists/maps (with a depth guard against self-referential values); `< <= > >=`
+compare only two numbers or two pieces of text.
+
+**Scope.** Variables are **function/file scoped — blocks do not introduce scope.**
+A `make` inside a `when`/`repeat`/`for each` writes into the enclosing scope, and a
+loop variable is still in scope after the loop. `set` requires the name to already
+exist. Top-level code of each file runs in that file's own scope.
+
+**Tasks** (`task f(...) ... give`) are **top-level only** — no nested functions and
+**no closures**. A task sees its own file's top-level names plus its parameters and
+locals, *not* the caller's locals (so calls are referentially clean). Recursion is
+supported, bounded by a call-depth guard (~6000) on a 64 MB stack.
+
+**Modules & visibility.** A `sprout.toml` (`project`, `main`, `include [...]`)
+defines a project. `use server` imports a module; you then reach its **`public`**
+tasks/values as `server.start()` / `server.config`. Everything is **private by
+default** (file-local, called bare within the file). There is **no implicit global
+sharing** between files, and a file may only name a module it has `use`d. Modules
+load **once** (so circular `use` terminates), are resolved by `sprout.toml` then by
+searching `modules/ src/ lib/ ./`, and are keyed by basename (first file with a
+given basename wins). `system` is a **reserved** built-in module (`system.run`).
+
+**Evaluation & errors.** Eager, left-to-right; statements run top to bottom. The
+**first error aborts** the run (there is no batch diagnostics pass and no static
+type checking) — except in the interactive REPL, which catches the error and keeps
+your session. Error messages are heuristic (edit-distance "did you mean?").
+
+**Concurrency.** None — single-threaded, synchronous. `wait(seconds)` blocks.
+
+## Design decisions & rationale
+
+The interesting choices, and what each one costs — the places worth challenging:
+
+| Decision | Why | Trade-off / risk |
+| --- | --- | --- |
+| **Tree-walking interpreter** (no bytecode/JIT) | Tiny, simple, easy to read and trust | Slow vs. a bytecode VM; fine for learning, not for hot loops |
+| **All C, zero deps** (links only OS libs) | One ~86 KB exe, nothing to install, no supply chain | Reimplementing everything (JSON, HTTP) by hand; C memory risks |
+| **No GC — allocate and leak until exit** | Trivial, no pauses, correct for short CLI runs | Memory grows in long-running programs; **the biggest known weakness** |
+| **Doubles only, no integer type** | One number type is simpler for beginners | Precision/overflow surprises; no bigint |
+| **Namespaced modules + `private` default** | Predictable, scales, no hidden global sharing | More to type across files (`module.name`) |
+| **Maps as the only record type** | Fewer concepts to learn | No fields/methods/type checking on shapes |
+| **First error aborts** | Simple, clear single message | No "here are all 12 errors" batch reporting |
+| **Own keywords** (`make`/`show`/`task`) | Readable out loud for first-timers | Unfamiliar to experienced devs; not C/JS-like |
+| **Indentation blocks** (Python-style) | Clean, no `{}`/`;` noise | Tabs-vs-spaces and copy-paste pitfalls |
+
 ## Roadmap
 
 The core is done; the rest of the language is on its way back, slice by slice:
@@ -192,21 +260,68 @@ The core is done; the rest of the language is on its way back, slice by slice:
 8. **Testing & docs** — `test "…": expect …`, `sprout test`, `sprout docs`
 9. **Apps & more** — a package manager, then GUI windows
 
-## How it works
+## How it works (architecture)
 
 ```
-source.sprout → lexer → parser → interpreter → output
+source.sprout → lexer → parser → AST → tree-walking interpreter → output
 ```
 
-Your `.sprout` program is **interpreted** (walked as a tree), not compiled to
-machine code — only the Sprout interpreter itself is compiled (to that ~86 KB
-native `sprout.exe`). A small, dependency-free pipeline in one C file. The full tour is in
-[`src/README.md`](src/README.md) and **[How Sprout Works](wiki/architecture.md)**.
+The whole language is **one C file** (`src/sprout.c`, ~2k lines), compiled to a
+~86 KB native exe. Your `.sprout` program is **interpreted** (the AST is walked) —
+only the interpreter itself is compiled to machine code.
+
+- **Lexer** — hand-written; turns indentation into `INDENT`/`DEDENT` tokens
+  (Python-style). f-strings are **desugared in the lexer**: `f"Hi {name}"` becomes
+  the token stream `( "Hi " + ( name ) + "" )`, so they need no special AST/eval.
+- **Parser** — recursive descent with precedence climbing for the operators;
+  produces a plain AST of `Expr`/`Stmt` nodes. Token strings are owned by the AST,
+  which makes re-parsing additional files (for `use`) re-entrant and safe.
+- **Interpreter** — walks the AST. Variables live in a chain of environments
+  (file scope → call frame). Tasks live in a table keyed by `(name, file)`;
+  visibility is resolved against the current file id, with separate small
+  registries for module namespaces, per-file imports (`use`), and `public` vars.
+- **Memory** — values are `malloc`'d and intentionally **not freed** (freed by
+  process exit). Recursion runs on a 64 MB stack with a call-depth guard.
+- **Built-ins, from scratch** — JSON is a hand-written parser; HTTP uses the OS
+  (`urlmon` on Windows); shell via `popen`. No third-party libraries.
+
+Full tour: [`src/README.md`](src/README.md) and **[How Sprout Works](wiki/architecture.md)**.
 There's a **[VS Code extension](vscode-extension)** for syntax highlighting too.
 
 > Sprout previously had a TypeScript-on-Node implementation with a GUI, a
 > compile-to-JavaScript engine, and libraries. That has been retired so the
 > language can stand entirely on its own in C — it lives on in the git history.
+
+## Known limitations & open questions
+
+Sprout is **v0.0.7** — early, and deliberately small. These are the rough edges
+I already know about; **spotting more (or telling me which of these matter most)
+is exactly the kind of feedback I'm looking for** —
+[issues](https://github.com/fizzexual/Sprout/issues) /
+[discussions](https://github.com/fizzexual/Sprout/discussions) welcome.
+
+- **No garbage collection.** Memory grows for the life of the process. Fine for
+  scripts/CLIs; wrong for a long-running server. The intended fix is a small GC or
+  arena — design input wanted.
+- **Performance.** Tree-walking, so tight numeric loops are slow. No bytecode/JIT.
+- **Numbers are doubles only** — no integers/bigints; precision and overflow can
+  surprise.
+- **No user-defined types.** Maps are the only record; no structs, no methods, no
+  shape/type checking.
+- **No closures or first-class functions.** Tasks are top-level only; a task
+  defined inside a block is silently not registered (a gotcha I'd like to error on).
+- **No block scope.** Loop/`when` variables leak into the enclosing scope.
+- **Strings aren't indexable** (`s[0]` errors); iterate or `split`.
+- **Errors abort on the first one** — no batch diagnostics, no static checks; all
+  type errors are caught at runtime.
+- **`system.run` shells out** — powerful and OS-dependent; gated behind
+  `use system`, but still a sharp edge for beginners.
+- **Portability.** Built and tested on Windows (MinGW). POSIX branches exist
+  (realpath/opendir/etc.) but aren't CI-tested yet.
+- **No package manager / versioning** for modules yet.
+
+Each release goes through an adversarial review pass before shipping, and the
+fixes are listed in the [release notes](https://github.com/fizzexual/Sprout/releases).
 
 ---
 
