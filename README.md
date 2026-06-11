@@ -88,15 +88,17 @@ language runs now:
 
 - Values: numbers, text, `yes` / `no`, `nothing`
 - `make` (new name), `set` (change an existing one), `show` (print — *its* commas print with a space between; `make`/`set` take a single value)
+- **Compound assignment:** `set x += 1` (and `-= *= /= %=`), including through an index (`set xs[i] += 1`, `set m[key] += 1`)
 - **Text templates:** `f"Hi {name}, you have {x + y} points"` — values drop straight in
 - Math `+ - * / %` with precedence and `( )`; `+` also joins text
 - Compare `== != < <= > >=`, logic `and` `or` `not`
-- `when` / `orwhen` / `otherwise`, `repeat N times`, `repeat while`
+- `when` / `orwhen` / `otherwise`, `repeat N times`, `repeat while`, and **`stop`** / **`skip`** to leave or skip a loop turn
+- **Error handling:** `try:` / `otherwise problem:` to catch a runtime error, and `fail "message"` to raise your own
 - `task` / `give`, function calls, **recursion**, proper scope
 - **Lists** `[1, 2, 3]` and **maps** `{name: "Sam"}` — indexing, `set xs[i] = …`, `for each`, `range`
 - **`learn on`** — Sprout explains each step as it runs (and **friendly errors** that say *"did you mean…?"*)
 - **Built-in testing** — `test "name": expect …`, run with `sprout test` (pass/fail report + exit code)
-- **Toolbox:** `length` `add` `keys` `contains` `first` `last` `range` · `sqrt` `abs` `round` `floor` `ceil` `min` `max` `random` `number` · `upper` `lower` `trim` `replace` `split` `join` · `now` `today` `wait` · `ask` · `color` (terminal colour)
+- **Toolbox:** `length` `add` `remove` `insert` `keys` `values` `contains` `first` `last` `index_of` `sort` `reverse` `range` · `sqrt` `pow` `abs` `round` `floor` `ceil` `min` `max` `random` `number` · `upper` `lower` `trim` `replace` `split` `join` `starts_with` `ends_with` · `now` `today` `wait` · `ask` · `color` (terminal colour)
 - **Superpowers — built in, no libraries:**
   - 🌐 `get(url)` — fetch any web page or API
   - 🧩 `json(text)` — parse JSON straight into native lists & maps
@@ -170,7 +172,7 @@ build.cmd                     # or: gcc -O2 -Wall -s -o sprout.exe sprout.c -lm 
 
 # run a program:
 sprout run hello.sprout     # or just: sprout hello.sprout
-sprout version              # -> Sprout v0.0.13
+sprout version              # -> Sprout v0.0.14
 sprout new myapp            # create a full multi-file project folder
 sprout build                # run the project in the current folder (reads sprout.toml)
 sprout test                 # run your tests (a file, or every tests/*.sprout)
@@ -196,9 +198,12 @@ system's own libraries. Drop it anywhere and it runs.
 ## Language reference (the precise rules)
 
 A short, exact description of the semantics as implemented — written so a language
-designer can audit it. **As of v0.0.13 the core language is frozen:** the rules
-below are locked and tested, so libraries can build on them. If something here
-reads as a mistake, it probably is: [open an issue](https://github.com/fizzexual/Sprout/issues).
+designer can audit it. The core was frozen at **v0.0.13**; **v0.0.14 is a deliberate
+"base-completion" cycle** that adds the table-stakes pieces a small language needs
+(error handling, loop control, compound assignment, and the missing list/map/text
+builtins) before the core re-freezes at **v0.1.0**. The rules below are tested. If
+something here reads as a mistake, it probably is:
+[open an issue](https://github.com/fizzexual/Sprout/issues).
 
 **Values & types.** Dynamically typed. Five value kinds: **number**, **text**,
 **yes/no** (boolean), **nothing**, and the collections **list** and **map**.
@@ -295,10 +300,29 @@ value) and `show` (the expression with its values substituted, then the result).
 does **not** (yet) narrate which `when` branch ran, each loop iteration, or task
 calls/returns. Off by default.
 
-**Evaluation & errors.** Eager, left-to-right; statements run top to bottom. The
-**first error aborts** the run (there is no batch diagnostics pass and no static
-type checking) — except in the interactive REPL, which catches the error and keeps
-your session. Error messages are heuristic (edit-distance "did you mean?").
+**Compound assignment.** `set x += e` is exactly `set x = x + e`, and likewise
+`-=`, `*=`, `/=`, `%=`. It works through an index too: `set xs[i] += 1` and
+`set m[key] += 1` (the list position / map key must already exist). The operator
+keeps `+`'s meaning, so `set s += "!"` appends text. The name (or element) must
+already exist — compound assignment never *creates* one.
+
+**Loop control.** Inside a `repeat`/`for each` body, **`stop`** ends the loop
+immediately and **`skip`** jumps to the next turn. Both affect only the innermost
+loop, and using either outside a loop is a parse-time error. `give` inside a loop
+still returns from the whole task.
+
+**Error handling.** `try:` runs a block; if any step fails, control jumps to the
+matching **`otherwise:`** block (which must be present) instead of aborting the run.
+`otherwise problem:` binds the error message to `problem` (text); a bare
+`otherwise:` just handles it. You raise your own error with **`fail "message"`**
+(a bare `fail` uses a default message); a `fail` inside a `try` is caught like any
+other error. `try` blocks nest, and `give`/`stop`/`skip` pass cleanly out through a
+`try`. This is the **one** way to recover from an error mid-run.
+
+**Evaluation & errors.** Eager, left-to-right; statements run top to bottom. Outside
+of `try`, the **first error aborts** the run (there is no batch diagnostics pass and
+no static type checking) — except in the interactive REPL, which catches the error
+and keeps your session. Error messages are heuristic (edit-distance "did you mean?").
 
 **Concurrency.** None — single-threaded, synchronous. `wait(seconds)` blocks.
 
@@ -327,11 +351,13 @@ Every corner case decided, so libraries can rely on it. One rule each:
 ```
 make set show when orwhen otherwise repeat while times task give
 for each in use public private learn test expect and or not yes no nothing
+try fail stop skip
 ```
 
-**Built-in functions** are predefined names — `length sqrt abs round floor ceil
-min max random number upper lower trim replace split join range add keys contains
-first last ask now today wait read write append exists get json explore color`
+**Built-in functions** are predefined names — `length sqrt pow abs round floor ceil
+min max random number upper lower trim replace split join starts_with ends_with
+range add remove insert keys values contains first last index_of sort reverse
+ask now today wait read write append exists get json explore color`
 (plus `system.run`). You *may* shadow one with your own variable, but the function
 stays callable, so it's clearer not to.
 
@@ -342,10 +368,10 @@ stays callable, so it's clearer not to.
 
 So a library author knows what they can't assume: **no closures**, **no
 first-class / stored tasks**, **no user-defined types** (maps are the record),
-**no `try`/`catch`** (the first error stops the run; the REPL and a test boundary
-are the only recoveries), **no multi-line string syntax**, **no negative
-indexing**, **no integer type** (numbers are doubles). These are choices, and each
-could become a future, opt-in addition — but the v1 core does not include them.
+**no multi-line string syntax**, **no negative indexing**, **no integer type**
+(numbers are doubles). These are choices, and each could become a future, opt-in
+addition — but the v1 core does not include them. (Error recovery *does* exist now —
+`try:` / `otherwise:` — as of v0.0.14.)
 
 ### Grammar (core, EBNF)
 
@@ -355,18 +381,22 @@ ambiguities. `INDENT`/`DEDENT`/`NEWLINE` come from the lexer (see below).
 ```ebnf
 program    = { statement } ;
 statement  = make | set | show | when | repeat | foreach
-           | task | give | use | learn | ( expr NEWLINE ) ;
+           | task | give | use | learn | try | fail | "stop" | "skip"
+           | ( expr NEWLINE ) ;
 make       = [ "public" | "private" ] "make" ident "=" expr NEWLINE ;
-set        = "set" ( ident | postfix ) "=" expr NEWLINE ;
+set        = "set" ( ident | postfix ) assign expr NEWLINE ;
+assign     = "=" | "+=" | "-=" | "*=" | "/=" | "%=" ;  (* compound: x op= e  ==  x = x op e; target must exist *)
 show       = "show" expr { "," expr } NEWLINE ;        (* commas print with a space between *)
 when       = "when" expr block { "orwhen" expr block } [ "otherwise" block ] ;
 repeat     = "repeat" ( expr "times" | "while" expr ) block ;  (* a 'times' count is truncated to a whole number; <= 0 runs 0 times *)
 foreach    = "for" "each" ident "in" expr block ;             (* over a map, ident takes each KEY *)
 task       = [ "public" | "private" ] "task" ident "(" [ ident { "," ident } ] ")" block ;  (* top level only *)
 give       = "give" [ expr ] NEWLINE ;                 (* a parse error outside a task *)
+try        = "try" block "otherwise" [ ident ] block ; (* otherwise is required; ident binds the error message *)
+fail       = "fail" [ expr ] NEWLINE ;                 (* raise an error; caught by an enclosing try *)
 use        = "use" ( ident | string ) NEWLINE ;       (* a path-looking target (has / \ or .sprout) is literal; otherwise it's a searched module name *)
 learn      = "learn" ( "on" | "off" ) NEWLINE ;
-block      = ":" NEWLINE INDENT { statement } DEDENT ;
+block      = ":" NEWLINE INDENT { statement } DEDENT ;  (* "stop"/"skip" only inside a loop body *)
 
 expr       = or ;
 or         = and { "or" and } ;
@@ -428,12 +458,12 @@ The core is done; the rest of the language is on its way back, slice by slice:
 5. ✅ **Projects & modules** — `sprout.toml`, `use`, `public`/`private`, `sprout new`, `sprout build`
 6. ✅ **f-strings, friendly errors & `learn` mode** — `f"Hi {name}"`, "did you mean?", step-by-step narration
 7. ✅ **Built-in testing** — `test "…": expect …` and `sprout test`
-8. ✅ **The freeze (v0.0.13)** — every edge case decided, vocabulary locked, the Language Reference complete and tested. **The core language is now stable; from here, new things are libraries, not language changes.**
+8. ✅ **The freeze (v0.0.13)** — every edge case decided, vocabulary locked, the Language Reference complete and tested.
+9. ✅ **Base-completion (v0.0.14)** — the unfreeze cycle's first slice: `try`/`otherwise`/`fail`, `stop`/`skip`, compound assignment (`+=` …), and the missing list/map/text builtins (`remove` `insert` `sort` `reverse` `index_of` `values` `pow` `starts_with` `ends_with`).
 
-After the freeze comes the **next core cycle** (unfreeze → grow → re-freeze as v0.1.0).
-The full, sequenced plan — error handling, first-class tasks, collections superpowers,
-user types, a memory model, the web `kind`, tooling — is in **[ROADMAP.md](ROADMAP.md)**.
-First moves: `remember`/`recall` and `try`/`otherwise`.
+The **next core cycle** (unfreeze → grow → re-freeze as v0.1.0) is underway. The
+full, sequenced plan — first-class tasks, collections superpowers, user types, a
+memory model, the web `kind`, tooling — is in **[ROADMAP.md](ROADMAP.md)**.
 
 ## How it works (architecture)
 
@@ -469,7 +499,7 @@ There's a **[VS Code extension](vscode-extension)** for syntax highlighting too.
 
 ## Known limitations & open questions
 
-Sprout is **v0.0.13** — early, and deliberately small. Honest about the edges:
+Sprout is **v0.0.14** — early, and deliberately small. Honest about the edges:
 spotting more (or telling me which matter most) is exactly the feedback I want —
 [issues](https://github.com/fizzexual/Sprout/issues) /
 [discussions](https://github.com/fizzexual/Sprout/discussions) welcome.
@@ -482,7 +512,8 @@ spotting more (or telling me which matter most) is exactly the feedback I want �
   the C stack, so it's a deliberate slice, not a quick patch. Design input wanted.
 - **Performance.** Tree-walking, so tight numeric loops are slow. A bytecode VM
   would help — a large rewrite, not yet started.
-- **Errors abort on the first one** — no batch diagnostics and no static type
+- **Errors abort on the first one** *unless* wrapped in `try:` / `otherwise:`
+  (added v0.0.14) — there's still no batch diagnostics and no static type
   checking; type errors surface at runtime.
 - **No package manager / versioning** for modules yet.
 

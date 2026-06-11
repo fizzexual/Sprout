@@ -174,7 +174,13 @@ static int values_equal_inner(Value a, Value b) {
 /* ------------------------------------------------------------------- errors */
 static jmp_buf *err_jmp = NULL;   /* in interactive mode, fail() jumps here instead of exiting */
 static const char *g_current_file = NULL;   /* the file being parsed/run, for multi-file errors */
+static int  g_quiet_fail = 0;     /* >0 inside a 'try:' - capture the message instead of printing it */
+static char g_err_msg[512];       /* the most recent error's message, for 'otherwise' to read */
 static void fail(int line, const char *msg) {
+  if (g_quiet_fail && err_jmp) {                 /* inside a try: hand the message to 'otherwise', don't print */
+    snprintf(g_err_msg, sizeof g_err_msg, "%s", msg ? msg : "something went wrong.");
+    longjmp(*err_jmp, 1);
+  }
   fprintf(stderr, "\n  Sprout error");
   if (g_current_file) fprintf(stderr, " in %s", g_current_file);
   if (line > 0) fprintf(stderr, " (line %d)", line);
@@ -191,8 +197,10 @@ typedef enum {
   T_NUM, T_STR, T_IDENT,
   T_MAKE, T_SET, T_SHOW, T_WHEN, T_ORWHEN, T_OTHERWISE, T_REPEAT, T_WHILE, T_TIMES,
   T_TASK, T_GIVE, T_FOR, T_EACH, T_IN, T_USE, T_PUBLIC, T_PRIVATE, T_LEARN, T_TEST, T_EXPECT,
+  T_TRY, T_FAIL, T_STOP, T_SKIP,
   T_AND, T_OR, T_NOT, T_YES, T_NO, T_NOTHING,
   T_PLUS, T_MINUS, T_STAR, T_SLASH, T_PERCENT, T_DOT,
+  T_PLUSEQ, T_MINUSEQ, T_STAREQ, T_SLASHEQ, T_PERCENTEQ,
   T_EQ, T_EQEQ, T_BANGEQ, T_LT, T_LE, T_GT, T_GE,
   T_LPAREN, T_RPAREN, T_LBRACK, T_RBRACK, T_LBRACE, T_RBRACE, T_COMMA, T_COLON,
   T_NEWLINE, T_INDENT, T_DEDENT, T_EOF
@@ -214,6 +222,7 @@ static TokType keyword(const char *w) {
     { "for", T_FOR }, { "each", T_EACH }, { "in", T_IN }, { "use", T_USE },
     { "public", T_PUBLIC }, { "private", T_PRIVATE }, { "learn", T_LEARN },
     { "test", T_TEST }, { "expect", T_EXPECT },
+    { "try", T_TRY }, { "fail", T_FAIL }, { "stop", T_STOP }, { "skip", T_SKIP },
     { "and", T_AND }, { "or", T_OR },
     { "not", T_NOT }, { "yes", T_YES }, { "no", T_NO }, { "nothing", T_NOTHING },
   };
@@ -253,11 +262,11 @@ static void scan_token(const char *src, int *ip, int len, int line) {
     push_tok(keyword(w), w, 0, line); *ip = i; return;
   }
   switch (c) {
-    case '+': push_tok(T_PLUS, NULL, 0, line); i++; break;
-    case '-': push_tok(T_MINUS, NULL, 0, line); i++; break;
-    case '*': push_tok(T_STAR, NULL, 0, line); i++; break;
-    case '/': push_tok(T_SLASH, NULL, 0, line); i++; break;
-    case '%': push_tok(T_PERCENT, NULL, 0, line); i++; break;
+    case '+': if (i + 1 < len && src[i + 1] == '=') { push_tok(T_PLUSEQ,    NULL, 0, line); i += 2; } else { push_tok(T_PLUS,    NULL, 0, line); i++; } break;
+    case '-': if (i + 1 < len && src[i + 1] == '=') { push_tok(T_MINUSEQ,   NULL, 0, line); i += 2; } else { push_tok(T_MINUS,   NULL, 0, line); i++; } break;
+    case '*': if (i + 1 < len && src[i + 1] == '=') { push_tok(T_STAREQ,    NULL, 0, line); i += 2; } else { push_tok(T_STAR,    NULL, 0, line); i++; } break;
+    case '/': if (i + 1 < len && src[i + 1] == '=') { push_tok(T_SLASHEQ,   NULL, 0, line); i += 2; } else { push_tok(T_SLASH,   NULL, 0, line); i++; } break;
+    case '%': if (i + 1 < len && src[i + 1] == '=') { push_tok(T_PERCENTEQ, NULL, 0, line); i += 2; } else { push_tok(T_PERCENT, NULL, 0, line); i++; } break;
     case '(': push_tok(T_LPAREN, NULL, 0, line); i++; break;
     case ')': push_tok(T_RPAREN, NULL, 0, line); i++; break;
     case '[': push_tok(T_LBRACK, NULL, 0, line); i++; break;
@@ -375,7 +384,7 @@ typedef struct Expr {
   struct Expr *target, *index;            /* E_INDEX: target[index] */
 } Expr;
 
-typedef enum { S_MAKE, S_SET, S_SHOW, S_WHEN, S_REPEAT_TIMES, S_REPEAT_WHILE, S_TASK, S_GIVE, S_EXPR, S_FOREACH, S_INDEXSET, S_USE, S_LEARN, S_TEST, S_EXPECT } SKind;
+typedef enum { S_MAKE, S_SET, S_SHOW, S_WHEN, S_REPEAT_TIMES, S_REPEAT_WHILE, S_TASK, S_GIVE, S_EXPR, S_FOREACH, S_INDEXSET, S_USE, S_LEARN, S_TEST, S_EXPECT, S_TRY, S_FAIL, S_STOP, S_SKIP } SKind;
 typedef struct Stmt Stmt;
 typedef struct { Expr *cond; Stmt **body; int nbody; } Branch;
 struct Stmt {
@@ -385,6 +394,7 @@ struct Stmt {
   Expr *count; Stmt **body; int nbody;   /* repeat / task / for-each body */
   char **params; int nparams;            /* task */
   Expr *target, *index;                   /* S_INDEXSET: target[index] = expr */
+  TokType setop;                          /* S_SET/S_INDEXSET: 0 = plain '=', else +=,-=,*=,/=,%= */
   int is_public;                          /* make/task: shared across the whole project? */
   int line;
 };
@@ -519,6 +529,7 @@ static Stmt *statement(void);
 static int g_block_depth = 0;   /* >0 while parsing inside an indented block (tasks must be top-level) */
 static int g_in_task = 0;       /* >0 while parsing a task body ('give' only works inside a task) */
 static int g_in_test = 0;       /* >0 while parsing a test body ('expect' only works inside a test) */
+static int g_in_loop = 0;       /* >0 while parsing a loop body ('stop'/'skip' only work in loops) */
 static int g_repl_active = 0;   /* in the live REPL, `make` may re-bind a name (re-running a line) */
 static Stmt **block(int *count) {
   expect(T_COLON, "I expected a ':' to start the block.");
@@ -558,10 +569,20 @@ static Stmt *statement(void) {
     case T_SET: {
       advance();
       Expr *lhs = postfix();             /* a name, name[i], or grid[i][j] */
-      expect(T_EQ, "I expected '=' here.");
+      TokType op = 0;                    /* 0 = plain '='; otherwise the arithmetic op of a +=, -=, ... */
+      Token a = peek();
+      switch (a.type) {
+        case T_EQ:        advance(); break;
+        case T_PLUSEQ:    advance(); op = T_PLUS;    break;
+        case T_MINUSEQ:   advance(); op = T_MINUS;   break;
+        case T_STAREQ:    advance(); op = T_STAR;    break;
+        case T_SLASHEQ:   advance(); op = T_SLASH;   break;
+        case T_PERCENTEQ: advance(); op = T_PERCENT; break;
+        default: fail(a.line, "I expected '=' here (or +=, -=, *=, /=, %=).");
+      }
       Expr *val = expression();
-      if (lhs->kind == E_VAR)   { Stmt *s = new_stmt(S_SET, t.line); s->name = lhs->name; s->expr = val; return s; }
-      if (lhs->kind == E_INDEX) { Stmt *s = new_stmt(S_INDEXSET, t.line); s->target = lhs->target; s->index = lhs->index; s->expr = val; return s; }
+      if (lhs->kind == E_VAR)   { Stmt *s = new_stmt(S_SET, t.line);      s->name = lhs->name;       s->expr = val; s->setop = op; return s; }
+      if (lhs->kind == E_INDEX) { Stmt *s = new_stmt(S_INDEXSET, t.line); s->target = lhs->target; s->index = lhs->index; s->expr = val; s->setop = op; return s; }
       fail(t.line, "you can only 'set' a name, or an item inside a list or map.");
       return NULL;
     }
@@ -571,7 +592,9 @@ static Stmt *statement(void) {
       Token name = expect(T_IDENT, "I expected a name for each item.");
       expect(T_IN, "I expected 'in' here (like: for each item in things:).");
       Stmt *s = new_stmt(S_FOREACH, t.line); s->name = name.text; s->expr = expression();
-      s->body = block(&s->nbody); return s;
+      int save_loop = g_in_loop; g_in_loop = 1;   /* 'stop'/'skip' allowed in this body */
+      s->body = block(&s->nbody);
+      g_in_loop = save_loop; return s;
     }
     case T_SHOW: {
       advance(); Stmt *s = new_stmt(S_SHOW, t.line);
@@ -597,10 +620,11 @@ static Stmt *statement(void) {
     }
     case T_REPEAT: {
       advance();
-      if (match(T_WHILE)) { Stmt *s = new_stmt(S_REPEAT_WHILE, t.line); s->expr = expression(); s->body = block(&s->nbody); return s; }
+      int save_loop = g_in_loop; g_in_loop = 1;   /* 'stop'/'skip' allowed in the loop body */
+      if (match(T_WHILE)) { Stmt *s = new_stmt(S_REPEAT_WHILE, t.line); s->expr = expression(); s->body = block(&s->nbody); g_in_loop = save_loop; return s; }
       Stmt *s = new_stmt(S_REPEAT_TIMES, t.line); s->count = expression();
       expect(T_TIMES, "I expected 'times' here (like: repeat 3 times:).");
-      s->body = block(&s->nbody); return s;
+      s->body = block(&s->nbody); g_in_loop = save_loop; return s;
     }
     case T_TASK: {
       if (g_block_depth > 0) fail(t.line, "a task must be defined at the top level (the far-left margin), not inside another block.");
@@ -656,6 +680,28 @@ static Stmt *statement(void) {
       advance(); Stmt *s = new_stmt(S_EXPECT, t.line); s->expr = expression();
       return s;
     }
+    case T_TRY: {
+      advance(); Stmt *s = new_stmt(S_TRY, t.line);
+      s->body = block(&s->nbody);                          /* the protected steps */
+      if (!check(T_OTHERWISE)) fail(t.line, "a 'try:' needs an 'otherwise:' block to handle problems (like:  try:  ...  otherwise problem:  ...).");
+      advance();
+      if (check(T_IDENT)) s->name = advance().text;        /* otherwise problem:  -> 'problem' holds the message */
+      s->otherwise = block(&s->notherwise);
+      return s;
+    }
+    case T_FAIL: {
+      advance(); Stmt *s = new_stmt(S_FAIL, t.line);
+      if (!check(T_NEWLINE)) s->expr = expression();       /* fail "message"  (bare 'fail' uses a default) */
+      return s;
+    }
+    case T_STOP: {
+      if (!g_in_loop) fail(t.line, "'stop' only works inside a loop (it ends the loop early).");
+      advance(); return new_stmt(S_STOP, t.line);
+    }
+    case T_SKIP: {
+      if (!g_in_loop) fail(t.line, "'skip' only works inside a loop (it jumps to the next turn).");
+      advance(); return new_stmt(S_SKIP, t.line);
+    }
     default:
       if (check(T_IDENT)) { Stmt *s = new_stmt(S_EXPR, t.line); s->expr = expression(); return s; }
       fail(t.line, "I didn't expect this at the start of a line.");
@@ -664,7 +710,7 @@ static Stmt *statement(void) {
 }
 
 static Stmt **parse_program(int *count) {
-  g_block_depth = 0; g_in_task = 0; g_in_test = 0;   /* fresh per parse, so a prior error's longjmp can't leave them stuck */
+  g_block_depth = 0; g_in_task = 0; g_in_test = 0; g_in_loop = 0;   /* fresh per parse, so a prior error's longjmp can't leave them stuck */
   Stmt **list = NULL; int n = 0, cap = 0;
   while (!check(T_EOF)) {
     if (match(T_NEWLINE)) continue;
@@ -767,6 +813,7 @@ static int is_public_var(int fileid, const char *name) {
 
 /* `give` is signalled with a flag + slot so it unwinds cleanly through blocks/loops */
 static int returning = 0;
+static int g_loopctl = 0;   /* 0 = none, 1 = skip (next turn), 2 = stop (end the loop) */
 static Value return_value;
 static int call_depth = 0;
 static int repl_echo = 0;   /* in the live prompt, print the value of a bare expression */
@@ -781,7 +828,7 @@ static void exec(Stmt *s, Env *env);
 static void load_module(const char *name);   /* defined near main(); pulls in another project file */
 static char *module_basename(const char *path);   /* "server" from "modules/server.sprout" */
 static int test_report(void);                 /* prints the test summary + returns exit code */
-static void exec_block(Stmt **list, int n, Env *env) { for (int i = 0; i < n; i++) { exec(list[i], env); if (returning) return; } }
+static void exec_block(Stmt **list, int n, Env *env) { for (int i = 0; i < n; i++) { exec(list[i], env); if (returning || g_loopctl) return; } }
 /* run a block in its OWN child scope, so `make` inside it doesn't leak out */
 static void exec_scoped(Stmt **list, int n, Env *parent) { Env *be = env_new(parent); exec_block(list, n, be); }
 
@@ -831,8 +878,9 @@ static int edit_distance(const char *a, const char *b) {
 
 static const char *const BUILTIN_NAMES[] = {
   "range","length","add","keys","contains","first","last",
-  "abs","round","floor","ceil","sqrt","min","max","random","number",
-  "upper","lower","trim","replace","split","join",
+  "remove","insert","sort","reverse","index_of","values",
+  "abs","round","floor","ceil","sqrt","pow","min","max","random","number",
+  "upper","lower","trim","replace","split","join","starts_with","ends_with",
   "ask","now","today","wait","read","write","append","exists",
   "get","json","explore","color",
 };
@@ -1068,6 +1116,14 @@ static void explore_flatten(Value v, const char *prefix, SList *out, int depth) 
   }
 }
 
+/* sort comparator (the list is pre-checked to be all-numbers or all-text) */
+static int value_cmp(const void *pa, const void *pb) {
+  const Value *a = (const Value *)pa, *b = (const Value *)pb;
+  if (a->type == V_NUM && b->type == V_NUM) return (a->num > b->num) - (a->num < b->num);
+  if (a->type == V_STR && b->type == V_STR) return strcmp(a->str ? a->str : "", b->str ? b->str : "");
+  return 0;
+}
+
 static Value call_builtin(Expr *call, Env *env) {
   const char *name = call->name;
   int n = call->nargs;
@@ -1120,6 +1176,79 @@ static Value call_builtin(Expr *call, Env *env) {
     if (!a[0].list || a[0].list->n == 0) fail(call->line, "last() needs a list with at least one item (this list is empty).");
     return a[0].list->items[a[0].list->n - 1];
   }
+  if (!strcmp(name, "remove")) {
+    if (n != 2) fail(call->line, "remove needs a list + a position, or a map + a key.");
+    if (a[0].type == V_LIST) {
+      if (!a[0].list) fail(call->line, "remove's first input must be a list.");
+      if (a[1].type != V_NUM || a[1].num != (double)(long long)a[1].num) fail(call->line, "to remove from a list, give a whole-number position.");
+      long long i = (long long)a[1].num;
+      if (i < 0 || i >= a[0].list->n) fail(call->line, "that position doesn't exist in the list.");
+      Value gone = a[0].list->items[i];
+      for (long long k = i; k < a[0].list->n - 1; k++) a[0].list->items[k] = a[0].list->items[k + 1];
+      a[0].list->n--;
+      return gone;                                   /* hands back what was removed (pop) */
+    }
+    if (a[0].type == V_MAP) {
+      if (a[1].type != V_STR) fail(call->line, "a map key must be text.");
+      if (!a[0].map) return vnone();
+      int i = map_index(a[0].map, a[1].str);
+      if (i < 0) return vnone();
+      Value gone = a[0].map->vals[i];
+      free(a[0].map->keys[i]);
+      for (int k = i; k < a[0].map->n - 1; k++) { a[0].map->keys[k] = a[0].map->keys[k + 1]; a[0].map->vals[k] = a[0].map->vals[k + 1]; }
+      a[0].map->n--;
+      return gone;
+    }
+    fail(call->line, "remove works on a list (by position) or a map (by key).");
+  }
+  if (!strcmp(name, "insert")) {
+    if (n != 3 || a[0].type != V_LIST || !a[0].list) fail(call->line, "insert needs a list, a position, and a value.");
+    if (a[1].type != V_NUM || a[1].num != (double)(long long)a[1].num) fail(call->line, "insert needs a whole-number position.");
+    long long i = (long long)a[1].num;
+    if (i < 0 || i > a[0].list->n) fail(call->line, "that insert position is out of range (0 to the list's length).");
+    list_push(a[0].list, vnone());                   /* grow by one, then shift up */
+    for (long long k = a[0].list->n - 1; k > i; k--) a[0].list->items[k] = a[0].list->items[k - 1];
+    a[0].list->items[i] = a[2];
+    return vnone();
+  }
+  if (!strcmp(name, "sort")) {
+    if (n != 1 || a[0].type != V_LIST) fail(call->line, "sort needs a list.");
+    SList *l = a[0].list;
+    if (l && l->n > 1) {
+      VType t = l->items[0].type;
+      if (t != V_NUM && t != V_STR) fail(call->line, "sort works on a list of numbers or a list of text.");
+      for (int i = 1; i < l->n; i++) if (l->items[i].type != t) fail(call->line, "sort needs every item to be the same kind (all numbers, or all text).");
+      qsort(l->items, l->n, sizeof(Value), value_cmp);
+    }
+    return a[0];                                     /* sorted in place; returned so show sort(xs) works */
+  }
+  if (!strcmp(name, "reverse")) {
+    if (n != 1 || a[0].type != V_LIST || !a[0].list) fail(call->line, "reverse needs a list.");
+    SList *l = a[0].list;
+    for (int i = 0, j = l->n - 1; i < j; i++, j--) { Value t = l->items[i]; l->items[i] = l->items[j]; l->items[j] = t; }
+    return a[0];
+  }
+  if (!strcmp(name, "index_of")) {
+    if (n != 2) fail(call->line, "index_of needs a list + a value, or text + a piece of text.");
+    if (a[0].type == V_LIST) { for (int i = 0; a[0].list && i < a[0].list->n; i++) if (values_equal(a[0].list->items[i], a[1])) return vnum(i); return vnone(); }
+    if (a[0].type == V_STR && a[1].type == V_STR) {
+      const char *h = a[0].str ? a[0].str : "", *needle = a[1].str ? a[1].str : "";
+      const char *at = strstr(h, needle);
+      if (!at) return vnone();
+      long long ci = 0; for (const char *p = h; p < at; ) { p += utf8_clen((unsigned char)*p); ci++; }   /* byte -> char index */
+      return vnum((double)ci);
+    }
+    fail(call->line, "index_of works on a list, or on text + text.");
+  }
+  if (!strcmp(name, "values")) {
+    if (n != 1 || a[0].type != V_MAP) fail(call->line, "values needs a map.");
+    SList *l = list_new();
+    for (int i = 0; a[0].map && i < a[0].map->n; i++) list_push(l, a[0].map->vals[i]);
+    return vlist(l);
+  }
+  if (!strcmp(name, "pow")) { if (n != 2 || a[0].type != V_NUM || a[1].type != V_NUM) fail(call->line, "pow needs two numbers, like pow(2, 10)."); return vnum(pow(a[0].num, a[1].num)); }
+  if (!strcmp(name, "starts_with")) { if (n != 2 || a[0].type != V_STR || a[1].type != V_STR) fail(call->line, "starts_with needs two pieces of text."); const char *h = a[0].str ? a[0].str : "", *p = a[1].str ? a[1].str : ""; return vbool(strncmp(h, p, strlen(p)) == 0); }
+  if (!strcmp(name, "ends_with"))   { if (n != 2 || a[0].type != V_STR || a[1].type != V_STR) fail(call->line, "ends_with needs two pieces of text.");   const char *h = a[0].str ? a[0].str : "", *p = a[1].str ? a[1].str : ""; size_t hl = strlen(h), pl = strlen(p); return vbool(pl <= hl && strcmp(h + hl - pl, p) == 0); }
   /* ---- numbers ---- */
   if (!strcmp(name, "abs"))   { if (n!=1||a[0].type!=V_NUM) fail(call->line,"abs needs a number.");   return vnum(fabs(a[0].num)); }
   if (!strcmp(name, "round")) { if (n!=1||a[0].type!=V_NUM) fail(call->line,"round needs a number."); return vnum(floor(a[0].num+0.5)); }
@@ -1269,19 +1398,26 @@ static Value call_builtin(Expr *call, Env *env) {
   return vnone();
 }
 
+/* +, -, *, /, % on two values (shared by binary expressions and compound 'set x += ...') */
+static Value apply_arith(TokType op, Value l, Value r, int line) {
+  if (op == T_PLUS) {
+    if (l.type == V_STR || r.type == V_STR) { char *a = stringify(l), *b = stringify(r); char *out = (char *)malloc(strlen(a) + strlen(b) + 1); strcpy(out, a); strcat(out, b); return vstr(out); }
+    if (l.type == V_NUM && r.type == V_NUM) return vnum(l.num + r.num);
+    failf(line, "I can't add %s and a different kind of value.", type_name(l));
+  }
+  if (l.type != V_NUM || r.type != V_NUM) fail(line, "math needs two numbers.");
+  if (op == T_MINUS) return vnum(l.num - r.num);
+  if (op == T_STAR)  return vnum(l.num * r.num);
+  if (r.num == 0) fail(line, op == T_SLASH ? "you tried to divide by zero." : "you tried to take a remainder with zero.");
+  return vnum(op == T_SLASH ? l.num / r.num : fmod(l.num, r.num));
+}
+
 static Value eval_binary(Expr *e, Env *env) {
   Value l = eval(e->left, env), r = eval(e->right, env);
   switch (e->op) {
     case T_PLUS:
-      if (l.type == V_STR || r.type == V_STR) { char *a = stringify(l), *b = stringify(r); char *out = (char *)malloc(strlen(a) + strlen(b) + 1); strcpy(out, a); strcat(out, b); return vstr(out); }
-      if (l.type == V_NUM && r.type == V_NUM) return vnum(l.num + r.num);
-      failf(e->line, "I can't add %s and a different kind of value.", type_name(l)); break;
     case T_MINUS: case T_STAR: case T_SLASH: case T_PERCENT:
-      if (l.type != V_NUM || r.type != V_NUM) fail(e->line, "math needs two numbers.");
-      if (e->op == T_MINUS) return vnum(l.num - r.num);
-      if (e->op == T_STAR)  return vnum(l.num * r.num);
-      if (r.num == 0) fail(e->line, e->op == T_SLASH ? "you tried to divide by zero." : "you tried to take a remainder with zero.");
-      return vnum(e->op == T_SLASH ? l.num / r.num : fmod(l.num, r.num));
+      return apply_arith(e->op, l, r, e->line);
     case T_LT: case T_LE: case T_GT: case T_GE: {
       int cmp;
       if (l.type == V_NUM && r.type == V_NUM) cmp = (l.num < r.num) ? -1 : (l.num > r.num) ? 1 : 0;
@@ -1487,7 +1623,9 @@ static void exec(Stmt *s, Env *env) {
       break;
     }
     case S_SET: {
-      Value v = eval(s->expr, env); env_assign(env, s->name, v, s->line);
+      Value v = eval(s->expr, env);
+      if (s->setop) { Value *cur = env_find(env, s->name); if (cur) v = apply_arith(s->setop, *cur, v, s->line); }  /* x += e  ->  x = x + e */
+      env_assign(env, s->name, v, s->line);
       if (g_learn) { char *t = stringify(v); printf("  " C_DIM "Updated" C_RESET " %s to %s\n\n", s->name, t); free(t); }
       break;
     }
@@ -1505,7 +1643,7 @@ static void exec(Stmt *s, Env *env) {
       if (setjmp(tb) == 0) {
         exec_block(s->body, s->nbody, env_new(env));   /* each test runs in its own scope */
       } else {                                          /* a runtime error stopped the test */
-        call_depth = sdepth; returning = sret;
+        call_depth = sdepth; returning = sret; g_loopctl = 0;
         if (!g_test_failed) { g_test_failed = 1; printf("  " C_RED "x" C_RESET "  %s " C_DIM "(stopped by an error)" C_RESET "\n", s->name); }
       }
       err_jmp = saved;
@@ -1532,11 +1670,11 @@ static void exec(Stmt *s, Env *env) {
     case S_REPEAT_TIMES: {
       Value c = eval(s->count, env); if (c.type != V_NUM) fail(s->line, "'repeat ... times' needs a number.");
       long long times = (long long)c.num;
-      for (long long k = 0; k < times; k++) { exec_scoped(s->body, s->nbody, env); if (returning) break; }
+      for (long long k = 0; k < times; k++) { exec_scoped(s->body, s->nbody, env); if (returning) break; if (g_loopctl) { int stop = g_loopctl == 2; g_loopctl = 0; if (stop) break; } }
       break;
     }
     case S_REPEAT_WHILE:
-      while (is_truthy(eval(s->expr, env))) { exec_scoped(s->body, s->nbody, env); if (returning) break; }
+      while (is_truthy(eval(s->expr, env))) { exec_scoped(s->body, s->nbody, env); if (returning) break; if (g_loopctl) { int stop = g_loopctl == 2; g_loopctl = 0; if (stop) break; } }
       break;
     case S_TASK: break;  /* registered before the run */
     case S_USE: {                                /* import a module so this file can name it */
@@ -1554,10 +1692,10 @@ static void exec(Stmt *s, Env *env) {
       /* each iteration runs in its own scope; the loop variable lives there (gone after the loop) */
       if (it.type == V_LIST) {
         int len = it.list ? it.list->n : 0;            /* snapshot: appending inside the loop won't extend it */
-        for (int i = 0; i < len; i++) { Env *be = env_new(env); env_define(be, s->name, it.list->items[i]); exec_block(s->body, s->nbody, be); if (returning) break; }
+        for (int i = 0; i < len; i++) { Env *be = env_new(env); env_define(be, s->name, it.list->items[i]); exec_block(s->body, s->nbody, be); if (returning) break; if (g_loopctl) { int stop = g_loopctl == 2; g_loopctl = 0; if (stop) break; } }
       } else if (it.type == V_MAP) {
         int len = it.map ? it.map->n : 0;
-        for (int i = 0; i < len; i++) { Env *be = env_new(env); env_define(be, s->name, vstr(dup_str(it.map->keys[i]))); exec_block(s->body, s->nbody, be); if (returning) break; }
+        for (int i = 0; i < len; i++) { Env *be = env_new(env); env_define(be, s->name, vstr(dup_str(it.map->keys[i]))); exec_block(s->body, s->nbody, be); if (returning) break; if (g_loopctl) { int stop = g_loopctl == 2; g_loopctl = 0; if (stop) break; } }
       } else if (it.type == V_STR) {
         const char *p = it.str ? it.str : "";
         for (int i = 0; p[i]; ) {                       /* one whole UTF-8 character per step */
@@ -1565,7 +1703,7 @@ static void exec(Stmt *s, Env *env) {
           for (; k < cl && p[i + k]; k++) ch[k] = p[i + k];
           ch[k] = 0;
           Env *be = env_new(env); env_define(be, s->name, vstr(dup_str(ch)));
-          exec_block(s->body, s->nbody, be); if (returning) break;
+          exec_block(s->body, s->nbody, be); if (returning) break; if (g_loopctl) { int stop = g_loopctl == 2; g_loopctl = 0; if (stop) { i += k ? k : 1; break; } }
           i += k ? k : 1;
         }
       } else fail(s->line, "I can only loop over a list, a map, or text with 'for each'.");
@@ -1579,12 +1717,43 @@ static void exec(Stmt *s, Env *env) {
         if (ix.num != (double)(long long)ix.num) fail(s->line, "a list position must be a whole number.");
         long long i = (long long)ix.num;
         if (!c.list || i < 0 || i >= c.list->n) fail(s->line, "that position doesn't exist in the list.");
+        if (s->setop) val = apply_arith(s->setop, c.list->items[i], val, s->line);   /* xs[i] += e */
         c.list->items[i] = val;
       } else if (c.type == V_MAP) {
         if (ix.type != V_STR) fail(s->line, "a map key must be text.");
         if (!c.map) fail(s->line, "this map isn't ready to set into.");
+        if (s->setop) {
+          int mi = map_index(c.map, ix.str);
+          if (mi < 0) failf(s->line, "I can't update '%s' with that because the map has no such key yet.", ix.str);
+          val = apply_arith(s->setop, c.map->vals[mi], val, s->line);
+        }
         map_set(c.map, ix.str, val);
       } else fail(s->line, "I can only set inside a list or a map with [ ].");
+      break;
+    }
+    case S_STOP: g_loopctl = 2; break;   /* end the loop now */
+    case S_SKIP: g_loopctl = 1; break;   /* jump to the loop's next turn */
+    case S_FAIL: {
+      if (!s->expr) fail(s->line, "the program stopped with 'fail'.");   /* bare `fail` */
+      Value m = eval(s->expr, env);
+      char *msg = (m.type == V_STR) ? (m.str ? m.str : "") : stringify(m);
+      fail(s->line, (msg && msg[0]) ? msg : "the program stopped with 'fail'.");
+      break;
+    }
+    case S_TRY: {
+      jmp_buf tb; jmp_buf *saved = err_jmp; err_jmp = &tb;
+      int sq = g_quiet_fail; g_quiet_fail = 1;            /* errors inside become catchable, not printed */
+      int sdepth = call_depth;
+      if (setjmp(tb) == 0) {
+        exec_scoped(s->body, s->nbody, env);              /* the protected steps */
+        err_jmp = saved; g_quiet_fail = sq;               /* clean exit: give/stop/skip flags pass through */
+      } else {                                            /* something failed inside the try */
+        err_jmp = saved; g_quiet_fail = sq;
+        call_depth = sdepth; returning = 0; g_loopctl = 0;   /* unwind the half-done try cleanly */
+        Env *be = env_new(env);
+        if (s->name) env_define(be, s->name, vstr(dup_str(g_err_msg)));   /* otherwise problem: */
+        exec_block(s->otherwise, s->notherwise, be);
+      }
       break;
     }
   }
@@ -1604,7 +1773,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.0.13"
+#define SPROUT_VERSION "0.0.14"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);
@@ -1639,7 +1808,7 @@ static void run_snippet(const char *src) {
   int n; Stmt **prog = parse_program(&n);
   for (int i = 0; i < n; i++) if (prog[i]->kind == S_TASK) task_register(prog[i], cur_fileid, cur_file_env);
   exec_block(prog, n, cur_file_env);
-  returning = 0;   /* don't let a stray flag carry over to the next snippet */
+  returning = 0; g_loopctl = 0;   /* don't let a stray flag carry over to the next snippet */
 }
 
 /* does this line open a block? (ends with ':' once trailing spaces/comment are removed) */
@@ -2272,13 +2441,18 @@ int main(int argc, char **argv) {
   int len; char *src = read_file(file, &len);
   g_current_file = file;
   { char *c = canon_path(file); loaded_add(c); free(c); }   /* so a `use` can't reload the entry file */
-  tokenize(src, len);
-  int ncount; Stmt **program = parse_program(&ncount);
   global_env = env_new(NULL);                  /* the shared/public space */
   cur_file_env = env_new(global_env);          /* the entry file's own scope */
   cur_fileid = ++g_next_fileid;
+  /* a top-level error boundary: an uncaught error prints + stops cleanly, and (on Windows) it
+     also gives `try:`'s nested longjmp a valid SEH frame to unwind to. */
+  jmp_buf jb; err_jmp = &jb;
+  if (setjmp(jb) != 0) { err_jmp = NULL; g_current_file = NULL; call_depth = 0; returning = 0; g_loopctl = 0; g_quiet_fail = 0; return 1; }
+  tokenize(src, len);
+  int ncount; Stmt **program = parse_program(&ncount);
   { char *base = module_basename(file); modns_register(base, cur_fileid, cur_file_env); free(base); }  /* same as `sprout build` */
   for (int i = 0; i < ncount; i++) if (program[i]->kind == S_TASK) task_register(program[i], cur_fileid, cur_file_env);
   exec_block(program, ncount, cur_file_env);
+  err_jmp = NULL;
   return test_report();   /* if the file had tests, report + set the exit code */
 }

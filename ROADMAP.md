@@ -43,23 +43,26 @@ today you hit a wall or an ugly workaround:
 functions/closures · `map`/`filter`/`reduce` · user types/records · pattern `match` · integers/
 decimals · concurrency · the server `kind` · GC · persistence (`remember`) · package manager.
 
-### → The "base-completion" milestone (do these FIRST on unfreeze, before the power phases)
+### → The "base-completion" milestone ✅ SHIPPED in v0.0.14
 
 Pulled out of the phases below into one tight bundle, because *these* are what make the base
-**complete**, not just bigger:
+**complete**, not just bigger. **All landed in v0.0.14** (tested + CI-green on Linux/macOS/Windows):
 
-- [ ] `try`/`otherwise` + `fail`  (from Phase 1)
-- [ ] `remove`, `insert` for lists  (from Phase 3)
-- [ ] **`remove(map, key)` (delete a map key) + `values(map)`** — today maps can't delete a key, only add/update  (from Phase 3)
-- [ ] `stop` / `skip` in loops  (from Phase 5)
-- [ ] `sort`, `reverse`, `index_of`  (from Phase 3)
-- [ ] **compound assignment `set x += 1`** (and `-= *= /=`) — currently you must write `set x = x + 1`  (from Phase 5.5)
-- [ ] small builtin top-up: text `starts_with`/`ends_with`/`index_of`, math `pow`/`mod`  (from Phase 6)
+- [x] `try`/`otherwise` + `fail`  (from Phase 1) — `otherwise problem:` binds the message; nests; `give`/`stop`/`skip` pass through cleanly
+- [x] `remove`, `insert` for lists  (from Phase 3) — `remove(xs, i)` returns the removed item; `insert(xs, i, v)`
+- [x] **`remove(map, key)` (delete a map key) + `values(map)`** — `remove` dispatches on list-vs-map  (from Phase 3)
+- [x] `stop` / `skip` in loops  (from Phase 5) — parse-time error if used outside a loop; affects the innermost loop
+- [x] `sort`, `reverse`, `index_of`  (from Phase 3) — `sort` is homogeneous num-or-text; `index_of` works on lists and text
+- [x] **compound assignment `set x += 1`** (and `-= *= /= %=`, incl. `set xs[i] += 1` / `set m[k] += 1`)  (from Phase 5.5)
+- [x] small builtin top-up: text `starts_with`/`ends_with`/`index_of`, math `pow`  (from Phase 6)
 
-**Answer to "do we have everything a base language needs?":** *Computationally, yes — you can
-already write real programs. As a complete base, not quite:* the four ⚠️ items above are
-table stakes. Land that milestone, then the power phases are true extensions you can take or
-leave — and the base you re-freeze will be genuinely complete, not just larger.
+**Answer to "do we have everything a base language needs?":** *As of v0.0.14 — yes.* The
+table-stakes items above are done, so the power phases below are now true extensions you can
+take or leave, and the base that re-freezes at v0.1.0 will be genuinely complete.
+
+> Note (v0.0.14 build): fixed a Windows-only crash where a top-level `try:` that caught an
+> error segfaulted at `-O2` — `cmd_run` now establishes an outer error boundary (like
+> `sprout test`/`build` already had), giving the nested `longjmp` a valid SEH frame to unwind to.
 
 ---
 
@@ -88,7 +91,7 @@ Every language dimension, each row probed against v0.0.13. Legend: **✅ in core
 | --- | --- |
 | `+ - * / %`, comparisons, `and`/`or`/`not`, `( )`, unary `-`/`not` | ✅ |
 | `//` floor-div, `mod` | 📋 Phase 4 |
-| **Compound assignment** `+= -= *= /=` | ➕ 5.5 (base-completion) |
+| **Compound assignment** `+= -= *= /= %=` (incl. `xs[i] += 1`) | ✅ v0.0.14 |
 | **`in` operator** `x in xs` (sugar for `contains`) | ➕ Phase 5.5 |
 | **Inline-if / ternary expression** (`give a when c otherwise b` as a *value*) | ➕ Phase 5.5 (decide) |
 | **Pipe** `xs \|> map(...) \|> sort()` | ➕ Phase 5.5 (power; decide) |
@@ -102,8 +105,9 @@ Every language dimension, each row probed against v0.0.13. Legend: **✅ in core
 | Feature | Status |
 | --- | --- |
 | `when`/`orwhen`/`otherwise` · `repeat times`/`while` · `for each` · `give` · recursion | ✅ |
-| `stop`/`skip` (break/continue) · `repeat until` · `for i from a to b` · `match` | 📋 Phase 5 |
-| `try`/`otherwise` · `fail` | 📋 Phase 1 |
+| **`stop`/`skip` (break/continue)** | ✅ v0.0.14 |
+| `repeat until` · `for i from a to b` · `match` | 📋 Phase 5 |
+| **`try`/`otherwise` · `fail`** | ✅ v0.0.14 |
 | **`finally` / `always` (cleanup block)** | ➕ Phase 1 |
 | **`assert <cond>`** (outside tests) | ➕ Phase 1 |
 | Labeled break / `break N` · `goto` | 🚫 |
@@ -132,13 +136,12 @@ Every language dimension, each row probed against v0.0.13. Legend: **✅ in core
 
 | Feature | Status |
 | --- | --- |
-| list: `add` · index · `set xs[i]` · `length`/`first`/`last`/`contains`/`range`/`keys` | ✅ |
-| list: `remove`/`insert`/`sort`/`reverse`/`index_of`/`unique`/`zip`/`flatten`/comprehensions | 📋 Phase 3 (remove/insert/sort = base-completion) |
-| map: get/`set`/`keys`/`contains` | ✅ |
-| **map: `remove(key)` (delete) + `values(map)`** | ➕ Phase 3 (base-completion) |
+| list: `add` · index · `set xs[i]` · `length`/`first`/`last`/`contains`/`range`/`keys` · **`remove`/`insert`/`sort`/`reverse`/`index_of`** | ✅ (last five v0.0.14) |
+| list: `unique`/`zip`/`flatten`/comprehensions | 📋 Phase 3 |
+| map: get/`set`/`keys`/`contains` · **`remove(key)` (delete) + `values(map)`** | ✅ (last two v0.0.14) |
 | `for each key, value in map` | 📋 Phase 3 |
-| text: `split`/`join`/`replace`/`upper`/`lower`/`trim` | ✅ |
-| text: `starts_with`/`ends_with`/`index_of`/`pad`/`format`/`words`/`lines`/`title` | 📋 Phase 6 |
+| text: `split`/`join`/`replace`/`upper`/`lower`/`trim` · **`starts_with`/`ends_with`/`index_of`** | ✅ (last three v0.0.14) |
+| text: `pad`/`format`/`words`/`lines`/`title` | 📋 Phase 6 |
 
 ### Modules & namespaces
 

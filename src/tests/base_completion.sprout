@@ -1,0 +1,138 @@
+~ base-completion milestone (v0.0.14): data builtins, compound assignment,
+~ stop/skip, try/otherwise/fail.  Prints "FAIL ..." on any wrong result, so
+~ the CI runner (which greps for "sprout error|FAIL") catches regressions.
+
+task check(label, got, want):
+    when got != want:
+        show "FAIL", label, "- got", got, "wanted", want
+
+~ ---------- list builtins ----------
+make xs = [3, 1, 2]
+check("sort", sort(xs), [1, 2, 3])
+check("sort mutates", xs, [1, 2, 3])
+check("reverse", reverse([1, 2, 3]), [3, 2, 1])
+
+make popped = remove(xs, 0)
+check("remove returns item", popped, 1)
+check("remove shrinks", xs, [2, 3])
+
+insert(xs, 0, 9)
+check("insert front", xs, [9, 2, 3])
+insert(xs, 3, 7)
+check("insert end", xs, [9, 2, 3, 7])
+
+check("index_of found", index_of([10, 20, 30], 20), 1)
+check("index_of missing", index_of([10, 20], 99), nothing)
+check("index_of text", index_of("hello world", "world"), 6)
+check("index_of text missing", index_of("abc", "z"), nothing)
+
+~ ---------- map builtins ----------
+make m = {"a": 1, "b": 2, "c": 3}
+check("values", values(m), [1, 2, 3])
+make gone = remove(m, "b")
+check("map remove returns value", gone, 2)
+check("map remove deletes key", contains(m, "b"), no)
+check("map remove keeps rest", keys(m), ["a", "c"])
+check("map remove missing", remove(m, "zzz"), nothing)
+
+~ ---------- math / text top-up ----------
+check("pow", pow(2, 10), 1024)
+check("starts_with yes", starts_with("hello", "he"), yes)
+check("starts_with no", starts_with("hello", "x"), no)
+check("ends_with yes", ends_with("hello", "lo"), yes)
+check("ends_with no", ends_with("hello", "x"), no)
+
+~ ---------- compound assignment ----------
+make n = 10
+set n += 5
+check("+=", n, 15)
+set n -= 3
+check("-=", n, 12)
+set n *= 2
+check("*=", n, 24)
+set n /= 4
+check("/=", n, 6)
+set n %= 4
+check("%=", n, 2)
+
+make s = "ab"
+set s += "cd"
+check("+= text", s, "abcd")
+
+make ys = [1, 2, 3]
+set ys[0] += 100
+check("list[i] +=", ys, [101, 2, 3])
+set ys[1] *= 10
+check("list[i] *=", ys, [101, 20, 3])
+
+make counts = {"hits": 1}
+set counts["hits"] += 9
+check("map[k] +=", counts["hits"], 10)
+
+~ ---------- stop / skip ----------
+make total = 0
+repeat 100 times:
+    set total += 1
+    when total == 5:
+        stop
+check("stop ends loop", total, 5)
+
+make oddsum = 0
+for each x in [1, 2, 3, 4, 5, 6]:
+    when x % 2 == 0:
+        skip
+    set oddsum += x
+check("skip", oddsum, 9)
+
+make whilecount = 0
+make i = 0
+repeat while i < 10:
+    set i += 1
+    when i == 3:
+        skip
+    set whilecount += 1
+check("skip in while", whilecount, 9)
+
+~ ---------- try / otherwise / fail ----------
+make caught = "no"
+try:
+    show 1 / 0
+otherwise problem:
+    set caught = "yes"
+check("try catches divide-by-zero", caught, "yes")
+
+make msg = ""
+try:
+    fail "boom"
+otherwise e:
+    set msg = e
+check("fail carries message", msg, "boom")
+
+make after = "not reached"
+try:
+    fail "x"
+otherwise e:
+    set after = "handled"
+check("flow continues after try", after, "handled")
+
+~ give passes through a try untouched
+task safe_divide(a, b):
+    try:
+        give a / b
+    otherwise e:
+        give -1
+check("give through try (ok)", safe_divide(10, 2), 5)
+check("give through try (error)", safe_divide(10, 0), -1)
+
+~ stop/skip pass through a try inside a loop
+make sumc = 0
+for each x in [1, 2, 3, 4]:
+    try:
+        when x == 3:
+            stop
+        set sumc += x
+    otherwise e:
+        show "FAIL try-stop unexpected error"
+check("stop through try", sumc, 3)
+
+show "base_completion: all checks ran"
