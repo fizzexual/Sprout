@@ -178,9 +178,19 @@ static int values_equal_inner(Value a, Value b) {
    - g_top_jmp = the nearest SYSTEM boundary (a test, the REPL, a file/project run). HARD errors
                 (name/task typos - the "did you mean?" mistakes) skip every `try:` and stop here,
                 so a beginner can't accidentally swallow the diagnostics that exist to help them.
-   A system boundary sets BOTH (it catches everything); a `try:` sets only err_jmp. */
-static jmp_buf *err_jmp = NULL;
-static jmp_buf *g_top_jmp = NULL;
+   A system boundary sets BOTH (it catches everything); a `try:` sets only err_jmp.
+
+   We use __builtin_setjmp/longjmp, NOT libc setjmp/longjmp: on mingw the libc versions
+   unwind via Windows SEH (RtlUnwindEx), which is fragile across -O2 frames - it caused a
+   crash in v0.0.13->14 and again on the Windows CI runner in v0.0.15 (a longjmp issued from
+   inside a block that was itself reached via longjmp, e.g. a re-raise from a `caught` block).
+   __builtin_* do a plain sp/fp/pc save+restore with no unwinder - exactly right for a C
+   interpreter with no destructors to run - and are portable across gcc/clang on all three OSes. */
+typedef void *sjmp_buf[8];                  /* gcc needs >= 5 words; 8 is a safe margin */
+#define SJSET(b)   __builtin_setjmp(b)
+#define SJLONG(b)  __builtin_longjmp((b), 1)
+static sjmp_buf *err_jmp = NULL;
+static sjmp_buf *g_top_jmp = NULL;
 static const char *g_current_file = NULL;   /* the file being parsed/run, for multi-file errors */
 static int  g_quiet_fail = 0;     /* >0 inside a 'try:' - a caught soft error is handed to 'caught', not printed */
 static char g_err_msg[512];       /* the most recent error's message  (the caught error's `message`) */
@@ -190,13 +200,13 @@ static void fail_full(int line, const char *msg, const char *kind, int hard) {
   snprintf(g_err_msg, sizeof g_err_msg, "%s", msg ? msg : "something went wrong.");
   g_err_line = line;
   g_err_kind = kind ? kind : "error";
-  if (!hard && g_quiet_fail && err_jmp) longjmp(*err_jmp, 1);   /* soft error caught by an enclosing try: (don't print) */
+  if (!hard && g_quiet_fail && err_jmp) SJLONG(*err_jmp);   /* soft error caught by an enclosing try: (don't print) */
   fprintf(stderr, "\n  Sprout error");
   if (g_current_file) fprintf(stderr, " in %s", g_current_file);
   if (line > 0) fprintf(stderr, " (line %d)", line);
   fprintf(stderr, ": %s\n\n", msg);
-  jmp_buf *target = g_top_jmp ? g_top_jmp : err_jmp;   /* uncaught or hard: stop at the nearest SYSTEM boundary */
-  if (target) longjmp(*target, 1);
+  sjmp_buf *target = g_top_jmp ? g_top_jmp : err_jmp;   /* uncaught or hard: stop at the nearest SYSTEM boundary */
+  if (target) SJLONG(*target);
   exit(1);
 }
 static void fail(int line, const char *msg)                          { fail_full(line, msg, "error", 0); }
@@ -1667,10 +1677,10 @@ static void exec(Stmt *s, Env *env) {
       g_cur_test = s->name; g_test_failed = 0;
       /* a test is a SYSTEM boundary: it catches EVERYTHING (soft + hard), so a typo fails just this test.
          locals read after the longjmp are volatile (belt-and-suspenders for -O2 / Windows SEH). */
-      jmp_buf tb; jmp_buf * volatile saved = err_jmp; jmp_buf * volatile saved_top = g_top_jmp;
+      sjmp_buf tb; sjmp_buf * volatile saved = err_jmp; sjmp_buf * volatile saved_top = g_top_jmp;
       err_jmp = &tb; g_top_jmp = &tb;
       volatile int sdepth = call_depth, sret = returning, sq = g_quiet_fail;
-      if (setjmp(tb) == 0) {
+      if (SJSET(tb) == 0) {
         exec_block(s->body, s->nbody, env_new(env));   /* each test runs in its own scope */
       } else {                                          /* a runtime error stopped the test */
         call_depth = sdepth; returning = sret; g_loopctl = 0; g_quiet_fail = sq; g_have_fail_override = 0;
@@ -1688,7 +1698,7 @@ static void exec(Stmt *s, Env *env) {
         if (strcmp(src, vals) != 0) printf("        but it was:                %s\n", vals);
         free(src); free(vals);
         g_test_failed = 1;
-        if (err_jmp) longjmp(*err_jmp, 1);   /* stop this test, move to the next */
+        if (err_jmp) SJLONG(*err_jmp);   /* stop this test, move to the next */
       }
       break;
     }
@@ -1783,10 +1793,10 @@ static void exec(Stmt *s, Env *env) {
       break;
     }
     case S_TRY: {
-      jmp_buf tb; jmp_buf * volatile saved = err_jmp; err_jmp = &tb;   /* a try: is a CATCH boundary - sets err_jmp only, NOT g_top_jmp */
+      sjmp_buf tb; sjmp_buf * volatile saved = err_jmp; err_jmp = &tb;   /* a try: is a CATCH boundary - sets err_jmp only, NOT g_top_jmp */
       volatile int sq = g_quiet_fail; g_quiet_fail = 1;   /* soft errors inside become catchable, not printed */
-      volatile int sdepth = call_depth;                   /* read after the longjmp -> volatile (-O2/SEH safety) */
-      if (setjmp(tb) == 0) {
+      volatile int sdepth = call_depth;                   /* read after the longjmp -> volatile (-O2 safety) */
+      if (SJSET(tb) == 0) {
         exec_scoped(s->body, s->nbody, env);              /* the protected steps */
         err_jmp = saved; g_quiet_fail = sq;               /* clean exit: give/stop/skip flags pass through, caught does NOT run */
       } else {                                            /* a soft error was caught (a hard one would have skipped to g_top_jmp) */
@@ -1816,7 +1826,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.0.15"
+#define SPROUT_VERSION "0.0.16"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);
@@ -1871,7 +1881,7 @@ static void banner(void) {
 
 static void repl(void) {
   printf("\n  " C_GREEN "Try Sprout live" C_RESET " " C_DIM "- type code, press Enter. 'back' returns to the menu." C_RESET "\n\n");
-  jmp_buf jb; err_jmp = &jb; g_top_jmp = &jb; repl_echo = 1; g_repl_active = 1;   /* allow re-`make` while experimenting */
+  sjmp_buf jb; err_jmp = &jb; g_top_jmp = &jb; repl_echo = 1; g_repl_active = 1;   /* allow re-`make` while experimenting */
   volatile int repl_fid = cur_fileid; Env * volatile repl_env = cur_file_env;   /* the session scope to restore after an error (read post-longjmp -> volatile) */
   char buf[8192]; buf[0] = 0; int inblock = 0; char line[1024];
   printf(PROMPT); fflush(stdout);
@@ -1881,10 +1891,10 @@ static void repl(void) {
       if (!strcmp(line, "back") || !strcmp(line, "quit") || !strcmp(line, "exit")) break;
       if (L == 0) { printf(PROMPT); fflush(stdout); continue; }
       if (opens_block(line)) { snprintf(buf, sizeof buf, "%s\n", line); inblock = 1; printf("  " C_DIM "...... " C_RESET); fflush(stdout); continue; }
-      if (setjmp(jb) == 0) run_snippet(line); else { call_depth = 0; returning = 0; g_loopctl = 0; g_quiet_fail = 0; g_have_fail_override = 0; g_current_file = NULL; cur_fileid = repl_fid; cur_file_env = repl_env; }
+      if (SJSET(jb) == 0) run_snippet(line); else { call_depth = 0; returning = 0; g_loopctl = 0; g_quiet_fail = 0; g_have_fail_override = 0; g_current_file = NULL; cur_fileid = repl_fid; cur_file_env = repl_env; }
       printf(PROMPT); fflush(stdout);
     } else if (L == 0) {                                        /* blank line ends the block */
-      if (setjmp(jb) == 0) run_snippet(buf); else { call_depth = 0; returning = 0; g_loopctl = 0; g_quiet_fail = 0; g_have_fail_override = 0; g_current_file = NULL; cur_fileid = repl_fid; cur_file_env = repl_env; }
+      if (SJSET(jb) == 0) run_snippet(buf); else { call_depth = 0; returning = 0; g_loopctl = 0; g_quiet_fail = 0; g_have_fail_override = 0; g_current_file = NULL; cur_fileid = repl_fid; cur_file_env = repl_env; }
       buf[0] = 0; inblock = 0; printf(PROMPT); fflush(stdout);
     } else {
       size_t cur = strlen(buf); snprintf(buf + cur, sizeof buf - cur, "%s\n", line);
@@ -1904,10 +1914,10 @@ static void run_file_prompt(void) {
   char *src = read_whole_file(path);
   if (!src) { printf("  " C_DIM "couldn't open '%s'" C_RESET "\n", path); return; }
   printf("\n");
-  jmp_buf jb; err_jmp = &jb; g_top_jmp = &jb; g_current_file = path;
+  sjmp_buf jb; err_jmp = &jb; g_top_jmp = &jb; g_current_file = path;
   volatile int save_fid = cur_fileid; Env * volatile save_env = cur_file_env;   /* read after the longjmp -> volatile */
   cur_file_env = env_new(global_env); cur_fileid = ++g_next_fileid;   /* each run gets a fresh scope, so re-running works */
-  if (setjmp(jb) != 0) { call_depth = 0; returning = 0; g_loopctl = 0; g_quiet_fail = 0; g_have_fail_override = 0; }
+  if (SJSET(jb) != 0) { call_depth = 0; returning = 0; g_loopctl = 0; g_quiet_fail = 0; g_have_fail_override = 0; }
   else run_snippet(src);
   cur_fileid = save_fid; cur_file_env = save_env;                     /* restore the session scope */
   err_jmp = NULL; g_top_jmp = NULL; g_current_file = NULL;
@@ -2396,8 +2406,8 @@ static int cmd_build(void) {
   const char *mainf = g_main_file ? g_main_file : "app.sprout";
   printf("\n  " C_GREEN C_BOLD "Building %s" C_RESET "\n\n", g_project_name ? g_project_name : "project");
   global_env = env_new(NULL);
-  jmp_buf jb; err_jmp = &jb; g_top_jmp = &jb;
-  if (setjmp(jb) != 0) { err_jmp = NULL; g_top_jmp = NULL; g_current_file = NULL; call_depth = 0; returning = 0; g_loopctl = 0; g_quiet_fail = 0; g_have_fail_override = 0; return 1; }
+  sjmp_buf jb; err_jmp = &jb; g_top_jmp = &jb;
+  if (SJSET(jb) != 0) { err_jmp = NULL; g_top_jmp = NULL; g_current_file = NULL; call_depth = 0; returning = 0; g_loopctl = 0; g_quiet_fail = 0; g_have_fail_override = 0; return 1; }
   char *mainc = canon_path(mainf);
   for (int i = 0; i < g_ninc; i++) {                            /* libraries first... */
     char *ic = canon_path(g_incpath[i]); int is_main = !strcmp(ic, mainc); free(ic);
@@ -2445,8 +2455,8 @@ static int cmd_test(int argc, char **argv) {
   toml_load();
   global_env = env_new(NULL);
   cur_file_env = env_new(global_env); cur_fileid = ++g_next_fileid;
-  jmp_buf jb; err_jmp = &jb; g_top_jmp = &jb;
-  if (setjmp(jb) != 0) { err_jmp = NULL; g_top_jmp = NULL; g_current_file = NULL; call_depth = 0; returning = 0; g_loopctl = 0; g_quiet_fail = 0; g_have_fail_override = 0; test_report(); return 1; }
+  sjmp_buf jb; err_jmp = &jb; g_top_jmp = &jb;
+  if (SJSET(jb) != 0) { err_jmp = NULL; g_top_jmp = NULL; g_current_file = NULL; call_depth = 0; returning = 0; g_loopctl = 0; g_quiet_fail = 0; g_have_fail_override = 0; test_report(); return 1; }
   if (argc >= 3) {
     run_test_file(argv[2]);
   } else {
@@ -2492,10 +2502,10 @@ int main(int argc, char **argv) {
   global_env = env_new(NULL);                  /* the shared/public space */
   cur_file_env = env_new(global_env);          /* the entry file's own scope */
   cur_fileid = ++g_next_fileid;
-  /* a top-level error boundary: an uncaught error prints + stops cleanly, and (on Windows) it
-     also gives `try:`'s nested longjmp a valid SEH frame to unwind to. */
-  jmp_buf jb; err_jmp = &jb; g_top_jmp = &jb;
-  if (setjmp(jb) != 0) { err_jmp = NULL; g_top_jmp = NULL; g_current_file = NULL; call_depth = 0; returning = 0; g_loopctl = 0; g_quiet_fail = 0; g_have_fail_override = 0; return 1; }
+  /* the top-level SYSTEM boundary: an uncaught error prints + stops cleanly here, and it's the
+     landing point for hard errors (typos) that skip every `try:`. */
+  sjmp_buf jb; err_jmp = &jb; g_top_jmp = &jb;
+  if (SJSET(jb) != 0) { err_jmp = NULL; g_top_jmp = NULL; g_current_file = NULL; call_depth = 0; returning = 0; g_loopctl = 0; g_quiet_fail = 0; g_have_fail_override = 0; return 1; }
   tokenize(src, len);
   int ncount; Stmt **program = parse_program(&ncount);
   { char *base = module_basename(file); modns_register(base, cur_fileid, cur_file_env); free(base); }  /* same as `sprout build` */
