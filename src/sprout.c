@@ -180,15 +180,22 @@ static int values_equal_inner(Value a, Value b) {
                 so a beginner can't accidentally swallow the diagnostics that exist to help them.
    A system boundary sets BOTH (it catches everything); a `try:` sets only err_jmp.
 
-   We use __builtin_setjmp/longjmp, NOT libc setjmp/longjmp: on mingw the libc versions
-   unwind via Windows SEH (RtlUnwindEx), which is fragile across -O2 frames - it caused a
-   crash in v0.0.13->14 and again on the Windows CI runner in v0.0.15 (a longjmp issued from
-   inside a block that was itself reached via longjmp, e.g. a re-raise from a `caught` block).
-   __builtin_* do a plain sp/fp/pc save+restore with no unwinder - exactly right for a C
-   interpreter with no destructors to run - and are portable across gcc/clang on all three OSes. */
-typedef void *sjmp_buf[8];                  /* gcc needs >= 5 words; 8 is a safe margin */
-#define SJSET(b)   __builtin_setjmp(b)
-#define SJLONG(b)  __builtin_longjmp((b), 1)
+   On mingw, libc setjmp/longjmp unwind via Windows SEH (RtlUnwindEx), which is fragile across
+   -O2 frames - it crashed in v0.0.13->14 and again on the Windows CI runner in v0.0.15 (a
+   longjmp issued from inside a block itself reached via longjmp - a re-raise from `caught`).
+   So on Windows we use __builtin_setjmp/longjmp (a plain sp/fp/pc save+restore, no unwinder -
+   exactly right for a C interpreter with no destructors). macOS clang doesn't support
+   __builtin_longjmp ("not supported for the current target"), and libc setjmp/longjmp are
+   fine on Linux/macOS - so use those there. The rest of the error code is identical. */
+#if defined(_WIN32)
+  typedef void *sjmp_buf[8];                /* gcc needs >= 5 words; 8 is a safe margin */
+  #define SJSET(b)   __builtin_setjmp(b)
+  #define SJLONG(b)  __builtin_longjmp((b), 1)
+#else
+  typedef jmp_buf sjmp_buf;
+  #define SJSET(b)   setjmp(b)
+  #define SJLONG(b)  longjmp((b), 1)
+#endif
 static sjmp_buf *err_jmp = NULL;
 static sjmp_buf *g_top_jmp = NULL;
 static const char *g_current_file = NULL;   /* the file being parsed/run, for multi-file errors */
