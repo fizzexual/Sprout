@@ -1,0 +1,88 @@
+~ v0.0.15 error model: a caught error is a MAP {message, kind, line}; try/caught/fail.
+~ Plain guarded script (the CI runner greps for "sprout error|FAIL"), so it only
+~ exercises CATCHABLE (soft) errors - hard errors (name typos) deliberately abort and
+~ so can't live in a green-suite file; they're verified separately by hand.
+
+task check(label, got, want):
+    when got != want:
+        show "FAIL", label, "- got", got, "wanted", want
+
+~ ---------- a caught error is a map with message/kind/line ----------
+try:
+    show 1 / 0
+caught problem:
+    check("divide-by-zero message", problem["message"], "you tried to divide by zero.")
+    check("divide-by-zero kind", problem["kind"], "math")
+    check("error carries a line", problem["line"] > 0, yes)
+
+~ ---------- kinds let you tell errors apart ----------
+make k = "none"
+try:
+    make xs = [1, 2]
+    show xs[50]
+caught e:
+    set k = e["kind"]
+check("index error kind", k, "index")
+
+~ ---------- fail "text" -> kind "fail" ----------
+try:
+    fail "something broke"
+caught e:
+    check("fail message", e["message"], "something broke")
+    check("fail kind", e["kind"], "fail")
+
+~ ---------- fail <map> carries structure (the web-server case) ----------
+try:
+    fail {kind: "http", status: 404, message: "Not found"}
+caught e:
+    check("fail-map keeps custom kind", e["kind"], "http")
+    check("fail-map keeps extra fields", e["status"], 404)
+    check("fail-map keeps message", e["message"], "Not found")
+
+~ ---------- fail <map> with missing keys gets defaults filled ----------
+try:
+    fail {code: 1}
+caught e:
+    check("fail-map default kind", e["kind"], "fail")
+    check("fail-map keeps given field", e["code"], 1)
+
+~ ---------- bare caught (no binding) ----------
+make handled = "no"
+try:
+    fail "x"
+caught:
+    set handled = "yes"
+check("bare caught runs", handled, "yes")
+
+~ ---------- nested try: inner catches, outer untouched ----------
+make trail = ""
+try:
+    try:
+        fail "inner"
+    caught a:
+        set trail = trail + "inner:" + a["message"]
+    set trail = trail + "|outer-continues"
+caught b:
+    set trail = trail + "|OUTER-RAN-WRONGLY"
+check("nested try", trail, "inner:inner|outer-continues")
+
+~ ---------- re-raise from inside caught reaches the outer try ----------
+make got = ""
+try:
+    try:
+        fail "first"
+    caught a:
+        fail "second"
+caught b:
+    set got = b["message"]
+check("re-raise to outer", got, "second")
+
+~ ---------- give passes THROUGH try; caught does NOT run on give ----------
+task f(x):
+    try:
+        give x * 2
+    caught e:
+        give -999
+check("give through try, no catch", f(21), 42)
+
+show "error_model: all checks ran"

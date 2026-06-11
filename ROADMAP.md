@@ -1,11 +1,18 @@
-# 🌱 Sprout — Beyond the Freeze
+# 🌱 Sprout — the road to the v0.1.0 freeze
 
-The core froze at **v0.0.13**. This is the plan for the **next core cycle**: unfreeze,
-grow the base language in dependency order, then **re-freeze as v0.1.0** (the "bigger
-core"). It's deliberately ambitious — pick what fits the mission, in this order.
+**v0.0.13 was "spec-complete" — every edge case decided.** It was originally called
+"the freeze," but it held exactly one version, so the honest name is a *release
+candidate*, not a freeze. This is the plan for the **base-completion cycle**: grow the
+base language in dependency order, then **freeze for real at v0.1.0** — the one that's
+meant to hold, where the core stops moving and libraries can build on it. Deliberately
+ambitious — pick what fits the mission, in this order.
 
-> **Working model:** `unfreeze → batches (each its own version, reviewed + CI-green) → re-freeze`.
-> The "Not in v1 (deliberately)" list in the README shrinks as items here land.
+> **Working model:** `spec-complete (v0.0.13) → base-completion batches (each its own
+> version, reviewed + CI-green) → the v0.1.0 freeze (holds)`.
+> A "freeze" only has value if it holds, so the word is reserved for v0.1.0; until then
+> the core is in active development. The README's "Not in the core today" list shrinks
+> as items here land — and two of its entries (first-class tasks, user types) are
+> openly *under evaluation* here, not permanently excluded.
 
 ---
 
@@ -24,7 +31,7 @@ modules + `public`/`private` · files (read/write/append/exists) · `get`/`json`
 **⚠️ Table-stakes GAPS — I would NOT re-freeze the base without these.** Each is something where
 today you hit a wall or an ugly workaround:
 
-1. **Error recovery (`try`/`otherwise`, `fail`).** *Any* error kills the whole run. You can
+1. **Error recovery (`try`/`caught`, `fail`).** *Any* error kills the whole run. You can
    dodge some (number→nothing, exists), but you can't recover from a failed file/web/json/
    out-of-range. A base language needs at least one recovery path. (Confirmed: `try` doesn't parse.)
 2. **List mutation — `remove`, `insert`.** Lists are **append-only**: there is no way to delete
@@ -43,12 +50,12 @@ today you hit a wall or an ugly workaround:
 functions/closures · `map`/`filter`/`reduce` · user types/records · pattern `match` · integers/
 decimals · concurrency · the server `kind` · GC · persistence (`remember`) · package manager.
 
-### → The "base-completion" milestone ✅ SHIPPED in v0.0.14
+### → The "base-completion" milestone ✅ SHIPPED in v0.0.14–v0.0.15
 
 Pulled out of the phases below into one tight bundle, because *these* are what make the base
-**complete**, not just bigger. **All landed in v0.0.14** (tested + CI-green on Linux/macOS/Windows):
+**complete**, not just bigger. **All landed** (tested + CI-green on Linux/macOS/Windows):
 
-- [x] `try`/`otherwise` + `fail`  (from Phase 1) — `otherwise problem:` binds the message; nests; `give`/`stop`/`skip` pass through cleanly
+- [x] `try`/`caught` + `fail`  (from Phase 1) — **reshaped in v0.0.15 after a spec review** (see below)
 - [x] `remove`, `insert` for lists  (from Phase 3) — `remove(xs, i)` returns the removed item; `insert(xs, i, v)`
 - [x] **`remove(map, key)` (delete a map key) + `values(map)`** — `remove` dispatches on list-vs-map  (from Phase 3)
 - [x] `stop` / `skip` in loops  (from Phase 5) — parse-time error if used outside a loop; affects the innermost loop
@@ -56,13 +63,25 @@ Pulled out of the phases below into one tight bundle, because *these* are what m
 - [x] **compound assignment `set x += 1`** (and `-= *= /= %=`, incl. `set xs[i] += 1` / `set m[k] += 1`)  (from Phase 5.5)
 - [x] small builtin top-up: text `starts_with`/`ends_with`/`index_of`, math `pow`  (from Phase 6)
 
-**Answer to "do we have everything a base language needs?":** *As of v0.0.14 — yes.* The
+**Error-handling spec, as shipped (v0.0.15 — the load-bearing decisions a founder review flagged):**
+- **Keyword:** the catch block is **`caught`** (not `otherwise`, which stays the `when`/else word) — one word, one meaning.
+- **A caught error is a map** `{message, kind, line}`; the bound name is **user-chosen + optional** (`caught problem:` / `caught:`). Built-in `kind`s: `math`/`index`/`io`/`name`/`fail`/`error`. *This is the decision libraries + the web `kind` depend on — an error that was only text would have to be string-matched.*
+- **`fail`** carries a map whole (`fail {kind:"http", status:404, message:"..."}`, standard keys auto-filled) or wraps text/scalars as `{message, kind:"fail", line}`.
+- **Two tiers:** `try` catches runtime *conditions* (bad input, divide-by-zero, IO, `fail`); it does **not** catch *code mistakes* — name/task/module typos and lex/parse errors are "hard" and skip every `try` (so the "did you mean?" help is never swallowed), though the test/REPL/run boundaries still catch them.
+- `give`/`stop`/`skip` pass cleanly **through** a `try`; the `caught` block does not run for them.
+
+**Answer to "do we have everything a base language needs?":** *Yes, as of v0.0.15.* The
 table-stakes items above are done, so the power phases below are now true extensions you can
-take or leave, and the base that re-freezes at v0.1.0 will be genuinely complete.
+take or leave, and the base that freezes at v0.1.0 will be genuinely complete.
 
 > Note (v0.0.14 build): fixed a Windows-only crash where a top-level `try:` that caught an
 > error segfaulted at `-O2` — `cmd_run` now establishes an outer error boundary (like
 > `sprout test`/`build` already had), giving the nested `longjmp` a valid SEH frame to unwind to.
+>
+> Note (v0.0.15 adversarial review): a parse error in a module loaded by `use` *inside* a
+> `try` was wrongly catchable — fixed by suppressing the catch across the whole lex+parse in
+> `parse_file` (save/restore `g_quiet_fail`), so code mistakes stay uncatchable. Also hardened
+> the post-`longjmp` save locals (`volatile`) on cold error paths and tightened state resets.
 
 ---
 
@@ -107,7 +126,7 @@ Every language dimension, each row probed against v0.0.13. Legend: **✅ in core
 | `when`/`orwhen`/`otherwise` · `repeat times`/`while` · `for each` · `give` · recursion | ✅ |
 | **`stop`/`skip` (break/continue)** | ✅ v0.0.14 |
 | `repeat until` · `for i from a to b` · `match` | 📋 Phase 5 |
-| **`try`/`otherwise` · `fail`** | ✅ v0.0.14 |
+| **`try`/`caught` · `fail`** (error = map `{message,kind,line}`; hard/soft tiers) | ✅ v0.0.14, reshaped v0.0.15 |
 | **`finally` / `always` (cleanup block)** | ➕ Phase 1 |
 | **`assert <cond>`** (outside tests) | ➕ Phase 1 |
 | Labeled break / `break N` · `goto` | 🚫 |
@@ -189,25 +208,26 @@ Every language dimension, each row probed against v0.0.13. Legend: **✅ in core
 
 ---
 
-## Phase 1 — Error handling (the missing pillar) 🟢🔴
+## Phase 1 — Error handling (the missing pillar) 🟢🔴 — core SHIPPED v0.0.14–v0.0.15
 
-Today the first error stops the run. This is the biggest robustness gap, and it unblocks
-files, the web, and the server kind. It's also literally where this project started (`try`).
+Today's first error stops the run; this was the biggest robustness gap, and it unblocks
+files, the web, and the server kind. It's literally where this project started (`try`).
 
-- [ ] **`try: … otherwise: …`** — run a block; if it errors, run the recovery block (with the message available).
+- [x] **`try: … caught: …`** — run a block; if it errors (a runtime *condition*), run the recovery block.
   ```sprout
   try:
       make data = json(get(url))
       show data["name"]
-  otherwise:
-      show "couldn't load it - using a default"
+  caught problem:
+      show "couldn't load it:", problem["message"]   ~ the error is a map {message, kind, line}
   ```
-- [ ] **`fail "message"`** — raise your own friendly error.
-- [ ] **`default`** — a fallback for an error/`nothing`: `make port = number(env("PORT")) or else 8080`.
-- [ ] **`expect error in: …`** — so tests can assert a failure (closes the freeze-test gap where errors can't be asserted today).
+- [x] **`fail "message"`** (and `fail {kind:"http", status:404, ...}` to carry structure) — raise your own error.
+- [x] **The caught-error shape — DECIDED:** a **map** `{message, kind, line}`, bound to a user-chosen optional name. (The Phase-1 open question below is now answered: recovery branch **+** a readable error map, with categorised `kind`s.)
+- [x] **Two tiers — DECIDED:** `try` catches runtime conditions; name/task/module typos and lex/parse errors are "hard" and uncatchable (so diagnostics aren't swallowed). Verified by adversarial review.
+- [ ] **`default` / `or else`** — a fallback for an error/`nothing`: `make port = number(env("PORT")) or else 8080`.
+- [ ] **`expect error in: …`** — so tests can assert a failure (closes the gap where errors can't be asserted today).
 - [ ] **`finally:` / `always:`** — a cleanup block that runs whether or not the `try` failed.
 - [ ] **`assert <cond>`** — a guard outside tests: stop with a clear message if something that must be true isn't.
-- [ ] Decide: is a caught error a value (a small `error` record with `.message`) or just a recovery branch? (Recommend: recovery branch + an `error` map you can read.)
 
 ## Phase 2 — Functions grow up 🟡 ⛓️(unblocks Phases 3, 9, 11)
 
@@ -329,7 +349,7 @@ for a small, beginner-first language; any could be reconsidered, but none is on 
 Repeat the v0.0.13 ritual for everything added:
 
 - [ ] Decide every new edge case (one rule each) — especially: closures + scope, first-class-task equality/display, record equality/display, `match` exhaustiveness, integer↔double coercion, multi-line string rules.
-- [ ] Vocabulary audit — every new keyword (`try`, `otherwise`(exists), `do`, `match`, `record`, `const`, `skip`, `stop`, `until`, …); update the reserved list.
+- [ ] Vocabulary audit — every new keyword (`try`/`caught`(shipped), `fail`/`stop`/`skip`(shipped), `do`, `match`, `record`, `const`, `until`, …); update the reserved list.
 - [ ] Language Reference complete; `tests/freeze_test.sprout` extended to cover the new rules; CI green on Linux/macOS/Windows.
 - [ ] Mark the core frozen again.
 
@@ -351,7 +371,7 @@ Phase 1 (errors) ─┬─> Phase 9 (server)
 Phase 2 (functions) ─> Phase 3 (collections), Phase 11 (libraries)
 Phase 8 (arena/GC)  ─> Phase 9 (server), long-running programs
 ```
-Good first moves on unfreeze day: **`remember`/`recall`** (Phase 7, tiny + friendly) and **`try`/`otherwise`** (Phase 1, the original ask) — both high-value, both low-risk.
+First moves done: error handling (`try`/`caught`/`fail`, Phase 1 — the original ask) shipped in v0.0.14–v0.0.15. Next good low-risk move: **`remember`/`recall`** (Phase 7, tiny + friendly).
 
 ## The one decision to make before unfreezing
 

@@ -172,24 +172,51 @@ static int values_equal_inner(Value a, Value b) {
 }
 
 /* ------------------------------------------------------------------- errors */
-static jmp_buf *err_jmp = NULL;   /* in interactive mode, fail() jumps here instead of exiting */
+/* Two boundary kinds:
+   - err_jmp  = the nearest boundary of ANY sort. A `try:` sets this so a SOFT error
+                (a runtime condition: bad input, divide-by-zero, a file miss, `fail`) is caught.
+   - g_top_jmp = the nearest SYSTEM boundary (a test, the REPL, a file/project run). HARD errors
+                (name/task typos - the "did you mean?" mistakes) skip every `try:` and stop here,
+                so a beginner can't accidentally swallow the diagnostics that exist to help them.
+   A system boundary sets BOTH (it catches everything); a `try:` sets only err_jmp. */
+static jmp_buf *err_jmp = NULL;
+static jmp_buf *g_top_jmp = NULL;
 static const char *g_current_file = NULL;   /* the file being parsed/run, for multi-file errors */
-static int  g_quiet_fail = 0;     /* >0 inside a 'try:' - capture the message instead of printing it */
-static char g_err_msg[512];       /* the most recent error's message, for 'otherwise' to read */
-static void fail(int line, const char *msg) {
-  if (g_quiet_fail && err_jmp) {                 /* inside a try: hand the message to 'otherwise', don't print */
-    snprintf(g_err_msg, sizeof g_err_msg, "%s", msg ? msg : "something went wrong.");
-    longjmp(*err_jmp, 1);
-  }
+static int  g_quiet_fail = 0;     /* >0 inside a 'try:' - a caught soft error is handed to 'caught', not printed */
+static char g_err_msg[512];       /* the most recent error's message  (the caught error's `message`) */
+static int  g_err_line = 0;       /* ...its line                       (the caught error's `line`)    */
+static const char *g_err_kind = "error";  /* ...its category           (the caught error's `kind`)    */
+static void fail_full(int line, const char *msg, const char *kind, int hard) {
+  snprintf(g_err_msg, sizeof g_err_msg, "%s", msg ? msg : "something went wrong.");
+  g_err_line = line;
+  g_err_kind = kind ? kind : "error";
+  if (!hard && g_quiet_fail && err_jmp) longjmp(*err_jmp, 1);   /* soft error caught by an enclosing try: (don't print) */
   fprintf(stderr, "\n  Sprout error");
   if (g_current_file) fprintf(stderr, " in %s", g_current_file);
   if (line > 0) fprintf(stderr, " (line %d)", line);
   fprintf(stderr, ": %s\n\n", msg);
-  if (err_jmp) longjmp(*err_jmp, 1);
+  jmp_buf *target = g_top_jmp ? g_top_jmp : err_jmp;   /* uncaught or hard: stop at the nearest SYSTEM boundary */
+  if (target) longjmp(*target, 1);
   exit(1);
 }
+static void fail(int line, const char *msg)                          { fail_full(line, msg, "error", 0); }
+static void fail_kind(int line, const char *kind, const char *msg)   { fail_full(line, msg, kind, 0); }   /* soft, categorised */
+static void fail_hard(int line, const char *kind, const char *msg)   { fail_full(line, msg, kind, 1); }   /* uncatchable (a code mistake) */
 static void failf(int line, const char *fmt, const char *arg) {
   char buf[256]; snprintf(buf, sizeof buf, fmt, arg); fail(line, buf);
+}
+/* The value a try: hands to its `caught` block - ALWAYS a map {message, kind, line}.
+   A `fail <map>` supplies its own map (we only guarantee those three keys exist), so a
+   library or the web `kind` can carry structure (e.g. {kind:"http", status:404}). */
+static int   g_have_fail_override = 0;
+static Value g_fail_override;
+static Value current_error_value(void) {
+  if (g_have_fail_override) { g_have_fail_override = 0; return g_fail_override; }
+  SMap *m = map_new();
+  map_set(m, "message", vstr(dup_str(g_err_msg)));
+  map_set(m, "kind",    vstr(dup_str(g_err_kind ? g_err_kind : "error")));
+  map_set(m, "line",    vnum((double)g_err_line));
+  return vmap(m);
 }
 
 /* -------------------------------------------------------------------- lexer */
@@ -197,7 +224,7 @@ typedef enum {
   T_NUM, T_STR, T_IDENT,
   T_MAKE, T_SET, T_SHOW, T_WHEN, T_ORWHEN, T_OTHERWISE, T_REPEAT, T_WHILE, T_TIMES,
   T_TASK, T_GIVE, T_FOR, T_EACH, T_IN, T_USE, T_PUBLIC, T_PRIVATE, T_LEARN, T_TEST, T_EXPECT,
-  T_TRY, T_FAIL, T_STOP, T_SKIP,
+  T_TRY, T_CAUGHT, T_FAIL, T_STOP, T_SKIP,
   T_AND, T_OR, T_NOT, T_YES, T_NO, T_NOTHING,
   T_PLUS, T_MINUS, T_STAR, T_SLASH, T_PERCENT, T_DOT,
   T_PLUSEQ, T_MINUSEQ, T_STAREQ, T_SLASHEQ, T_PERCENTEQ,
@@ -222,7 +249,7 @@ static TokType keyword(const char *w) {
     { "for", T_FOR }, { "each", T_EACH }, { "in", T_IN }, { "use", T_USE },
     { "public", T_PUBLIC }, { "private", T_PRIVATE }, { "learn", T_LEARN },
     { "test", T_TEST }, { "expect", T_EXPECT },
-    { "try", T_TRY }, { "fail", T_FAIL }, { "stop", T_STOP }, { "skip", T_SKIP },
+    { "try", T_TRY }, { "caught", T_CAUGHT }, { "fail", T_FAIL }, { "stop", T_STOP }, { "skip", T_SKIP },
     { "and", T_AND }, { "or", T_OR },
     { "not", T_NOT }, { "yes", T_YES }, { "no", T_NO }, { "nothing", T_NOTHING },
   };
@@ -683,9 +710,9 @@ static Stmt *statement(void) {
     case T_TRY: {
       advance(); Stmt *s = new_stmt(S_TRY, t.line);
       s->body = block(&s->nbody);                          /* the protected steps */
-      if (!check(T_OTHERWISE)) fail(t.line, "a 'try:' needs an 'otherwise:' block to handle problems (like:  try:  ...  otherwise problem:  ...).");
+      if (!check(T_CAUGHT)) fail(t.line, "a 'try:' needs a 'caught:' block to handle problems (like:  try:  ...  caught problem:  ...).");
       advance();
-      if (check(T_IDENT)) s->name = advance().text;        /* otherwise problem:  -> 'problem' holds the message */
+      if (check(T_IDENT)) s->name = advance().text;        /* caught problem:  -> 'problem' holds the error map */
       s->otherwise = block(&s->notherwise);
       return s;
     }
@@ -744,7 +771,7 @@ static void env_assign(Env *e, const char *name, Value v, int line) {
     char msg[400]; const char *sug = suggest_name(name, e, 1);
     if (sug) snprintf(msg, sizeof msg, "I can't set '%s' because it was never made.\n\n  Did you mean '%s'?  (or make it first:  make %s = ...)", name, sug, name);
     else snprintf(msg, sizeof msg, "I can't set '%s' because it was never made.\n\n  Make it first, like:  make %s = ...", name, name);
-    fail(line, msg);
+    fail_hard(line, "name", msg);   /* a typo'd name is a code mistake - try: never swallows it */
   }
   *slot = v;
 }
@@ -1344,7 +1371,7 @@ static Value call_builtin(Expr *call, Env *env) {
   }
   if (!strcmp(name,"write")||!strcmp(name,"append")) {
     if (n!=2||a[0].type!=V_STR) fail(call->line,"write/append need a file name and some text.");
-    FILE*f=fopen(a[0].str?a[0].str:"", name[0]=='a'?"ab":"wb"); if(!f) fail(call->line,"I couldn't open that file to write.");
+    FILE*f=fopen(a[0].str?a[0].str:"", name[0]=='a'?"ab":"wb"); if(!f) fail_kind(call->line,"io","I couldn't open that file to write.");
     char*t=stringify(a[1]); fwrite(t,1,strlen(t),f); fclose(f); return vnone();
   }
   if (!strcmp(name,"exists")) {
@@ -1393,7 +1420,7 @@ static Value call_builtin(Expr *call, Env *env) {
     char msg[400]; const char *sug = suggest_name(name, NULL, 0);
     if (sug) snprintf(msg, sizeof msg, "I don't know a task or function called '%s'.\n\n  Did you mean '%s'?", name, sug);
     else snprintf(msg, sizeof msg, "I don't know a task or function called '%s'.", name);
-    fail(call->line, msg);
+    fail_hard(call->line, "name", msg);
   }
   return vnone();
 }
@@ -1403,12 +1430,12 @@ static Value apply_arith(TokType op, Value l, Value r, int line) {
   if (op == T_PLUS) {
     if (l.type == V_STR || r.type == V_STR) { char *a = stringify(l), *b = stringify(r); char *out = (char *)malloc(strlen(a) + strlen(b) + 1); strcpy(out, a); strcat(out, b); return vstr(out); }
     if (l.type == V_NUM && r.type == V_NUM) return vnum(l.num + r.num);
-    failf(line, "I can't add %s and a different kind of value.", type_name(l));
+    { char buf[256]; snprintf(buf, sizeof buf, "I can't add %s and a different kind of value.", type_name(l)); fail_kind(line, "math", buf); }
   }
-  if (l.type != V_NUM || r.type != V_NUM) fail(line, "math needs two numbers.");
+  if (l.type != V_NUM || r.type != V_NUM) fail_kind(line, "math", "math needs two numbers.");
   if (op == T_MINUS) return vnum(l.num - r.num);
   if (op == T_STAR)  return vnum(l.num * r.num);
-  if (r.num == 0) fail(line, op == T_SLASH ? "you tried to divide by zero." : "you tried to take a remainder with zero.");
+  if (r.num == 0) fail_kind(line, "math", op == T_SLASH ? "you tried to divide by zero." : "you tried to take a remainder with zero.");
   return vnum(op == T_SLASH ? l.num / r.num : fmod(l.num, r.num));
 }
 
@@ -1452,13 +1479,13 @@ static Value call_system(Expr *e, Env *env) {
 static Value call_module(Expr *e, Env *env) {
   if (!has_use(cur_fileid, e->module)) {
     char m[256]; snprintf(m, sizeof m, "to call %s.%s, add 'use %s' at the top of this file.", e->module, e->name, e->module);
-    fail(e->line, m);
+    fail_hard(e->line, "name", m);
   }
   if (!strcmp(e->module, "system")) return call_system(e, env);
   ModNS *mod = modns_get(e->module);
-  if (!mod) { char m[200]; snprintf(m, sizeof m, "I don't know a module called '%s'.", e->module); fail(e->line, m); }
+  if (!mod) { char m[200]; snprintf(m, sizeof m, "I don't know a module called '%s'.", e->module); fail_hard(e->line, "name", m); }
   TaskDef *t = task_find_public(mod->fileid, e->name);
-  if (!t) { char m[256]; snprintf(m, sizeof m, "the module '%s' has no public task called '%s'.", e->module, e->name); fail(e->line, m); }
+  if (!t) { char m[256]; snprintf(m, sizeof m, "the module '%s' has no public task called '%s'.", e->module, e->name); fail_hard(e->line, "name", m); }
   return call_task_def(t, e, env);
 }
 
@@ -1478,7 +1505,7 @@ static Value eval(Expr *e, Env *env) {
           if (sug) snprintf(msg, sizeof msg, "I don't know what '%s' is.\n\n  Did you mean '%s'?", e->name, sug);
           else snprintf(msg, sizeof msg, "I don't know what '%s' is.\n\n  Variables are made with 'make', like:\n      make %s = \"Sam\"", e->name, e->name);
         }
-        fail(e->line, msg);
+        fail_hard(e->line, "name", msg);
       }
       return *v;
     }
@@ -1494,11 +1521,11 @@ static Value eval(Expr *e, Env *env) {
     case E_CALL:   if (e->module) return call_module(e, env);
                    return task_find(e->name) ? call_task(e, env) : call_builtin(e, env);
     case E_MEMBER: {
-      if (!has_use(cur_fileid, e->module)) { char m[256]; snprintf(m, sizeof m, "to read %s.%s, add 'use %s' at the top of this file.", e->module, e->name, e->module); fail(e->line, m); }
-      if (!strcmp(e->module, "system")) { char m[200]; snprintf(m, sizeof m, "system.%s is an action - call it, like system.%s(...).", e->name, e->name); fail(e->line, m); }
+      if (!has_use(cur_fileid, e->module)) { char m[256]; snprintf(m, sizeof m, "to read %s.%s, add 'use %s' at the top of this file.", e->module, e->name, e->module); fail_hard(e->line, "name", m); }
+      if (!strcmp(e->module, "system")) { char m[200]; snprintf(m, sizeof m, "system.%s is an action - call it, like system.%s(...).", e->name, e->name); fail_hard(e->line, "name", m); }
       ModNS *mod = modns_get(e->module);
-      if (!mod) { char m[200]; snprintf(m, sizeof m, "I don't know a module called '%s'.", e->module); fail(e->line, m); }
-      if (!is_public_var(mod->fileid, e->name)) { char m[256]; snprintf(m, sizeof m, "the module '%s' has no public value called '%s'.", e->module, e->name); fail(e->line, m); }
+      if (!mod) { char m[200]; snprintf(m, sizeof m, "I don't know a module called '%s'.", e->module); fail_hard(e->line, "name", m); }
+      if (!is_public_var(mod->fileid, e->name)) { char m[256]; snprintf(m, sizeof m, "the module '%s' has no public value called '%s'.", e->module, e->name); fail_hard(e->line, "name", m); }
       Value *v = env_local(mod->env, e->name);
       return v ? *v : vnone();
     }
@@ -1510,7 +1537,7 @@ static Value eval(Expr *e, Env *env) {
         if (ix.type != V_NUM) fail(e->line, "a list position must be a number.");
         if (ix.num != (double)(long long)ix.num) fail(e->line, "a list position must be a whole number.");
         long long i = (long long)ix.num;
-        if (!c.list || i < 0 || i >= c.list->n) fail(e->line, "that position doesn't exist in the list (positions start at 0; for the end use last(...)).");
+        if (!c.list || i < 0 || i >= c.list->n) fail_kind(e->line, "index", "that position doesn't exist in the list (positions start at 0; for the end use last(...)).");
         return c.list->items[i];
       }
       if (c.type == V_MAP) {
@@ -1531,7 +1558,7 @@ static Value eval(Expr *e, Env *env) {
           if (idx == want) return vstr(dup_str(ch));
           idx++; i += k ? k : 1;
         }
-        fail(e->line, "that position doesn't exist in the text.");
+        fail_kind(e->line, "index", "that position doesn't exist in the text.");
       }
       if (c.type == V_NONE) fail(e->line, "you tried to look inside 'nothing' with [ ] - there's nothing there to index.");
       fail(e->line, "I can only look inside a list, a map, or text with [ ].");
@@ -1638,15 +1665,18 @@ static void exec(Stmt *s, Env *env) {
     case S_TEST: {
       const char *prevn = g_cur_test; int prevf = g_test_failed;
       g_cur_test = s->name; g_test_failed = 0;
-      jmp_buf tb; jmp_buf *saved = err_jmp; err_jmp = &tb;
-      int sdepth = call_depth, sret = returning;
+      /* a test is a SYSTEM boundary: it catches EVERYTHING (soft + hard), so a typo fails just this test.
+         locals read after the longjmp are volatile (belt-and-suspenders for -O2 / Windows SEH). */
+      jmp_buf tb; jmp_buf * volatile saved = err_jmp; jmp_buf * volatile saved_top = g_top_jmp;
+      err_jmp = &tb; g_top_jmp = &tb;
+      volatile int sdepth = call_depth, sret = returning, sq = g_quiet_fail;
       if (setjmp(tb) == 0) {
         exec_block(s->body, s->nbody, env_new(env));   /* each test runs in its own scope */
       } else {                                          /* a runtime error stopped the test */
-        call_depth = sdepth; returning = sret; g_loopctl = 0;
+        call_depth = sdepth; returning = sret; g_loopctl = 0; g_quiet_fail = sq; g_have_fail_override = 0;
         if (!g_test_failed) { g_test_failed = 1; printf("  " C_RED "x" C_RESET "  %s " C_DIM "(stopped by an error)" C_RESET "\n", s->name); }
       }
-      err_jmp = saved;
+      err_jmp = saved; g_top_jmp = saved_top; g_quiet_fail = sq; g_have_fail_override = 0;
       if (g_test_failed) g_tfail++; else { g_tpass++; printf("  " C_GREEN "ok" C_RESET "  %s\n", s->name); }
       g_cur_test = prevn; g_test_failed = prevf;
       break;
@@ -1734,24 +1764,37 @@ static void exec(Stmt *s, Env *env) {
     case S_STOP: g_loopctl = 2; break;   /* end the loop now */
     case S_SKIP: g_loopctl = 1; break;   /* jump to the loop's next turn */
     case S_FAIL: {
-      if (!s->expr) fail(s->line, "the program stopped with 'fail'.");   /* bare `fail` */
+      if (!s->expr) fail_kind(s->line, "fail", "the program stopped with 'fail'.");   /* bare `fail` */
       Value m = eval(s->expr, env);
-      char *msg = (m.type == V_STR) ? (m.str ? m.str : "") : stringify(m);
-      fail(s->line, (msg && msg[0]) ? msg : "the program stopped with 'fail'.");
+      if (m.type == V_MAP) {                               /* fail <map>: the map IS the error - carry it whole */
+        if (m.map) {
+          if (map_index(m.map, "message") < 0) map_set(m.map, "message", vstr(dup_str("(no message)")));
+          if (map_index(m.map, "kind")    < 0) map_set(m.map, "kind",    vstr(dup_str("fail")));
+          if (map_index(m.map, "line")    < 0) map_set(m.map, "line",    vnum((double)s->line));
+        }
+        g_fail_override = m; g_have_fail_override = 1;
+        const char *mt = "(custom error)";               /* the message text, for the printed/uncaught path */
+        if (m.map) { int mi = map_index(m.map, "message"); if (mi >= 0 && m.map->vals[mi].type == V_STR && m.map->vals[mi].str) mt = m.map->vals[mi].str; }
+        fail_kind(s->line, "fail", mt);
+      } else {                                             /* fail "text" / fail 42: wrap into the standard error map */
+        char *msg = (m.type == V_STR) ? (m.str ? m.str : "") : stringify(m);
+        fail_kind(s->line, "fail", (msg && msg[0]) ? msg : "the program stopped with 'fail'.");
+      }
       break;
     }
     case S_TRY: {
-      jmp_buf tb; jmp_buf *saved = err_jmp; err_jmp = &tb;
-      int sq = g_quiet_fail; g_quiet_fail = 1;            /* errors inside become catchable, not printed */
-      int sdepth = call_depth;
+      jmp_buf tb; jmp_buf * volatile saved = err_jmp; err_jmp = &tb;   /* a try: is a CATCH boundary - sets err_jmp only, NOT g_top_jmp */
+      volatile int sq = g_quiet_fail; g_quiet_fail = 1;   /* soft errors inside become catchable, not printed */
+      volatile int sdepth = call_depth;                   /* read after the longjmp -> volatile (-O2/SEH safety) */
       if (setjmp(tb) == 0) {
         exec_scoped(s->body, s->nbody, env);              /* the protected steps */
-        err_jmp = saved; g_quiet_fail = sq;               /* clean exit: give/stop/skip flags pass through */
-      } else {                                            /* something failed inside the try */
+        err_jmp = saved; g_quiet_fail = sq;               /* clean exit: give/stop/skip flags pass through, caught does NOT run */
+      } else {                                            /* a soft error was caught (a hard one would have skipped to g_top_jmp) */
         err_jmp = saved; g_quiet_fail = sq;
         call_depth = sdepth; returning = 0; g_loopctl = 0;   /* unwind the half-done try cleanly */
+        Value err = current_error_value();                /* {message, kind, line} (or the user's fail-map) */
         Env *be = env_new(env);
-        if (s->name) env_define(be, s->name, vstr(dup_str(g_err_msg)));   /* otherwise problem: */
+        if (s->name) env_define(be, s->name, err);        /* caught problem:  ->  'problem' holds the error map */
         exec_block(s->otherwise, s->notherwise, be);
       }
       break;
@@ -1773,7 +1816,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.0.14"
+#define SPROUT_VERSION "0.0.15"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);
@@ -1828,8 +1871,8 @@ static void banner(void) {
 
 static void repl(void) {
   printf("\n  " C_GREEN "Try Sprout live" C_RESET " " C_DIM "- type code, press Enter. 'back' returns to the menu." C_RESET "\n\n");
-  jmp_buf jb; err_jmp = &jb; repl_echo = 1; g_repl_active = 1;   /* allow re-`make` while experimenting */
-  int repl_fid = cur_fileid; Env *repl_env = cur_file_env;   /* the session scope to restore after an error */
+  jmp_buf jb; err_jmp = &jb; g_top_jmp = &jb; repl_echo = 1; g_repl_active = 1;   /* allow re-`make` while experimenting */
+  volatile int repl_fid = cur_fileid; Env * volatile repl_env = cur_file_env;   /* the session scope to restore after an error (read post-longjmp -> volatile) */
   char buf[8192]; buf[0] = 0; int inblock = 0; char line[1024];
   printf(PROMPT); fflush(stdout);
   while (fgets(line, sizeof line, stdin)) {
@@ -1838,17 +1881,17 @@ static void repl(void) {
       if (!strcmp(line, "back") || !strcmp(line, "quit") || !strcmp(line, "exit")) break;
       if (L == 0) { printf(PROMPT); fflush(stdout); continue; }
       if (opens_block(line)) { snprintf(buf, sizeof buf, "%s\n", line); inblock = 1; printf("  " C_DIM "...... " C_RESET); fflush(stdout); continue; }
-      if (setjmp(jb) == 0) run_snippet(line); else { call_depth = 0; returning = 0; g_current_file = NULL; cur_fileid = repl_fid; cur_file_env = repl_env; }
+      if (setjmp(jb) == 0) run_snippet(line); else { call_depth = 0; returning = 0; g_loopctl = 0; g_quiet_fail = 0; g_have_fail_override = 0; g_current_file = NULL; cur_fileid = repl_fid; cur_file_env = repl_env; }
       printf(PROMPT); fflush(stdout);
     } else if (L == 0) {                                        /* blank line ends the block */
-      if (setjmp(jb) == 0) run_snippet(buf); else { call_depth = 0; returning = 0; g_current_file = NULL; cur_fileid = repl_fid; cur_file_env = repl_env; }
+      if (setjmp(jb) == 0) run_snippet(buf); else { call_depth = 0; returning = 0; g_loopctl = 0; g_quiet_fail = 0; g_have_fail_override = 0; g_current_file = NULL; cur_fileid = repl_fid; cur_file_env = repl_env; }
       buf[0] = 0; inblock = 0; printf(PROMPT); fflush(stdout);
     } else {
       size_t cur = strlen(buf); snprintf(buf + cur, sizeof buf - cur, "%s\n", line);
       printf("  " C_DIM "...... " C_RESET); fflush(stdout);
     }
   }
-  err_jmp = NULL; repl_echo = 0; g_repl_active = 0; printf("\n");
+  err_jmp = NULL; g_top_jmp = NULL; repl_echo = 0; g_repl_active = 0; printf("\n");
 }
 
 static void run_file_prompt(void) {
@@ -1861,13 +1904,13 @@ static void run_file_prompt(void) {
   char *src = read_whole_file(path);
   if (!src) { printf("  " C_DIM "couldn't open '%s'" C_RESET "\n", path); return; }
   printf("\n");
-  jmp_buf jb; err_jmp = &jb; g_current_file = path;
-  int save_fid = cur_fileid; Env *save_env = cur_file_env;
+  jmp_buf jb; err_jmp = &jb; g_top_jmp = &jb; g_current_file = path;
+  volatile int save_fid = cur_fileid; Env * volatile save_env = cur_file_env;   /* read after the longjmp -> volatile */
   cur_file_env = env_new(global_env); cur_fileid = ++g_next_fileid;   /* each run gets a fresh scope, so re-running works */
-  if (setjmp(jb) != 0) { call_depth = 0; returning = 0; }
+  if (setjmp(jb) != 0) { call_depth = 0; returning = 0; g_loopctl = 0; g_quiet_fail = 0; g_have_fail_override = 0; }
   else run_snippet(src);
   cur_fileid = save_fid; cur_file_env = save_env;                     /* restore the session scope */
-  err_jmp = NULL; g_current_file = NULL;
+  err_jmp = NULL; g_top_jmp = NULL; g_current_file = NULL;
   free(src);
 }
 
@@ -2310,9 +2353,14 @@ static char *resolve_module(const char *name) {
 static Stmt **parse_file(const char *path, int *n) {
   char *src = read_whole_file(path);
   if (!src) { char m[600]; snprintf(m, sizeof m, "I couldn't open the file '%s'.", path); fail(0, m); return NULL; }
+  /* A lex/parse error is a code mistake, never a runtime condition - it must NOT be caught by a try:.
+     This matters when a `use` inside a try loads a module with a syntax error: suppress the try's catch
+     for the whole tokenize+parse, then hand the try-state back to the enclosing runtime on success. */
+  int saved_quiet = g_quiet_fail; g_quiet_fail = 0;
   ntok = 0; pos = 0;
   tokenize(src, (int)strlen(src));
   Stmt **prog = parse_program(n);
+  g_quiet_fail = saved_quiet;
   free(src);
   return prog;
 }
@@ -2348,8 +2396,8 @@ static int cmd_build(void) {
   const char *mainf = g_main_file ? g_main_file : "app.sprout";
   printf("\n  " C_GREEN C_BOLD "Building %s" C_RESET "\n\n", g_project_name ? g_project_name : "project");
   global_env = env_new(NULL);
-  jmp_buf jb; err_jmp = &jb;
-  if (setjmp(jb) != 0) { err_jmp = NULL; g_current_file = NULL; call_depth = 0; returning = 0; return 1; }
+  jmp_buf jb; err_jmp = &jb; g_top_jmp = &jb;
+  if (setjmp(jb) != 0) { err_jmp = NULL; g_top_jmp = NULL; g_current_file = NULL; call_depth = 0; returning = 0; g_loopctl = 0; g_quiet_fail = 0; g_have_fail_override = 0; return 1; }
   char *mainc = canon_path(mainf);
   for (int i = 0; i < g_ninc; i++) {                            /* libraries first... */
     char *ic = canon_path(g_incpath[i]); int is_main = !strcmp(ic, mainc); free(ic);
@@ -2358,7 +2406,7 @@ static int cmd_build(void) {
   }
   free(mainc);
   load_module(mainf);                                           /* entry point genuinely last */
-  err_jmp = NULL;
+  err_jmp = NULL; g_top_jmp = NULL;
   return test_report();   /* if the project ran any tests, report + set the exit code */
 }
 
@@ -2397,8 +2445,8 @@ static int cmd_test(int argc, char **argv) {
   toml_load();
   global_env = env_new(NULL);
   cur_file_env = env_new(global_env); cur_fileid = ++g_next_fileid;
-  jmp_buf jb; err_jmp = &jb;
-  if (setjmp(jb) != 0) { err_jmp = NULL; g_current_file = NULL; call_depth = 0; returning = 0; test_report(); return 1; }
+  jmp_buf jb; err_jmp = &jb; g_top_jmp = &jb;
+  if (setjmp(jb) != 0) { err_jmp = NULL; g_top_jmp = NULL; g_current_file = NULL; call_depth = 0; returning = 0; g_loopctl = 0; g_quiet_fail = 0; g_have_fail_override = 0; test_report(); return 1; }
   if (argc >= 3) {
     run_test_file(argv[2]);
   } else {
@@ -2410,9 +2458,9 @@ static int cmd_test(int argc, char **argv) {
     DIR *d = opendir("tests");
     if (d) { struct dirent *e; while ((e = readdir(d))) { size_t L = strlen(e->d_name); if (L > 7 && !strcmp(e->d_name + L - 7, ".sprout")) { char p[600]; snprintf(p, sizeof p, "tests/%s", e->d_name); run_test_file(p); found = 1; } } closedir(d); }
 #endif
-    if (!found) { fprintf(stderr, "\n  No tests found. Put them in a tests/ folder, or run one:  sprout test mytests.sprout\n\n"); err_jmp = NULL; return 1; }
+    if (!found) { fprintf(stderr, "\n  No tests found. Put them in a tests/ folder, or run one:  sprout test mytests.sprout\n\n"); err_jmp = NULL; g_top_jmp = NULL; return 1; }
   }
-  err_jmp = NULL;
+  err_jmp = NULL; g_top_jmp = NULL;
   return test_report();
 }
 
@@ -2446,13 +2494,13 @@ int main(int argc, char **argv) {
   cur_fileid = ++g_next_fileid;
   /* a top-level error boundary: an uncaught error prints + stops cleanly, and (on Windows) it
      also gives `try:`'s nested longjmp a valid SEH frame to unwind to. */
-  jmp_buf jb; err_jmp = &jb;
-  if (setjmp(jb) != 0) { err_jmp = NULL; g_current_file = NULL; call_depth = 0; returning = 0; g_loopctl = 0; g_quiet_fail = 0; return 1; }
+  jmp_buf jb; err_jmp = &jb; g_top_jmp = &jb;
+  if (setjmp(jb) != 0) { err_jmp = NULL; g_top_jmp = NULL; g_current_file = NULL; call_depth = 0; returning = 0; g_loopctl = 0; g_quiet_fail = 0; g_have_fail_override = 0; return 1; }
   tokenize(src, len);
   int ncount; Stmt **program = parse_program(&ncount);
   { char *base = module_basename(file); modns_register(base, cur_fileid, cur_file_env); free(base); }  /* same as `sprout build` */
   for (int i = 0; i < ncount; i++) if (program[i]->kind == S_TASK) task_register(program[i], cur_fileid, cur_file_env);
   exec_block(program, ncount, cur_file_env);
-  err_jmp = NULL;
+  err_jmp = NULL; g_top_jmp = NULL;
   return test_report();   /* if the file had tests, report + set the exit code */
 }

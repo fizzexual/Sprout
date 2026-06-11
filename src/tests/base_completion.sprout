@@ -1,5 +1,5 @@
 ~ base-completion milestone (v0.0.14): data builtins, compound assignment,
-~ stop/skip, try/otherwise/fail.  Prints "FAIL ..." on any wrong result, so
+~ stop/skip, try/caught/fail.  Prints "FAIL ..." on any wrong result, so
 ~ the CI runner (which greps for "sprout error|FAIL") catches regressions.
 
 task check(label, got, want):
@@ -93,25 +93,25 @@ repeat while i < 10:
     set whilecount += 1
 check("skip in while", whilecount, 9)
 
-~ ---------- try / otherwise / fail ----------
-make caught = "no"
+~ ---------- try / caught / fail ----------
+make didCatch = "no"
 try:
     show 1 / 0
-otherwise problem:
-    set caught = "yes"
-check("try catches divide-by-zero", caught, "yes")
+caught problem:
+    set didCatch = "yes"
+check("try catches divide-by-zero", didCatch, "yes")
 
 make msg = ""
 try:
     fail "boom"
-otherwise e:
-    set msg = e
+caught e:
+    set msg = e["message"]
 check("fail carries message", msg, "boom")
 
 make after = "not reached"
 try:
     fail "x"
-otherwise e:
+caught e:
     set after = "handled"
 check("flow continues after try", after, "handled")
 
@@ -119,7 +119,7 @@ check("flow continues after try", after, "handled")
 task safe_divide(a, b):
     try:
         give a / b
-    otherwise e:
+    caught e:
         give -1
 check("give through try (ok)", safe_divide(10, 2), 5)
 check("give through try (error)", safe_divide(10, 0), -1)
@@ -131,7 +131,7 @@ for each x in [1, 2, 3, 4]:
         when x == 3:
             stop
         set sumc += x
-    otherwise e:
+    caught e:
         show "FAIL try-stop unexpected error"
 check("stop through try", sumc, 3)
 
