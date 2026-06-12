@@ -94,6 +94,7 @@ language runs now:
 - Compare `== != < <= > >=`, logic `and` `or` `not`, **membership** `x in xs`, **fallback** `a or else b` (use `b` if `a` is `nothing`)
 - `when` / `orwhen` / `otherwise`, `repeat N times`, `repeat while`, **`stop`** / **`skip`** to leave or skip a loop turn, and **`match`** with destructuring patterns
 - **Pattern matching** — `match value:` with `is "start":` / `is [a, b]:` / `is {name, age}:` arms that compare *or* pull a list/map apart, plus `otherwise`
+- **Pipe** `|>` — `x |> f` is `f(x)`; chain data transforms left-to-right: `nums |> filter(is_even) |> map(double) |> sum`
 - **Error handling:** `try:` / `caught problem:` to catch a runtime error (the caught error is a map `{message, kind, line}`), and `fail "message"` (or `fail {...}`) to raise your own
 - `task` / `give`, function calls, **recursion**, proper scope — **tasks are first-class values** you can store, pass, and call (`make f = double`, `map(xs, double)`, `filter`, `reduce`), plus **lambdas + closures**: anonymous inline tasks that capture surrounding variables (`map(xs, task(n): n * 2)`, `task adder(by): give task(x): x + by`)
 - **Lists** `[1, 2, 3]` and **maps** `{name: "Sam"}` — indexing, `set xs[i] = …`, `range`, **`a to b` ranges**, **list comprehensions** (`[n*2 for each n in xs when n > 0]`), and `for each` (`for each item in xs`, or `for each key, value in m`)
@@ -174,7 +175,7 @@ build.cmd                     # or: gcc -O2 -Wall -s -o sprout.exe sprout.c -lm 
 
 # run a program:
 sprout run hello.sprout     # or just: sprout hello.sprout
-sprout version              # -> Sprout v0.0.26
+sprout version              # -> Sprout v0.0.27
 sprout new myapp            # create a full multi-file project folder
 sprout build                # run the project in the current folder (reads sprout.toml)
 sprout test                 # run your tests (a file, or every tests/*.sprout)
@@ -331,6 +332,21 @@ and binds each to a same-named variable). The bound names live only inside that 
 The rule of thumb: **bare names** in `[ ]`/`{ }` mean *destructure*; anything else
 (`[1, 2]`, `{a: 1}`) is a **value** compared with `==`. If nothing matches and there's
 no `otherwise`, the `match` does nothing (like a `when` with no `otherwise`).
+
+**The pipe operator `|>`** *(v0.0.27)*. `x |> f` is just `f(x)`, and `x |> f(a)` is
+`f(x, a)` — the left value threads in as the **first** argument. It's left-associative,
+so a chain reads **top to bottom** instead of inside-out:
+
+```
+nums |> filter(task(n): n % 2 == 0) |> map(task(n): n * 10) |> sum
+#  ==  sum(map(filter(nums, …even…), …×10…))
+```
+
+The right side is a **task or a call** — a name (`|> double`), a call with more
+arguments (`|> add(2)`), or a module call (`|> server.handle(req)`). It binds looser
+than arithmetic (so `2 + 3 |> double` is `double(5)`) and tighter than comparisons. It
+pairs beautifully with lambdas, ranges, and comprehensions — every stage is just a
+normal call, so there's nothing new to learn at runtime.
 
 **Lists & maps are shared references — this is load-bearing.** `make b = a` does
 **not** copy; `a` and `b` are the *same* list/map, so `add(b, 3)` changes `a` too,
@@ -668,6 +684,7 @@ v0.1.0 freeze:
 15. ✅ **Lambdas + closures (v0.0.24)** — anonymous inline tasks (`task(x): x * 2`, one-line body is an implicit `give`) that capture the surrounding variables; each evaluation captures fresh, capture is by-reference.
 16. ✅ **Ranges + comprehensions (v0.0.25)** — `a to b` inclusive ranges (counts up or down) and one-line list comprehensions `[expr for each x in xs when cond]` over lists, ranges, text, or maps.
 17. ✅ **Pattern matching (v0.0.26)** — `match value:` with `is <pattern>:` arms (value/literal, list-destructure `[a, b]`, map-destructure `{name, age}`) and `otherwise`.
+18. ✅ **Pipe operator (v0.0.27)** — `x |> f` is `f(x)` and `x |> f(a)` is `f(x, a)`; left-associative, so `data |> filter(is_even) |> map(double) |> sum` reads top to bottom.
 
 The cycle continues toward **v0.1.0 — the freeze that's meant to hold**. The full,
 sequenced plan — first-class tasks, collections superpowers, user types, a memory
@@ -707,7 +724,7 @@ There's a **[VS Code extension](vscode-extension)** for syntax highlighting too.
 
 ## Known limitations & open questions
 
-Sprout is **v0.0.26** — early, and deliberately small. Honest about the edges:
+Sprout is **v0.0.27** — early, and deliberately small. Honest about the edges:
 spotting more (or telling me which matter most) is exactly the feedback I want —
 [issues](https://github.com/fizzexual/Sprout/issues) /
 [discussions](https://github.com/fizzexual/Sprout/discussions) welcome.

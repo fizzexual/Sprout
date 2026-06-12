@@ -1,0 +1,39 @@
+~ v0.0.27 the pipe operator: `x |> f` is `f(x)`, and `x |> f(a)` is `f(x, a)` — the left
+~ value threads in as the FIRST argument. Left-associative. Guarded: prints "FAIL ..." on a miss.
+
+task check(label, got, want):
+    when got != want:
+        show "FAIL", label, "- got", got, "wanted", want
+
+make double = task(n): n * 2
+make plus = task(a, b): a + b
+make inc = task(x): x + 1
+
+~ ---------- the basics ----------
+check("x |> f == f(x)", 21 |> double, 42)
+check("x |> f(a) == f(x, a)", 5 |> plus(3), 8)
+check("left-associative chain g(f(x))", 3 |> double |> plus(1), 7)
+check("a longer chain", 1 |> inc |> inc |> double, 6)
+
+~ ---------- pipe binds looser than arithmetic ----------
+check("2 + 3 |> double == double(5)", 2 + 3 |> double, 10)
+check("piped value is usable in arithmetic", (5 |> double) + 1, 11)
+check("piped value in a comparison", (5 |> double) == 10, yes)
+
+~ ---------- pipe into builtins ----------
+check("pipe into sort", [3, 1, 2] |> sort, [1, 2, 3])
+check("pipe into sum", [1, 2, 3, 4] |> sum, 10)
+check("pipe into length", "hello" |> length, 5)
+check("pipe text through two stages", "hi there" |> upper |> words, ["HI", "THERE"])
+
+~ ---------- the killer: a data pipeline that reads top to bottom ----------
+make nums = [1, 2, 3, 4, 5, 6]
+check("filter |> map |> sum", nums |> filter(task(n): n % 2 == 0) |> map(task(n): n * 10) |> sum, 120)
+check("map |> filter |> reduce", nums |> map(double) |> filter(task(n): n > 6) |> reduce(plus, 0), 30)
+
+~ ---------- pipe composes with ranges + comprehensions ----------
+check("pipe a range into sum", (1 to 5) |> sum, 15)
+check("pipe a comprehension into sum", [n * n for each n in 1 to 4] |> sum, 30)
+check("range |> map |> sum", (1 to 3) |> map(double) |> sum, 12)
+
+show "ok: pipes ran"

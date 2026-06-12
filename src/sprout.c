@@ -251,7 +251,7 @@ typedef enum {
   T_AND, T_OR, T_NOT, T_YES, T_NO, T_NOTHING,
   T_PLUS, T_MINUS, T_STAR, T_SLASH, T_PERCENT, T_DOT,
   T_PLUSEQ, T_MINUSEQ, T_STAREQ, T_SLASHEQ, T_PERCENTEQ,
-  T_EQ, T_EQEQ, T_BANGEQ, T_LT, T_LE, T_GT, T_GE,
+  T_EQ, T_EQEQ, T_BANGEQ, T_LT, T_LE, T_GT, T_GE, T_PIPE,
   T_LPAREN, T_RPAREN, T_LBRACK, T_RBRACK, T_LBRACE, T_RBRACE, T_COMMA, T_COLON,
   T_NEWLINE, T_INDENT, T_DEDENT, T_EOF
 } TokType;
@@ -340,6 +340,7 @@ static void scan_token(const char *src, int *ip, int len, int line) {
     case '!': if (i + 1 < len && src[i + 1] == '=') { push_tok(T_BANGEQ, NULL, 0, line); i += 2; } else fail(line, "I didn't expect a '!' here (use 'not', or '!=' for not-equal)."); break;
     case '<': if (i + 1 < len && src[i + 1] == '=') { push_tok(T_LE, NULL, 0, line); i += 2; } else { push_tok(T_LT, NULL, 0, line); i++; } break;
     case '>': if (i + 1 < len && src[i + 1] == '=') { push_tok(T_GE, NULL, 0, line); i += 2; } else { push_tok(T_GT, NULL, 0, line); i++; } break;
+    case '|': if (i + 1 < len && src[i + 1] == '>') { push_tok(T_PIPE, NULL, 0, line); i += 2; } else fail(line, "I didn't expect a '|' here (use 'or' for logical or, or '|>' for the pipe)."); break;
     default: { char m[64]; snprintf(m, sizeof m, "I don't understand the character '%c'.", c); fail(line, m); }
   }
   *ip = i;
@@ -599,16 +600,42 @@ static Expr *range_expr(void) {
   }
   return left;
 }
+/* the pipe:  x |> f  is  f(x), and  x |> f(a)  is  f(x, a)  (left threaded in as the FIRST
+   argument). Left-associative, so  x |> f |> g  is  g(f(x)). Desugars to a normal call at
+   parse time, so it reuses all the existing call machinery (tasks, lambdas-in-variables,
+   module calls, arity checks). Binds looser than arithmetic, tighter than comparisons. */
+static Expr *pipe_expr(void) {
+  Expr *left = range_expr();
+  while (check(T_PIPE)) {
+    int line = peek().line; advance();
+    Expr *right = range_expr();
+    if (right->kind == E_CALL) {                 /* x |> f(a)  ->  f(x, a)   (also module.f(a)) */
+      Expr **args = (Expr **)malloc((right->nargs + 1) * sizeof(Expr *));
+      args[0] = left;
+      for (int k = 0; k < right->nargs; k++) args[k + 1] = right->args[k];
+      right->args = args; right->nargs += 1; left = right;
+    } else if (right->kind == E_VAR) {           /* x |> f  ->  f(x) */
+      Expr *call = new_expr(E_CALL, line); call->name = right->name;
+      call->args = (Expr **)malloc(sizeof(Expr *)); call->args[0] = left; call->nargs = 1; left = call;
+    } else if (right->kind == E_MEMBER) {         /* x |> mod.f  ->  mod.f(x) */
+      Expr *call = new_expr(E_CALL, line); call->module = right->module; call->name = right->name;
+      call->args = (Expr **)malloc(sizeof(Expr *)); call->args[0] = left; call->nargs = 1; left = call;
+    } else {
+      fail(line, "the right side of '|>' must be a task or a call, like  x |> double  or  x |> add(2).");
+    }
+  }
+  return left;
+}
 /* comparisons do NOT chain: `a < b < c` is a friendly error (use 'and'), not a confusing
    (a < b) < c type error. All six relational/equality ops share this one non-associative level. */
 static Expr *compare(void) {
   static const TokType o[] = { T_LT, T_LE, T_GT, T_GE, T_EQEQ, T_BANGEQ, T_IN };  /* `x in xs` = membership */
-  Expr *left = range_expr();
+  Expr *left = pipe_expr();
   TokType op = T_EOF; int found = 0;
   for (int k = 0; k < 7; k++) if (check(o[k])) { op = o[k]; found = 1; break; }
   if (!found) return left;
   int line = peek().line; advance();
-  Expr *right = range_expr();
+  Expr *right = pipe_expr();
   for (int k = 0; k < 7; k++) if (check(o[k])) fail(peek().line, "comparisons can't be chained - use 'and', like  a < b and b < c.");
   Expr *e = new_expr(E_BINARY, line); e->op = op; e->left = left; e->right = right; return e;
 }
@@ -2389,7 +2416,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.0.26"
+#define SPROUT_VERSION "0.0.27"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);
