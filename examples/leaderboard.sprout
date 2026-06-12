@@ -1,0 +1,17 @@
+~ Leaderboard — rank players by score, highest first.
+~ Shows: lists of maps, sort_by (sort records by a field), for-each.
+
+make players = [
+    {name: "Ada", score: 90},
+    {name: "Mo",  score: 72},
+    {name: "Sam", score: 85},
+    {name: "Lee", score: 88},
+]
+
+~ sort_by sorts low-to-high by the value the task returns; reverse() flips it high-to-low.
+make ranked = reverse(sort_by(players, task(p): p["score"]))
+
+make place = 1
+for each p in ranked:
+    show place + ". " + p["name"] + " — " + p["score"]
+    set place += 1

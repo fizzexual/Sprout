@@ -1,0 +1,15 @@
+~ FizzBuzz — the classic, Sprout-style.
+~ Shows: a task, when / orwhen / otherwise, and a range loop.
+
+task fizzbuzz(n):
+    when n % 15 == 0:
+        give "FizzBuzz"
+    orwhen n % 3 == 0:
+        give "Fizz"
+    orwhen n % 5 == 0:
+        give "Buzz"
+    otherwise:
+        give "" + n
+
+for each i in 1 to 20:
+    show fizzbuzz(i)

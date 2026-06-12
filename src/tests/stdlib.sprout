@@ -48,4 +48,14 @@ task square(n):
     give n * n
 check("map then sum", sum(map([1, 2, 3], square)), 14)
 
+~ sort_by: order records/anything by a computed key (stable, ascending)
+make people = [{n: "Ada", age: 36}, {n: "Mo", age: 17}, {n: "Sam", age: 52}]
+make by_age = sort_by(people, task(p): p["age"])
+check("sort_by ascending by field", map(by_age, task(p): p["n"]), ["Mo", "Ada", "Sam"])
+check("sort_by then reverse = descending", first(reverse(sort_by(people, task(p): p["age"])))["n"], "Sam")
+check("sort_by by text key", sort_by(["cat", "ant", "bee"], task(w): w), ["ant", "bee", "cat"])
+~ stable: equal keys keep their original order
+make tied = [{k: "b", i: 1}, {k: "a", i: 2}, {k: "b", i: 3}]
+check("sort_by is stable", map(sort_by(tied, task(x): x["k"]), task(x): x["i"]), [2, 1, 3])
+
 show "stdlib: all checks ran"

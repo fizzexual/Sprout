@@ -40,5 +40,20 @@ for f in tests/*.sprout; do
   esac
 done
 
+# The example gallery doubles as an end-to-end smoke test: every example must run
+# without a runtime error. (They print output rather than assertions, so we only gate
+# on "sprout error".)
+for f in ../examples/*.sprout; do
+  [ -e "$f" ] || continue
+  if out="$("$bin" run "$f" 2>&1)" && ! printf '%s' "$out" | grep -qiE "sprout error"; then
+    echo "ok:   $f (example)"
+  else
+    echo "FAIL: $f (example)"
+    printf '%s\n' "$out"
+    fail=1
+  fi
+done
+rm -f sprout.data.json   # the todo example writes one; it's gitignored anyway
+
 if [ "$fail" -eq 0 ]; then echo "All tests passed."; else echo "Some tests failed."; fi
 exit "$fail"

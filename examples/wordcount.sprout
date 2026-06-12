@@ -1,0 +1,18 @@
+~ Word frequency — count the words in some text and show the most common.
+~ Shows: a map as a counter, words(), the `in` test, sort_by + slice for top-N.
+
+make text = "the quick brown fox the lazy dog the fox the dog the cat the dog"
+
+make counts = {}
+for each w in words(lower(text)):
+    when w in counts:
+        set counts[w] += 1
+    otherwise:
+        set counts[w] = 1
+
+~ rank the distinct words by how often they appear (most first)
+make ranked = reverse(sort_by(keys(counts), task(w): counts[w]))
+
+show "Top words:"
+for each w in slice(ranked, 0, 3):
+    show "  " + w + ": " + counts[w]

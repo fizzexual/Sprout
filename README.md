@@ -100,7 +100,7 @@ language runs now:
 - **Lists** `[1, 2, 3]` and **maps** `{name: "Sam"}` — indexing, `set xs[i] = …`, `range`, **`a to b` ranges**, **list comprehensions** (`[n*2 for each n in xs when n > 0]`), and `for each` (`for each item in xs`, or `for each key, value in m`)
 - **`learn on`** — Sprout narrates each step as it runs: values, **which `when` branch ran, every loop turn, and each task call + what it gave back** (plus **friendly errors** that say *"did you mean…?"*)
 - **Built-in testing** — `test "name": expect …`, plus **`expect error "kind":`** to assert that a block fails; run with `sprout test`
-- **Toolbox:** `length` `add` `remove` `insert` `keys` `values` `contains` `first` `last` `index_of` `sort` `reverse` `copy` `kind_of` `map` `filter` `reduce` `sum` `count` `unique` `zip` `flatten` `slice` `range` · `sqrt` `pow` `abs` `round` `floor` `ceil` `min` `max` `random` `seed` `number` · `upper` `lower` `trim` `replace` `split` `join` `starts_with` `ends_with` `words` `lines` `title` · `now` `today` `wait` · `ask` · `color` (terminal colour)
+- **Toolbox:** `length` `add` `remove` `insert` `keys` `values` `contains` `first` `last` `index_of` `sort` `sort_by` `reverse` `copy` `kind_of` `map` `filter` `reduce` `sum` `count` `unique` `zip` `flatten` `slice` `range` · `sqrt` `pow` `abs` `round` `floor` `ceil` `min` `max` `random` `seed` `number` · `upper` `lower` `trim` `replace` `split` `join` `starts_with` `ends_with` `words` `lines` `title` · `now` `today` `wait` · `ask` · `color` (terminal colour)
 - **Superpowers — built in, no libraries:**
   - 🌐 `get(url)` — fetch any web page or API
   - 🧩 `json(text)` — parse JSON straight into native lists & maps
@@ -363,6 +363,18 @@ return **nothing** (they're commands). `remove` changes the list/map and returns
 list **in place** and return the **same list** (a reference, not a copy — so
 `show sort(xs)` works *and* `xs` is now sorted). `copy` is the only one that returns
 a new value.
+
+**Sorting records by a field — `sort_by(list, task)`.** `sort` only handles a flat
+list of numbers or text. To order a list of *records* (or anything) by a computed
+value, use **`sort_by`** — it sorts low-to-high by whatever the task returns for each
+item (a number or text), and it's **stable** (equal keys keep their order). Reverse it
+for high-to-low:
+
+```
+make ranked = reverse(sort_by(players, task(p): p["score"]))   # highest score first
+```
+
+Like `sort`, it sorts **in place** and returns the same list.
 
 **The "batteries" builtins** all return **new** values (they never mutate their
 input): `sum(list)`, `count(list, value)` / `count(text, piece)`, `unique(list)`,

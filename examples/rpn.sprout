@@ -1,0 +1,25 @@
+~ RPN calculator — evaluate reverse-Polish notation like "3 4 + 5 *".
+~ Shows: a list used as a stack, words(), number(), match dispatch on the operator.
+
+task rpn(expr):
+    make stack = []
+    for each tok in words(expr):
+        when tok == "+" or tok == "-" or tok == "*" or tok == "/":
+            make b = remove(stack, length(stack) - 1)   ~ pop the top two
+            make a = remove(stack, length(stack) - 1)
+            match tok:
+                is "+":
+                    add(stack, a + b)
+                is "-":
+                    add(stack, a - b)
+                is "*":
+                    add(stack, a * b)
+                is "/":
+                    add(stack, a / b)
+        otherwise:
+            add(stack, number(tok))                      ~ it's a number, push it
+    give stack[0]
+
+show "3 4 +      = " + rpn("3 4 +")
+show "3 4 + 5 *  = " + rpn("3 4 + 5 *")
+show "10 2 / 3 - = " + rpn("10 2 / 3 -")

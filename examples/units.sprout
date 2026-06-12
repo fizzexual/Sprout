@@ -1,0 +1,23 @@
+~ Unit converter — pick a conversion and run it.
+~ Shows: match on a value, arithmetic, fail for the unknown case, a small pipeline.
+
+task convert(value, kind):
+    match kind:
+        is "c_to_f":
+            give value * 9 / 5 + 32
+        is "f_to_c":
+            give (value - 32) * 5 / 9
+        is "km_to_mi":
+            give value * 0.621371
+        is "mi_to_km":
+            give value / 0.621371
+        otherwise:
+            fail "I don't know how to convert '" + kind + "'"
+
+show "100C in F:  " + convert(100, "c_to_f")
+show "32F in C:   " + convert(32, "f_to_c")
+show "10km in mi: " + round(convert(10, "km_to_mi"))
+
+~ convert a whole list at once, with a lambda + map
+make temps_c = [0, 20, 37, 100]
+show "C list -> F: " + map(temps_c, task(c): convert(c, "c_to_f"))

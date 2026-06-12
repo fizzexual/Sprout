@@ -1,0 +1,16 @@
+~ Roman numerals — turn a number (1..3999) into Roman numerals.
+~ Shows: parallel lists, range + indexing, a `repeat while` loop, string building.
+
+task to_roman(num):
+    make values  = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1]
+    make symbols = ["M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I"]
+    make result = ""
+    make n = num
+    for each i in range(length(values)):
+        repeat while n >= values[i]:
+            set result += symbols[i]
+            set n -= values[i]
+    give result
+
+for each x in [4, 9, 14, 40, 90, 444, 2024, 3888]:
+    show x + " = " + to_roman(x)

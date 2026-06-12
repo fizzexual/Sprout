@@ -1,0 +1,26 @@
+~ Bank ledger — accounts, withdrawals, and friendly errors when something's wrong.
+~ Shows: maps as records, compound assignment, fail with a custom kind, try / caught.
+
+make accounts = {alice: 100, bob: 50}
+
+task withdraw(who, amount):
+    when not (who in accounts):
+        fail "no such account: " + who
+    when amount > accounts[who]:
+        fail {kind: "funds", message: who + " can't withdraw " + amount + " (balance " + accounts[who] + ")"}
+    set accounts[who] -= amount
+    give accounts[who]
+
+show "alice withdraws 30, new balance: " + withdraw("alice", 30)
+
+try:
+    show withdraw("bob", 999)
+caught e:
+    show "declined (" + e["kind"] + "): " + e["message"]
+
+try:
+    show withdraw("carol", 10)
+caught e:
+    show "declined: " + e["message"]
+
+show "final: " + accounts

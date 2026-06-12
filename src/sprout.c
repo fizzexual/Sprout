@@ -1161,7 +1161,7 @@ static int edit_distance(const char *a, const char *b) {
 
 static const char *const BUILTIN_NAMES[] = {
   "range","length","add","keys","contains","first","last",
-  "remove","insert","sort","reverse","index_of","values","copy","kind_of","map","filter","reduce",
+  "remove","insert","sort","sort_by","reverse","index_of","values","copy","kind_of","map","filter","reduce",
   "sum","count","unique","zip","flatten","slice","words","lines","title","seed",
   "abs","round","floor","ceil","sqrt","pow","min","max","random","number",
   "upper","lower","trim","replace","split","join","starts_with","ends_with",
@@ -1590,6 +1590,29 @@ static Value call_builtin(Expr *call, Env *env) {
       qsort(l->items, l->n, sizeof(Value), value_cmp);
     }
     return a[0];                                     /* sorted in place; returned so show sort(xs) works */
+  }
+  if (!strcmp(name, "sort_by")) {                    /* sort a list by the value a task gives for each item */
+    if (n != 2 || a[0].type != V_LIST || a[1].type != V_TASK) fail(call->line, "sort_by needs a list and a task that gives the value to sort by, like sort_by(people, get_score).");
+    SList *l = a[0].list;
+    if (l && l->n > 1) {
+      Value *keys = (Value *)malloc((size_t)l->n * sizeof(Value));   /* each item's sort key, computed once */
+      for (int i = 0; i < l->n; i++) keys[i] = call_task_v(a[1].task, &l->items[i], 1, call->line);
+      VType t = keys[0].type;
+      if (t != V_NUM && t != V_STR) { free(keys); fail_kind(call->line, "type", "sort_by's task must give a number or text to sort by."); }
+      for (int i = 1; i < l->n; i++) if (keys[i].type != t) { free(keys); fail_kind(call->line, "type", "sort_by's task must give the same kind of value for every item."); }
+      for (int i = 1; i < l->n; i++) {               /* stable insertion sort, ascending, by key */
+        Value ki = keys[i], vi = l->items[i]; int j = i - 1;
+        while (j >= 0) {
+          int c = (t == V_NUM) ? ((keys[j].num > ki.num) - (keys[j].num < ki.num))
+                               : strcmp(keys[j].str ? keys[j].str : "", ki.str ? ki.str : "");
+          if (c <= 0) break;                          /* '<=' keeps equal keys in their original order */
+          keys[j + 1] = keys[j]; l->items[j + 1] = l->items[j]; j--;
+        }
+        keys[j + 1] = ki; l->items[j + 1] = vi;
+      }
+      free(keys);
+    }
+    return a[0];                                     /* sorted in place (ascending); use reverse() for descending */
   }
   if (!strcmp(name, "reverse")) {
     if (n != 1 || a[0].type != V_LIST || !a[0].list) fail(call->line, "reverse needs a list.");
@@ -2437,7 +2460,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.0.28"
+#define SPROUT_VERSION "0.0.29"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);

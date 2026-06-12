@@ -1,0 +1,33 @@
+~ Todo list — saved to disk, so it survives between runs.
+~ Shows: remember / recall / forget, `or else` for a default, nested data, two-name for-each.
+
+task load():
+    give recall("todos") or else []           ~ recall gives `nothing` the first time -> use []
+
+task add_todo(text):
+    make todos = load()
+    add(todos, {text: text, done: no})
+    remember("todos", todos)
+
+task complete(i):
+    make todos = load()
+    set todos[i]["done"] = yes
+    remember("todos", todos)
+
+task show_todos():
+    make todos = load()
+    when length(todos) == 0:
+        show "(nothing to do)"
+    for each i, t in todos:
+        make mark = "[ ]"
+        when t["done"]:
+            set mark = "[x]"
+        show mark + " " + i + ". " + t["text"]
+
+~ A quick demo: start clean, add three, finish one, then list.
+forget("todos")
+add_todo("buy milk")
+add_todo("write a Sprout program")
+add_todo("go for a walk")
+complete(1)
+show_todos()
