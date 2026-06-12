@@ -402,12 +402,13 @@ in future versions; existing ones won't be renamed or removed.
 
 | `kind` | catchable? | what raises it |
 | --- | --- | --- |
-| `"math"` | yes | divide/modulo by zero, `sqrt` of a negative, arithmetic on non-numbers |
+| `"math"` | yes | a number operation that has no answer: divide/remainder by zero, `sqrt` of a negative |
+| `"type"` | yes | a value of the wrong kind for an operator or `[ ]`: `yes + 5`, `-text`, `a < b` across kinds, `x in 5`, `xs["k"]`, indexing `nothing`, and list ops on mixed/non-number items (`sort([1,"a"])`, `sum([1,"a"])`). (Note: `+` *concatenates* when either side is text, so `"a" + 1` is `"a1"`, not an error.) |
 | `"index"` | yes | a list/text position that doesn't exist |
 | `"io"` | yes | a file that can't be opened for writing |
 | `"fail"` | yes | your own `fail` (text or a map without its own `kind`) |
 | `"name"` | **no (hard)** | an unknown variable, task, or module — a code mistake |
-| `"error"` | yes | the default for any other runtime condition |
+| `"error"` | yes | the default for any other runtime condition (including calling a built-in with the wrong number or shape of arguments, like `abs("x")`) |
 
 A `fail` with a map keeps whatever `kind` you put in it (e.g. `"http"`), so you're
 free to define your own kinds for your own errors.

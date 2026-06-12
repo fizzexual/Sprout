@@ -1368,14 +1368,14 @@ static Value call_builtin(Expr *call, Env *env) {
       if (!a[0].list) fail(call->line, "remove's first input must be a list.");
       if (a[1].type != V_NUM || a[1].num != (double)(long long)a[1].num) fail(call->line, "to remove from a list, give a whole-number position.");
       long long i = (long long)a[1].num;
-      if (i < 0 || i >= a[0].list->n) fail(call->line, "that position doesn't exist in the list.");
+      if (i < 0 || i >= a[0].list->n) fail_kind(call->line, "index", "that position doesn't exist in the list.");
       Value gone = a[0].list->items[i];
       for (long long k = i; k < a[0].list->n - 1; k++) a[0].list->items[k] = a[0].list->items[k + 1];
       a[0].list->n--;
       return gone;                                   /* hands back what was removed (pop) */
     }
     if (a[0].type == V_MAP) {
-      if (a[1].type != V_STR) fail(call->line, "a map key must be text.");
+      if (a[1].type != V_STR) fail_kind(call->line, "type", "a map key must be text.");
       if (!a[0].map) return vnone();
       int i = map_index(a[0].map, a[1].str);
       if (i < 0) return vnone();
@@ -1402,8 +1402,8 @@ static Value call_builtin(Expr *call, Env *env) {
     SList *l = a[0].list;
     if (l && l->n > 1) {
       VType t = l->items[0].type;
-      if (t != V_NUM && t != V_STR) fail(call->line, "sort works on a list of numbers or a list of text.");
-      for (int i = 1; i < l->n; i++) if (l->items[i].type != t) fail(call->line, "sort needs every item to be the same kind (all numbers, or all text).");
+      if (t != V_NUM && t != V_STR) fail_kind(call->line, "type", "sort works on a list of numbers or a list of text.");
+      for (int i = 1; i < l->n; i++) if (l->items[i].type != t) fail_kind(call->line, "type", "sort needs every item to be the same kind (all numbers, or all text).");
       qsort(l->items, l->n, sizeof(Value), value_cmp);
     }
     return a[0];                                     /* sorted in place; returned so show sort(xs) works */
@@ -1553,7 +1553,7 @@ static Value call_builtin(Expr *call, Env *env) {
   if (!strcmp(name, "min") || !strcmp(name, "max")) {
     if (n<1) fail(call->line,"min/max need at least one number.");
     double best=0; int set=0; int wantMin = (name[1]=='i');
-    for (int i=0;i<n;i++){ if(a[i].type!=V_NUM) fail(call->line,"min/max work on numbers."); if(!set||(wantMin?a[i].num<best:a[i].num>best)){best=a[i].num;set=1;} }
+    for (int i=0;i<n;i++){ if(a[i].type!=V_NUM) fail_kind(call->line,"type","min/max work on numbers."); if(!set||(wantMin?a[i].num<best:a[i].num>best)){best=a[i].num;set=1;} }
     return vnum(best);
   }
   if (!strcmp(name, "random")) {
@@ -1723,9 +1723,9 @@ static Value apply_arith(TokType op, Value l, Value r, int line) {
   if (op == T_PLUS) {
     if (l.type == V_STR || r.type == V_STR) { char *a = stringify(l), *b = stringify(r); char *out = (char *)malloc(strlen(a) + strlen(b) + 1); strcpy(out, a); strcat(out, b); return vstr(out); }
     if (l.type == V_NUM && r.type == V_NUM) return vnum(l.num + r.num);
-    { char buf[256]; snprintf(buf, sizeof buf, "I can't add %s and a different kind of value.", type_name(l)); fail_kind(line, "math", buf); }
+    { char buf[256]; snprintf(buf, sizeof buf, "I can't add %s and a different kind of value.", type_name(l)); fail_kind(line, "type", buf); }
   }
-  if (l.type != V_NUM || r.type != V_NUM) fail_kind(line, "math", "math needs two numbers.");
+  if (l.type != V_NUM || r.type != V_NUM) fail_kind(line, "type", "math needs two numbers.");
   if (op == T_MINUS) return vnum(l.num - r.num);
   if (op == T_STAR)  return vnum(l.num * r.num);
   if (r.num == 0) fail_kind(line, "math", op == T_SLASH ? "you tried to divide by zero." : "you tried to take a remainder with zero.");
@@ -1742,7 +1742,7 @@ static Value eval_binary(Expr *e, Env *env) {
       int cmp;
       if (l.type == V_NUM && r.type == V_NUM) cmp = (l.num < r.num) ? -1 : (l.num > r.num) ? 1 : 0;
       else if (l.type == V_STR && r.type == V_STR) cmp = strcmp(l.str, r.str);
-      else { fail(e->line, "I can only compare two numbers or two pieces of text."); return vnone(); }
+      else { fail_kind(e->line, "type", "I can only compare two numbers or two pieces of text."); return vnone(); }
       if (e->op == T_LT) return vbool(cmp < 0);
       if (e->op == T_LE) return vbool(cmp <= 0);
       if (e->op == T_GT) return vbool(cmp > 0);
@@ -1753,8 +1753,8 @@ static Value eval_binary(Expr *e, Env *env) {
     case T_IN:    /* `x in xs` — membership: list item, map key, or substring of text */
       if (r.type == V_LIST) { for (int i = 0; r.list && i < r.list->n; i++) if (values_equal(l, r.list->items[i])) return vbool(1); return vbool(0); }
       if (r.type == V_MAP)  return vbool(l.type == V_STR && r.map && map_index(r.map, l.str ? l.str : "") >= 0);
-      if (r.type == V_STR)  { if (l.type != V_STR) fail(e->line, "to test text membership, the left side of 'in' must be text too."); return vbool(strstr(r.str ? r.str : "", l.str ? l.str : "") != NULL); }
-      fail(e->line, "'in' needs a list, a map, or text on the right (like:  x in things)."); return vnone();
+      if (r.type == V_STR)  { if (l.type != V_STR) fail_kind(e->line, "type", "to test text membership, the left side of 'in' must be text too."); return vbool(strstr(r.str ? r.str : "", l.str ? l.str : "") != NULL); }
+      fail_kind(e->line, "type", "'in' needs a list, a map, or text on the right (like:  x in things)."); return vnone();
     default: fail(e->line, "unknown operator."); return vnone();
   }
   return vnone();
@@ -1808,7 +1808,7 @@ static Value eval(Expr *e, Env *env) {
     }
     case E_UNARY:
       if (e->op == T_NOT) return vbool(!is_truthy(eval(e->operand, env)));
-      { Value v = eval(e->operand, env); if (v.type != V_NUM) fail(e->line, "I can only put a minus sign in front of a number."); return vnum(-v.num); }
+      { Value v = eval(e->operand, env); if (v.type != V_NUM) fail_kind(e->line, "type", "I can only put a minus sign in front of a number."); return vnum(-v.num); }
     case E_LOGICAL: {
       int l = is_truthy(eval(e->left, env));
       if (e->op == T_AND) return vbool(l ? is_truthy(eval(e->right, env)) : 0);
@@ -1836,20 +1836,20 @@ static Value eval(Expr *e, Env *env) {
     case E_INDEX: {
       Value c = eval(e->target, env), ix = eval(e->index, env);
       if (c.type == V_LIST) {
-        if (ix.type != V_NUM) fail(e->line, "a list position must be a number.");
-        if (ix.num != (double)(long long)ix.num) fail(e->line, "a list position must be a whole number.");
+        if (ix.type != V_NUM) fail_kind(e->line, "type", "a list position must be a number.");
+        if (ix.num != (double)(long long)ix.num) fail_kind(e->line, "type", "a list position must be a whole number.");
         long long i = (long long)ix.num;
         if (!c.list || i < 0 || i >= c.list->n) fail_kind(e->line, "index", "that position doesn't exist in the list (positions start at 0; for the end use last(...)).");
         return c.list->items[i];
       }
       if (c.type == V_MAP) {
-        if (ix.type != V_STR) fail(e->line, "a map key must be text.");
+        if (ix.type != V_STR) fail_kind(e->line, "type", "a map key must be text.");
         int i = c.map ? map_index(c.map, ix.str) : -1;
         return i >= 0 ? c.map->vals[i] : vnone();
       }
       if (c.type == V_STR) {                              /* text[i] -> the i-th character (UTF-8 aware) */
-        if (ix.type != V_NUM) fail(e->line, "a text position must be a number.");
-        if (ix.num != (double)(long long)ix.num) fail(e->line, "a text position must be a whole number.");
+        if (ix.type != V_NUM) fail_kind(e->line, "type", "a text position must be a number.");
+        if (ix.num != (double)(long long)ix.num) fail_kind(e->line, "type", "a text position must be a whole number.");
         long long want = (long long)ix.num;
         const char *p = c.str ? c.str : "";
         long long idx = 0;
@@ -1862,8 +1862,8 @@ static Value eval(Expr *e, Env *env) {
         }
         fail_kind(e->line, "index", "that position doesn't exist in the text.");
       }
-      if (c.type == V_NONE) fail(e->line, "you tried to look inside 'nothing' with [ ] - there's nothing there to index.");
-      fail(e->line, "I can only look inside a list, a map, or text with [ ].");
+      if (c.type == V_NONE) fail_kind(e->line, "type", "you tried to look inside 'nothing' with [ ] - there's nothing there to index.");
+      fail_kind(e->line, "type", "I can only look inside a list, a map, or text with [ ].");
       return vnone();
     }
   }
@@ -2098,14 +2098,14 @@ static void exec(Stmt *s, Env *env) {
       Value c = eval(s->target, env);                  /* the list/map to set into (a reference) */
       Value ix = eval(s->index, env), val = eval(s->expr, env);
       if (c.type == V_LIST) {
-        if (ix.type != V_NUM) fail(s->line, "a list position must be a number.");
-        if (ix.num != (double)(long long)ix.num) fail(s->line, "a list position must be a whole number.");
+        if (ix.type != V_NUM) fail_kind(s->line, "type", "a list position must be a number.");
+        if (ix.num != (double)(long long)ix.num) fail_kind(s->line, "type", "a list position must be a whole number.");
         long long i = (long long)ix.num;
-        if (!c.list || i < 0 || i >= c.list->n) fail(s->line, "that position doesn't exist in the list.");
+        if (!c.list || i < 0 || i >= c.list->n) fail_kind(s->line, "index", "that position doesn't exist in the list.");
         if (s->setop) val = apply_arith(s->setop, c.list->items[i], val, s->line);   /* xs[i] += e */
         c.list->items[i] = val;
       } else if (c.type == V_MAP) {
-        if (ix.type != V_STR) fail(s->line, "a map key must be text.");
+        if (ix.type != V_STR) fail_kind(s->line, "type", "a map key must be text.");
         if (!c.map) fail(s->line, "this map isn't ready to set into.");
         if (s->setop) {
           int mi = map_index(c.map, ix.str);
@@ -2113,7 +2113,7 @@ static void exec(Stmt *s, Env *env) {
           val = apply_arith(s->setop, c.map->vals[mi], val, s->line);
         }
         map_set(c.map, ix.str, val);
-      } else fail(s->line, "I can only set inside a list or a map with [ ].");
+      } else fail_kind(s->line, "type", "I can only set inside a list or a map with [ ].");
       break;
     }
     case S_STOP: g_loopctl = 2; break;   /* end the loop now */
@@ -2172,7 +2172,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.0.21"
+#define SPROUT_VERSION "0.0.22"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);

@@ -1,0 +1,71 @@
+~ v0.0.22: the error-`kind` contract. `math` = a number op with no answer;
+~ `type` = a value of the wrong kind for an operator or [ ]; `index` = out of range;
+~ `error` = the generic default (incl. a built-in called the wrong way).
+~ A *_test.sprout file, so run.sh gates it via `sprout test` (exit code). All PASS.
+
+test "math kind: arithmetic with no answer":
+    expect error "math":
+        show 1 / 0
+    expect error "math":
+        show 7 % 0
+    expect error "math":
+        show sqrt(-1)
+
+~ (note: "a" + 1 is NOT an error — + concatenates when either side is text, giving "a1")
+test "type kind: arithmetic on the wrong kind of value":
+    expect error "type":
+        show yes + 5
+    expect error "type":
+        show 5 - "a"
+    expect error "type":
+        make x = -"a"
+
+test "type kind: comparing and 'in' across kinds":
+    expect error "type":
+        show 1 < "a"
+    expect error "type":
+        show 3 in 5
+
+test "type kind: indexing with the wrong kind":
+    expect error "type":
+        make xs = [1, 2]
+        show xs["k"]
+    expect error "type":
+        make m = {a: 1}
+        show m[0]
+    expect error "type":
+        make n = 5
+        show n[0]
+    expect error "type":
+        make xs = [1, 2]
+        set xs["k"] = 9
+    expect error "type":
+        make m = {a: 1}
+        set m[0] = 9
+
+test "type kind: list operations on mixed or non-number items":
+    expect error "type":
+        show sort([1, "a"])
+    expect error "type":
+        show sum([1, "a"])
+    expect error "type":
+        show min([1, "a"])
+    expect error "type":
+        show max(1, "a")
+
+test "index kind stays separate from type":
+    expect error "index":
+        make xs = [1, 2]
+        show xs[99]
+    expect error "index":
+        make xs = [1, 2]
+        set xs[99] = 7
+    expect error "index":
+        show "hi"[99]
+    expect error "index":
+        make xs = [1, 2]
+        remove(xs, 99)
+
+test "error kind: a built-in called the wrong way":
+    expect error "error":
+        show abs("x")
