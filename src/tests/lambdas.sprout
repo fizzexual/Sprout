@@ -1,0 +1,82 @@
+~ v0.0.24 lambdas + closures: anonymous tasks you can write inline, that capture
+~ the variables around them. Guarded script: prints "FAIL ..." on any wrong result.
+
+task check(label, got, want):
+    when got != want:
+        show "FAIL", label, "- got", got, "wanted", want
+
+~ ---------- a lambda is a value ----------
+make double = task(x): x * 2
+check("one-liner lambda, stored + called", double(21), 42)
+check("kind_of a lambda", kind_of(task(x): x), "task")
+
+~ ---------- inline with map / filter / reduce ----------
+make nums = [1, 2, 3, 4, 5]
+check("map with a lambda", map(nums, task(n): n * 2), [2, 4, 6, 8, 10])
+check("filter with a lambda", filter(nums, task(n): n % 2 == 0), [2, 4])
+check("reduce with a lambda", reduce(nums, task(total, n): total + n, 0), 15)
+
+~ ---------- closures: capture the surrounding variables ----------
+make factor = 10
+make scale = task(x): x * factor
+check("closure captures an outer variable", scale(5), 50)
+
+~ a closure captures the ENV by reference, so it sees later changes
+make n = 1
+make get_n = task(): n
+set n = 99
+check("closure sees a later mutation", get_n(), 99)
+
+~ ---------- closure factory: each returned lambda keeps its OWN capture ----------
+task adder(by):
+    give task(x): x + by
+make add5 = adder(5)
+make add100 = adder(100)
+check("factory closure add5", add5(1), 6)
+check("factory closure add100 is independent", add100(1), 101)
+
+~ ---------- a lambda captured inside a loop keeps that turn's value ----------
+make fns = []
+for each i in [10, 20, 30]:
+    add(fns, task(): i)
+make first = fns[0]
+make third = fns[2]
+check("loop closure keeps its own turn (first)", first(), 10)
+check("loop closure keeps its own turn (third)", third(), 30)
+
+~ ---------- higher-order user task taking a lambda ----------
+task apply_twice(f, x):
+    give f(f(x))
+check("pass a lambda to a user task", apply_twice(task(n): n + 1, 0), 2)
+
+~ ---------- curry: a lambda returning a lambda ----------
+make make_add = task(a): task(b): a + b
+make add3 = make_add(3)
+check("curried lambda", add3(4), 7)
+
+~ ---------- multi-line lambda body with control flow ----------
+make classify = task(v):
+    when v > 0:
+        give "positive"
+    otherwise:
+        give "non-positive"
+check("multi-line lambda (positive)", classify(7), "positive")
+check("multi-line lambda (non-positive)", classify(-3), "non-positive")
+
+~ ---------- compose: lambdas + the stdlib together ----------
+check("sum of doubled evens", sum(map(filter(nums, task(n): n % 2 == 0), task(n): n * 10)), 60)
+
+~ ---------- a bare `give` in a one-liner gives nothing (matches named tasks) ----------
+make ignorer = task(x): give
+check("bare give in a one-liner lambda gives nothing", ignorer(99), nothing)
+
+~ ---------- `public make` inside a nested lambda lands in the FILE scope, not the capture frame ----------
+task make_pub():
+    give task(v):
+        public make stored_value = v
+        give v
+make setter = make_pub()
+make r = setter(7)
+check("public make in a nested lambda reaches file scope", stored_value, 7)
+
+show "ok: lambdas ran"

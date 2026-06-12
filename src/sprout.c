@@ -433,13 +433,14 @@ static void tokenize(const char *src, int len) {
 }
 
 /* ---------------------------------------------------------------------- AST */
-typedef enum { E_NUM, E_STR, E_BOOL, E_NONE, E_VAR, E_UNARY, E_BINARY, E_LOGICAL, E_COALESCE, E_CALL, E_LIST, E_MAP, E_INDEX, E_MEMBER } EKind;
+typedef enum { E_NUM, E_STR, E_BOOL, E_NONE, E_VAR, E_UNARY, E_BINARY, E_LOGICAL, E_COALESCE, E_CALL, E_LIST, E_MAP, E_INDEX, E_MEMBER, E_LAMBDA } EKind;
 typedef struct Expr {
   EKind kind; double num; char *str; int boolean; char *name; char *module;  /* module: server.name */
   TokType op; struct Expr *left, *right, *operand; int line;
   struct Expr **args; int nargs;         /* call inputs / list items / map values */
   char **keys;                            /* E_MAP keys (parallel to args) */
   struct Expr *target, *index;            /* E_INDEX: target[index] */
+  TaskDef *lambda;                        /* E_LAMBDA: the anonymous task's static template (home set at eval) */
 } Expr;
 
 typedef enum { S_MAKE, S_SET, S_SHOW, S_WHEN, S_REPEAT_TIMES, S_REPEAT_WHILE, S_TASK, S_GIVE, S_EXPR, S_FOREACH, S_INDEXSET, S_USE, S_LEARN, S_TEST, S_EXPECT, S_EXPECT_ERROR, S_TRY, S_FAIL, S_STOP, S_SKIP } SKind;
@@ -469,6 +470,7 @@ static int match(TokType t) { if (check(t)) { pos++; return 1; } return 0; }
 static Token expect(TokType t, const char *msg) { if (!check(t)) fail(toks[pos].line, msg); return advance(); }
 
 static Expr *expression(void);
+static Expr *parse_anon_task(int line);   /* anonymous task literal (lambda): task(params): body */
 
 static Expr *primary(void) {
   Token t = peek();
@@ -477,6 +479,7 @@ static Expr *primary(void) {
   if (match(T_YES))     { Expr *e = new_expr(E_BOOL, t.line); e->boolean = 1; return e; }
   if (match(T_NO))      { Expr *e = new_expr(E_BOOL, t.line); e->boolean = 0; return e; }
   if (match(T_NOTHING)) { return new_expr(E_NONE, t.line); }
+  if (match(T_TASK))    { return parse_anon_task(t.line); }   /* a lambda: task(x): x * 2 */
   if (match(T_LBRACK)) {              /* a list: [a, b, c] */
     Expr *e = new_expr(E_LIST, t.line);
     Expr **items = NULL; int n = 0, cap = 0;
@@ -832,7 +835,7 @@ static void env_assign(Env *e, const char *name, Value v, int line) {
 
 /* tasks: top-level functions, hoisted so call order doesn't matter */
 struct TaskDef { char *name; char **params; int nparams; Stmt **body; int nbody; int line;
-                 int is_public; int fileid; Env *home; };   /* TaskDef typedef is forward-declared up by Value */
+                 int is_public; int fileid; Env *home; Env *file_env; };   /* home = closure/scope base; file_env = where `public make` lands. TaskDef typedef is forward-declared up by Value */
 static const char *taskdef_name(TaskDef *t) { return (t && t->name) ? t->name : "?"; }
 static TaskDef *tasks = NULL; static int ntasks = 0, captasks = 0;
 /* bare calls only see tasks of the CURRENT file; cross-file goes through a module namespace */
@@ -852,7 +855,54 @@ static void task_register(Stmt *s, int fileid, Env *home) {
   if (ntasks >= captasks) { captasks = captasks ? captasks * 2 : 8; tasks = (TaskDef *)realloc(tasks, captasks * sizeof(TaskDef)); }
   TaskDef *t = &tasks[ntasks++];
   t->name = s->name; t->params = s->params; t->nparams = s->nparams; t->body = s->body; t->nbody = s->nbody; t->line = s->line;
-  t->is_public = s->is_public; t->fileid = fileid; t->home = home;
+  t->is_public = s->is_public; t->fileid = fileid; t->home = home; t->file_env = home;
+}
+
+/* Parse an anonymous task literal (lambda):  task(a, b): expr   or   task(a):\n<indented block>.
+   Defined here (not next to primary()) because it needs the COMPLETE TaskDef type above.
+   A one-line body is an implicit `give` of a single expression — the everyday case
+   (`map(xs, task(x): x * 2)`); a `give` keyword is allowed but optional. The closure's
+   `home`/`fileid` are filled in at eval time, capturing wherever the literal runs. */
+static Expr *parse_anon_task(int line) {
+  expect(T_LPAREN, "I expected '(' after 'task' for an anonymous task, like task(x): x * 2.");
+  char **params = NULL; int np = 0, cap = 0;
+  if (!check(T_RPAREN)) {
+    do {
+      Token p = expect(T_IDENT, "I expected an input name here.");
+      if (np >= cap) { cap = cap ? cap * 2 : 4; params = (char **)realloc(params, cap * sizeof(char *)); }
+      params[np++] = p.text;
+    } while (match(T_COMMA));
+  }
+  expect(T_RPAREN, "I expected ')' to close the inputs.");
+  expect(T_COLON, "I expected ':' before the task's body.");
+  Stmt **body = NULL; int nbody = 0;
+  int save_in_task = g_in_task; g_in_task = 1;        /* `give` is allowed inside the body */
+  if (check(T_NEWLINE)) {                              /* multi-line body: an indented block */
+    advance();                                         /* the newline */
+    expect(T_INDENT, "I expected the task body to be indented (or write it on one line).");
+    int bcap = 0; g_block_depth++;
+    while (!check(T_DEDENT) && !check(T_EOF)) {
+      if (match(T_NEWLINE)) continue;
+      if (nbody >= bcap) { bcap = bcap ? bcap * 2 : 8; body = (Stmt **)realloc(body, bcap * sizeof(Stmt *)); }
+      body[nbody++] = statement();
+    }
+    g_block_depth--;
+    expect(T_DEDENT, "I expected the task body to finish here.");
+  } else {                                             /* one-liner: implicit `give` of one expression */
+    int had_give = match(T_GIVE);                       /* an explicit `give` is allowed but optional */
+    Stmt *g = new_stmt(S_GIVE, line);
+    /* a bare `give` (no value) is allowed, just like in a named task — it gives nothing */
+    int ends_here = check(T_NEWLINE) || check(T_DEDENT) || check(T_EOF) ||
+                    check(T_RPAREN)  || check(T_RBRACK) || check(T_RBRACE) || check(T_COMMA);
+    if (!(had_give && ends_here)) g->expr = expression();
+    body = (Stmt **)malloc(sizeof(Stmt *)); body[0] = g; nbody = 1;
+  }
+  g_in_task = save_in_task;
+  TaskDef *td = (TaskDef *)calloc(1, sizeof(TaskDef));
+  td->name = "anonymous task"; td->params = params; td->nparams = np;
+  td->body = body; td->nbody = nbody; td->line = line;
+  Expr *e = new_expr(E_LAMBDA, line); e->lambda = td;
+  return e;
 }
 
 /* module namespaces: a use'd file is reachable as  name.member  */
@@ -925,7 +975,7 @@ static Value run_task(TaskDef *t, Env *frame, int line) {
   }
   int saved_ret = returning; Value saved_rv = return_value;
   int saved_fid = cur_fileid; cur_fileid = t->fileid;          /* inside the body, see THIS task's file */
-  Env *saved_fe = cur_file_env; cur_file_env = t->home;        /* ...and a `public make` lands in it */
+  Env *saved_fe = cur_file_env; cur_file_env = t->file_env;    /* ...and a `public make` lands in the FILE env (not a lambda's capture frame) */
   returning = 0;
   exec_block(t->body, t->nbody, frame);
   Value result = returning ? return_value : vnone();
@@ -1793,6 +1843,14 @@ static Value eval(Expr *e, Env *env) {
     case E_STR:  return vstr(e->str);
     case E_BOOL: return vbool(e->boolean);
     case E_NONE: return vnone();
+    case E_LAMBDA: {                                  /* a lambda value: copy the static template, capture THIS env */
+      TaskDef *t = (TaskDef *)malloc(sizeof(TaskDef));
+      *t = *e->lambda;                                /* params/body/name/nparams/nbody/line (shared AST) */
+      t->home = env;                                  /* the closure: a fresh capture per evaluation */
+      t->fileid = cur_fileid;
+      t->file_env = cur_file_env;                     /* where a `public make` inside this lambda belongs */
+      return vtask(t);
+    }
     case E_VAR: {
       Value *v = env_find(env, e->name);
       if (!v) {
@@ -1912,6 +1970,8 @@ static void render_expr(Expr *e, int wv, Env *env, char **o, size_t *c, size_t *
     case E_MAP: sb_add(o, c, l, "{");
       for (int i = 0; i < e->nargs; i++) { if (i) sb_add(o, c, l, ", "); sb_add(o, c, l, e->keys[i]); sb_add(o, c, l, ": "); render_expr(e->args[i], wv, env, o, c, l); } sb_add(o, c, l, "}"); break;
     case E_INDEX: render_expr(e->target, wv, env, o, c, l); sb_add(o, c, l, "["); render_expr(e->index, wv, env, o, c, l); sb_add(o, c, l, "]"); break;
+    case E_LAMBDA: sb_add(o, c, l, "task(");
+      for (int i = 0; e->lambda && i < e->lambda->nparams; i++) { if (i) sb_add(o, c, l, ", "); sb_add(o, c, l, e->lambda->params[i]); } sb_add(o, c, l, "): ..."); break;
   }
   g_render_depth--;
 }
@@ -2172,7 +2232,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.0.23"
+#define SPROUT_VERSION "0.0.24"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);

@@ -94,7 +94,7 @@ language runs now:
 - Compare `== != < <= > >=`, logic `and` `or` `not`, **membership** `x in xs`, **fallback** `a or else b` (use `b` if `a` is `nothing`)
 - `when` / `orwhen` / `otherwise`, `repeat N times`, `repeat while`, and **`stop`** / **`skip`** to leave or skip a loop turn
 - **Error handling:** `try:` / `caught problem:` to catch a runtime error (the caught error is a map `{message, kind, line}`), and `fail "message"` (or `fail {...}`) to raise your own
-- `task` / `give`, function calls, **recursion**, proper scope — and **tasks are first-class values** you can store, pass, and call (`make f = double`, `map(xs, double)`, `filter`, `reduce`)
+- `task` / `give`, function calls, **recursion**, proper scope — **tasks are first-class values** you can store, pass, and call (`make f = double`, `map(xs, double)`, `filter`, `reduce`), plus **lambdas + closures**: anonymous inline tasks that capture surrounding variables (`map(xs, task(n): n * 2)`, `task adder(by): give task(x): x + by`)
 - **Lists** `[1, 2, 3]` and **maps** `{name: "Sam"}` — indexing, `set xs[i] = …`, `range`, and `for each` (`for each item in xs`, or `for each key, value in m`)
 - **`learn on`** — Sprout narrates each step as it runs: values, **which `when` branch ran, every loop turn, and each task call + what it gave back** (plus **friendly errors** that say *"did you mean…?"*)
 - **Built-in testing** — `test "name": expect …`, plus **`expect error "kind":`** to assert that a block fails; run with `sprout test`
@@ -173,7 +173,7 @@ build.cmd                     # or: gcc -O2 -Wall -s -o sprout.exe sprout.c -lm 
 
 # run a program:
 sprout run hello.sprout     # or just: sprout hello.sprout
-sprout version              # -> Sprout v0.0.23
+sprout version              # -> Sprout v0.0.24
 sprout new myapp            # create a full multi-file project folder
 sprout build                # run the project in the current folder (reads sprout.toml)
 sprout test                 # run your tests (a file, or every tests/*.sprout)
@@ -318,12 +318,43 @@ body are gone when the block ends and may *shadow* an outer name; `set` still
 reaches outward to mutate an enclosing variable. A `for each` variable is scoped to
 the loop body — each iteration gets a fresh one, and it does not exist after the loop.
 
-**Tasks** (`task f(...) ... give`) are **defined at the top level only** — a `task`
-statement inside a block is a parse error. A task sees its own file's top-level names
-plus its parameters and locals, *not* the caller's locals (so calls are referentially
-clean). Recursion is supported, bounded by a fixed call-depth guard of **6000** on a
-64 MB stack. There are still **no closures** (a task doesn't capture surrounding
-locals) and no inline/lambda task syntax yet.
+**Tasks** (`task f(...) ... give`) are **named** at the top level only — a *named*
+`task` statement inside a block is a parse error. A named task sees its own file's
+top-level names plus its parameters and locals, *not* the caller's locals (so named
+calls are referentially clean). Recursion is supported, bounded by a fixed call-depth
+guard of **6000** on a 64 MB stack.
+
+**Lambdas (anonymous tasks) + closures** *(v0.0.24)*. Write a task **inline, with no
+name**, anywhere a value goes: `task(x): x * 2`. A one-line body is an **implicit
+`give`** of a single expression (the everyday case) — `give` is allowed but optional;
+for several statements, use an indented block:
+
+```
+make double = task(x): x * 2          # one-liner: implicit give
+show map([1, 2, 3], task(n): n * 2)    # -> [2, 4, 6]
+make classify = task(v):               # multi-line block body
+    when v > 0:
+        give "positive"
+    otherwise:
+        give "non-positive"
+```
+
+Unlike a named task, a **lambda is a closure**: it *captures the surrounding
+variables* and keeps them alive. So you can build tasks that remember:
+
+```
+task adder(by):
+    give task(x): x + by      # the returned lambda captures `by`
+make add5 = adder(5)
+show add5(10)                  # -> 15
+```
+
+Each evaluation captures **fresh** — `adder(5)` and `adder(100)` give independent
+closures, and a lambda created inside a `for each` keeps *that turn's* value. Capture
+is **by reference**: if you change a captured variable later, the closure sees the new
+value. (Lambdas pair naturally with `map`/`filter`/`reduce`; to map a builtin you can
+still wrap it, `task(s): upper(s)`.) Captured environments are never freed yet — a
+real concern only for very long-running programs, and the job of the planned GC.
 
 **Tasks are first-class values.** A task's name used without `( )` is a *value* you
 can store, pass, return, and call: `make f = double` then `f(5)`; `apply(double, 5)`;
@@ -478,16 +509,15 @@ stays callable, so it's clearer not to.
 
 ### Not in the core *today* (and what's being decided before v0.1.0)
 
-What you can't assume in the current core: **no closures** (a task can't capture
-surrounding locals) and **no inline/lambda task syntax**, **no user-defined types**
-(maps are the record), **no multi-line string syntax**, **no negative indexing**, **no
-integer type** (numbers are doubles).
+What you can't assume in the current core: **no user-defined types** (maps are the
+record), **no multi-line string syntax**, **no negative indexing**, **no integer type**
+(numbers are doubles).
 
-**First-class/stored tasks have landed** (v0.0.20) — a task name is a value, with
-`map`/`filter`/`reduce`. The natural follow-ups, **closures + an inline `do (x): …`
-lambda**, are next. **User-defined types** remain **under evaluation** for the v0.1.0
-core (see [ROADMAP.md](ROADMAP.md)). The rest (multi-line strings, negative indexing, a
-separate integer type) are deliberate long-term choices, not omissions.
+**First-class/stored tasks** landed in v0.0.20, and **lambdas + closures** in v0.0.24
+(`task(x): x * 2`, capturing surrounding variables) — see *Lambdas (anonymous tasks)*
+above. **User-defined types** remain **under evaluation** for the v0.1.0 core (see
+[ROADMAP.md](ROADMAP.md)). The rest (multi-line strings, negative indexing, a separate
+integer type) are deliberate long-term choices, not omissions.
 (Error recovery — `try:` / `caught:` — landed in the cycle: v0.0.14, reshaped in
 v0.0.15.)
 
@@ -584,8 +614,9 @@ v0.1.0 freeze:
 10. ✅ **Freeze-prep (v0.0.17)** — pinned the observable contracts a freeze must guarantee: lists/maps are shared references + `copy()` for a deep snapshot, the mutate-vs-return convention, the stable error-`kind` table, and the number-edge rules — all documented + tested (`tests/contracts.sprout`); CI now also gates the `test`/`expect` framework, not just guarded scripts.
 11. ✅ **Ergonomics (v0.0.18)** — `expect error`, `for each key, value`, the `in` operator, `or else` (nothing-coalescing), `kind_of`, scientific-notation literals, and `learn` mode narrating control flow.
 12. ✅ **Persistence (v0.0.19)** — `remember` / `recall` / `forget`: a key/value store that survives between runs (JSON in `sprout.data.json`), with a built-in JSON writer.
-13. ✅ **First-class tasks (v0.0.20)** — a task is a value you can store, pass, return, and call, plus the higher-order builtins `map` / `filter` / `reduce`. (Closures + an inline `do (x): …` lambda are the next step.)
+13. ✅ **First-class tasks (v0.0.20)** — a task is a value you can store, pass, return, and call, plus the higher-order builtins `map` / `filter` / `reduce`.
 14. ✅ **Standard-library batch (v0.0.21)** — `sum` `count` `unique` `zip` `flatten` `slice` (lists/text), `words` `lines` `title` (text), and `seed` (reproducible `random`).
+15. ✅ **Lambdas + closures (v0.0.24)** — anonymous inline tasks (`task(x): x * 2`, one-line body is an implicit `give`) that capture the surrounding variables; each evaluation captures fresh, capture is by-reference.
 
 The cycle continues toward **v0.1.0 — the freeze that's meant to hold**. The full,
 sequenced plan — first-class tasks, collections superpowers, user types, a memory
@@ -625,7 +656,7 @@ There's a **[VS Code extension](vscode-extension)** for syntax highlighting too.
 
 ## Known limitations & open questions
 
-Sprout is **v0.0.23** — early, and deliberately small. Honest about the edges:
+Sprout is **v0.0.24** — early, and deliberately small. Honest about the edges:
 spotting more (or telling me which matter most) is exactly the feedback I want —
 [issues](https://github.com/fizzexual/Sprout/issues) /
 [discussions](https://github.com/fizzexual/Sprout/discussions) welcome.
