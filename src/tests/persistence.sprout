@@ -1,0 +1,66 @@
+~ v0.0.19 persistence: remember / recall / forget (a key/value store in sprout.data.json).
+~ Guarded script: prints "FAIL ..." on any wrong result. Self-cleaning + idempotent
+~ (it forgets its own keys at the end, so re-running is clean).
+
+task check(label, got, want):
+    when got != want:
+        show "FAIL", label, "- got", got, "wanted", want
+
+~ start from a clean slate for our keys
+forget("t_num")
+forget("t_text")
+forget("t_list")
+forget("t_map")
+forget("t_none")
+
+~ ---------- round-trip each value kind through the store ----------
+remember("t_num", 42)
+check("recall number", recall("t_num"), 42)
+
+remember("t_text", "Sam \"the\" Coder")
+check("recall text (with quotes)", recall("t_text"), "Sam \"the\" Coder")
+
+remember("t_list", [1, 2, 3])
+check("recall list", recall("t_list"), [1, 2, 3])
+
+remember("t_map", {"on": yes, "level": 3, "tags": ["x", "y"]})
+check("recall map", recall("t_map"), {"on": yes, "level": 3, "tags": ["x", "y"]})
+check("recall map is deep", recall("t_map")["tags"], ["x", "y"])
+
+remember("t_none", nothing)
+check("recall nothing", recall("t_none"), nothing)
+
+~ fractional numbers round-trip at full precision (the JSON writer isn't 6-sig-fig %g)
+remember("t_frac", 1 / 3)
+check("fraction keeps full precision", recall("t_frac") * 3, 1)
+
+~ ---------- missing key -> nothing (so `or else` works) ----------
+check("recall missing is nothing", recall("never_set_xyz"), nothing)
+check("recall + or else", recall("never_set_xyz") or else "fallback", "fallback")
+
+~ ---------- recall returns an independent copy (not aliased to the store) ----------
+make a = recall("t_list")
+add(a, 99)
+check("recall gives an independent value", recall("t_list"), [1, 2, 3])
+
+~ ---------- the read-modify-write pattern from the docs ----------
+forget("counter")
+make c = recall("counter") or else 0
+set c = c + 1
+remember("counter", c)
+check("counter persisted", recall("counter"), 1)
+
+~ ---------- forget ----------
+check("forget returns yes when present", forget("t_num"), yes)
+check("forgotten key is gone", recall("t_num"), nothing)
+check("forget returns no when absent", forget("t_num"), no)
+
+~ clean up our remaining keys
+forget("t_text")
+forget("t_list")
+forget("t_map")
+forget("t_none")
+forget("t_frac")
+forget("counter")
+
+show "persistence: all checks ran"

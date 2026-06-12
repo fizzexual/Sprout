@@ -223,7 +223,7 @@ Every language dimension, each row probed against v0.0.13. Legend: **✅ in core
 | `show`/`ask` · files read/write/append/exists · `get`/`json` · `system.run` · `wait` · `random` | ✅ |
 | folder ops · `args` · `env(name)` · stdin lines · HTTP client (POST/headers) · date/time | 📋 Phase 7 |
 | **`exit(code)`** | ➕ Phase 7 |
-| `remember`/`recall` (persistence) | 📋 Phase 7 |
+| **`remember`/`recall`/`forget`** (persistence; JSON store) | ✅ v0.0.19 |
 | GC / arena · tail-call optimization · bytecode VM | 📋 Phase 8 |
 | `kind` system / HTTP server / handler 500-boundary | 📋 Phase 9 |
 | structured concurrency · timers | 📋 Phase 10 |
@@ -338,7 +338,7 @@ Pure quality-of-life. None add a value kind; they just make everyday code shorte
 
 ## Phase 7 — Persistence & I/O 🟢/🟡
 
-- [ ] **`remember` / `recall`** — key/value that persists between runs (the smallest, friendliest first step — do this early).
+- [x] **`remember` / `recall` / `forget`** (v0.0.19) — key/value that persists between runs, as JSON in `sprout.data.json`; missing → `nothing` (pairs with `or else`). Shipped with an internal JSON *writer* (round-trips through the existing parser).
 - [ ] Filesystem: **`list_folder` `delete` `copy` `make_folder`** (have `read`/`write`/`append`/`exists`).
 - [ ] **`args`** (command-line), **`env(name)`** (environment), **stdin lines**, **`exit(code)`**.
 - [ ] HTTP client grows up: **headers, `POST`, methods, status code** (today `get` is GET-only) — likely lives in a `web` module.
@@ -417,7 +417,7 @@ Phase 1 (errors) ─┬─> Phase 9 (server)
 Phase 2 (functions) ─> Phase 3 (collections), Phase 11 (libraries)
 Phase 8 (arena/GC)  ─> Phase 9 (server), long-running programs
 ```
-First moves done: error handling (`try`/`caught`/`fail`, Phase 1 — the original ask) shipped in v0.0.14–v0.0.15. Next good low-risk move: **`remember`/`recall`** (Phase 7, tiny + friendly).
+First moves done: error handling (`try`/`caught`/`fail`, Phase 1) in v0.0.14–v0.0.15; ergonomics in v0.0.18; **persistence (`remember`/`recall`/`forget`) in v0.0.19**. The pre-freeze backlog is now mostly Tier-0 decisions + release polish (see the gate block at the top).
 
 ## The one decision to make before unfreezing
 

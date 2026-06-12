@@ -963,7 +963,7 @@ static const char *const BUILTIN_NAMES[] = {
   "remove","insert","sort","reverse","index_of","values","copy","kind_of",
   "abs","round","floor","ceil","sqrt","pow","min","max","random","number",
   "upper","lower","trim","replace","split","join","starts_with","ends_with",
-  "ask","now","today","wait","read","write","append","exists",
+  "ask","now","today","wait","read","write","append","exists","remember","recall","forget",
   "get","json","explore","color",
 };
 static const int NBUILTIN_NAMES = (int)(sizeof BUILTIN_NAMES / sizeof BUILTIN_NAMES[0]);
@@ -1153,6 +1153,68 @@ static Value parse_json(const char *text) {
   jskip(&j);
   if (!j.ok || j.pos != j.len) return vnone();   /* malformed or trailing garbage -> nothing */
   return v;
+}
+
+/* ---- JSON writer: a Sprout value -> valid JSON text (round-trips through parse_json) ---- */
+static int g_json_w_depth = 0;
+static void json_escape(const char *s, char **o, size_t *c, size_t *l) {
+  sb_add(o, c, l, "\"");
+  for (const char *p = s ? s : ""; *p; p++) {
+    unsigned char ch = (unsigned char)*p;
+    switch (ch) {
+      case '"':  sb_add(o, c, l, "\\\""); break;
+      case '\\': sb_add(o, c, l, "\\\\"); break;
+      case '\n': sb_add(o, c, l, "\\n"); break;
+      case '\t': sb_add(o, c, l, "\\t"); break;
+      case '\r': sb_add(o, c, l, "\\r"); break;
+      case '\b': sb_add(o, c, l, "\\b"); break;
+      case '\f': sb_add(o, c, l, "\\f"); break;
+      default:
+        if (ch < 0x20) { char u[8]; snprintf(u, sizeof u, "\\u%04x", ch); sb_add(o, c, l, u); }
+        else { char one[2] = { (char)ch, 0 }; sb_add(o, c, l, one); }   /* UTF-8 bytes pass through */
+    }
+  }
+  sb_add(o, c, l, "\"");
+}
+/* a number formatted to round-trip EXACTLY through parse_json: clean whole numbers, and the
+   shortest decimal that reparses to the same double (num_to_str's %g is only 6 sig-figs, which
+   would silently truncate a stored fraction so recall("x") * 3 != 1). */
+static char *num_to_json(double n) {
+  char buf[40];
+  if (!isfinite(n)) return dup_str("null");                          /* JSON has no nan/inf (unreachable in Sprout) */
+  if (n == (double)(long long)n && fabs(n) < 1e15) { snprintf(buf, sizeof buf, "%lld", (long long)n); return dup_str(buf); }
+  for (int prec = 15; prec <= 17; prec++) { snprintf(buf, sizeof buf, "%.*g", prec, n); if (strtod(buf, NULL) == n) break; }
+  return dup_str(buf);
+}
+static void to_json(Value v, char **o, size_t *c, size_t *l) {
+  if (++g_json_w_depth > 200) { sb_add(o, c, l, "null"); g_json_w_depth--; return; }   /* match parse_json's depth cap (200) so output always round-trips */
+  switch (v.type) {
+    case V_NUM:  { char *t = num_to_json(v.num); sb_add(o, c, l, t); free(t); break; }
+    case V_STR:  json_escape(v.str ? v.str : "", o, c, l); break;
+    case V_BOOL: sb_add(o, c, l, v.boolean ? "true" : "false"); break;
+    case V_LIST: sb_add(o, c, l, "["); for (int i = 0; v.list && i < v.list->n; i++) { if (i) sb_add(o, c, l, ","); to_json(v.list->items[i], o, c, l); } sb_add(o, c, l, "]"); break;
+    case V_MAP:  sb_add(o, c, l, "{"); for (int i = 0; v.map && i < v.map->n; i++) { if (i) sb_add(o, c, l, ","); json_escape(v.map->keys[i], o, c, l); sb_add(o, c, l, ":"); to_json(v.map->vals[i], o, c, l); } sb_add(o, c, l, "}"); break;
+    default:     sb_add(o, c, l, "null"); break;   /* nothing */
+  }
+  g_json_w_depth--;
+}
+static char *value_to_json(Value v) { char *o = NULL; size_t c = 0, l = 0; g_json_w_depth = 0; to_json(v, &o, &c, &l); return o ? o : dup_str("null"); }
+
+/* ---- persistence: a single per-folder key/value store, kept as JSON in sprout.data.json ---- */
+#define SPROUT_STORE "sprout.data.json"
+static SMap *store_load(void) {
+  char *txt = read_whole_file(SPROUT_STORE);
+  if (!txt) return map_new();
+  Value v = parse_json(txt); free(txt);
+  return (v.type == V_MAP && v.map) ? v.map : map_new();   /* missing/corrupt -> fresh, empty store */
+}
+static int store_save(SMap *m) {
+  char *json = value_to_json(vmap(m));
+  FILE *f = fopen(SPROUT_STORE, "wb");
+  if (!f) { free(json); return 0; }
+  size_t jl = strlen(json), wrote = fwrite(json, 1, jl, f);
+  fclose(f); free(json);
+  return wrote == jl;
 }
 
 /* replace every occurrence of `find` in `s` with `repl` */
@@ -1461,6 +1523,31 @@ static Value call_builtin(Expr *call, Env *env) {
   if (!strcmp(name,"exists")) {
     if (n!=1||a[0].type!=V_STR) fail(call->line,"exists needs a file name.");
     FILE*f=fopen(a[0].str?a[0].str:"","rb"); if(f){fclose(f);return vbool(1);} return vbool(0);
+  }
+  /* ---- persistence: remember/recall/forget across runs (a key/value store in sprout.data.json) ---- */
+  if (!strcmp(name,"remember")) {
+    if (n != 2 || a[0].type != V_STR) fail(call->line, "remember needs a name (text) and a value, like remember(\"score\", 10).");
+    SMap *m = store_load();
+    map_set(m, a[0].str ? a[0].str : "", a[1]);
+    if (!store_save(m)) fail_kind(call->line, "io", "I couldn't save to the data file (sprout.data.json).");
+    return vnone();
+  }
+  if (!strcmp(name,"recall")) {
+    if (n != 1 || a[0].type != V_STR) fail(call->line, "recall needs a name (text), like recall(\"score\").");
+    SMap *m = store_load();
+    int i = map_index(m, a[0].str ? a[0].str : "");
+    return i >= 0 ? deep_copy(m->vals[i]) : vnone();   /* missing -> nothing; deep_copy so the result is independent of the store */
+  }
+  if (!strcmp(name,"forget")) {
+    if (n != 1 || a[0].type != V_STR) fail(call->line, "forget needs a name (text), like forget(\"score\").");
+    SMap *m = store_load();
+    int i = map_index(m, a[0].str ? a[0].str : "");
+    if (i < 0) return vbool(0);                   /* nothing to forget */
+    free(m->keys[i]);
+    for (int k = i; k < m->n - 1; k++) { m->keys[k] = m->keys[k + 1]; m->vals[k] = m->vals[k + 1]; }
+    m->n--;
+    if (!store_save(m)) fail_kind(call->line, "io", "I couldn't save to the data file (sprout.data.json).");
+    return vbool(1);
   }
   /* ---- the superpowers: web, json, shell ---- */
   if (!strcmp(name,"get")) {
@@ -1960,7 +2047,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.0.18"
+#define SPROUT_VERSION "0.0.19"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);

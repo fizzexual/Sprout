@@ -104,6 +104,7 @@ language runs now:
   - 🧩 `json(text)` — parse JSON straight into native lists & maps
   - 🔎 `explore(value)` — a *function* that returns a list of every `path = value` inside a value (the `sprout api <url>` *command* is just the CLI shortcut that fetches a URL and prints this)
   - 📄 `read` / `write` / `append` / `exists` — files
+  - 💾 `remember(key, value)` / `recall(key)` / `forget(key)` — save data and read it back **between runs** (a key/value store kept as JSON in `sprout.data.json`)
   - ⚙️ `system.run(command)` — run any program and capture its output (after `use system`)
 - **Projects & modules:** a `sprout.toml` ties many files into one program — `use server` then call it by name (`server.start()`), `public` exposes a task/value (private by default — no hidden global sharing), and `sprout build` runs the whole thing
 - **System module:** OS-level actions are explicit — `use system` then `system.run("...")`
@@ -172,7 +173,7 @@ build.cmd                     # or: gcc -O2 -Wall -s -o sprout.exe sprout.c -lm 
 
 # run a program:
 sprout run hello.sprout     # or just: sprout hello.sprout
-sprout version              # -> Sprout v0.0.18
+sprout version              # -> Sprout v0.0.19
 sprout new myapp            # create a full multi-file project folder
 sprout build                # run the project in the current folder (reads sprout.toml)
 sprout test                 # run your tests (a file, or every tests/*.sprout)
@@ -396,6 +397,16 @@ of `try`, the **first error aborts** the run (there is no batch diagnostics pass
 no static type checking) — except in the interactive REPL, which catches the error
 and keeps your session. Error messages are heuristic (edit-distance "did you mean?").
 
+**Persistence.** `remember(name, value)` / `recall(name)` / `forget(name)` are a tiny
+key/value store that survives between runs: one JSON file, **`sprout.data.json`**, in
+the current folder (shared by every program run there). `recall` of a name that was
+never set — or after a `forget` — is **`nothing`**, so the idiom is
+`make x = recall("x") or else <default>`. Any value round-trips except tasks (which
+aren't values): numbers, text, `yes`/`no`, `nothing` (stored as JSON `null`), lists,
+and maps (stored as a JSON object). `recall` returns an **independent copy** (mutating
+it doesn't change the store — you must `remember` again to save). `forget` returns
+`yes` if the name existed. A missing or corrupt file reads as an empty store.
+
 **Concurrency.** None — single-threaded, synchronous. `wait(seconds)` blocks.
 
 ### Decided edge cases (settled at v0.0.13, the spec-complete point)
@@ -435,7 +446,7 @@ operator); anywhere else it's an ordinary name.)
 **Built-in functions** are predefined names — `length sqrt pow abs round floor ceil
 min max random number upper lower trim replace split join starts_with ends_with
 range add remove insert keys values contains first last index_of sort reverse copy kind_of
-ask now today wait read write append exists get json explore color`
+ask now today wait read write append exists remember recall forget get json explore color`
 (plus `system.run`). You *may* shadow one with your own variable, but the function
 stays callable, so it's clearer not to.
 
@@ -547,6 +558,8 @@ v0.1.0 freeze:
 8. ✅ **Spec-complete (v0.0.13)** — every edge case decided and tested (originally called "the freeze"; it held one version — see the note in the Language reference).
 9. ✅ **Base-completion (v0.0.14–v0.0.16)** — the cycle's slices: `stop`/`skip`, compound assignment (`+=` …), the missing list/map/text builtins (`remove` `insert` `sort` `reverse` `index_of` `values` `pow` `starts_with` `ends_with`), **error handling** (`try` / `caught` / `fail` with a structured error map `{message, kind, line}` and a hard/soft split so typos aren't swallowed), and SEH-free error unwinding on Windows.
 10. ✅ **Freeze-prep (v0.0.17)** — pinned the observable contracts a freeze must guarantee: lists/maps are shared references + `copy()` for a deep snapshot, the mutate-vs-return convention, the stable error-`kind` table, and the number-edge rules — all documented + tested (`tests/contracts.sprout`); CI now also gates the `test`/`expect` framework, not just guarded scripts.
+11. ✅ **Ergonomics (v0.0.18)** — `expect error`, `for each key, value`, the `in` operator, `or else` (nothing-coalescing), `kind_of`, scientific-notation literals, and `learn` mode narrating control flow.
+12. ✅ **Persistence (v0.0.19)** — `remember` / `recall` / `forget`: a key/value store that survives between runs (JSON in `sprout.data.json`), with a built-in JSON writer.
 
 The cycle continues toward **v0.1.0 — the freeze that's meant to hold**. The full,
 sequenced plan — first-class tasks, collections superpowers, user types, a memory
@@ -586,7 +599,7 @@ There's a **[VS Code extension](vscode-extension)** for syntax highlighting too.
 
 ## Known limitations & open questions
 
-Sprout is **v0.0.18** — early, and deliberately small. Honest about the edges:
+Sprout is **v0.0.19** — early, and deliberately small. Honest about the edges:
 spotting more (or telling me which matter most) is exactly the feedback I want —
 [issues](https://github.com/fizzexual/Sprout/issues) /
 [discussions](https://github.com/fizzexual/Sprout/discussions) welcome.
