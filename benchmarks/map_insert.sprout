@@ -1,6 +1,5 @@
 ~ Map growth: insert 20,000 distinct keys.
-~ NOTE: maps currently use a linear key scan, so this is O(n^2) — a known
-~ optimization target (a hash table would make it O(n)). See BENCHMARKS.md.
+~ As of v0.0.30 maps have a hash index, so this is O(n) (~780 ms -> ~57 ms).
 make m = {}
 make i = 0
 repeat 20000 times:

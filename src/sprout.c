@@ -62,7 +62,9 @@ typedef struct Value Value;
 typedef struct TaskDef TaskDef;   /* a first-class task value points at one of these (defined later) */
 static const char *taskdef_name(TaskDef *t);   /* TaskDef's fields aren't known this early; reach the name through here */
 typedef struct { Value *items; int n, cap; } SList;
-typedef struct { char **keys; Value *vals; int n, cap; } SMap;
+/* keys[]/vals[] stay insertion-ordered (so iteration order is unchanged); idx[] is an
+   open-addressing hash index (storing position+1, 0 = empty) that makes key lookup O(1). */
+typedef struct { char **keys; Value *vals; int n, cap; int *idx; int idxcap; } SMap;
 struct Value { VType type; double num; char *str; int boolean; SList *list; SMap *map; TaskDef *task; };
 
 static Value vnum(double n)  { Value v = {0}; v.type = V_NUM;  v.num = n; return v; }
@@ -84,7 +86,40 @@ static void list_push(SList *l, Value x) {
   l->items[l->n++] = x;
 }
 static SMap *map_new(void) { return (SMap *)calloc(1, sizeof(SMap)); }
-static int map_index(SMap *m, const char *k) { for (int i = 0; i < m->n; i++) if (!strcmp(m->keys[i], k)) return i; return -1; }
+static unsigned map_hash(const char *s) {            /* FNV-1a */
+  unsigned h = 2166136261u;
+  while (*s) { h ^= (unsigned char)*s++; h *= 16777619u; }
+  return h;
+}
+/* find k -> its position in keys[]/vals[], or -1. O(1) average via the hash index. */
+static int map_index(SMap *m, const char *k) {
+  if (m->idxcap == 0) {                              /* no index yet (empty map) */
+    for (int i = 0; i < m->n; i++) if (!strcmp(m->keys[i], k)) return i;
+    return -1;
+  }
+  unsigned mask = (unsigned)m->idxcap - 1, slot = map_hash(k) & mask;
+  while (m->idx[slot]) {                             /* probe until an empty slot */
+    int pos = m->idx[slot] - 1;
+    if (!strcmp(m->keys[pos], k)) return pos;
+    slot = (slot + 1) & mask;
+  }
+  return -1;
+}
+static void map_idx_put(SMap *m, int pos) {          /* record keys[pos] -> pos in the index */
+  unsigned mask = (unsigned)m->idxcap - 1, slot = map_hash(m->keys[pos]) & mask;
+  while (m->idx[slot]) slot = (slot + 1) & mask;
+  m->idx[slot] = pos + 1;
+}
+/* (re)build the index from keys[], sized to keep the load factor <= 1/2. Call after any
+   change that shifts positions (e.g. remove), and to grow as the map fills. */
+static void map_reindex(SMap *m) {
+  m->idxcap = m->idxcap ? m->idxcap : 16;
+  while (m->idxcap < m->n * 2) m->idxcap *= 2;
+  m->idx = (int *)realloc(m->idx, (size_t)m->idxcap * sizeof(int));
+  if (!m->idx) fail(0, "ran out of memory building a map.");
+  memset(m->idx, 0, (size_t)m->idxcap * sizeof(int));
+  for (int i = 0; i < m->n; i++) map_idx_put(m, i);
+}
 static void map_set(SMap *m, const char *k, Value x) {
   int i = map_index(m, k);
   if (i >= 0) { m->vals[i] = x; return; }
@@ -96,6 +131,8 @@ static void map_set(SMap *m, const char *k, Value x) {
     m->keys = nk; m->vals = nv;
   }
   m->keys[m->n] = dup_str(k); m->vals[m->n] = x; m->n++;
+  if (m->idxcap < m->n * 2) map_reindex(m);          /* grow + rebuild (also builds it the first time) */
+  else map_idx_put(m, m->n - 1);                     /* otherwise just index the new key */
 }
 
 static char *num_to_str(double n) {
@@ -1566,6 +1603,7 @@ static Value call_builtin(Expr *call, Env *env) {
       free(a[0].map->keys[i]);
       for (int k = i; k < a[0].map->n - 1; k++) { a[0].map->keys[k] = a[0].map->keys[k + 1]; a[0].map->vals[k] = a[0].map->vals[k + 1]; }
       a[0].map->n--;
+      map_reindex(a[0].map);                          /* positions shifted, so rebuild the hash index */
       return gone;
     }
     fail(call->line, "remove works on a list (by position) or a map (by key).");
@@ -1874,6 +1912,7 @@ static Value call_builtin(Expr *call, Env *env) {
     free(m->keys[i]);
     for (int k = i; k < m->n - 1; k++) { m->keys[k] = m->keys[k + 1]; m->vals[k] = m->vals[k + 1]; }
     m->n--;
+    map_reindex(m);                               /* positions shifted, so rebuild the hash index (mirrors remove) */
     if (!store_save(m)) fail_kind(call->line, "io", "I couldn't save to the data file (sprout.data.json).");
     return vbool(1);
   }
@@ -2460,7 +2499,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.0.29"
+#define SPROUT_VERSION "0.0.30"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);

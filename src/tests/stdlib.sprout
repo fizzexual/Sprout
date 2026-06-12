@@ -58,4 +58,23 @@ check("sort_by by text key", sort_by(["cat", "ant", "bee"], task(w): w), ["ant",
 make tied = [{k: "b", i: 1}, {k: "a", i: 2}, {k: "b", i: 3}]
 check("sort_by is stable", map(sort_by(tied, task(x): x["k"]), task(x): x["i"]), [2, 1, 3])
 
+~ ---------- maps scale (hash index) while keeping insertion order ----------
+make big = {}
+make i = 0
+repeat 2000 times:
+    set big["k" + i] = i * 2
+    set i += 1
+check("large map has all keys", length(keys(big)), 2000)
+check("large map lookups are correct", big["k0"] + big["k1000"] + big["k1999"], 0 + 2000 + 3998)
+check("large map keeps insertion order", first(keys(big)), "k0")
+check("large map last key in order", last(keys(big)), "k1999")
+~ overwrite doesn't add a key; remove-then-readd goes to the back
+make om = {a: 1, b: 2, c: 3}
+set om["b"] = 20
+check("overwrite keeps order + count", keys(om), ["a", "b", "c"])
+remove(om, "a")
+set om["a"] = 9
+check("remove then re-add goes to the back", keys(om), ["b", "c", "a"])
+check("lookup after remove/re-add", om["a"], 9)
+
 show "stdlib: all checks ran"
