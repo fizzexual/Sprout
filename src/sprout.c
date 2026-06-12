@@ -979,6 +979,7 @@ static int edit_distance(const char *a, const char *b) {
 static const char *const BUILTIN_NAMES[] = {
   "range","length","add","keys","contains","first","last",
   "remove","insert","sort","reverse","index_of","values","copy","kind_of","map","filter","reduce",
+  "sum","count","unique","zip","flatten","slice","words","lines","title","seed",
   "abs","round","floor","ceil","sqrt","pow","min","max","random","number",
   "upper","lower","trim","replace","split","join","starts_with","ends_with",
   "ask","now","today","wait","read","write","append","exists","remember","recall","forget",
@@ -1456,6 +1457,89 @@ static Value call_builtin(Expr *call, Env *env) {
     Value acc = a[2]; int len = a[0].list ? a[0].list->n : 0;
     for (int i = 0; i < len; i++) { Value two[2] = { acc, a[0].list->items[i] }; acc = call_task_v(a[1].task, two, 2, call->line); }
     return acc;
+  }
+  /* ---- collection batteries ---- */
+  if (!strcmp(name, "sum")) {
+    if (n != 1 || a[0].type != V_LIST) fail(call->line, "sum needs a list of numbers, like sum([1, 2, 3]).");
+    double s = 0;
+    for (int i = 0; a[0].list && i < a[0].list->n; i++) { if (a[0].list->items[i].type != V_NUM) fail_kind(call->line, "type", "sum needs every item to be a number."); s += a[0].list->items[i].num; }
+    return vnum(s);
+  }
+  if (!strcmp(name, "count")) {
+    if (n != 2) fail(call->line, "count needs a list + a value, or text + a piece of text.");
+    if (a[0].type == V_LIST) { int c = 0; for (int i = 0; a[0].list && i < a[0].list->n; i++) if (values_equal(a[0].list->items[i], a[1])) c++; return vnum(c); }
+    if (a[0].type == V_STR && a[1].type == V_STR) { const char *h = a[0].str ? a[0].str : "", *ndl = a[1].str ? a[1].str : ""; if (!*ndl) return vnum(0); int c = 0; const char *p = h; while ((p = strstr(p, ndl))) { c++; p += strlen(ndl); } return vnum(c); }
+    fail(call->line, "count works on a list (+ a value) or text (+ text).");
+  }
+  if (!strcmp(name, "unique")) {
+    if (n != 1 || a[0].type != V_LIST) fail(call->line, "unique needs a list.");
+    SList *out = list_new();
+    for (int i = 0; a[0].list && i < a[0].list->n; i++) { int dup = 0; for (int j = 0; j < out->n; j++) if (values_equal(out->items[j], a[0].list->items[i])) { dup = 1; break; } if (!dup) list_push(out, a[0].list->items[i]); }
+    return vlist(out);
+  }
+  if (!strcmp(name, "zip")) {
+    if (n != 2 || a[0].type != V_LIST || a[1].type != V_LIST) fail(call->line, "zip needs two lists, like zip(names, scores).");
+    SList *out = list_new(); int la = a[0].list ? a[0].list->n : 0, lb = a[1].list ? a[1].list->n : 0, m = la < lb ? la : lb;
+    for (int i = 0; i < m; i++) { SList *pair = list_new(); list_push(pair, a[0].list->items[i]); list_push(pair, a[1].list->items[i]); list_push(out, vlist(pair)); }
+    return vlist(out);
+  }
+  if (!strcmp(name, "flatten")) {   /* one level deep */
+    if (n != 1 || a[0].type != V_LIST) fail(call->line, "flatten needs a list.");
+    SList *out = list_new();
+    for (int i = 0; a[0].list && i < a[0].list->n; i++) { Value it = a[0].list->items[i]; if (it.type == V_LIST) { for (int j = 0; it.list && j < it.list->n; j++) list_push(out, it.list->items[j]); } else list_push(out, it); }
+    return vlist(out);
+  }
+  if (!strcmp(name, "slice")) {     /* start inclusive, end exclusive (like other languages); clamped */
+    if (n != 3 || a[1].type != V_NUM || a[2].type != V_NUM) fail(call->line, "slice needs a list-or-text and two whole-number positions, like slice(xs, 1, 3).");
+    if (a[1].num != (double)(long long)a[1].num || a[2].num != (double)(long long)a[2].num) fail(call->line, "slice positions must be whole numbers.");
+    long long s = (long long)a[1].num, e = (long long)a[2].num; if (s < 0) s = 0; if (e < 0) e = 0;
+    if (a[0].type == V_LIST) {
+      int len = a[0].list ? a[0].list->n : 0; if (e > len) e = len; SList *out = list_new();
+      for (long long i = s; i < e; i++) list_push(out, a[0].list->items[i]);
+      return vlist(out);
+    }
+    if (a[0].type == V_STR) {        /* by UTF-8 character index */
+      const char *p = a[0].str ? a[0].str : ""; size_t cap = 0, ln = 0; char *out = NULL; long long idx = 0;
+      for (int i = 0; p[i]; idx++) {
+        int cl = utf8_clen((unsigned char)p[i]); int k = 0; while (k < cl && p[i + k]) k++;   /* ACTUAL bytes (capped at the terminator) - never advance past it */
+        if (idx >= s && idx < e) { char ch[5]; for (int j = 0; j < k; j++) ch[j] = p[i + j]; ch[k] = 0; sb_add(&out, &cap, &ln, ch); }
+        i += k ? k : 1;
+      }
+      return vstr(out ? out : dup_str(""));
+    }
+    fail(call->line, "slice works on a list or text.");
+  }
+  /* ---- text batteries ---- */
+  if (!strcmp(name, "words")) {
+    if (n != 1 || a[0].type != V_STR) fail(call->line, "words needs text.");
+    const char *p = a[0].str ? a[0].str : ""; SList *out = list_new();
+    while (*p) {
+      while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+      if (!*p) break;
+      const char *st = p; while (*p && *p != ' ' && *p != '\t' && *p != '\n' && *p != '\r') p++;
+      int ln = (int)(p - st); char *w = (char *)malloc(ln + 1); memcpy(w, st, ln); w[ln] = 0; list_push(out, vstr(w));
+    }
+    return vlist(out);
+  }
+  if (!strcmp(name, "lines")) {     /* split on newlines; a trailing newline does not add an empty line; "" -> [] */
+    if (n != 1 || a[0].type != V_STR) fail(call->line, "lines needs text.");
+    const char *p = a[0].str ? a[0].str : ""; SList *out = list_new();
+    if (*p) { const char *st = p; for (;;) {
+        if (*p == '\n' || *p == 0) { int ln = (int)(p - st); if (ln > 0 && st[ln - 1] == '\r') ln--; char *w = (char *)malloc(ln + 1); memcpy(w, st, ln); w[ln] = 0; list_push(out, vstr(w)); if (!*p) break; p++; st = p; if (!*p) break; }
+        else p++;
+    } }
+    return vlist(out);
+  }
+  if (!strcmp(name, "title")) {     /* Title Case: first letter of each word upper, rest lower (ASCII, like upper/lower) */
+    if (n != 1 || a[0].type != V_STR) fail(call->line, "title needs text.");
+    const char *p = a[0].str ? a[0].str : ""; size_t ln = strlen(p); char *out = (char *)malloc(ln + 1); int at_start = 1;
+    for (size_t i = 0; i < ln; i++) { char c = p[i]; if (c == ' ' || c == '\t' || c == '\n' || c == '\r') { out[i] = c; at_start = 1; } else { out[i] = at_start ? (char)toupper((unsigned char)c) : (char)tolower((unsigned char)c); at_start = 0; } }
+    out[ln] = 0; return vstr(out);
+  }
+  if (!strcmp(name, "seed")) {      /* make random() reproducible */
+    if (n != 1 || a[0].type != V_NUM) fail(call->line, "seed needs a number, like seed(42).");
+    srand((unsigned)a[0].num);
+    return vnone();
   }
   if (!strcmp(name, "pow")) { if (n != 2 || a[0].type != V_NUM || a[1].type != V_NUM) fail(call->line, "pow needs two numbers, like pow(2, 10)."); return vnum(pow(a[0].num, a[1].num)); }
   if (!strcmp(name, "starts_with")) { if (n != 2 || a[0].type != V_STR || a[1].type != V_STR) fail(call->line, "starts_with needs two pieces of text."); const char *h = a[0].str ? a[0].str : "", *p = a[1].str ? a[1].str : ""; return vbool(strncmp(h, p, strlen(p)) == 0); }
@@ -2088,7 +2172,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.0.20"
+#define SPROUT_VERSION "0.0.21"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);

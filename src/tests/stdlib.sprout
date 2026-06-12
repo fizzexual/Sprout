@@ -1,0 +1,51 @@
+~ v0.0.21 standard-library batch: sum/count/unique/zip/flatten/slice + words/lines/title + seed.
+~ Guarded script: prints "FAIL ..." on any wrong result.
+
+task check(label, got, want):
+    when got != want:
+        show "FAIL", label, "- got", got, "wanted", want
+
+~ ---------- collections ----------
+check("sum", sum([1, 2, 3, 4]), 10)
+check("sum empty", sum([]), 0)
+check("count list", count([1, 2, 2, 3, 2], 2), 3)
+check("count list miss", count([1, 2], 9), 0)
+check("count text", count("banana", "a"), 3)
+check("count text overlapping-safe", count("aaaa", "aa"), 2)
+check("unique", unique([1, 1, 2, 3, 3, 1]), [1, 2, 3])
+check("unique keeps order", unique(["b", "a", "b", "c", "a"]), ["b", "a", "c"])
+check("unique empty", unique([]), [])
+check("zip", zip(["a", "b", "c"], [1, 2]), [["a", 1], ["b", 2]])
+check("zip even", zip([1, 2], [3, 4]), [[1, 3], [2, 4]])
+check("flatten one level", flatten([[1, 2], [3], [4, 5]]), [1, 2, 3, 4, 5])
+check("flatten keeps non-lists + deeper nesting", flatten([1, [2, 3], [[4]]]), [1, 2, 3, [4]])
+
+~ ---------- slice (start inclusive, end exclusive, clamped) ----------
+check("slice list", slice([10, 20, 30, 40, 50], 1, 3), [20, 30])
+check("slice list clamps end", slice([1, 2, 3], 1, 99), [2, 3])
+check("slice list empty range", slice([1, 2, 3], 2, 2), [])
+check("slice text", slice("hello world", 0, 5), "hello")
+check("slice text utf8", slice("café", 1, 4), "afé")
+
+~ ---------- text ----------
+check("words collapses whitespace", words("  the   quick brown  "), ["the", "quick", "brown"])
+check("words empty", words("   "), [])
+check("lines", lines("a\nb\nc"), ["a", "b", "c"])
+check("lines keeps blank lines", lines("a\n\nb"), ["a", "", "b"])
+check("lines trailing newline -> no empty", lines("a\nb\n"), ["a", "b"])
+check("lines empty", lines(""), [])
+check("title", title("the QUICK brown fox"), "The Quick Brown Fox")
+
+~ ---------- seed makes random reproducible ----------
+seed(123)
+make a = random(1000000)
+seed(123)
+make b = random(1000000)
+check("seed is reproducible", a, b)
+
+~ first-class tasks + stdlib compose nicely
+task square(n):
+    give n * n
+check("map then sum", sum(map([1, 2, 3], square)), 14)
+
+show "stdlib: all checks ran"

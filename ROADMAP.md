@@ -195,11 +195,11 @@ Every language dimension, each row probed against v0.0.13. Legend: **✅ in core
 | Feature | Status |
 | --- | --- |
 | list: `add` · index · `set xs[i]` · `length`/`first`/`last`/`contains`/`range`/`keys` · **`remove`/`insert`/`sort`/`reverse`/`index_of`** | ✅ (last five v0.0.14) |
-| list: `unique`/`zip`/`flatten`/comprehensions | 📋 Phase 3 |
+| list: **`unique`/`zip`/`flatten`/`slice`/`sum`/`count`** ✅ v0.0.21 · comprehensions 📋 | partial |
 | map: get/`set`/`keys`/`contains` · **`remove(key)` (delete) + `values(map)`** | ✅ (last two v0.0.14) |
 | `for each key, value in map` | 📋 Phase 3 |
 | text: `split`/`join`/`replace`/`upper`/`lower`/`trim` · **`starts_with`/`ends_with`/`index_of`** | ✅ (last three v0.0.14) |
-| text: `pad`/`format`/`words`/`lines`/`title` | 📋 Phase 6 |
+| text: **`words`/`lines`/`title`** ✅ v0.0.21 · `pad`/`format`/case-insensitive 📋 | partial |
 
 ### Modules & namespaces
 
@@ -412,7 +412,7 @@ Phase 1 (errors) ─┬─> Phase 9 (server)
 Phase 2 (functions) ─> Phase 3 (collections), Phase 11 (libraries)
 Phase 8 (arena/GC)  ─> Phase 9 (server), long-running programs
 ```
-Moves done: error handling (`try`/`caught`/`fail`) v0.0.14–15; ergonomics v0.0.18; persistence v0.0.19; **first-class tasks + `map`/`filter`/`reduce` v0.0.20** (Phase 2/3 started). Mission is now set — **"everything, easy to use"** — so the path is: lambdas+closures → GC → the web `kind` → package manager → tooling, each delivered in its easiest form.
+Moves done: error handling (`try`/`caught`/`fail`) v0.0.14–15; ergonomics v0.0.18; persistence v0.0.19; **first-class tasks + `map`/`filter`/`reduce` v0.0.20**; **stdlib batch (`sum`/`count`/`unique`/`zip`/`flatten`/`slice`/`words`/`lines`/`title`/`seed`) v0.0.21**. Mission is set — **"everything, easy to use"** — so the path is: lambdas+closures → GC → the web `kind` → package manager → tooling, each delivered in its easiest form.
 
 ## The one decision to make before unfreezing
 

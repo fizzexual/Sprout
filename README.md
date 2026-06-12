@@ -98,7 +98,7 @@ language runs now:
 - **Lists** `[1, 2, 3]` and **maps** `{name: "Sam"}` — indexing, `set xs[i] = …`, `range`, and `for each` (`for each item in xs`, or `for each key, value in m`)
 - **`learn on`** — Sprout narrates each step as it runs: values, **which `when` branch ran, every loop turn, and each task call + what it gave back** (plus **friendly errors** that say *"did you mean…?"*)
 - **Built-in testing** — `test "name": expect …`, plus **`expect error "kind":`** to assert that a block fails; run with `sprout test`
-- **Toolbox:** `length` `add` `remove` `insert` `keys` `values` `contains` `first` `last` `index_of` `sort` `reverse` `copy` `kind_of` `map` `filter` `reduce` `range` · `sqrt` `pow` `abs` `round` `floor` `ceil` `min` `max` `random` `number` · `upper` `lower` `trim` `replace` `split` `join` `starts_with` `ends_with` · `now` `today` `wait` · `ask` · `color` (terminal colour)
+- **Toolbox:** `length` `add` `remove` `insert` `keys` `values` `contains` `first` `last` `index_of` `sort` `reverse` `copy` `kind_of` `map` `filter` `reduce` `sum` `count` `unique` `zip` `flatten` `slice` `range` · `sqrt` `pow` `abs` `round` `floor` `ceil` `min` `max` `random` `seed` `number` · `upper` `lower` `trim` `replace` `split` `join` `starts_with` `ends_with` `words` `lines` `title` · `now` `today` `wait` · `ask` · `color` (terminal colour)
 - **Superpowers — built in, no libraries:**
   - 🌐 `get(url)` — fetch any web page or API
   - 🧩 `json(text)` — parse JSON straight into native lists & maps
@@ -173,7 +173,7 @@ build.cmd                     # or: gcc -O2 -Wall -s -o sprout.exe sprout.c -lm 
 
 # run a program:
 sprout run hello.sprout     # or just: sprout hello.sprout
-sprout version              # -> Sprout v0.0.20
+sprout version              # -> Sprout v0.0.21
 sprout new myapp            # create a full multi-file project folder
 sprout build                # run the project in the current folder (reads sprout.toml)
 sprout test                 # run your tests (a file, or every tests/*.sprout)
@@ -298,6 +298,16 @@ return **nothing** (they're commands). `remove` changes the list/map and returns
 list **in place** and return the **same list** (a reference, not a copy — so
 `show sort(xs)` works *and* `xs` is now sorted). `copy` is the only one that returns
 a new value.
+
+**The "batteries" builtins** all return **new** values (they never mutate their
+input): `sum(list)`, `count(list, value)` / `count(text, piece)`, `unique(list)`,
+`zip(a, b)` (pairs up to the shorter), `flatten(list)` (one level deep),
+`slice(list-or-text, start, end)` (**`start` inclusive, `end` exclusive**, clamped —
+`slice([10,20,30], 0, 2)` is `[10, 20]`), `words(text)` (split on any run of
+whitespace), `lines(text)` (split on newlines; a *trailing* newline doesn't add an
+empty line; `""` → `[]`), `title(text)`, and `seed(n)` (makes `random` reproducible).
+The higher-order `map`/`filter`/`reduce` take a task (see *Tasks are first-class
+values*).
 
 **Variables & scope.** `make` introduces a **new** name; **`make` on a name that
 already exists in the same scope is an error** ("use 'set' to change it") — so a
@@ -456,6 +466,7 @@ operator); anywhere else it's an ordinary name.)
 **Built-in functions** are predefined names — `length sqrt pow abs round floor ceil
 min max random number upper lower trim replace split join starts_with ends_with
 range add remove insert keys values contains first last index_of sort reverse copy kind_of map filter reduce
+sum count unique zip flatten slice words lines title seed
 ask now today wait read write append exists remember recall forget get json explore color`
 (plus `system.run`). You *may* shadow one with your own variable, but the function
 stays callable, so it's clearer not to.
@@ -572,6 +583,7 @@ v0.1.0 freeze:
 11. ✅ **Ergonomics (v0.0.18)** — `expect error`, `for each key, value`, the `in` operator, `or else` (nothing-coalescing), `kind_of`, scientific-notation literals, and `learn` mode narrating control flow.
 12. ✅ **Persistence (v0.0.19)** — `remember` / `recall` / `forget`: a key/value store that survives between runs (JSON in `sprout.data.json`), with a built-in JSON writer.
 13. ✅ **First-class tasks (v0.0.20)** — a task is a value you can store, pass, return, and call, plus the higher-order builtins `map` / `filter` / `reduce`. (Closures + an inline `do (x): …` lambda are the next step.)
+14. ✅ **Standard-library batch (v0.0.21)** — `sum` `count` `unique` `zip` `flatten` `slice` (lists/text), `words` `lines` `title` (text), and `seed` (reproducible `random`).
 
 The cycle continues toward **v0.1.0 — the freeze that's meant to hold**. The full,
 sequenced plan — first-class tasks, collections superpowers, user types, a memory
@@ -611,7 +623,7 @@ There's a **[VS Code extension](vscode-extension)** for syntax highlighting too.
 
 ## Known limitations & open questions
 
-Sprout is **v0.0.20** — early, and deliberately small. Honest about the edges:
+Sprout is **v0.0.21** — early, and deliberately small. Honest about the edges:
 spotting more (or telling me which matter most) is exactly the feedback I want —
 [issues](https://github.com/fizzexual/Sprout/issues) /
 [discussions](https://github.com/fizzexual/Sprout/discussions) welcome.
