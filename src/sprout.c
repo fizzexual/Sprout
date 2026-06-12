@@ -245,6 +245,7 @@ static Value current_error_value(void) {
 typedef enum {
   T_NUM, T_STR, T_IDENT,
   T_MAKE, T_SET, T_SHOW, T_WHEN, T_ORWHEN, T_OTHERWISE, T_REPEAT, T_WHILE, T_TIMES,
+  T_MATCH, T_IS,
   T_TASK, T_GIVE, T_FOR, T_EACH, T_IN, T_TO, T_USE, T_PUBLIC, T_PRIVATE, T_LEARN, T_TEST, T_EXPECT,
   T_TRY, T_CAUGHT, T_FAIL, T_STOP, T_SKIP,
   T_AND, T_OR, T_NOT, T_YES, T_NO, T_NOTHING,
@@ -268,6 +269,7 @@ static TokType keyword(const char *w) {
     { "make", T_MAKE }, { "set", T_SET }, { "show", T_SHOW }, { "when", T_WHEN },
     { "orwhen", T_ORWHEN }, { "otherwise", T_OTHERWISE }, { "repeat", T_REPEAT },
     { "while", T_WHILE }, { "times", T_TIMES }, { "task", T_TASK }, { "give", T_GIVE },
+    { "match", T_MATCH }, { "is", T_IS },
     { "for", T_FOR }, { "each", T_EACH }, { "in", T_IN }, { "to", T_TO }, { "use", T_USE },
     { "public", T_PUBLIC }, { "private", T_PRIVATE }, { "learn", T_LEARN },
     { "test", T_TEST }, { "expect", T_EXPECT },
@@ -443,13 +445,18 @@ typedef struct Expr {
   TaskDef *lambda;                        /* E_LAMBDA: the anonymous task's static template (home set at eval) */
 } Expr;
 
-typedef enum { S_MAKE, S_SET, S_SHOW, S_WHEN, S_REPEAT_TIMES, S_REPEAT_WHILE, S_TASK, S_GIVE, S_EXPR, S_FOREACH, S_INDEXSET, S_USE, S_LEARN, S_TEST, S_EXPECT, S_EXPECT_ERROR, S_TRY, S_FAIL, S_STOP, S_SKIP } SKind;
+typedef enum { S_MAKE, S_SET, S_SHOW, S_WHEN, S_MATCH, S_REPEAT_TIMES, S_REPEAT_WHILE, S_TASK, S_GIVE, S_EXPR, S_FOREACH, S_INDEXSET, S_USE, S_LEARN, S_TEST, S_EXPECT, S_EXPECT_ERROR, S_TRY, S_FAIL, S_STOP, S_SKIP } SKind;
 typedef struct Stmt Stmt;
 typedef struct { Expr *cond; Stmt **body; int nbody; } Branch;
+/* one arm of a `match`. patkind: 0 = literal (compare `lit` by value), 1 = list-destructure
+   (bind `names` to a list of exactly nnames items), 2 = map-destructure (the value must be a
+   map containing every key in `names`; each binds a same-named variable), 3 = otherwise. */
+typedef struct { int patkind; Expr *lit; char **names; int nnames; Stmt **body; int nbody; } MatchArm;
 struct Stmt {
   SKind kind; char *name; char *name2; Expr *expr;   /* name2: the optional 2nd `for each k, v` binding */
   Expr **values; int nvalues;            /* show */
   Branch *branches; int nbranches; Stmt **otherwise; int notherwise; /* when */
+  MatchArm *arms; int narms;             /* match */
   Expr *count; Stmt **body; int nbody;   /* repeat / task / for-each body */
   char **params; int nparams;            /* task */
   Expr *target, *index;                   /* S_INDEXSET: target[index] = expr */
@@ -718,6 +725,60 @@ static Stmt *statement(void) {
       }
       if (check(T_OTHERWISE)) { advance(); s->otherwise = block(&s->notherwise); }
       s->branches = br; s->nbranches = n; return s;
+    }
+    case T_MATCH: {
+      advance();
+      Stmt *s = new_stmt(S_MATCH, t.line);
+      s->expr = expression();                 /* the value being matched */
+      expect(T_COLON, "I expected ':' after the match value.");
+      expect(T_NEWLINE, "the match arms should begin on the next line.");
+      expect(T_INDENT, "I expected the arms ('is ...:' / 'otherwise:') to be indented.");
+      MatchArm *arms = NULL; int n = 0, cap = 0;
+      while (!check(T_DEDENT) && !check(T_EOF)) {
+        if (match(T_NEWLINE)) continue;
+        if (n >= cap) { cap = cap ? cap * 2 : 4; arms = (MatchArm *)realloc(arms, cap * sizeof(MatchArm)); }
+        MatchArm *arm = &arms[n];
+        arm->patkind = 0; arm->lit = NULL; arm->names = NULL; arm->nnames = 0; arm->body = NULL; arm->nbody = 0;
+        if (match(T_OTHERWISE)) {
+          arm->patkind = 3;
+        } else if (match(T_IS)) {
+          if (check(T_LBRACK)) {                /* maybe a list-destructure [a, b] — bare names only */
+            int save = pos; advance();
+            char **names = NULL; int nn = 0, ncap = 0, ok = 1;
+            if (!check(T_RBRACK)) {
+              do {
+                if (!check(T_IDENT)) { ok = 0; break; }
+                if (nn >= ncap) { ncap = ncap ? ncap * 2 : 4; names = (char **)realloc(names, ncap * sizeof(char *)); }
+                names[nn++] = advance().text;
+              } while (match(T_COMMA));
+            }
+            if (ok && check(T_RBRACK)) { advance(); arm->patkind = 1; arm->names = names; arm->nnames = nn; }
+            else { pos = save; free(names); arm->lit = expression(); }   /* it was a list literal -> compare by value */
+          } else if (check(T_LBRACE)) {         /* maybe a map-destructure {name, age} — bare names, no colons */
+            int save = pos; advance();
+            char **names = NULL; int nn = 0, ncap = 0, ok = 1;
+            if (!check(T_RBRACE)) {
+              do {
+                if (!check(T_IDENT)) { ok = 0; break; }
+                char *kn = advance().text;
+                if (check(T_COLON)) { ok = 0; break; }   /* `key: value` -> a map literal, not a binding */
+                if (nn >= ncap) { ncap = ncap ? ncap * 2 : 4; names = (char **)realloc(names, ncap * sizeof(char *)); }
+                names[nn++] = kn;
+              } while (match(T_COMMA));
+            }
+            if (ok && check(T_RBRACE)) { advance(); arm->patkind = 2; arm->names = names; arm->nnames = nn; }
+            else { pos = save; free(names); arm->lit = expression(); }   /* a map literal -> compare by value */
+          } else {
+            arm->lit = expression();            /* a literal/value to compare with == */
+          }
+        } else {
+          fail(peek().line, "inside 'match', each line should be 'is <pattern>:' or 'otherwise:'.");
+        }
+        arm->body = block(&arm->nbody);
+        n++;
+      }
+      expect(T_DEDENT, "I expected the match to finish here.");
+      s->arms = arms; s->narms = n; return s;
     }
     case T_REPEAT: {
       advance();
@@ -2167,6 +2228,36 @@ static void exec(Stmt *s, Env *env) {
       if (s->otherwise) exec_scoped(s->otherwise, s->notherwise, env);
       break;
     }
+    case S_MATCH: {
+      Value subj = eval(s->expr, env);
+      for (int i = 0; i < s->narms; i++) {
+        MatchArm *arm = &s->arms[i];
+        if (arm->patkind == 3) {                                  /* otherwise */
+          exec_scoped(arm->body, arm->nbody, env); return;
+        } else if (arm->patkind == 0) {                           /* literal: compare by value */
+          if (values_equal(subj, eval(arm->lit, env))) { exec_scoped(arm->body, arm->nbody, env); return; }
+        } else if (arm->patkind == 1) {                           /* list-destructure [a, b] */
+          if (subj.type == V_LIST && subj.list && subj.list->n == arm->nnames) {
+            Env *be = env_new(env);
+            for (int k = 0; k < arm->nnames; k++) env_define(be, arm->names[k], subj.list->items[k]);
+            exec_block(arm->body, arm->nbody, be); return;
+          }
+        } else if (arm->patkind == 2) {                           /* map-destructure {name, age} */
+          if (subj.type == V_MAP && subj.map) {
+            int all = 1;
+            for (int k = 0; k < arm->nnames; k++) if (map_index(subj.map, arm->names[k]) < 0) { all = 0; break; }
+            /* {name, ...} matches a map that HAS those keys (a superset is fine); the empty pattern
+               {} matches only an empty map — symmetric with [], not a match-any-map wildcard. */
+            if (all && (arm->nnames > 0 || subj.map->n == 0)) {
+              Env *be = env_new(env);
+              for (int k = 0; k < arm->nnames; k++) { int mi = map_index(subj.map, arm->names[k]); env_define(be, arm->names[k], subj.map->vals[mi]); }
+              exec_block(arm->body, arm->nbody, be); return;
+            }
+          }
+        }
+      }
+      break;   /* nothing matched and no 'otherwise' — do nothing, like a `when` with no otherwise */
+    }
     case S_REPEAT_TIMES: {
       Value c = eval(s->count, env); if (c.type != V_NUM) fail(s->line, "'repeat ... times' needs a number.");
       long long times = (long long)c.num;
@@ -2298,7 +2389,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.0.25"
+#define SPROUT_VERSION "0.0.26"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);

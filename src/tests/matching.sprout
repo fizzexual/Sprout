@@ -1,0 +1,127 @@
+~ v0.0.26 pattern matching: `match value:` with `is <pattern>:` arms + `otherwise`.
+~ Patterns = a literal/value (compared with ==), a list-destructure [a, b], a map-
+~ destructure {name, age}, or `otherwise`. Guarded script: prints "FAIL ..." on a wrong result.
+
+task check(label, got, want):
+    when got != want:
+        show "FAIL", label, "- got", got, "wanted", want
+
+~ ---------- literal / value dispatch ----------
+task describe(cmd):
+    match cmd:
+        is "start":
+            give "go"
+        is "stop":
+            give "halt"
+        otherwise:
+            give "?"
+check("match text literal (start)", describe("start"), "go")
+check("match text literal (stop)", describe("stop"), "halt")
+check("match falls to otherwise", describe("xyz"), "?")
+
+task name_num(n):
+    match n:
+        is 0:
+            give "zero"
+        is 1:
+            give "one"
+        otherwise:
+            give "many"
+check("match number literal 0", name_num(0), "zero")
+check("match number literal 1", name_num(1), "one")
+check("match number otherwise", name_num(7), "many")
+
+~ yes/no and nothing are values too
+task truthy_name(v):
+    match v:
+        is yes:
+            give "Y"
+        is no:
+            give "N"
+        is nothing:
+            give "none"
+        otherwise:
+            give "other"
+check("match yes", truthy_name(yes), "Y")
+check("match no", truthy_name(no), "N")
+check("match nothing", truthy_name(nothing), "none")
+
+~ ---------- list destructuring ----------
+task pair_sum(p):
+    match p:
+        is [a, b]:
+            give a + b
+        otherwise:
+            give -1
+check("destructure a 2-list", pair_sum([10, 20]), 30)
+check("wrong length falls through", pair_sum([1, 2, 3]), -1)
+
+~ length discriminates between arms
+task shape(xs):
+    match xs:
+        is [a]:
+            give "single"
+        is [a, b]:
+            give "pair"
+        is [a, b, c]:
+            give "triple"
+        otherwise:
+            give "other"
+check("destructure picks by length (single)", shape([9]), "single")
+check("destructure picks by length (triple)", shape([1, 2, 3]), "triple")
+check("destructure no-match", shape([1, 2, 3, 4]), "other")
+
+~ ---------- map destructuring ----------
+task greet(person):
+    match person:
+        is {name, age}:
+            give name + " (" + age + ")"
+        is {name}:
+            give "just " + name
+        otherwise:
+            give "stranger"
+check("destructure a map with name+age", greet({name: "Sam", age: 30}), "Sam (30)")
+check("destructure a map with just name", greet({name: "Mo"}), "just Mo")
+check("map missing keys -> otherwise", greet({city: "NYC"}), "stranger")
+
+~ the empty map pattern {} matches ONLY an empty map (not any map) — symmetric with []
+task empties(v):
+    match v:
+        is {}:
+            give "empty map"
+        is []:
+            give "empty list"
+        otherwise:
+            give "non-empty"
+check("{} matches an empty map", empties({}), "empty map")
+check("{} does NOT match a non-empty map", empties({x: 1}), "non-empty")
+check("[] matches an empty list", empties([]), "empty list")
+check("[] does NOT match a non-empty list", empties([1]), "non-empty")
+
+~ ---------- a list/map LITERAL is compared by value (not destructured) ----------
+task exact(xs):
+    match xs:
+        is [1, 2]:
+            give "exactly [1,2]"
+        is [a, b]:
+            give "some pair"
+        otherwise:
+            give "no"
+check("list literal matches by value", exact([1, 2]), "exactly [1,2]")
+check("list of other values destructures", exact([5, 6]), "some pair")
+
+~ ---------- bindings don't leak; nesting works ----------
+make a = 999
+match [1, 2]:
+    is [a, b]:
+        check("binding is local to the arm", a, 1)
+check("outer var untouched by a match binding", a, 999)
+
+~ no arm matches and no otherwise -> nothing happens (no error)
+make ran = "before"
+match 42:
+    is 1:
+        set ran = "matched"
+check("no match + no otherwise does nothing", ran, "before")
+
+show "ok: pattern matching ran"

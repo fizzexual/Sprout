@@ -92,7 +92,8 @@ language runs now:
 - **Text templates:** `f"Hi {name}, you have {x + y} points"` — values drop straight in
 - Math `+ - * / %` with precedence and `( )`; `+` also joins text
 - Compare `== != < <= > >=`, logic `and` `or` `not`, **membership** `x in xs`, **fallback** `a or else b` (use `b` if `a` is `nothing`)
-- `when` / `orwhen` / `otherwise`, `repeat N times`, `repeat while`, and **`stop`** / **`skip`** to leave or skip a loop turn
+- `when` / `orwhen` / `otherwise`, `repeat N times`, `repeat while`, **`stop`** / **`skip`** to leave or skip a loop turn, and **`match`** with destructuring patterns
+- **Pattern matching** — `match value:` with `is "start":` / `is [a, b]:` / `is {name, age}:` arms that compare *or* pull a list/map apart, plus `otherwise`
 - **Error handling:** `try:` / `caught problem:` to catch a runtime error (the caught error is a map `{message, kind, line}`), and `fail "message"` (or `fail {...}`) to raise your own
 - `task` / `give`, function calls, **recursion**, proper scope — **tasks are first-class values** you can store, pass, and call (`make f = double`, `map(xs, double)`, `filter`, `reduce`), plus **lambdas + closures**: anonymous inline tasks that capture surrounding variables (`map(xs, task(n): n * 2)`, `task adder(by): give task(x): x + by`)
 - **Lists** `[1, 2, 3]` and **maps** `{name: "Sam"}` — indexing, `set xs[i] = …`, `range`, **`a to b` ranges**, **list comprehensions** (`[n*2 for each n in xs when n > 0]`), and `for each` (`for each item in xs`, or `for each key, value in m`)
@@ -173,7 +174,7 @@ build.cmd                     # or: gcc -O2 -Wall -s -o sprout.exe sprout.c -lm 
 
 # run a program:
 sprout run hello.sprout     # or just: sprout hello.sprout
-sprout version              # -> Sprout v0.0.25
+sprout version              # -> Sprout v0.0.26
 sprout new myapp            # create a full multi-file project folder
 sprout build                # run the project in the current folder (reads sprout.toml)
 sprout test                 # run your tests (a file, or every tests/*.sprout)
@@ -308,6 +309,28 @@ show [upper(c) for each c in "abc"]              # -> ["A", "B", "C"]
 ```
 
 It's just a list, so it composes with everything (`sum([…])`, `map`, a lambda inside).
+
+**Pattern matching (`match`)** *(v0.0.26)*. `match value:` checks a value against `is`
+arms in order and runs the first that fits, with an optional `otherwise`:
+
+```
+match command:
+    is "start":   show "go"            # a literal/value — compared with ==
+    is "stop":    show "halt"
+    is [a, b]:    show a + " & " + b    # a 2-item list — pulls it apart, binds a, b
+    is {name, age}:                     # a map with those keys — binds name, age
+        show name + " is " + age
+    otherwise:    show "no idea"
+```
+
+Three kinds of pattern: a **value** (any expression — `is 0`, `is "x"`, `is yes`,
+`is nothing`, even `is [1, 2]` — matched with `==`); a **list-destructure**
+`is [a, b]` (matches a list of *exactly* that length and binds each item to a name);
+and a **map-destructure** `is {name, age}` (matches a map that has *all* those keys
+and binds each to a same-named variable). The bound names live only inside that arm.
+The rule of thumb: **bare names** in `[ ]`/`{ }` mean *destructure*; anything else
+(`[1, 2]`, `{a: 1}`) is a **value** compared with `==`. If nothing matches and there's
+no `otherwise`, the `match` does nothing (like a `when` with no `otherwise`).
 
 **Lists & maps are shared references — this is load-bearing.** `make b = a` does
 **not** copy; `a` and `b` are the *same* list/map, so `add(b, 3)` changes `a` too,
@@ -512,7 +535,7 @@ Every corner case decided and tested. One rule each:
 
 ```
 make set show when orwhen otherwise repeat while times task give
-for each in to use public private learn test expect and or not yes no nothing
+for each in to match is use public private learn test expect and or not yes no nothing
 try caught fail stop skip
 ```
 (`else` is **not** reserved — it's only meaningful right after `or` (the `or else`
@@ -644,6 +667,7 @@ v0.1.0 freeze:
 14. ✅ **Standard-library batch (v0.0.21)** — `sum` `count` `unique` `zip` `flatten` `slice` (lists/text), `words` `lines` `title` (text), and `seed` (reproducible `random`).
 15. ✅ **Lambdas + closures (v0.0.24)** — anonymous inline tasks (`task(x): x * 2`, one-line body is an implicit `give`) that capture the surrounding variables; each evaluation captures fresh, capture is by-reference.
 16. ✅ **Ranges + comprehensions (v0.0.25)** — `a to b` inclusive ranges (counts up or down) and one-line list comprehensions `[expr for each x in xs when cond]` over lists, ranges, text, or maps.
+17. ✅ **Pattern matching (v0.0.26)** — `match value:` with `is <pattern>:` arms (value/literal, list-destructure `[a, b]`, map-destructure `{name, age}`) and `otherwise`.
 
 The cycle continues toward **v0.1.0 — the freeze that's meant to hold**. The full,
 sequenced plan — first-class tasks, collections superpowers, user types, a memory
@@ -683,7 +707,7 @@ There's a **[VS Code extension](vscode-extension)** for syntax highlighting too.
 
 ## Known limitations & open questions
 
-Sprout is **v0.0.25** — early, and deliberately small. Honest about the edges:
+Sprout is **v0.0.26** — early, and deliberately small. Honest about the edges:
 spotting more (or telling me which matter most) is exactly the feedback I want —
 [issues](https://github.com/fizzexual/Sprout/issues) /
 [discussions](https://github.com/fizzexual/Sprout/discussions) welcome.
