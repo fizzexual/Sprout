@@ -259,6 +259,9 @@ typedef enum {
 typedef struct { TokType type; char *text; double num; int line; } Token;
 
 static Token *toks = NULL; static int ntok = 0, captok = 0;
+/* depth of open ( ) [ ] { }. While > 0, the tokenizer suppresses NEWLINE/INDENT/DEDENT so a
+   list, map, or call can span several lines (Python-style implicit line joining). */
+static int g_bracket_depth = 0;
 static void push_tok(TokType type, char *text, double num, int line) {
   if (ntok >= captok) { captok = captok ? captok * 2 : 128; toks = (Token *)realloc(toks, captok * sizeof(Token)); }
   Token t; t.type = type; t.text = text; t.num = num; t.line = line; toks[ntok++] = t;
@@ -327,12 +330,12 @@ static void scan_token(const char *src, int *ip, int len, int line) {
     case '*': if (i + 1 < len && src[i + 1] == '=') { push_tok(T_STAREQ,    NULL, 0, line); i += 2; } else { push_tok(T_STAR,    NULL, 0, line); i++; } break;
     case '/': if (i + 1 < len && src[i + 1] == '=') { push_tok(T_SLASHEQ,   NULL, 0, line); i += 2; } else { push_tok(T_SLASH,   NULL, 0, line); i++; } break;
     case '%': if (i + 1 < len && src[i + 1] == '=') { push_tok(T_PERCENTEQ, NULL, 0, line); i += 2; } else { push_tok(T_PERCENT, NULL, 0, line); i++; } break;
-    case '(': push_tok(T_LPAREN, NULL, 0, line); i++; break;
-    case ')': push_tok(T_RPAREN, NULL, 0, line); i++; break;
-    case '[': push_tok(T_LBRACK, NULL, 0, line); i++; break;
-    case ']': push_tok(T_RBRACK, NULL, 0, line); i++; break;
-    case '{': push_tok(T_LBRACE, NULL, 0, line); i++; break;
-    case '}': push_tok(T_RBRACE, NULL, 0, line); i++; break;
+    case '(': push_tok(T_LPAREN, NULL, 0, line); g_bracket_depth++; i++; break;
+    case ')': push_tok(T_RPAREN, NULL, 0, line); if (g_bracket_depth > 0) g_bracket_depth--; i++; break;
+    case '[': push_tok(T_LBRACK, NULL, 0, line); g_bracket_depth++; i++; break;
+    case ']': push_tok(T_RBRACK, NULL, 0, line); if (g_bracket_depth > 0) g_bracket_depth--; i++; break;
+    case '{': push_tok(T_LBRACE, NULL, 0, line); g_bracket_depth++; i++; break;
+    case '}': push_tok(T_RBRACE, NULL, 0, line); if (g_bracket_depth > 0) g_bracket_depth--; i++; break;
     case ',': push_tok(T_COMMA, NULL, 0, line); i++; break;
     case '.': push_tok(T_DOT, NULL, 0, line); i++; break;
     case ':': push_tok(T_COLON, NULL, 0, line); i++; break;
@@ -404,6 +407,7 @@ static void scan_fstring(const char *src, int *ip, int len, int line) {
 static void tokenize(const char *src, int len) {
   int indents[256]; int top = 0; indents[0] = 0;
   int i = 0, line = 0;
+  g_bracket_depth = 0;
   while (i < len) {
     line++;
     int lineStart = i;
@@ -415,10 +419,12 @@ static void tokenize(const char *src, int len) {
       if (i < len) i++;
       continue;
     }
-    /* indentation changes */
-    if (spaces > indents[top]) { indents[++top] = spaces; push_tok(T_INDENT, NULL, 0, line); }
-    while (spaces < indents[top]) { top--; push_tok(T_DEDENT, NULL, 0, line); }
-    if (spaces != indents[top]) fail(line, "the indentation doesn't line up with the block.");
+    /* indentation changes — but NOT while inside ( ) [ ] { }, where leading space is just padding */
+    if (g_bracket_depth == 0) {
+      if (spaces > indents[top]) { indents[++top] = spaces; push_tok(T_INDENT, NULL, 0, line); }
+      while (spaces < indents[top]) { top--; push_tok(T_DEDENT, NULL, 0, line); }
+      if (spaces != indents[top]) fail(line, "the indentation doesn't line up with the block.");
+    }
     /* tokens on this line */
     while (i < len && src[i] != '\n' && src[i] != '\r') {
       char c = src[i];
@@ -426,7 +432,8 @@ static void tokenize(const char *src, int len) {
       if (c == '~') { while (i < len && src[i] != '\n') i++; break; }
       scan_token(src, &i, len, line);
     }
-    push_tok(T_NEWLINE, NULL, 0, line);
+    /* an unfinished line inside brackets joins the next one — no statement break here */
+    if (g_bracket_depth == 0) push_tok(T_NEWLINE, NULL, 0, line);
     while (i < len && src[i] != '\n') i++;
     if (i < len) i++;
     (void)lineStart;
@@ -507,6 +514,7 @@ static Expr *primary(void) {
     Expr **items = NULL; int n = 0, cap = 0;
     items = (Expr **)realloc(items, (cap = 4) * sizeof(Expr *)); items[n++] = first;
     while (match(T_COMMA)) {
+      if (check(T_RBRACK)) break;                /* a trailing comma is fine */
       if (n >= cap) { cap *= 2; items = (Expr **)realloc(items, cap * sizeof(Expr *)); }
       items[n++] = expression();
     }
@@ -518,6 +526,7 @@ static Expr *primary(void) {
     Expr **vals = NULL; char **keys = NULL; int n = 0, cap = 0;
     if (!check(T_RBRACE)) {
       do {
+        if (check(T_RBRACE)) break;             /* a trailing comma is fine */
         Token k = peek();
         int wordlike = (k.type == T_IDENT || k.type == T_STR || (k.type >= T_MAKE && k.type <= T_NOTHING));
         if (!wordlike) fail(k.line, "I expected a key name in this map.");
@@ -545,6 +554,7 @@ static Expr *primary(void) {
       Expr **args = NULL; int n = 0, cap = 0;
       if (!check(T_RPAREN)) {
         do {
+          if (check(T_RPAREN)) break;           /* a trailing comma is fine */
           if (n >= cap) { cap = cap ? cap * 2 : 4; args = (Expr **)realloc(args, cap * sizeof(Expr *)); }
           args[n++] = expression();
         } while (match(T_COMMA));
@@ -735,6 +745,8 @@ static Stmt *statement(void) {
       advance(); Stmt *s = new_stmt(S_SHOW, t.line);
       Expr **vals = NULL; int n = 0, cap = 0;
       do {
+        /* a trailing comma is fine (show ends at the line, so check the line terminators) */
+        if (n > 0 && (check(T_NEWLINE) || check(T_DEDENT) || check(T_EOF))) break;
         if (n >= cap) { cap = cap ? cap * 2 : 4; vals = (Expr **)realloc(vals, cap * sizeof(Expr *)); }
         vals[n++] = expression();
       } while (match(T_COMMA));
@@ -774,6 +786,7 @@ static Stmt *statement(void) {
             char **names = NULL; int nn = 0, ncap = 0, ok = 1;
             if (!check(T_RBRACK)) {
               do {
+                if (check(T_RBRACK)) break;             /* a trailing comma is fine */
                 if (!check(T_IDENT)) { ok = 0; break; }
                 if (nn >= ncap) { ncap = ncap ? ncap * 2 : 4; names = (char **)realloc(names, ncap * sizeof(char *)); }
                 names[nn++] = advance().text;
@@ -786,6 +799,7 @@ static Stmt *statement(void) {
             char **names = NULL; int nn = 0, ncap = 0, ok = 1;
             if (!check(T_RBRACE)) {
               do {
+                if (check(T_RBRACE)) break;            /* a trailing comma is fine */
                 if (!check(T_IDENT)) { ok = 0; break; }
                 char *kn = advance().text;
                 if (check(T_COLON)) { ok = 0; break; }   /* `key: value` -> a map literal, not a binding */
@@ -1006,7 +1020,14 @@ static Expr *parse_anon_task(int line) {
     /* a bare `give` (no value) is allowed, just like in a named task — it gives nothing */
     int ends_here = check(T_NEWLINE) || check(T_DEDENT) || check(T_EOF) ||
                     check(T_RPAREN)  || check(T_RBRACK) || check(T_RBRACE) || check(T_COMMA);
-    if (!(had_give && ends_here)) g->expr = expression();
+    if (!(had_give && ends_here)) {
+      TokType nx = peek().type;     /* a statement keyword here means a multi-step body got flattened to one line */
+      if (nx == T_MAKE || nx == T_SET || nx == T_SHOW || nx == T_WHEN || nx == T_REPEAT || nx == T_FOR ||
+          nx == T_MATCH || nx == T_TRY || nx == T_USE || nx == T_LEARN || nx == T_TEST || nx == T_STOP ||
+          nx == T_SKIP || nx == T_PUBLIC || nx == T_PRIVATE)
+        fail(line, "a one-line lambda body must be a single expression. For several steps, write the task on its own indented lines (and inside a list/map/call, give it a name first with 'make').");
+      g->expr = expression();
+    }
     body = (Stmt **)malloc(sizeof(Stmt *)); body[0] = g; nbody = 1;
   }
   g_in_task = save_in_task;
@@ -2416,7 +2437,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.0.27"
+#define SPROUT_VERSION "0.0.28"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);

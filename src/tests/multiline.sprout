@@ -1,0 +1,107 @@
+~ v0.0.28: list/map/call literals may span multiple lines (newlines inside ( ) [ ] { } are
+~ ignored), and a trailing comma is allowed. Guarded script: prints "FAIL ..." on a wrong result.
+
+task check(label, got, want):
+    when got != want:
+        show "FAIL", label, "- got", got, "wanted", want
+
+~ ---------- multi-line list ----------
+make nums = [
+    1,
+    2,
+    3,
+    4
+]
+check("multi-line list length", length(nums), 4)
+check("multi-line list contents", nums, [1, 2, 3, 4])
+
+~ ---------- multi-line map (with a nested list) ----------
+make config = {
+    host: "localhost",
+    port: 8080,
+    tags: ["a", "b", "c"]
+}
+check("multi-line map value", config["port"], 8080)
+check("multi-line map nested list", config["tags"], ["a", "b", "c"])
+
+~ ---------- multi-line list of maps ----------
+make people = [
+    {name: "Ada", age: 36},
+    {name: "Mo", age: 17},
+    {name: "Sam", age: 52}
+]
+check("list of maps length", length(people), 3)
+check("list of maps field", people[2]["name"], "Sam")
+
+~ ---------- multi-line call arguments ----------
+make add3 = task(a, b, c): a + b + c
+check("multi-line call", add3(
+    100,
+    20,
+    3
+), 123)
+
+~ ---------- trailing commas (multi- and single-line) ----------
+check("trailing comma in a list", [1, 2, 3,], [1, 2, 3])
+check("trailing comma in a map", {a: 1, b: 2,}, {a: 1, b: 2})
+make twice = task(x): x * 2
+check("trailing comma in a call", twice(21,), 42)
+check("multi-line list with trailing comma", [
+    10,
+    20,
+], [10, 20])
+
+~ ---------- blank lines and comments inside brackets are ignored ----------
+make spaced = [
+
+    1,
+    ~ a comment in the middle
+    2,
+
+    3
+]
+check("blanks + comments inside brackets", spaced, [1, 2, 3])
+
+~ ---------- a multi-line literal INSIDE an indented block (indent stack stays balanced) ----------
+task total_of():
+    make xs = [
+        5,
+        10,
+        15
+    ]
+    make t = 0
+    for each x in xs:
+        set t += x
+    give t
+check("multi-line literal inside a task body", total_of(), 30)
+
+~ ---------- nested deeply, and composing with the v0.0.24-27 features ----------
+make grid = [
+    [1, 2, 3],
+    [4, 5, 6],
+]
+check("nested multi-line grid", grid[1][2], 6)
+check("multi-line + pipe + comprehension", [
+    1, 2, 3, 4, 5, 6,
+] |> filter(task(n): n % 2 == 0) |> sum, 12)
+
+~ ---------- trailing commas everywhere they make sense ----------
+~ match-arm destructuring patterns also accept a trailing comma
+task pair_or(p):
+    match p:
+        is [a, b,]:
+            give a + b
+        is {x, y,}:
+            give x + y
+        otherwise:
+            give -1
+check("list-destructure pattern + trailing comma", pair_or([3, 4]), 7)
+check("map-destructure pattern + trailing comma", pair_or({x: 10, y: 5}), 15)
+~ `show` tolerates a trailing comma too (just needs to not error)
+show 1, 2,
+
+~ ---------- single-line literals are unchanged ----------
+check("single-line list still works", [1, 2, 3], [1, 2, 3])
+check("single-line map still works", {x: 1, y: 2}["y"], 2)
+
+show "ok: multi-line literals ran"

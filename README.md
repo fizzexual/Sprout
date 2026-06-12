@@ -175,7 +175,7 @@ build.cmd                     # or: gcc -O2 -Wall -s -o sprout.exe sprout.c -lm 
 
 # run a program:
 sprout run hello.sprout     # or just: sprout hello.sprout
-sprout version              # -> Sprout v0.0.27
+sprout version              # -> Sprout v0.0.28
 sprout new myapp            # create a full multi-file project folder
 sprout build                # run the project in the current folder (reads sprout.toml)
 sprout test                 # run your tests (a file, or every tests/*.sprout)
@@ -403,6 +403,11 @@ make classify = task(v):               # multi-line block body
     otherwise:
         give "non-positive"
 ```
+
+> Inside a multi-line `[ ]` / `{ }` / `( )` literal, a lambda must use a **one-line
+> body** (newlines there are ignored, so a `when`/multi-step block can't be detected).
+> For a multi-step lambda in a list/map/call, `make` it with a name first and use the
+> name. Sprout tells you this if you hit it.
 
 Unlike a named task, a **lambda is a closure**: it *captures the surrounding
 variables* and keeps them alive. So you can build tasks that remember:
@@ -638,6 +643,17 @@ number     = digits [ "." digits ] [ ("e"|"E") ["+"|"-"] digits ] ;  (* 42, 2.5,
   there's no fixed size). A decrease must return **exactly** to a previous level, or
   you get *"the indentation doesn't line up with the block."*
 - Blank lines and `~`-comment-only lines don't affect indentation.
+- **Inside `( )`, `[ ]`, or `{ }` newlines and indentation are ignored** *(v0.0.28)* —
+  a list, map, or call can span as many lines as you like, and a **trailing comma** is
+  allowed, so each item gets its own line and reorders cleanly:
+
+  ```
+  make people = [
+      {name: "Ada", age: 36},
+      {name: "Mo",  age: 17},
+  ]
+  ```
+  (Text literals still can't span lines — join with `\n`.)
 
 > **Tested.** The behaviors above are exercised by the suite in
 > [`src/tests/`](src/tests), run in **CI on Linux, macOS, and Windows**
@@ -685,6 +701,7 @@ v0.1.0 freeze:
 16. ✅ **Ranges + comprehensions (v0.0.25)** — `a to b` inclusive ranges (counts up or down) and one-line list comprehensions `[expr for each x in xs when cond]` over lists, ranges, text, or maps.
 17. ✅ **Pattern matching (v0.0.26)** — `match value:` with `is <pattern>:` arms (value/literal, list-destructure `[a, b]`, map-destructure `{name, age}`) and `otherwise`.
 18. ✅ **Pipe operator (v0.0.27)** — `x |> f` is `f(x)` and `x |> f(a)` is `f(x, a)`; left-associative, so `data |> filter(is_even) |> map(double) |> sum` reads top to bottom.
+19. ✅ **Multi-line literals (v0.0.28)** — lists, maps, and call arguments may span multiple lines (newlines inside `( ) [ ] { }` are ignored), with an optional trailing comma.
 
 The cycle continues toward **v0.1.0 — the freeze that's meant to hold**. The full,
 sequenced plan — first-class tasks, collections superpowers, user types, a memory
@@ -724,7 +741,7 @@ There's a **[VS Code extension](vscode-extension)** for syntax highlighting too.
 
 ## Known limitations & open questions
 
-Sprout is **v0.0.27** — early, and deliberately small. Honest about the edges:
+Sprout is **v0.0.28** — early, and deliberately small. Honest about the edges:
 spotting more (or telling me which matter most) is exactly the feedback I want —
 [issues](https://github.com/fizzexual/Sprout/issues) /
 [discussions](https://github.com/fizzexual/Sprout/discussions) welcome.
