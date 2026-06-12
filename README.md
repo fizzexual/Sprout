@@ -95,7 +95,7 @@ language runs now:
 - `when` / `orwhen` / `otherwise`, `repeat N times`, `repeat while`, and **`stop`** / **`skip`** to leave or skip a loop turn
 - **Error handling:** `try:` / `caught problem:` to catch a runtime error (the caught error is a map `{message, kind, line}`), and `fail "message"` (or `fail {...}`) to raise your own
 - `task` / `give`, function calls, **recursion**, proper scope — **tasks are first-class values** you can store, pass, and call (`make f = double`, `map(xs, double)`, `filter`, `reduce`), plus **lambdas + closures**: anonymous inline tasks that capture surrounding variables (`map(xs, task(n): n * 2)`, `task adder(by): give task(x): x + by`)
-- **Lists** `[1, 2, 3]` and **maps** `{name: "Sam"}` — indexing, `set xs[i] = …`, `range`, and `for each` (`for each item in xs`, or `for each key, value in m`)
+- **Lists** `[1, 2, 3]` and **maps** `{name: "Sam"}` — indexing, `set xs[i] = …`, `range`, **`a to b` ranges**, **list comprehensions** (`[n*2 for each n in xs when n > 0]`), and `for each` (`for each item in xs`, or `for each key, value in m`)
 - **`learn on`** — Sprout narrates each step as it runs: values, **which `when` branch ran, every loop turn, and each task call + what it gave back** (plus **friendly errors** that say *"did you mean…?"*)
 - **Built-in testing** — `test "name": expect …`, plus **`expect error "kind":`** to assert that a block fails; run with `sprout test`
 - **Toolbox:** `length` `add` `remove` `insert` `keys` `values` `contains` `first` `last` `index_of` `sort` `reverse` `copy` `kind_of` `map` `filter` `reduce` `sum` `count` `unique` `zip` `flatten` `slice` `range` · `sqrt` `pow` `abs` `round` `floor` `ceil` `min` `max` `random` `seed` `number` · `upper` `lower` `trim` `replace` `split` `join` `starts_with` `ends_with` `words` `lines` `title` · `now` `today` `wait` · `ask` · `color` (terminal colour)
@@ -173,7 +173,7 @@ build.cmd                     # or: gcc -O2 -Wall -s -o sprout.exe sprout.c -lm 
 
 # run a program:
 sprout run hello.sprout     # or just: sprout hello.sprout
-sprout version              # -> Sprout v0.0.24
+sprout version              # -> Sprout v0.0.25
 sprout new myapp            # create a full multi-file project folder
 sprout build                # run the project in the current folder (reads sprout.toml)
 sprout test                 # run your tests (a file, or every tests/*.sprout)
@@ -282,6 +282,32 @@ its keys** (in insertion order); use `m[key]` for the value, or bind both with a
 comma: **`for each key, value in m`**. With two names over a *list* or *text* you get
 **`for each index, item`** (the index is 0-based). **Map key order is insertion
 order; `remove`ing a key then setting it again puts it at the back.**
+
+**Ranges (`a to b`) and comprehensions** *(v0.0.25)*. **`a to b`** is an **inclusive**
+range of whole numbers — `1 to 5` is `[1, 2, 3, 4, 5]` and `3 to 3` is `[3]`. If the
+start is past the end it's **empty** (`1 to 0` is `[]`, so `for each i in 1 to count`
+does nothing when `count` is 0 — no surprise reverse); to count down, use
+`reverse(1 to 5)`. It binds looser than arithmetic, so `1 to n + 1` means
+`1 to (n + 1)`. (It's the human-friendly, inclusive sibling of the 0-based,
+end-exclusive `range(n)` / `range(a, b)` builtin.) Ranges are ordinary lists,
+so they drive loops and the toolbox directly:
+
+```
+for each i in 1 to 10:   ...        # 1, 2, … 10
+show sum(1 to 100)                  # -> 5050
+```
+
+A **list comprehension** builds a list in one line — `[expr for each x in xs]`, with an
+optional **`when`** filter — over a list, a range, text (its characters), or a map (its
+keys):
+
+```
+show [n * 2 for each n in [1, 2, 3]]              # -> [2, 4, 6]
+show [i * i for each i in 1 to 10 when i % 2 == 0]  # -> [4, 16, 36, 64, 100]
+show [upper(c) for each c in "abc"]              # -> ["A", "B", "C"]
+```
+
+It's just a list, so it composes with everything (`sum([…])`, `map`, a lambda inside).
 
 **Lists & maps are shared references — this is load-bearing.** `make b = a` does
 **not** copy; `a` and `b` are the *same* list/map, so `add(b, 3)` changes `a` too,
@@ -486,7 +512,7 @@ Every corner case decided and tested. One rule each:
 
 ```
 make set show when orwhen otherwise repeat while times task give
-for each in use public private learn test expect and or not yes no nothing
+for each in to use public private learn test expect and or not yes no nothing
 try caught fail stop skip
 ```
 (`else` is **not** reserved — it's only meaningful right after `or` (the `or else`
@@ -617,6 +643,7 @@ v0.1.0 freeze:
 13. ✅ **First-class tasks (v0.0.20)** — a task is a value you can store, pass, return, and call, plus the higher-order builtins `map` / `filter` / `reduce`.
 14. ✅ **Standard-library batch (v0.0.21)** — `sum` `count` `unique` `zip` `flatten` `slice` (lists/text), `words` `lines` `title` (text), and `seed` (reproducible `random`).
 15. ✅ **Lambdas + closures (v0.0.24)** — anonymous inline tasks (`task(x): x * 2`, one-line body is an implicit `give`) that capture the surrounding variables; each evaluation captures fresh, capture is by-reference.
+16. ✅ **Ranges + comprehensions (v0.0.25)** — `a to b` inclusive ranges (counts up or down) and one-line list comprehensions `[expr for each x in xs when cond]` over lists, ranges, text, or maps.
 
 The cycle continues toward **v0.1.0 — the freeze that's meant to hold**. The full,
 sequenced plan — first-class tasks, collections superpowers, user types, a memory
@@ -656,7 +683,7 @@ There's a **[VS Code extension](vscode-extension)** for syntax highlighting too.
 
 ## Known limitations & open questions
 
-Sprout is **v0.0.24** — early, and deliberately small. Honest about the edges:
+Sprout is **v0.0.25** — early, and deliberately small. Honest about the edges:
 spotting more (or telling me which matter most) is exactly the feedback I want —
 [issues](https://github.com/fizzexual/Sprout/issues) /
 [discussions](https://github.com/fizzexual/Sprout/discussions) welcome.

@@ -29,6 +29,12 @@ test "type kind: comparing and 'in' across kinds":
     expect error "type":
         show 5 in "hello"
 
+test "type kind: a range needs whole numbers":
+    expect error "type":
+        show "a" to 5
+    expect error "type":
+        show 1.5 to 3
+
 test "type kind: indexing with the wrong kind":
     expect error "type":
         make xs = [1, 2]

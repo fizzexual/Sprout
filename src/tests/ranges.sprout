@@ -1,0 +1,47 @@
+~ v0.0.25 ranges (a to b, inclusive) + list comprehensions [expr for each x in xs when cond].
+~ Guarded script: prints "FAIL ..." on any wrong result.
+
+task check(label, got, want):
+    when got != want:
+        show "FAIL", label, "- got", got, "wanted", want
+
+~ ---------- ranges: a to b, inclusive both ends ----------
+check("ascending range", 1 to 5, [1, 2, 3, 4, 5])
+check("single-element range", 3 to 3, [3])
+check("reversed range is empty (no silent count-down)", 5 to 1, [])
+check("count down with reverse()", reverse(1 to 5), [5, 4, 3, 2, 1])
+check("negative range", -2 to 2, [-2, -1, 0, 1, 2])
+check("range 1 to 0 is empty (the for-each-with-zero case)", 1 to 0, [])
+
+~ precedence: `to` binds looser than + - * /
+make n = 4
+check("range endpoint is an expression", 1 to n + 1, [1, 2, 3, 4, 5])
+check("range from arithmetic", 2 * 2 to 3 * 2, [4, 5, 6])
+
+~ ranges drive loops and stdlib
+make total = 0
+for each i in 1 to 10:
+    set total += i
+check("for each over a range", total, 55)
+check("sum over a range", sum(1 to 100), 5050)
+check("length of a range", length(1 to 7), 7)
+
+~ ---------- comprehensions: [expr for each x in xs] ----------
+make nums = [1, 2, 3, 4, 5, 6]
+check("map comprehension", [x * 2 for each x in nums], [2, 4, 6, 8, 10, 12])
+check("filtered comprehension", [x for each x in nums when x % 2 == 0], [2, 4, 6])
+check("comprehension can transform + filter", [x * x for each x in nums when x > 3], [16, 25, 36])
+check("comprehension over text (chars)", [upper(c) for each c in "abc"], ["A", "B", "C"])
+check("comprehension over a map (keys)", [k for each k in {a: 1, b: 2}], ["a", "b"])
+check("filter that excludes everything", [x for each x in nums when x > 100], [])
+
+~ ---------- ranges + comprehensions + lambdas, composed ----------
+check("comprehension over a range", [i * i for each i in 1 to 5], [1, 4, 9, 16, 25])
+check("squares of evens 1..10", [i * i for each i in 1 to 10 when i % 2 == 0], [4, 16, 36, 64, 100])
+make sq = task(x): x * x
+check("comprehension calling a lambda", [sq(i) for each i in 1 to 4], [1, 4, 9, 16])
+
+~ a comprehension is just a list — it composes with everything
+check("sum of a comprehension", sum([n for each n in 1 to 10 when n % 3 == 0]), 18)
+
+show "ok: ranges + comprehensions ran"

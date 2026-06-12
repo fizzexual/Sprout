@@ -245,7 +245,7 @@ static Value current_error_value(void) {
 typedef enum {
   T_NUM, T_STR, T_IDENT,
   T_MAKE, T_SET, T_SHOW, T_WHEN, T_ORWHEN, T_OTHERWISE, T_REPEAT, T_WHILE, T_TIMES,
-  T_TASK, T_GIVE, T_FOR, T_EACH, T_IN, T_USE, T_PUBLIC, T_PRIVATE, T_LEARN, T_TEST, T_EXPECT,
+  T_TASK, T_GIVE, T_FOR, T_EACH, T_IN, T_TO, T_USE, T_PUBLIC, T_PRIVATE, T_LEARN, T_TEST, T_EXPECT,
   T_TRY, T_CAUGHT, T_FAIL, T_STOP, T_SKIP,
   T_AND, T_OR, T_NOT, T_YES, T_NO, T_NOTHING,
   T_PLUS, T_MINUS, T_STAR, T_SLASH, T_PERCENT, T_DOT,
@@ -268,7 +268,7 @@ static TokType keyword(const char *w) {
     { "make", T_MAKE }, { "set", T_SET }, { "show", T_SHOW }, { "when", T_WHEN },
     { "orwhen", T_ORWHEN }, { "otherwise", T_OTHERWISE }, { "repeat", T_REPEAT },
     { "while", T_WHILE }, { "times", T_TIMES }, { "task", T_TASK }, { "give", T_GIVE },
-    { "for", T_FOR }, { "each", T_EACH }, { "in", T_IN }, { "use", T_USE },
+    { "for", T_FOR }, { "each", T_EACH }, { "in", T_IN }, { "to", T_TO }, { "use", T_USE },
     { "public", T_PUBLIC }, { "private", T_PRIVATE }, { "learn", T_LEARN },
     { "test", T_TEST }, { "expect", T_EXPECT },
     { "try", T_TRY }, { "caught", T_CAUGHT }, { "fail", T_FAIL }, { "stop", T_STOP }, { "skip", T_SKIP },
@@ -433,7 +433,7 @@ static void tokenize(const char *src, int len) {
 }
 
 /* ---------------------------------------------------------------------- AST */
-typedef enum { E_NUM, E_STR, E_BOOL, E_NONE, E_VAR, E_UNARY, E_BINARY, E_LOGICAL, E_COALESCE, E_CALL, E_LIST, E_MAP, E_INDEX, E_MEMBER, E_LAMBDA } EKind;
+typedef enum { E_NUM, E_STR, E_BOOL, E_NONE, E_VAR, E_UNARY, E_BINARY, E_LOGICAL, E_COALESCE, E_CALL, E_LIST, E_MAP, E_INDEX, E_MEMBER, E_LAMBDA, E_RANGE, E_COMPREHENSION } EKind;
 typedef struct Expr {
   EKind kind; double num; char *str; int boolean; char *name; char *module;  /* module: server.name */
   TokType op; struct Expr *left, *right, *operand; int line;
@@ -480,14 +480,27 @@ static Expr *primary(void) {
   if (match(T_NO))      { Expr *e = new_expr(E_BOOL, t.line); e->boolean = 0; return e; }
   if (match(T_NOTHING)) { return new_expr(E_NONE, t.line); }
   if (match(T_TASK))    { return parse_anon_task(t.line); }   /* a lambda: task(x): x * 2 */
-  if (match(T_LBRACK)) {              /* a list: [a, b, c] */
-    Expr *e = new_expr(E_LIST, t.line);
+  if (match(T_LBRACK)) {              /* a list [a, b, c] OR a comprehension [expr for each x in xs] */
+    if (check(T_RBRACK)) { advance(); Expr *e = new_expr(E_LIST, t.line); return e; }   /* the empty list */
+    Expr *first = expression();
+    if (check(T_FOR)) {               /* a comprehension: [expr for each x in xs (when cond)] */
+      advance();                                                /* 'for' */
+      expect(T_EACH, "I expected 'each' after 'for', like [n * 2 for each n in xs].");
+      Token var = expect(T_IDENT, "I expected a name after 'for each' here.");
+      expect(T_IN, "I expected 'in' here, like [n * 2 for each n in xs].");
+      Expr *iter = expression();
+      Expr *filt = NULL;
+      if (match(T_WHEN)) filt = expression();                   /* an optional filter */
+      expect(T_RBRACK, "I expected a ']' to close the comprehension.");
+      Expr *e = new_expr(E_COMPREHENSION, t.line);
+      e->left = first; e->right = iter; e->operand = filt; e->name = var.text; return e;
+    }
+    Expr *e = new_expr(E_LIST, t.line);                          /* an ordinary list */
     Expr **items = NULL; int n = 0, cap = 0;
-    if (!check(T_RBRACK)) {
-      do {
-        if (n >= cap) { cap = cap ? cap * 2 : 4; items = (Expr **)realloc(items, cap * sizeof(Expr *)); }
-        items[n++] = expression();
-      } while (match(T_COMMA));
+    items = (Expr **)realloc(items, (cap = 4) * sizeof(Expr *)); items[n++] = first;
+    while (match(T_COMMA)) {
+      if (n >= cap) { cap *= 2; items = (Expr **)realloc(items, cap * sizeof(Expr *)); }
+      items[n++] = expression();
     }
     expect(T_RBRACK, "I expected a ']' to close the list.");
     e->args = items; e->nargs = n; return e;
@@ -568,16 +581,27 @@ static Expr *binary_level(Expr *(*next)(void), const TokType *ops, int nops, int
 }
 static Expr *factor(void)     { static const TokType o[] = { T_STAR, T_SLASH, T_PERCENT }; return binary_level(unary, o, 3, 0); }
 static Expr *term(void)       { static const TokType o[] = { T_PLUS, T_MINUS }; return binary_level(factor, o, 2, 0); }
+/* a range:  a to b  (inclusive both ends). Binds looser than +,-,*,/ (so `1 to n + 1`
+   is `1 to (n+1)`) but tighter than comparisons. A single `to` only — it does not chain. */
+static Expr *range_expr(void) {
+  Expr *left = term();
+  if (check(T_TO)) {
+    int line = peek().line; advance();
+    Expr *right = term();
+    Expr *e = new_expr(E_RANGE, line); e->left = left; e->right = right; return e;
+  }
+  return left;
+}
 /* comparisons do NOT chain: `a < b < c` is a friendly error (use 'and'), not a confusing
    (a < b) < c type error. All six relational/equality ops share this one non-associative level. */
 static Expr *compare(void) {
   static const TokType o[] = { T_LT, T_LE, T_GT, T_GE, T_EQEQ, T_BANGEQ, T_IN };  /* `x in xs` = membership */
-  Expr *left = term();
+  Expr *left = range_expr();
   TokType op = T_EOF; int found = 0;
   for (int k = 0; k < 7; k++) if (check(o[k])) { op = o[k]; found = 1; break; }
   if (!found) return left;
   int line = peek().line; advance();
-  Expr *right = term();
+  Expr *right = range_expr();
   for (int k = 0; k < 7; k++) if (check(o[k])) fail(peek().line, "comparisons can't be chained - use 'and', like  a < b and b < c.");
   Expr *e = new_expr(E_BINARY, line); e->op = op; e->left = left; e->right = right; return e;
 }
@@ -1851,6 +1875,44 @@ static Value eval(Expr *e, Env *env) {
       t->file_env = cur_file_env;                     /* where a `public make` inside this lambda belongs */
       return vtask(t);
     }
+    case E_RANGE: {                                    /* a to b — an inclusive list of whole numbers */
+      Value a = eval(e->left, env), b = eval(e->right, env);
+      if (a.type != V_NUM || b.type != V_NUM) fail_kind(e->line, "type", "a range (a to b) needs two numbers.");
+      if (a.num != (double)(long long)a.num || b.num != (double)(long long)b.num) fail_kind(e->line, "type", "a range (a to b) needs whole numbers.");
+      long long lo = (long long)a.num, hi = (long long)b.num;
+      if (hi - lo >= 100000000LL) fail(e->line, "that range is too big.");   /* inclusive: caps at 100M elements, matching range() */
+      SList *out = list_new();
+      for (long long i = lo; i <= hi; i++) list_push(out, vnum((double)i));  /* inclusive; EMPTY if a > b (use reverse(a to b) to count down) */
+      return vlist(out);
+    }
+    case E_COMPREHENSION: {                            /* [expr for each x in xs (when cond)] */
+      Value it = eval(e->right, env);
+      SList *out = list_new();
+      if (it.type == V_LIST) {
+        int len = it.list ? it.list->n : 0;
+        for (int i = 0; i < len; i++) {
+          Env *be = env_new(env); env_define(be, e->name, it.list->items[i]);
+          if (!e->operand || is_truthy(eval(e->operand, be))) list_push(out, eval(e->left, be));
+        }
+      } else if (it.type == V_MAP) {                   /* loops over the keys (like `for each k in map`) */
+        int len = it.map ? it.map->n : 0;
+        for (int i = 0; i < len; i++) {
+          Env *be = env_new(env); env_define(be, e->name, vstr(dup_str(it.map->keys[i])));
+          if (!e->operand || is_truthy(eval(e->operand, be))) list_push(out, eval(e->left, be));
+        }
+      } else if (it.type == V_STR) {                   /* one whole UTF-8 character per step */
+        const char *p = it.str ? it.str : "";
+        for (int i = 0; p[i]; ) {
+          int cl = utf8_clen((unsigned char)p[i]); char ch[5]; int k = 0;
+          for (; k < cl && p[i + k]; k++) { ch[k] = p[i + k]; }
+          ch[k] = 0;
+          Env *be = env_new(env); env_define(be, e->name, vstr(dup_str(ch)));
+          if (!e->operand || is_truthy(eval(e->operand, be))) list_push(out, eval(e->left, be));
+          i += k ? k : 1;
+        }
+      } else fail_kind(e->line, "type", "a comprehension can only loop over a list, a map, or text.");
+      return vlist(out);
+    }
     case E_VAR: {
       Value *v = env_find(env, e->name);
       if (!v) {
@@ -1972,6 +2034,10 @@ static void render_expr(Expr *e, int wv, Env *env, char **o, size_t *c, size_t *
     case E_INDEX: render_expr(e->target, wv, env, o, c, l); sb_add(o, c, l, "["); render_expr(e->index, wv, env, o, c, l); sb_add(o, c, l, "]"); break;
     case E_LAMBDA: sb_add(o, c, l, "task(");
       for (int i = 0; e->lambda && i < e->lambda->nparams; i++) { if (i) sb_add(o, c, l, ", "); sb_add(o, c, l, e->lambda->params[i]); } sb_add(o, c, l, "): ..."); break;
+    case E_RANGE: render_expr(e->left, wv, env, o, c, l); sb_add(o, c, l, " to "); render_expr(e->right, wv, env, o, c, l); break;
+    case E_COMPREHENSION: sb_add(o, c, l, "["); render_expr(e->left, wv, env, o, c, l); sb_add(o, c, l, " for each ");
+      sb_add(o, c, l, e->name); sb_add(o, c, l, " in "); render_expr(e->right, wv, env, o, c, l);
+      if (e->operand) { sb_add(o, c, l, " when "); render_expr(e->operand, wv, env, o, c, l); } sb_add(o, c, l, "]"); break;
   }
   g_render_depth--;
 }
@@ -2232,7 +2298,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.0.24"
+#define SPROUT_VERSION "0.0.25"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);
