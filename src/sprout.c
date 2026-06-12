@@ -1391,7 +1391,7 @@ static Value call_builtin(Expr *call, Env *env) {
     if (n != 3 || a[0].type != V_LIST || !a[0].list) fail(call->line, "insert needs a list, a position, and a value.");
     if (a[1].type != V_NUM || a[1].num != (double)(long long)a[1].num) fail(call->line, "insert needs a whole-number position.");
     long long i = (long long)a[1].num;
-    if (i < 0 || i > a[0].list->n) fail(call->line, "that insert position is out of range (0 to the list's length).");
+    if (i < 0 || i > a[0].list->n) fail_kind(call->line, "index", "that insert position is out of range (0 to the list's length).");
     list_push(a[0].list, vnone());                   /* grow by one, then shift up */
     for (long long k = a[0].list->n - 1; k > i; k--) a[0].list->items[k] = a[0].list->items[k - 1];
     a[0].list->items[i] = a[2];
@@ -2172,7 +2172,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.0.22"
+#define SPROUT_VERSION "0.0.23"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);

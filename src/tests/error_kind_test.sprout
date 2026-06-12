@@ -1,6 +1,7 @@
-~ v0.0.22: the error-`kind` contract. `math` = a number op with no answer;
-~ `type` = a value of the wrong kind for an operator or [ ]; `index` = out of range;
-~ `error` = the generic default (incl. a built-in called the wrong way).
+~ v0.0.22/0.0.23: the error-`kind` contract. `math` = a number op with no answer;
+~ `type` = a value of the wrong kind for an operator or [ ] (incl. a non-whole
+~ position); `index` = out of range (read, set, remove, insert); `error` = the
+~ generic default (incl. a built-in called the wrong way).
 ~ A *_test.sprout file, so run.sh gates it via `sprout test` (exit code). All PASS.
 
 test "math kind: arithmetic with no answer":
@@ -25,14 +26,21 @@ test "type kind: comparing and 'in' across kinds":
         show 1 < "a"
     expect error "type":
         show 3 in 5
+    expect error "type":
+        show 5 in "hello"
 
 test "type kind: indexing with the wrong kind":
     expect error "type":
         make xs = [1, 2]
         show xs["k"]
     expect error "type":
+        make xs = [1, 2]
+        show xs[1.5]
+    expect error "type":
         make m = {a: 1}
         show m[0]
+    expect error "type":
+        show "hi"[1.5]
     expect error "type":
         make n = 5
         show n[0]
@@ -42,12 +50,19 @@ test "type kind: indexing with the wrong kind":
     expect error "type":
         make m = {a: 1}
         set m[0] = 9
+    expect error "type":
+        make n = 5
+        set n[0] = 9
 
-test "type kind: list operations on mixed or non-number items":
+test "type kind: list operations on mixed-kind items (element checks)":
     expect error "type":
         show sort([1, "a"])
     expect error "type":
         show sum([1, "a"])
+
+~ min/max are variadic over their ARGUMENTS (not list elements) — a non-number
+~ argument (or a list passed where a number is expected) is still kind "type".
+test "type kind: min/max reject non-number values":
     expect error "type":
         show min([1, "a"])
     expect error "type":
@@ -65,6 +80,9 @@ test "index kind stays separate from type":
     expect error "index":
         make xs = [1, 2]
         remove(xs, 99)
+    expect error "index":
+        make xs = [1, 2]
+        insert(xs, 99, 0)
 
 test "error kind: a built-in called the wrong way":
     expect error "error":

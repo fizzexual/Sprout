@@ -173,7 +173,7 @@ build.cmd                     # or: gcc -O2 -Wall -s -o sprout.exe sprout.c -lm 
 
 # run a program:
 sprout run hello.sprout     # or just: sprout hello.sprout
-sprout version              # -> Sprout v0.0.21
+sprout version              # -> Sprout v0.0.23
 sprout new myapp            # create a full multi-file project folder
 sprout build                # run the project in the current folder (reads sprout.toml)
 sprout test                 # run your tests (a file, or every tests/*.sprout)
@@ -357,8 +357,9 @@ statements that flip a single **global** narration flag (it is *not* scoped and 
 *not* nest — the most recent one wins, and it persists across files in a run). While
 on, it narrates the **value of each step**: `make`/`set` (the name and its new
 value) and `show` (the expression with its values substituted, then the result). It
-does **not** (yet) narrate which `when` branch ran, each loop iteration, or task
-calls/returns. Off by default.
+also narrates **control flow** — which `when` branch ran, each loop turn (`Repeat
+turn N of M`, while-loop turns, and each `for each` turn with the loop variables
+bound), and each task call plus what it gave back. Off by default.
 
 **Compound assignment.** `set x += e` is exactly `set x = x + e`, and likewise
 `-=`, `*=`, `/=`, `%=`. It works through an index too: `set xs[i] += 1` and
@@ -624,7 +625,7 @@ There's a **[VS Code extension](vscode-extension)** for syntax highlighting too.
 
 ## Known limitations & open questions
 
-Sprout is **v0.0.21** — early, and deliberately small. Honest about the edges:
+Sprout is **v0.0.23** — early, and deliberately small. Honest about the edges:
 spotting more (or telling me which matter most) is exactly the feedback I want —
 [issues](https://github.com/fizzexual/Sprout/issues) /
 [discussions](https://github.com/fizzexual/Sprout/discussions) welcome.
