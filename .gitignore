@@ -24,3 +24,16 @@ logs.txt
 botanica/icon.ico
 botanica/build/
 
+# Build artifacts — the interpreter exe is published to Releases, never committed.
+*.exe
+
+# Stray scratch / probe files. Real source lives in src/, src/tests/, modules/, etc.;
+# loose .sprout files at the repo root are throwaway experiments, not source.
+/*.sprout
+src/test_inf_behavior.sprout
+src/test_inf_json.sprout
+src/test_inf_sort.sprout
+src/test_infinity.sprout
+src/test_json_inf.sprout
+src/test_nan_behavior.sprout
+

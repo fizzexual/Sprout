@@ -1,6 +1,0 @@
-make inf = pow(10, 309)
-make nan = inf - inf
-make m = {inf_val: inf, nan_val: nan}
-show m
-show f"inf={inf}"
-show f"nan={nan}"
