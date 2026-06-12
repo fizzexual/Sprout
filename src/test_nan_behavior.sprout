@@ -1,0 +1,11 @@
+make inf = pow(10, 309)
+make nan = inf - inf
+show "nan =", nan
+show "nan == nan =", nan == nan
+show "nan > 0 =", nan > 0
+show "nan < 0 =", nan < 0
+show "nan == 0 =", nan == 0
+when nan:
+    show "nan is truthy"
+otherwise:
+    show "nan is falsy"

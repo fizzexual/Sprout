@@ -1,0 +1,101 @@
+~ Comprehensive test for v0.0.16 gaps
+
+~ TEST 1: Number parsing edge cases
+test "number parsing":
+    expect number("0") == 0
+    expect number("0.0") == 0
+    expect number("123") == 123
+    expect number("123.456") == 123.456
+    expect number("+5") == 5
+    expect number("-5") == -5
+    expect number("  42  ") == 42
+    expect number("") == nothing
+    expect number("  ") == nothing
+
+~ TEST 2: String escape edge cases  
+test "escape sequences":
+    expect "a\b" == "a" + "\\" + "b"
+    expect "a\"b" == "a\"b"
+    expect "\n" == "\n"
+    expect "\t" == "\t"
+
+~ TEST 3: Empty collections
+test "empty collections":
+    expect length([]) == 0
+    expect length({}) == 0
+    expect length("") == 0
+    expect contains([], 1) == no
+    expect contains({}, "x") == no
+    expect contains("", "a") == no
+
+~ TEST 4: Map key as bare word vs string
+test "map keys":
+    make m1 = {name: "Sam"}
+    make m2 = {"name": "Sam"}
+    expect m1 == m2
+    expect m1["name"] == "Sam"
+
+~ TEST 5: List index edge cases
+test "list index edge cases":
+    make xs = [10, 20, 30]
+    expect xs[0] == 10
+    expect xs[2] == 30
+    expect xs[3] == nothing ~ out of range gives nothing NOT error
+    ~ expect xs[-1] == 30  ~ negative indexing should error
+
+~ TEST 6: String index edge cases
+test "string index edge cases":
+    make s = "hello"
+    expect s[0] == "h"
+    expect s[4] == "o"
+    expect s[5] == nothing ~ out of range
+    expect "café"[3] == "é"
+
+~ TEST 7: For-each over empty
+test "for each empty":
+    make count = 0
+    for each x in []:
+        set count += 1
+    expect count == 0
+    
+    make count2 = 0
+    for each x in "":
+        set count2 += 1
+    expect count2 == 0
+
+~ TEST 8: Sort homogeneity
+test "sort homogeneity":
+    expect sort([3, 1, 2]) == [1, 2, 3]
+    expect sort(["c", "a", "b"]) == ["a", "b", "c"]
+
+~ TEST 9: Index of edge cases
+test "index_of edge":
+    expect index_of([1, 2, 3], 2) == 1
+    expect index_of([1, 2, 3], 4) == nothing
+    expect index_of("hello", "ll") == 2
+    expect index_of("hello", "x") == nothing
+
+~ TEST 10: Replace (does it replace ALL?)
+test "replace behavior":
+    expect replace("aaa", "a", "b") == "bbb"
+    expect replace("hello hello", "hello", "hi") == "hi hi"
+
+~ TEST 11: Join behavior
+test "join":
+    expect join([1, 2, 3], ", ") == "1, 2, 3"
+    expect join([1, 2, 3], "") == "123"
+    expect join([], ", ") == ""
+
+~ TEST 12: Split behavior
+test "split":
+    expect split("a,b,c", ",") == ["a", "b", "c"]
+    expect split("hello", "") == ["h", "e", "l", "l", "o"]
+    expect split("", ",") == [""]
+    expect split("hello", "hello") == ["", ""]
+
+~ TEST 13: Compound assignment
+test "compound assignment":
+    make x = 10
+    set x += 5
+    expect x == 15
+

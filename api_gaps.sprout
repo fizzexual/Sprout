@@ -1,0 +1,21 @@
+~ Check for API inconsistencies and gaps
+
+~ ISSUE 1: contains() asymmetry - checking for a list in a list
+show contains([1, [2, 3]], [2, 3])
+show contains([1, [2, 3]], 1)
+
+~ ISSUE 2: Manual count needed
+make items = [1, 2, 3, 1, 1, 2]
+show "Manual count needed (no sum/count builtins)"
+
+~ ISSUE 3: Can we get the min/max of a list directly?
+try:
+    show min([5, 3, 7, 1])
+caught err:
+    show "min(list) doesn't work"
+
+~ ISSUE 4: Number formatting
+make num = 42
+show f"{num}"
+show num + 0
+

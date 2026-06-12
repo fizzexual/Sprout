@@ -922,7 +922,7 @@ static int edit_distance(const char *a, const char *b) {
 
 static const char *const BUILTIN_NAMES[] = {
   "range","length","add","keys","contains","first","last",
-  "remove","insert","sort","reverse","index_of","values",
+  "remove","insert","sort","reverse","index_of","values","copy",
   "abs","round","floor","ceil","sqrt","pow","min","max","random","number",
   "upper","lower","trim","replace","split","join","starts_with","ends_with",
   "ask","now","today","wait","read","write","append","exists",
@@ -1160,6 +1160,28 @@ static void explore_flatten(Value v, const char *prefix, SList *out, int depth) 
   }
 }
 
+/* a deep, independent copy of a value (for the `copy` builtin). Lists/maps are SHARED references in
+   Sprout, so `copy` is how you get a snapshot that later mutations of the original won't touch.
+   Numbers/yes-no/nothing are value types already; text is immutable - all returned as-is. */
+static int g_copy_depth = 0;
+static Value deep_copy(Value v) {
+  if (++g_copy_depth > 256) { g_copy_depth--; return vnone(); }   /* guard self-referential structures */
+  Value r;
+  if (v.type == V_LIST) {
+    SList *l = list_new();
+    for (int i = 0; v.list && i < v.list->n; i++) list_push(l, deep_copy(v.list->items[i]));
+    r = vlist(l);
+  } else if (v.type == V_MAP) {
+    SMap *m = map_new();
+    for (int i = 0; v.map && i < v.map->n; i++) map_set(m, v.map->keys[i], deep_copy(v.map->vals[i]));
+    r = vmap(m);
+  } else {
+    r = v;   /* numbers, yes/no, nothing are value types; text is immutable */
+  }
+  g_copy_depth--;
+  return r;
+}
+
 /* sort comparator (the list is pre-checked to be all-numbers or all-text) */
 static int value_cmp(const void *pa, const void *pb) {
   const Value *a = (const Value *)pa, *b = (const Value *)pb;
@@ -1290,6 +1312,7 @@ static Value call_builtin(Expr *call, Env *env) {
     for (int i = 0; a[0].map && i < a[0].map->n; i++) list_push(l, a[0].map->vals[i]);
     return vlist(l);
   }
+  if (!strcmp(name, "copy")) { if (n != 1) fail(call->line, "copy needs one value, like copy(myList)."); return deep_copy(a[0]); }
   if (!strcmp(name, "pow")) { if (n != 2 || a[0].type != V_NUM || a[1].type != V_NUM) fail(call->line, "pow needs two numbers, like pow(2, 10)."); return vnum(pow(a[0].num, a[1].num)); }
   if (!strcmp(name, "starts_with")) { if (n != 2 || a[0].type != V_STR || a[1].type != V_STR) fail(call->line, "starts_with needs two pieces of text."); const char *h = a[0].str ? a[0].str : "", *p = a[1].str ? a[1].str : ""; return vbool(strncmp(h, p, strlen(p)) == 0); }
   if (!strcmp(name, "ends_with"))   { if (n != 2 || a[0].type != V_STR || a[1].type != V_STR) fail(call->line, "ends_with needs two pieces of text.");   const char *h = a[0].str ? a[0].str : "", *p = a[1].str ? a[1].str : ""; size_t hl = strlen(h), pl = strlen(p); return vbool(pl <= hl && strcmp(h + hl - pl, p) == 0); }
@@ -1298,7 +1321,7 @@ static Value call_builtin(Expr *call, Env *env) {
   if (!strcmp(name, "round")) { if (n!=1||a[0].type!=V_NUM) fail(call->line,"round needs a number."); return vnum(floor(a[0].num+0.5)); }
   if (!strcmp(name, "floor")) { if (n!=1||a[0].type!=V_NUM) fail(call->line,"floor needs a number."); return vnum(floor(a[0].num)); }
   if (!strcmp(name, "ceil"))  { if (n!=1||a[0].type!=V_NUM) fail(call->line,"ceil needs a number.");  return vnum(ceil(a[0].num)); }
-  if (!strcmp(name, "sqrt"))  { if (n!=1||a[0].type!=V_NUM) fail(call->line,"sqrt needs a number."); if (a[0].num<0) fail(call->line,"sqrt can't take a negative number."); return vnum(sqrt(a[0].num)); }
+  if (!strcmp(name, "sqrt"))  { if (n!=1||a[0].type!=V_NUM) fail(call->line,"sqrt needs a number."); if (a[0].num<0) fail_kind(call->line,"math","sqrt can't take a negative number."); return vnum(sqrt(a[0].num)); }
   if (!strcmp(name, "min") || !strcmp(name, "max")) {
     if (n<1) fail(call->line,"min/max need at least one number.");
     double best=0; int set=0; int wantMin = (name[1]=='i');
@@ -1833,7 +1856,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.0.16"
+#define SPROUT_VERSION "0.0.17"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);

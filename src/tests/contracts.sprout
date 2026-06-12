@@ -1,0 +1,69 @@
+~ Pinned language contracts (v0.0.17 freeze-prep): the observable behaviors a v0.1.0
+~ freeze must guarantee, because programs + libraries will depend on them and they
+~ can't change afterward. Guarded script: prints "FAIL ..." on any wrong result.
+
+task check(label, got, want):
+    when got != want:
+        show "FAIL", label, "- got", got, "wanted", want
+
+~ ---------- lists & maps are SHARED REFERENCES (make aliases, it doesn't copy) ----------
+make a = [1, 2]
+make b = a
+add(b, 3)
+check("list alias: mutating b changes a", a, [1, 2, 3])
+
+make m = {"x": 1}
+make n = m
+set n["y"] = 2
+check("map alias: mutating n changes m", m, {"x": 1, "y": 2})
+
+~ passing to a task passes the reference (the task mutates the caller's list)
+task push99(list):
+    add(list, 99)
+make c = [1]
+push99(c)
+check("task receives the reference", c, [1, 99])
+
+~ ---------- copy() gives an independent, DEEP snapshot ----------
+make orig = [1, 2, 3]
+make snap = copy(orig)
+add(orig, 4)
+check("copy is independent of later mutation", snap, [1, 2, 3])
+
+make deep = {"nums": [1, 2], "name": "Sam"}
+make dcopy = copy(deep)
+add(deep["nums"], 9)
+check("copy is deep (nested list independent)", dcopy["nums"], [1, 2])
+
+make plain = copy(42)
+check("copy of a number is the number", plain, 42)
+
+~ ---------- mutation-vs-return convention ----------
+make xs = [3, 1, 2]
+check("add returns nothing", add(xs, 5), nothing)
+check("insert returns nothing", insert(xs, 0, 7), nothing)
+check("remove returns the removed item", remove(xs, 0), 7)
+make same = sort(xs)
+check("sort returns the SAME list (a reference)", same, xs)
+add(same, 0)
+check("...so mutating the result mutates the original", xs, sort(xs))
+make rev = reverse([1, 2, 3])
+check("reverse returns the list", rev, [3, 2, 1])
+
+~ ---------- number rules ----------
+check("modulo takes the dividend's sign (neg)", (0 - 7) % 3, 0 - 1)
+check("modulo takes the dividend's sign (pos)", 7 % (0 - 3), 1)
+check("whole-number division can be fractional", 5 / 2, 2.5)
+
+~ ---------- map key ordering: insertion order; remove+re-add goes to the back ----------
+make k = {"a": 1, "b": 2, "c": 3}
+make tossed = remove(k, "a")
+set k["a"] = 9
+check("re-inserted key goes to the back", keys(k), ["b", "c", "a"])
+
+~ ---------- equality is deep + structural, and map key order doesn't matter ----------
+check("map equality ignores key order", {"a": 1, "b": 2} == {"b": 2, "a": 1}, yes)
+check("list equality is deep", [[1], [2]] == [[1], [2]], yes)
+check("cross-type equality never crashes", 5 == "5", no)
+
+show "contracts: all checks ran"

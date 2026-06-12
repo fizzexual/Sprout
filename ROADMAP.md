@@ -16,6 +16,36 @@ ambitious — pick what fits the mission, in this order.
 
 ---
 
+## ⛔ Open decisions that GATE the v0.1.0 freeze (these are the owner's calls)
+
+A gap audit (v0.0.17) confirmed the *engineering* freeze-prep is done (contracts pinned — see
+below). What remains before v0.1.0 is **strategic**, and these can't stay "under evaluation"
+through a freeze, because they define what the freeze even promises. My recommendation is noted,
+but the call is the language owner's:
+
+1. **The mission fork — teaching language, or small multipurpose runtime?** Everything below
+   hangs off this. *Recommendation: declare v0.1.0 the freeze of the **teaching/CLI core**, and
+   make GC + the web server + first-class tasks an explicit **post-v0.1.0 "runtime" track** with
+   its own (re-)freeze — so "freeze" stays meaningful for the part that's actually done.*
+
+2. **Are tasks first-class (values)?** Today `make f = greet` errors. `map`/`filter`/`reduce`
+   (Phase 3) and server handlers (Phase 9) both need passing a task as a value, and adding it
+   *after* the freeze changes the type model. *Decision needed: in v0.1.0, or "never" — not
+   "under evaluation." Recommendation: not in the teaching-core freeze; it opens the runtime track.*
+
+3. **Memory model vs long-running programs.** Leak-until-exit is fine for scripts/CLIs and
+   **disqualifying for a server** (leaks per request). You cannot honestly freeze "a core to build
+   servers on" without GC. *Recommendation: the v0.1.0 teaching-core freeze does NOT promise
+   long-running use; GC is a prerequisite of the runtime track, not the freeze.*
+
+4. **Multiple return values** (Phase 2, "decide & document") — still undecided; pin it (a list/map,
+   or real multi-return) before freezing the calling convention.
+
+Until #1–#3 are decided, "v0.1.0 = freeze" is ambiguous. Everything in the phases below is either
+already shipped, additive (safe after the freeze), or part of the runtime track.
+
+---
+
 ## Is the base complete? — a pre-unfreeze audit
 
 Verified by running real programs on v0.0.13 (a word-tally with maps + recursion + f-strings
@@ -73,6 +103,13 @@ Pulled out of the phases below into one tight bundle, because *these* are what m
 **Answer to "do we have everything a base language needs?":** *Yes, as of v0.0.15.* The
 table-stakes items above are done, so the power phases below are now true extensions you can
 take or leave, and the base that freezes at v0.1.0 will be genuinely complete.
+
+**Freeze-prep, pinned in v0.0.17 (the contracts a freeze must guarantee — done):**
+- [x] **Lists/maps are shared references** — `make b = a` aliases; documented + tested; added **`copy(x)`** (deep snapshot) since reference semantics need an escape hatch.
+- [x] **Mutate-vs-return convention** — `add`/`insert` → nothing, `remove` → the removed item, `sort`/`reverse` → the same (mutated) list; documented + tested.
+- [x] **Stable error-`kind` table** — `math`/`index`/`io`/`fail`/`name`/`error` documented in the README as frozen-at-v0.1.0 (add-only); `sqrt`-of-negative re-tagged `math` for consistency.
+- [x] **Number-edge rules stated** — modulo takes the dividend's sign; `nan`/`inf` unreachable (guarded); `random` not seedable + scientific-notation literals unparsed (both flagged as roadmap, not silent).
+- [x] **CI gates the test framework** — `run.sh` now runs `*_test.sprout` via `sprout test` (exit-code), closing the hole where a failing `expect` (prints `x`, not `FAIL`) slipped past the grep.
 
 > Note (v0.0.14 build): fixed a Windows-only crash where a top-level `try:` that caught an
 > error segfaulted at `-O2` — `cmd_run` now establishes an outer error boundary (like

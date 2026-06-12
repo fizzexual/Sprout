@@ -98,7 +98,7 @@ language runs now:
 - **Lists** `[1, 2, 3]` and **maps** `{name: "Sam"}` — indexing, `set xs[i] = …`, `for each`, `range`
 - **`learn on`** — Sprout explains each step as it runs (and **friendly errors** that say *"did you mean…?"*)
 - **Built-in testing** — `test "name": expect …`, run with `sprout test` (pass/fail report + exit code)
-- **Toolbox:** `length` `add` `remove` `insert` `keys` `values` `contains` `first` `last` `index_of` `sort` `reverse` `range` · `sqrt` `pow` `abs` `round` `floor` `ceil` `min` `max` `random` `number` · `upper` `lower` `trim` `replace` `split` `join` `starts_with` `ends_with` · `now` `today` `wait` · `ask` · `color` (terminal colour)
+- **Toolbox:** `length` `add` `remove` `insert` `keys` `values` `contains` `first` `last` `index_of` `sort` `reverse` `copy` `range` · `sqrt` `pow` `abs` `round` `floor` `ceil` `min` `max` `random` `number` · `upper` `lower` `trim` `replace` `split` `join` `starts_with` `ends_with` · `now` `today` `wait` · `ask` · `color` (terminal colour)
 - **Superpowers — built in, no libraries:**
   - 🌐 `get(url)` — fetch any web page or API
   - 🧩 `json(text)` — parse JSON straight into native lists & maps
@@ -172,7 +172,7 @@ build.cmd                     # or: gcc -O2 -Wall -s -o sprout.exe sprout.c -lm 
 
 # run a program:
 sprout run hello.sprout     # or just: sprout hello.sprout
-sprout version              # -> Sprout v0.0.15
+sprout version              # -> Sprout v0.0.17
 sprout new myapp            # create a full multi-file project folder
 sprout build                # run the project in the current folder (reads sprout.toml)
 sprout test                 # run your tests (a file, or every tests/*.sprout)
@@ -218,11 +218,16 @@ There are no user-defined types/structs/classes — a **map** (`{name: "Sam"}`) 
 the record type. Maps preserve **insertion order**; keys are text.
 
 **Numbers are IEEE-754 doubles.** There is no separate integer type, so `5 / 2`
-is `2.5` and very large integers lose precision. `%` is `fmod`; division/modulo by
-zero is a runtime error. **Whole-number values display without a decimal point** —
-`range(3)` shows `[0, 1, 2]`, and indices/counts/`length` read as `0`, `1`, `2`
-(not `0.0`) — so the doubles-only choice is invisible until you do real division.
-(Very large whole numbers fall back to exponential form, e.g. `1e+21`.)
+is `2.5` and very large integers lose precision. `%` is `fmod`; **the remainder
+takes the sign of the left operand** (`(0 - 7) % 3` is `-1`, `7 % (0 - 3)` is `1`).
+Division/modulo by zero is a runtime error (kind `"math"`); `sqrt` of a negative is
+too, so `nan`/`inf` aren't reachable through the normal paths. **Whole-number values
+display without a decimal point** — `range(3)` shows `[0, 1, 2]`, and
+indices/counts/`length` read as `0`, `1`, `2` (not `0.0`) — so the doubles-only
+choice is invisible until you do real division. (Very large whole numbers fall back
+to exponential form, e.g. `1e+21`, past `1e15`.) `random` is **not** seedable yet, so
+runs aren't reproducible; scientific-notation *literals* (`1e3`) aren't parsed yet
+(both are roadmap items).
 
 **Text is UTF-8.** `length("café")` is `4` (characters, not bytes). Strings are
 immutable, but **indexable by character**: `s[i]` is the *i*-th character, 0-based
@@ -264,7 +269,24 @@ already exist (lists don't auto-grow — an out-of-range index is an error), whi
 not `make`, because the map itself already exists (you're changing it; `make` is
 only for brand-new *names*). Index assignment may nest (`set grid[i][j] = v`),
 even though *module* member access is a single dot. **`for each` over a map yields
-its keys** (in insertion order); use `m[key]` for the value.
+its keys** (in insertion order); use `m[key]` for the value. **Map key order is
+insertion order; `remove`ing a key then setting it again puts it at the back.**
+
+**Lists & maps are shared references — this is load-bearing.** `make b = a` does
+**not** copy; `a` and `b` are the *same* list/map, so `add(b, 3)` changes `a` too,
+and passing one into a task lets the task mutate the caller's value. (Numbers,
+`yes`/`no`, `nothing`, and text are value types / immutable — only lists and maps
+are shared.) When you need an independent snapshot, use **`copy(x)`** — a deep copy
+that later changes to the original won't touch. **Equality** (`==`) is by *value*,
+not identity: two different lists/maps with equal contents are equal (and map key
+order doesn't affect equality, even though it's preserved for iteration).
+
+**The mutating builtins, and what they return.** `add`/`insert` change a list and
+return **nothing** (they're commands). `remove` changes the list/map and returns the
+**removed item** (or `nothing` if a map key was absent). `sort`/`reverse` change the
+list **in place** and return the **same list** (a reference, not a copy — so
+`show sort(xs)` works *and* `xs` is now sorted). `copy` is the only one that returns
+a new value.
 
 **Variables & scope.** `make` introduces a **new** name; **`make` on a name that
 already exists in the same scope is an error** ("use 'set' to change it") — so a
@@ -324,8 +346,8 @@ matching **`caught:`** block (which must be present) instead of aborting the run
 (number): `caught problem:` binds it to `problem`, so `problem["message"]` and
 `problem["kind"]` are available; a bare `caught:` handles it without binding. The
 **name is yours to choose** (`caught err:`, `caught oops:` — anything). Built-in
-errors set `kind` to a category (`"math"`, `"index"`, `"io"`, `"name"`, `"fail"`, …)
-so code can branch on the kind instead of string-matching the message.
+errors set `kind` to one of a **fixed, stable set** (below) so code can branch on the
+kind instead of string-matching the message.
 
 You raise your own error with **`fail "message"`** (a bare `fail` uses a default).
 `fail` can also carry a **map** — `fail {kind: "http", status: 404, message: "Not
@@ -342,6 +364,22 @@ task, or module (the "did you mean?" errors) and lexer/parser errors. Those are
 block in `try` can never silently swallow a typo. (Hard errors are still caught by
 the system boundaries — a test, the REPL, a file run — so one bad line fails just
 that test or REPL line rather than the whole session.)
+
+**Error `kind`s (stable as of v0.0.15; frozen at v0.1.0).** A caught error's `kind`
+is one of these exact strings — a library may rely on them. New kinds may be *added*
+in future versions; existing ones won't be renamed or removed.
+
+| `kind` | catchable? | what raises it |
+| --- | --- | --- |
+| `"math"` | yes | divide/modulo by zero, `sqrt` of a negative, arithmetic on non-numbers |
+| `"index"` | yes | a list/text position that doesn't exist |
+| `"io"` | yes | a file that can't be opened for writing |
+| `"fail"` | yes | your own `fail` (text or a map without its own `kind`) |
+| `"name"` | **no (hard)** | an unknown variable, task, or module — a code mistake |
+| `"error"` | yes | the default for any other runtime condition |
+
+A `fail` with a map keeps whatever `kind` you put in it (e.g. `"http"`), so you're
+free to define your own kinds for your own errors.
 
 **Evaluation & errors.** Eager, left-to-right; statements run top to bottom. Outside
 of `try`, the **first error aborts** the run (there is no batch diagnostics pass and
@@ -384,7 +422,7 @@ try caught fail stop skip
 
 **Built-in functions** are predefined names — `length sqrt pow abs round floor ceil
 min max random number upper lower trim replace split join starts_with ends_with
-range add remove insert keys values contains first last index_of sort reverse
+range add remove insert keys values contains first last index_of sort reverse copy
 ask now today wait read write append exists get json explore color`
 (plus `system.run`). You *may* shadow one with your own variable, but the function
 stays callable, so it's clearer not to.
@@ -493,7 +531,8 @@ v0.1.0 freeze:
 6. ✅ **f-strings, friendly errors & `learn` mode** — `f"Hi {name}"`, "did you mean?", step-by-step narration
 7. ✅ **Built-in testing** — `test "…": expect …` and `sprout test`
 8. ✅ **Spec-complete (v0.0.13)** — every edge case decided and tested (originally called "the freeze"; it held one version — see the note in the Language reference).
-9. ✅ **Base-completion (v0.0.14–v0.0.15)** — the cycle's first slices: `stop`/`skip`, compound assignment (`+=` …), the missing list/map/text builtins (`remove` `insert` `sort` `reverse` `index_of` `values` `pow` `starts_with` `ends_with`), and **error handling** — `try` / `caught` / `fail` with a structured error map `{message, kind, line}` and a hard/soft split so typos aren't swallowed (reshaped from `otherwise` in v0.0.15).
+9. ✅ **Base-completion (v0.0.14–v0.0.16)** — the cycle's slices: `stop`/`skip`, compound assignment (`+=` …), the missing list/map/text builtins (`remove` `insert` `sort` `reverse` `index_of` `values` `pow` `starts_with` `ends_with`), **error handling** (`try` / `caught` / `fail` with a structured error map `{message, kind, line}` and a hard/soft split so typos aren't swallowed), and SEH-free error unwinding on Windows.
+10. ✅ **Freeze-prep (v0.0.17)** — pinned the observable contracts a freeze must guarantee: lists/maps are shared references + `copy()` for a deep snapshot, the mutate-vs-return convention, the stable error-`kind` table, and the number-edge rules — all documented + tested (`tests/contracts.sprout`); CI now also gates the `test`/`expect` framework, not just guarded scripts.
 
 The cycle continues toward **v0.1.0 — the freeze that's meant to hold**. The full,
 sequenced plan — first-class tasks, collections superpowers, user types, a memory
@@ -533,7 +572,7 @@ There's a **[VS Code extension](vscode-extension)** for syntax highlighting too.
 
 ## Known limitations & open questions
 
-Sprout is **v0.0.15** — early, and deliberately small. Honest about the edges:
+Sprout is **v0.0.17** — early, and deliberately small. Honest about the edges:
 spotting more (or telling me which matter most) is exactly the feedback I want —
 [issues](https://github.com/fizzexual/Sprout/issues) /
 [discussions](https://github.com/fizzexual/Sprout/discussions) welcome.

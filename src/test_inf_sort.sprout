@@ -1,0 +1,6 @@
+make inf = pow(10, 309)
+make nan = inf - inf
+make nums = [1, inf, 3, nan, -inf]
+show sort(nums)
+show min(1, inf, 3)
+show max(1, inf, 3)
