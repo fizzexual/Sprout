@@ -267,7 +267,7 @@ static TokType keyword(const char *w) {
     { "public", T_PUBLIC }, { "private", T_PRIVATE }, { "learn", T_LEARN },
     { "test", T_TEST }, { "expect", T_EXPECT },
     { "try", T_TRY }, { "caught", T_CAUGHT }, { "fail", T_FAIL }, { "stop", T_STOP }, { "skip", T_SKIP },
-    { "and", T_AND }, { "or", T_OR },
+    { "and", T_AND }, { "or", T_OR },   /* 'else' is NOT a keyword - it's only special right after 'or' (see expression()) */
     { "not", T_NOT }, { "yes", T_YES }, { "no", T_NO }, { "nothing", T_NOTHING },
   };
   for (size_t k = 0; k < sizeof table / sizeof table[0]; k++)
@@ -283,7 +283,16 @@ static void scan_token(const char *src, int *ip, int len, int line) {
   char c = src[i];
   if (c == 'f' && i + 1 < len && src[i + 1] == '"') { scan_fstring(src, ip, len, line); return; }
   if (isdigit((unsigned char)c) || (c == '.' && i + 1 < len && isdigit((unsigned char)src[i + 1]))) {
-    int s = i; while (i < len && (isdigit((unsigned char)src[i]) || src[i] == '.')) i++;
+    int s = i, dot = 0;                              /* at most one '.' in the mantissa (1.2.3 isn't one number) */
+    while (i < len && (isdigit((unsigned char)src[i]) || (src[i] == '.' && !dot))) { if (src[i] == '.') dot = 1; i++; }
+    /* scientific notation: an 'e'/'E' that is actually followed by an exponent (1e3, 2.5e-4).
+       Only consume the 'e' when a digit follows (optionally after a +/-), so a name like
+       `e` after a number isn't swallowed. */
+    if (i < len && (src[i] == 'e' || src[i] == 'E')) {
+      int j = i + 1;
+      if (j < len && (src[j] == '+' || src[j] == '-')) j++;
+      if (j < len && isdigit((unsigned char)src[j])) { i = j + 1; while (i < len && isdigit((unsigned char)src[i])) i++; }
+    }
     char *t = (char *)malloc(i - s + 1); memcpy(t, src + s, i - s); t[i - s] = 0;
     push_tok(T_NUM, t, atof(t), line); *ip = i; return;
   }
@@ -419,7 +428,7 @@ static void tokenize(const char *src, int len) {
 }
 
 /* ---------------------------------------------------------------------- AST */
-typedef enum { E_NUM, E_STR, E_BOOL, E_NONE, E_VAR, E_UNARY, E_BINARY, E_LOGICAL, E_CALL, E_LIST, E_MAP, E_INDEX, E_MEMBER } EKind;
+typedef enum { E_NUM, E_STR, E_BOOL, E_NONE, E_VAR, E_UNARY, E_BINARY, E_LOGICAL, E_COALESCE, E_CALL, E_LIST, E_MAP, E_INDEX, E_MEMBER } EKind;
 typedef struct Expr {
   EKind kind; double num; char *str; int boolean; char *name; char *module;  /* module: server.name */
   TokType op; struct Expr *left, *right, *operand; int line;
@@ -428,11 +437,11 @@ typedef struct Expr {
   struct Expr *target, *index;            /* E_INDEX: target[index] */
 } Expr;
 
-typedef enum { S_MAKE, S_SET, S_SHOW, S_WHEN, S_REPEAT_TIMES, S_REPEAT_WHILE, S_TASK, S_GIVE, S_EXPR, S_FOREACH, S_INDEXSET, S_USE, S_LEARN, S_TEST, S_EXPECT, S_TRY, S_FAIL, S_STOP, S_SKIP } SKind;
+typedef enum { S_MAKE, S_SET, S_SHOW, S_WHEN, S_REPEAT_TIMES, S_REPEAT_WHILE, S_TASK, S_GIVE, S_EXPR, S_FOREACH, S_INDEXSET, S_USE, S_LEARN, S_TEST, S_EXPECT, S_EXPECT_ERROR, S_TRY, S_FAIL, S_STOP, S_SKIP } SKind;
 typedef struct Stmt Stmt;
 typedef struct { Expr *cond; Stmt **body; int nbody; } Branch;
 struct Stmt {
-  SKind kind; char *name; Expr *expr;
+  SKind kind; char *name; char *name2; Expr *expr;   /* name2: the optional 2nd `for each k, v` binding */
   Expr **values; int nvalues;            /* show */
   Branch *branches; int nbranches; Stmt **otherwise; int notherwise; /* when */
   Expr *count; Stmt **body; int nbody;   /* repeat / task / for-each body */
@@ -554,18 +563,29 @@ static Expr *term(void)       { static const TokType o[] = { T_PLUS, T_MINUS }; 
 /* comparisons do NOT chain: `a < b < c` is a friendly error (use 'and'), not a confusing
    (a < b) < c type error. All six relational/equality ops share this one non-associative level. */
 static Expr *compare(void) {
-  static const TokType o[] = { T_LT, T_LE, T_GT, T_GE, T_EQEQ, T_BANGEQ };
+  static const TokType o[] = { T_LT, T_LE, T_GT, T_GE, T_EQEQ, T_BANGEQ, T_IN };  /* `x in xs` = membership */
   Expr *left = term();
   TokType op = T_EOF; int found = 0;
-  for (int k = 0; k < 6; k++) if (check(o[k])) { op = o[k]; found = 1; break; }
+  for (int k = 0; k < 7; k++) if (check(o[k])) { op = o[k]; found = 1; break; }
   if (!found) return left;
   int line = peek().line; advance();
   Expr *right = term();
-  for (int k = 0; k < 6; k++) if (check(o[k])) fail(peek().line, "comparisons can't be chained - use 'and', like  a < b and b < c.");
+  for (int k = 0; k < 7; k++) if (check(o[k])) fail(peek().line, "comparisons can't be chained - use 'and', like  a < b and b < c.");
   Expr *e = new_expr(E_BINARY, line); e->op = op; e->left = left; e->right = right; return e;
 }
 static Expr *and_expr(void)   { static const TokType o[] = { T_AND }; return binary_level(compare, o, 1, 1); }
-static Expr *expression(void) { static const TokType o[] = { T_OR }; return binary_level(and_expr, o, 1, 1); }
+/* the `or` level, hand-written so `or else` (nothing-coalescing) is distinct from logical `or` */
+static Expr *expression(void) {
+  Expr *left = and_expr();
+  while (check(T_OR)) {
+    int line = peek().line; advance();
+    Expr *right;
+    if (check(T_IDENT) && !strcmp(peek().text, "else")) {   /* `or else` — 'else' is contextual, not a reserved word */
+      advance(); right = and_expr(); Expr *e = new_expr(E_COALESCE, line); e->left = left; e->right = right; left = e;
+    } else { right = and_expr(); Expr *e = new_expr(E_LOGICAL, line); e->op = T_OR; e->left = left; e->right = right; left = e; }
+  }
+  return left;
+}
 
 static Stmt *statement(void);
 
@@ -634,8 +654,13 @@ static Stmt *statement(void) {
       advance();
       expect(T_EACH, "I expected 'each' here (like: for each item in things:).");
       Token name = expect(T_IDENT, "I expected a name for each item.");
+      Stmt *s = new_stmt(S_FOREACH, t.line); s->name = name.text;
+      if (match(T_COMMA)) {                          /* for each key, value in map  (or index, item in a list) */
+        Token name2 = expect(T_IDENT, "I expected a second name after the comma (like: for each key, value in m:).");
+        s->name2 = name2.text;
+      }
       expect(T_IN, "I expected 'in' here (like: for each item in things:).");
-      Stmt *s = new_stmt(S_FOREACH, t.line); s->name = name.text; s->expr = expression();
+      s->expr = expression();
       int save_loop = g_in_loop; g_in_loop = 1;   /* 'stop'/'skip' allowed in this body */
       s->body = block(&s->nbody);
       g_in_loop = save_loop; return s;
@@ -721,7 +746,14 @@ static Stmt *statement(void) {
     }
     case T_EXPECT: {
       if (!g_in_test) fail(t.line, "'expect' only works inside a test (like:  test \"x\":  then  expect ...).");
-      advance(); Stmt *s = new_stmt(S_EXPECT, t.line); s->expr = expression();
+      advance();
+      if (check(T_IDENT) && !strcmp(peek().text, "error")) {   /* expect error: <block> (asserts the block fails) */
+        advance(); Stmt *s = new_stmt(S_EXPECT_ERROR, t.line);
+        if (check(T_STR)) s->name = advance().text;            /* optional required kind: expect error "math": */
+        s->body = block(&s->nbody);
+        return s;
+      }
+      Stmt *s = new_stmt(S_EXPECT, t.line); s->expr = expression();
       return s;
     }
     case T_TRY: {
@@ -884,12 +916,18 @@ static Value call_task_def(TaskDef *t, Expr *call, Env *env) {
   if (++call_depth > MAX_DEPTH) fail(call->line, "this went too deep — a task may be calling itself with no way to stop.");
   Env *frame = env_new(t->home);      /* a task sees its OWN file (privates + publics) + its locals */
   for (int i = 0; i < t->nparams; i++) env_define(frame, t->params[i], eval(call->args[i], env));
+  if (g_learn) {                       /* narrate the call with its inputs */
+    printf("  " C_DIM "Calling %s(", t->name);
+    for (int i = 0; i < t->nparams; i++) { if (i) printf(", "); Value *pv = env_find(frame, t->params[i]); char *ps = stringify(*pv); printf("%s", ps); free(ps); }
+    printf(")" C_RESET "\n\n");
+  }
   int saved_ret = returning; Value saved_rv = return_value;
   int saved_fid = cur_fileid; cur_fileid = t->fileid;          /* inside the body, see THIS task's file */
   Env *saved_fe = cur_file_env; cur_file_env = t->home;        /* ...and a `public make` lands in it */
   returning = 0;
   exec_block(t->body, t->nbody, frame);
   Value result = returning ? return_value : vnone();
+  if (g_learn) { char *rs = stringify(result); printf("  " C_DIM "%s gave back %s" C_RESET "\n\n", t->name, rs); free(rs); }
   returning = saved_ret; return_value = saved_rv;
   cur_fileid = saved_fid; cur_file_env = saved_fe;
   call_depth--;
@@ -922,7 +960,7 @@ static int edit_distance(const char *a, const char *b) {
 
 static const char *const BUILTIN_NAMES[] = {
   "range","length","add","keys","contains","first","last",
-  "remove","insert","sort","reverse","index_of","values","copy",
+  "remove","insert","sort","reverse","index_of","values","copy","kind_of",
   "abs","round","floor","ceil","sqrt","pow","min","max","random","number",
   "upper","lower","trim","replace","split","join","starts_with","ends_with",
   "ask","now","today","wait","read","write","append","exists",
@@ -1313,6 +1351,12 @@ static Value call_builtin(Expr *call, Env *env) {
     return vlist(l);
   }
   if (!strcmp(name, "copy")) { if (n != 1) fail(call->line, "copy needs one value, like copy(myList)."); return deep_copy(a[0]); }
+  if (!strcmp(name, "kind_of")) {   /* a simple, switchable type tag for beginners: when kind_of(x) == "number": ... */
+    if (n != 1) fail(call->line, "kind_of needs one value, like kind_of(x).");
+    const char *k = "nothing";
+    switch (a[0].type) { case V_NUM: k="number"; break; case V_STR: k="text"; break; case V_BOOL: k="yes-no"; break; case V_LIST: k="list"; break; case V_MAP: k="map"; break; default: k="nothing"; }
+    return vstr(dup_str(k));
+  }
   if (!strcmp(name, "pow")) { if (n != 2 || a[0].type != V_NUM || a[1].type != V_NUM) fail(call->line, "pow needs two numbers, like pow(2, 10)."); return vnum(pow(a[0].num, a[1].num)); }
   if (!strcmp(name, "starts_with")) { if (n != 2 || a[0].type != V_STR || a[1].type != V_STR) fail(call->line, "starts_with needs two pieces of text."); const char *h = a[0].str ? a[0].str : "", *p = a[1].str ? a[1].str : ""; return vbool(strncmp(h, p, strlen(p)) == 0); }
   if (!strcmp(name, "ends_with"))   { if (n != 2 || a[0].type != V_STR || a[1].type != V_STR) fail(call->line, "ends_with needs two pieces of text.");   const char *h = a[0].str ? a[0].str : "", *p = a[1].str ? a[1].str : ""; size_t hl = strlen(h), pl = strlen(p); return vbool(pl <= hl && strcmp(h + hl - pl, p) == 0); }
@@ -1497,6 +1541,11 @@ static Value eval_binary(Expr *e, Env *env) {
     }
     case T_EQEQ:  return vbool(values_equal(l, r));
     case T_BANGEQ:return vbool(!values_equal(l, r));
+    case T_IN:    /* `x in xs` — membership: list item, map key, or substring of text */
+      if (r.type == V_LIST) { for (int i = 0; r.list && i < r.list->n; i++) if (values_equal(l, r.list->items[i])) return vbool(1); return vbool(0); }
+      if (r.type == V_MAP)  return vbool(l.type == V_STR && r.map && map_index(r.map, l.str ? l.str : "") >= 0);
+      if (r.type == V_STR)  { if (l.type != V_STR) fail(e->line, "to test text membership, the left side of 'in' must be text too."); return vbool(strstr(r.str ? r.str : "", l.str ? l.str : "") != NULL); }
+      fail(e->line, "'in' needs a list, a map, or text on the right (like:  x in things)."); return vnone();
     default: fail(e->line, "unknown operator."); return vnone();
   }
   return vnone();
@@ -1557,6 +1606,10 @@ static Value eval(Expr *e, Env *env) {
       if (e->op == T_AND) return vbool(l ? is_truthy(eval(e->right, env)) : 0);
       return vbool(l ? 1 : is_truthy(eval(e->right, env)));
     }
+    case E_COALESCE: {                               /* `a or else b`: b only if a is nothing */
+      Value l = eval(e->left, env);
+      return l.type == V_NONE ? eval(e->right, env) : l;
+    }
     case E_BINARY: return eval_binary(e, env);
     case E_CALL:   if (e->module) return call_module(e, env);
                    return task_find(e->name) ? call_task(e, env) : call_builtin(e, env);
@@ -1613,7 +1666,7 @@ static const char *op_sym(TokType op) {
   switch (op) {
     case T_PLUS: return "+"; case T_MINUS: return "-"; case T_STAR: return "*"; case T_SLASH: return "/"; case T_PERCENT: return "%";
     case T_EQEQ: return "=="; case T_BANGEQ: return "!="; case T_LT: return "<"; case T_LE: return "<="; case T_GT: return ">"; case T_GE: return ">=";
-    case T_AND: return "and"; case T_OR: return "or"; case T_NOT: return "not"; default: return "?";
+    case T_AND: return "and"; case T_OR: return "or"; case T_NOT: return "not"; case T_IN: return "in"; default: return "?";
   }
 }
 /* render an expression back to text; if with_values, substitute each variable's current value
@@ -1641,6 +1694,7 @@ static void render_expr(Expr *e, int wv, Env *env, char **o, size_t *c, size_t *
       }
       render_expr(e->left, wv, env, o, c, l); sb_add(o, c, l, " "); sb_add(o, c, l, op_sym(e->op)); sb_add(o, c, l, " "); render_expr(e->right, wv, env, o, c, l); break;
     }
+    case E_COALESCE: render_expr(e->left, wv, env, o, c, l); sb_add(o, c, l, " or else "); render_expr(e->right, wv, env, o, c, l); break;
     case E_CALL: if (e->module) { sb_add(o, c, l, e->module); sb_add(o, c, l, "."); } sb_add(o, c, l, e->name); sb_add(o, c, l, "(");
       for (int i = 0; i < e->nargs; i++) { if (i) sb_add(o, c, l, ", "); render_expr(e->args[i], wv, env, o, c, l); } sb_add(o, c, l, ")"); break;
     case E_MEMBER: sb_add(o, c, l, e->module); sb_add(o, c, l, "."); sb_add(o, c, l, e->name); break;
@@ -1672,6 +1726,15 @@ static void learn_show(Stmt *s, Env *env) {
     }
     free(src);
   }
+}
+/* learn mode: announce a for-each turn with the loop variable(s) bound for this turn */
+static void learn_loop(Env *be, const char *n1, const char *n2) {
+  if (!g_learn) return;
+  Value *v1 = env_find(be, n1); char *t1 = v1 ? stringify(*v1) : dup_str("nothing");
+  if (n2) { Value *v2 = env_find(be, n2); char *t2 = v2 ? stringify(*v2) : dup_str("nothing");
+    printf("  " C_DIM "Loop turn: %s = %s, %s = %s" C_RESET "\n\n", n1, t1, n2, t2); free(t2); }
+  else printf("  " C_DIM "Loop turn: %s = %s" C_RESET "\n\n", n1, t1);
+  free(t1);
 }
 
 static void exec(Stmt *s, Env *env) {
@@ -1732,20 +1795,52 @@ static void exec(Stmt *s, Env *env) {
       }
       break;
     }
+    case S_EXPECT_ERROR: {                              /* `expect error [\"kind\"]:` — the block MUST fail */
+      sjmp_buf tb; sjmp_buf * volatile saved = err_jmp; volatile int sq = g_quiet_fail; volatile int sdepth = call_depth;
+      err_jmp = &tb; g_quiet_fail = 1;                  /* catch SOFT errors; a hard error (typo) still aborts the test */
+      volatile int errored = 0;
+      if (SJSET(tb) == 0) {
+        exec_block(s->body, s->nbody, env_new(env));    /* ran clean -> the assertion will fail */
+        err_jmp = saved; g_quiet_fail = sq; g_have_fail_override = 0;
+      } else {
+        err_jmp = saved; g_quiet_fail = sq; call_depth = sdepth; returning = 0; g_loopctl = 0;
+        errored = 1;
+      }
+      if (!errored) {
+        g_test_failed = 1;
+        printf("  " C_RED "x" C_RESET "  %s\n        expected an error here, but the steps succeeded\n", g_cur_test ? g_cur_test : "(test)");
+        if (err_jmp) SJLONG(*err_jmp);
+      } else if (s->name) {                             /* a required kind was given - check it (works for fail-maps too) */
+        Value ev = current_error_value(); const char *got = "error";
+        if (ev.type == V_MAP && ev.map) { int ki = map_index(ev.map, "kind"); if (ki >= 0 && ev.map->vals[ki].type == V_STR && ev.map->vals[ki].str) got = ev.map->vals[ki].str; }
+        if (strcmp(got, s->name) != 0) {
+          g_test_failed = 1;
+          printf("  " C_RED "x" C_RESET "  %s\n        expected an error of kind \"%s\", but got kind \"%s\"\n", g_cur_test ? g_cur_test : "(test)", s->name, got);
+          if (err_jmp) SJLONG(*err_jmp);
+        }
+      } else { g_have_fail_override = 0; }              /* passed (any error); clear a stray fail-override */
+      break;
+    }
     case S_WHEN: {
-      for (int i = 0; i < s->nbranches; i++) if (is_truthy(eval(s->branches[i].cond, env))) { exec_scoped(s->branches[i].body, s->branches[i].nbody, env); return; }
+      for (int i = 0; i < s->nbranches; i++) if (is_truthy(eval(s->branches[i].cond, env))) {
+        if (g_learn) { char *cs = render_str(s->branches[i].cond, 1, env); printf("  " C_DIM "Checking" C_RESET " %s " C_DIM "-> yes; running this branch" C_RESET "\n\n", cs); free(cs); }
+        exec_scoped(s->branches[i].body, s->branches[i].nbody, env); return;
+      }
+      if (g_learn) printf("  " C_DIM "Checking when -> no branch was true%s" C_RESET "\n\n", s->otherwise ? "; running otherwise" : "; doing nothing");
       if (s->otherwise) exec_scoped(s->otherwise, s->notherwise, env);
       break;
     }
     case S_REPEAT_TIMES: {
       Value c = eval(s->count, env); if (c.type != V_NUM) fail(s->line, "'repeat ... times' needs a number.");
       long long times = (long long)c.num;
-      for (long long k = 0; k < times; k++) { exec_scoped(s->body, s->nbody, env); if (returning) break; if (g_loopctl) { int stop = g_loopctl == 2; g_loopctl = 0; if (stop) break; } }
+      for (long long k = 0; k < times; k++) { if (g_learn) printf("  " C_DIM "Repeat turn %lld of %lld" C_RESET "\n\n", k + 1, times); exec_scoped(s->body, s->nbody, env); if (returning) break; if (g_loopctl) { int stop = g_loopctl == 2; g_loopctl = 0; if (stop) break; } }
       break;
     }
-    case S_REPEAT_WHILE:
-      while (is_truthy(eval(s->expr, env))) { exec_scoped(s->body, s->nbody, env); if (returning) break; if (g_loopctl) { int stop = g_loopctl == 2; g_loopctl = 0; if (stop) break; } }
+    case S_REPEAT_WHILE: {
+      long long turn = 0;
+      while (is_truthy(eval(s->expr, env))) { if (g_learn) printf("  " C_DIM "While-loop turn %lld (the test was true)" C_RESET "\n\n", ++turn); exec_scoped(s->body, s->nbody, env); if (returning) break; if (g_loopctl) { int stop = g_loopctl == 2; g_loopctl = 0; if (stop) break; } }
       break;
+    }
     case S_TASK: break;  /* registered before the run */
     case S_USE: {                                /* import a module so this file can name it */
       char *base = module_basename(s->name);
@@ -1760,19 +1855,28 @@ static void exec(Stmt *s, Env *env) {
     case S_FOREACH: {
       Value it = eval(s->expr, env);
       /* each iteration runs in its own scope; the loop variable lives there (gone after the loop) */
+      /* with a 2nd name: a LIST/text yields (index, item); a MAP yields (key, value). */
       if (it.type == V_LIST) {
         int len = it.list ? it.list->n : 0;            /* snapshot: appending inside the loop won't extend it */
-        for (int i = 0; i < len; i++) { Env *be = env_new(env); env_define(be, s->name, it.list->items[i]); exec_block(s->body, s->nbody, be); if (returning) break; if (g_loopctl) { int stop = g_loopctl == 2; g_loopctl = 0; if (stop) break; } }
+        for (int i = 0; i < len; i++) { Env *be = env_new(env);
+          if (s->name2) { env_define(be, s->name, vnum(i)); env_define(be, s->name2, it.list->items[i]); } else env_define(be, s->name, it.list->items[i]);
+          learn_loop(be, s->name, s->name2);
+          exec_block(s->body, s->nbody, be); if (returning) break; if (g_loopctl) { int stop = g_loopctl == 2; g_loopctl = 0; if (stop) break; } }
       } else if (it.type == V_MAP) {
         int len = it.map ? it.map->n : 0;
-        for (int i = 0; i < len; i++) { Env *be = env_new(env); env_define(be, s->name, vstr(dup_str(it.map->keys[i]))); exec_block(s->body, s->nbody, be); if (returning) break; if (g_loopctl) { int stop = g_loopctl == 2; g_loopctl = 0; if (stop) break; } }
+        for (int i = 0; i < len; i++) { Env *be = env_new(env); env_define(be, s->name, vstr(dup_str(it.map->keys[i])));
+          if (s->name2) env_define(be, s->name2, it.map->vals[i]);
+          learn_loop(be, s->name, s->name2);
+          exec_block(s->body, s->nbody, be); if (returning) break; if (g_loopctl) { int stop = g_loopctl == 2; g_loopctl = 0; if (stop) break; } }
       } else if (it.type == V_STR) {
-        const char *p = it.str ? it.str : "";
-        for (int i = 0; p[i]; ) {                       /* one whole UTF-8 character per step */
+        const char *p = it.str ? it.str : ""; long long ci = 0;
+        for (int i = 0; p[i]; ci++) {                   /* one whole UTF-8 character per step */
           int cl = utf8_clen((unsigned char)p[i]); char ch[5]; int k = 0;
           for (; k < cl && p[i + k]; k++) ch[k] = p[i + k];
           ch[k] = 0;
-          Env *be = env_new(env); env_define(be, s->name, vstr(dup_str(ch)));
+          Env *be = env_new(env);
+          if (s->name2) { env_define(be, s->name, vnum((double)ci)); env_define(be, s->name2, vstr(dup_str(ch))); } else env_define(be, s->name, vstr(dup_str(ch)));
+          learn_loop(be, s->name, s->name2);
           exec_block(s->body, s->nbody, be); if (returning) break; if (g_loopctl) { int stop = g_loopctl == 2; g_loopctl = 0; if (stop) { i += k ? k : 1; break; } }
           i += k ? k : 1;
         }
@@ -1856,7 +1960,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.0.17"
+#define SPROUT_VERSION "0.0.18"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);

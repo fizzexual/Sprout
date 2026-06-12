@@ -1,0 +1,57 @@
+~ v0.0.18 ergonomics: `in`, `or else`, for-each key/value, kind_of, scientific notation.
+~ Guarded script: prints "FAIL ..." on any wrong result.
+
+task check(label, got, want):
+    when got != want:
+        show "FAIL", label, "- got", got, "wanted", want
+
+~ ---------- the `in` operator ----------
+check("in list (hit)", 3 in [1, 2, 3], yes)
+check("in list (miss)", 9 in [1, 2, 3], no)
+check("in text (substring)", "ell" in "hello", yes)
+check("in text (miss)", "z" in "hello", no)
+check("in map (key hit)", "a" in {"a": 1}, yes)
+check("in map (key miss)", "b" in {"a": 1}, no)
+check("in works in when/and", (2 in [1, 2] and 1 in [1, 2]), yes)
+
+~ ---------- `or else` (nothing-coalescing) ----------
+check("or else uses fallback on nothing", number("abc") or else 0, 0)
+check("or else keeps a real value", number("42") or else 0, 42)
+make m = {"x": 1}
+check("or else on a missing map key", m["y"] or else "none", "none")
+check("or else chains", nothing or else nothing or else 7, 7)
+check("or else doesn't fire on 0/empty", 0 or else 99, 0)
+~ 'else' is contextual, not reserved: it works as an ordinary name
+make else = 5
+check("else is usable as a name", else + 1, 6)
+
+~ ---------- for each key, value ----------
+make scores = {"sam": 10, "ana": 20}
+make total = 0
+make names = ""
+for each who, pts in scores:
+    set total = total + pts
+    set names = names + who
+check("for-each key,value sums values", total, 30)
+check("for-each key,value sees keys", names, "samana")
+
+~ for each index, item (list)
+make idxsum = 0
+for each i, x in ["a", "b", "c"]:
+    set idxsum = idxsum + i
+check("for-each index,item gives indices", idxsum, 3)
+
+~ ---------- kind_of ----------
+check("kind_of number", kind_of(5), "number")
+check("kind_of text", kind_of("hi"), "text")
+check("kind_of yes-no", kind_of(yes), "yes-no")
+check("kind_of nothing", kind_of(nothing), "nothing")
+check("kind_of list", kind_of([1]), "list")
+check("kind_of map", kind_of({"a": 1}), "map")
+
+~ ---------- scientific-notation literals ----------
+check("sci 1e3", 1e3, 1000)
+check("sci 2.5e-2", 2.5e-2, 0.025)
+check("sci 1.5e2", 1.5e2, 150)
+
+show "ergonomics: all checks ran"

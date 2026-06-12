@@ -1,0 +1,22 @@
+~ v0.0.18: `expect error` in the test framework. A *_test.sprout file, so run.sh gates
+~ it via `sprout test` (exit code). These should all PASS.
+
+test "expect error catches a failure":
+    expect error:
+        show 1 / 0
+
+test "expect error checks the kind":
+    expect error "math":
+        show 5 / 0
+    expect error "index":
+        make xs = [1, 2]
+        show xs[99]
+    expect error "fail":
+        fail "nope"
+
+test "expect error works with a fail-map's custom kind":
+    expect error "http":
+        fail {kind: "http", status: 404, message: "Not found"}
+
+test "normal expect still works alongside":
+    expect 2 + 2 == 4

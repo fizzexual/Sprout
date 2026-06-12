@@ -111,6 +111,15 @@ take or leave, and the base that freezes at v0.1.0 will be genuinely complete.
 - [x] **Number-edge rules stated** — modulo takes the dividend's sign; `nan`/`inf` unreachable (guarded); `random` not seedable + scientific-notation literals unparsed (both flagged as roadmap, not silent).
 - [x] **CI gates the test framework** — `run.sh` now runs `*_test.sprout` via `sprout test` (exit-code), closing the hole where a failing `expect` (prints `x`, not `FAIL`) slipped past the grep.
 
+**Ergonomics shipped in v0.0.18 (the additive Tier-1 gaps from the freeze-readiness audit — done):**
+- [x] **`expect error [\"kind\"]:`** — assert that a block fails (optionally with a specific kind); closes the "can't test errors" gap. Works with `fail`-maps' custom kinds.
+- [x] **`for each key, value in m`** (and `for each index, item` over a list/text) — map values are now first-class in iteration.
+- [x] **`x in xs`** — membership (list item / map key / substring), at the comparison level.
+- [x] **`a or else b`** — nothing-coalescing (not error recovery), for `number()`/missing-key `nothing`.
+- [x] **`kind_of(x)`** — `"number"`/`"text"`/`"yes-no"`/`"nothing"`/`"list"`/`"map"` for type checks.
+- [x] **`learn` mode now narrates control flow** — which `when` branch ran, every loop turn, and each task call + its result (previously make/set/show only).
+- [x] **Scientific-notation literals** — `1e3`, `2.5e-2`.
+
 > Note (v0.0.14 build): fixed a Windows-only crash where a top-level `try:` that caught an
 > error segfaulted at `-O2` — `cmd_run` now establishes an outer error boundary (like
 > `sprout test`/`build` already had), giving the nested `longjmp` a valid SEH frame to unwind to.
@@ -148,7 +157,7 @@ Every language dimension, each row probed against v0.0.13. Legend: **✅ in core
 | `+ - * / %`, comparisons, `and`/`or`/`not`, `( )`, unary `-`/`not` | ✅ |
 | `//` floor-div, `mod` | 📋 Phase 4 |
 | **Compound assignment** `+= -= *= /= %=` (incl. `xs[i] += 1`) | ✅ v0.0.14 |
-| **`in` operator** `x in xs` (sugar for `contains`) | ➕ Phase 5.5 |
+| **`in` operator** `x in xs` (list/map/text membership) | ✅ v0.0.18 |
 | **Inline-if / ternary expression** (`give a when c otherwise b` as a *value*) | ➕ Phase 5.5 (decide) |
 | **Pipe** `xs \|> map(...) \|> sort()` | ➕ Phase 5.5 (power; decide) |
 | Spread `[...a, ...b]` · slicing `xs[1..3]` · ranges `1..10` | 📋 Phase 3 |
@@ -261,8 +270,8 @@ files, the web, and the server kind. It's literally where this project started (
 - [x] **`fail "message"`** (and `fail {kind:"http", status:404, ...}` to carry structure) — raise your own error.
 - [x] **The caught-error shape — DECIDED:** a **map** `{message, kind, line}`, bound to a user-chosen optional name. (The Phase-1 open question below is now answered: recovery branch **+** a readable error map, with categorised `kind`s.)
 - [x] **Two tiers — DECIDED:** `try` catches runtime conditions; name/task/module typos and lex/parse errors are "hard" and uncatchable (so diagnostics aren't swallowed). Verified by adversarial review.
-- [ ] **`default` / `or else`** — a fallback for an error/`nothing`: `make port = number(env("PORT")) or else 8080`.
-- [ ] **`expect error in: …`** — so tests can assert a failure (closes the gap where errors can't be asserted today).
+- [x] **`or else`** (v0.0.18) — nothing-coalescing fallback: `make port = number(ask("port?")) or else 8080`. (Coalesces `nothing`, not errors — that's `try`.)
+- [x] **`expect error [\"kind\"]:`** (v0.0.18) — tests can now assert a failure, optionally of a specific kind.
 - [ ] **`finally:` / `always:`** — a cleanup block that runs whether or not the `try` failed.
 - [ ] **`assert <cond>`** — a guard outside tests: stop with a clear message if something that must be true isn't.
 
@@ -305,7 +314,7 @@ No user-defined types today (maps are the record). Add structure without losing 
 ## Phase 5 — Control flow polish 🟢
 
 - [ ] **`match` / pattern matching** — `match shape: when circle(r): … when square(s): …`.
-- [ ] **`skip`** (continue) and **`stop`** (break) in loops.
+- [x] **`skip`** (continue) and **`stop`** (break) in loops. *(done v0.0.14)*
 - [ ] **`for i from 1 to 10 [by 2]`** — counted loops without `range`.
 - [ ] **`repeat until …`** — the inverse of `repeat while`.
 
@@ -314,7 +323,7 @@ No user-defined types today (maps are the record). Add structure without losing 
 Pure quality-of-life. None add a value kind; they just make everyday code shorter and friendlier.
 
 - [ ] **Compound assignment** — `set x += 1` (`-= *= /=`). The #1 ergonomic gap; do it in the base-completion bundle.
-- [ ] **`in` operator** — `when name in names:` (reads like English; sugar for `contains`).
+- [x] **`in` operator** — `when name in names:` (reads like English). *(done v0.0.18)*
 - [ ] **Block comments** — `~~ … ~~` for commenting out a span (today only `~` to end-of-line).
 - [ ] **Nicer number literals** — underscores `1_000_000`, scientific `1e3`, and (decide) hex `0xFF`.
 - [ ] **Inline-if (ternary) as a value** — `make label = "pass" when score >= 50 otherwise "try again"` (decide vs. statement-only `when`).

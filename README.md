@@ -91,14 +91,14 @@ language runs now:
 - **Compound assignment:** `set x += 1` (and `-= *= /= %=`), including through an index (`set xs[i] += 1`, `set m[key] += 1`)
 - **Text templates:** `f"Hi {name}, you have {x + y} points"` — values drop straight in
 - Math `+ - * / %` with precedence and `( )`; `+` also joins text
-- Compare `== != < <= > >=`, logic `and` `or` `not`
+- Compare `== != < <= > >=`, logic `and` `or` `not`, **membership** `x in xs`, **fallback** `a or else b` (use `b` if `a` is `nothing`)
 - `when` / `orwhen` / `otherwise`, `repeat N times`, `repeat while`, and **`stop`** / **`skip`** to leave or skip a loop turn
 - **Error handling:** `try:` / `caught problem:` to catch a runtime error (the caught error is a map `{message, kind, line}`), and `fail "message"` (or `fail {...}`) to raise your own
 - `task` / `give`, function calls, **recursion**, proper scope
-- **Lists** `[1, 2, 3]` and **maps** `{name: "Sam"}` — indexing, `set xs[i] = …`, `for each`, `range`
-- **`learn on`** — Sprout explains each step as it runs (and **friendly errors** that say *"did you mean…?"*)
-- **Built-in testing** — `test "name": expect …`, run with `sprout test` (pass/fail report + exit code)
-- **Toolbox:** `length` `add` `remove` `insert` `keys` `values` `contains` `first` `last` `index_of` `sort` `reverse` `copy` `range` · `sqrt` `pow` `abs` `round` `floor` `ceil` `min` `max` `random` `number` · `upper` `lower` `trim` `replace` `split` `join` `starts_with` `ends_with` · `now` `today` `wait` · `ask` · `color` (terminal colour)
+- **Lists** `[1, 2, 3]` and **maps** `{name: "Sam"}` — indexing, `set xs[i] = …`, `range`, and `for each` (`for each item in xs`, or `for each key, value in m`)
+- **`learn on`** — Sprout narrates each step as it runs: values, **which `when` branch ran, every loop turn, and each task call + what it gave back** (plus **friendly errors** that say *"did you mean…?"*)
+- **Built-in testing** — `test "name": expect …`, plus **`expect error "kind":`** to assert that a block fails; run with `sprout test`
+- **Toolbox:** `length` `add` `remove` `insert` `keys` `values` `contains` `first` `last` `index_of` `sort` `reverse` `copy` `kind_of` `range` · `sqrt` `pow` `abs` `round` `floor` `ceil` `min` `max` `random` `number` · `upper` `lower` `trim` `replace` `split` `join` `starts_with` `ends_with` · `now` `today` `wait` · `ask` · `color` (terminal colour)
 - **Superpowers — built in, no libraries:**
   - 🌐 `get(url)` — fetch any web page or API
   - 🧩 `json(text)` — parse JSON straight into native lists & maps
@@ -172,7 +172,7 @@ build.cmd                     # or: gcc -O2 -Wall -s -o sprout.exe sprout.c -lm 
 
 # run a program:
 sprout run hello.sprout     # or just: sprout hello.sprout
-sprout version              # -> Sprout v0.0.17
+sprout version              # -> Sprout v0.0.18
 sprout new myapp            # create a full multi-file project folder
 sprout build                # run the project in the current folder (reads sprout.toml)
 sprout test                 # run your tests (a file, or every tests/*.sprout)
@@ -225,9 +225,9 @@ too, so `nan`/`inf` aren't reachable through the normal paths. **Whole-number va
 display without a decimal point** — `range(3)` shows `[0, 1, 2]`, and
 indices/counts/`length` read as `0`, `1`, `2` (not `0.0`) — so the doubles-only
 choice is invisible until you do real division. (Very large whole numbers fall back
-to exponential form, e.g. `1e+21`, past `1e15`.) `random` is **not** seedable yet, so
-runs aren't reproducible; scientific-notation *literals* (`1e3`) aren't parsed yet
-(both are roadmap items).
+to exponential form, e.g. `1e+21`, past `1e15`.) **Scientific-notation literals** are
+accepted (`1e3`, `2.5e-2`). `random` is **not** seedable yet, so runs aren't
+reproducible (a roadmap item).
 
 **Text is UTF-8.** `length("café")` is `4` (characters, not bytes). Strings are
 immutable, but **indexable by character**: `s[i]` is the *i*-th character, 0-based
@@ -258,7 +258,15 @@ keeps its own operator meaning and only the final splice is coerced, so
 means `a or (b and c)`). **Equality** (`==`/`!=`) is structural and deep for
 lists/maps (depth-guarded against self-reference); `< <= > >=` compare two numbers
 or two pieces of text. **Comparisons don't chain** — `1 < 2 < 3` is a friendly
-error; write `1 < 2 and 2 < 3`.
+error; write `1 < 2 and 2 < 3`. **`x in xs`** is membership — at the same
+(non-chaining) level as the comparisons — and tests a list item, a map *key*, or a
+substring of text. **`a or else b`** is nothing-coalescing: it's `a` unless `a` is
+`nothing`, in which case `b` (and `b` is only evaluated then). It's *not* error
+recovery — that's `try`/`caught` — it's for the `nothing` that `number("x")` or a
+missing map key gives back: `make port = number(ask("port?")) or else 8080`.
+
+**`kind_of(x)`** returns a value's type as text — `"number"`, `"text"`, `"yes-no"`,
+`"nothing"`, `"list"`, or `"map"` — so you can branch on a type: `when kind_of(x) == "number": …`.
 
 **Lists & maps.** `[1, 2, 3]` and `{name: "Sam", age: 3}`. A **bare identifier key
 is shorthand for its text** — `{name: 1}` has the key `"name"`; keys are never
@@ -269,8 +277,10 @@ already exist (lists don't auto-grow — an out-of-range index is an error), whi
 not `make`, because the map itself already exists (you're changing it; `make` is
 only for brand-new *names*). Index assignment may nest (`set grid[i][j] = v`),
 even though *module* member access is a single dot. **`for each` over a map yields
-its keys** (in insertion order); use `m[key]` for the value. **Map key order is
-insertion order; `remove`ing a key then setting it again puts it at the back.**
+its keys** (in insertion order); use `m[key]` for the value, or bind both with a
+comma: **`for each key, value in m`**. With two names over a *list* or *text* you get
+**`for each index, item`** (the index is 0-based). **Map key order is insertion
+order; `remove`ing a key then setting it again puts it at the back.**
 
 **Lists & maps are shared references — this is load-bearing.** `make b = a` does
 **not** copy; `a` and `b` are the *same* list/map, so `add(b, 3)` changes `a` too,
@@ -415,6 +425,8 @@ make set show when orwhen otherwise repeat while times task give
 for each in use public private learn test expect and or not yes no nothing
 try caught fail stop skip
 ```
+(`else` is **not** reserved — it's only meaningful right after `or` (the `or else`
+operator); anywhere else it's an ordinary name.)
 
 > **`otherwise` vs `caught`.** `otherwise` is the else-branch of `when`; `caught` is
 > the catch-block of `try`. They're separate words so each reads as one thing —
@@ -422,7 +434,7 @@ try caught fail stop skip
 
 **Built-in functions** are predefined names — `length sqrt pow abs round floor ceil
 min max random number upper lower trim replace split join starts_with ends_with
-range add remove insert keys values contains first last index_of sort reverse copy
+range add remove insert keys values contains first last index_of sort reverse copy kind_of
 ask now today wait read write append exists get json explore color`
 (plus `system.run`). You *may* shadow one with your own variable, but the function
 stays callable, so it's clearer not to.
@@ -460,7 +472,7 @@ assign     = "=" | "+=" | "-=" | "*=" | "/=" | "%=" ;  (* compound: x op= e  == 
 show       = "show" expr { "," expr } NEWLINE ;        (* commas print with a space between *)
 when       = "when" expr block { "orwhen" expr block } [ "otherwise" block ] ;
 repeat     = "repeat" ( expr "times" | "while" expr ) block ;  (* a 'times' count is truncated to a whole number; <= 0 runs 0 times *)
-foreach    = "for" "each" ident "in" expr block ;             (* over a map, ident takes each KEY *)
+foreach    = "for" "each" ident [ "," ident ] "in" expr block ; (* 1 name: item / map-key. 2 names: (index,item) over a list/text, (key,value) over a map *)
 task       = [ "public" | "private" ] "task" ident "(" [ ident { "," ident } ] ")" block ;  (* top level only *)
 give       = "give" [ expr ] NEWLINE ;                 (* a parse error outside a task *)
 try        = "try" block "caught" [ ident ] block ;    (* caught is required; ident binds the error map {message,kind,line} *)
@@ -470,9 +482,10 @@ learn      = "learn" ( "on" | "off" ) NEWLINE ;
 block      = ":" NEWLINE INDENT { statement } DEDENT ;  (* "stop"/"skip" only inside a loop body *)
 
 expr       = or ;
-or         = and { "or" and } ;
+or         = and { ( "or" "else" and )            (* nothing-coalescing: left unless it's nothing *)
+                  | ( "or" and ) } ;              (* logical or *)
 and        = cmp { "and" cmp } ;
-cmp        = term [ ( "==" | "!=" | "<" | "<=" | ">" | ">=" ) term ] ;  (* non-associative: comparisons don't chain *)
+cmp        = term [ ( "==" | "!=" | "<" | "<=" | ">" | ">=" | "in" ) term ] ;  (* non-associative; `x in xs` = membership *)
 term       = factor { ( "+" | "-" ) factor } ;
 factor     = unary { ( "*" | "/" | "%" ) unary } ;
 unary      = ( "-" | "not" ) unary | postfix ;
@@ -484,6 +497,7 @@ list       = "[" [ expr { "," expr } ] "]" ;
 map        = "{" [ key ":" expr { "," key ":" expr } ] "}" ;
 key        = ident | string ;
 fstring    = 'f"' { char | "{" expr "}" } '"' ;
+number     = digits [ "." digits ] [ ("e"|"E") ["+"|"-"] digits ] ;  (* 42, 2.5, 1e3, 1.5e-2 *)
 ```
 
 ### Indentation rules
@@ -572,7 +586,7 @@ There's a **[VS Code extension](vscode-extension)** for syntax highlighting too.
 
 ## Known limitations & open questions
 
-Sprout is **v0.0.17** — early, and deliberately small. Honest about the edges:
+Sprout is **v0.0.18** — early, and deliberately small. Honest about the edges:
 spotting more (or telling me which matter most) is exactly the feedback I want —
 [issues](https://github.com/fizzexual/Sprout/issues) /
 [discussions](https://github.com/fizzexual/Sprout/discussions) welcome.
