@@ -57,11 +57,13 @@ static int utf8_clen(unsigned char c) {
 }
 
 /* ------------------------------------------------------------------ values */
-typedef enum { V_NUM, V_STR, V_BOOL, V_NONE, V_LIST, V_MAP } VType;
+typedef enum { V_NUM, V_STR, V_BOOL, V_NONE, V_LIST, V_MAP, V_TASK } VType;
 typedef struct Value Value;
+typedef struct TaskDef TaskDef;   /* a first-class task value points at one of these (defined later) */
+static const char *taskdef_name(TaskDef *t);   /* TaskDef's fields aren't known this early; reach the name through here */
 typedef struct { Value *items; int n, cap; } SList;
 typedef struct { char **keys; Value *vals; int n, cap; } SMap;
-struct Value { VType type; double num; char *str; int boolean; SList *list; SMap *map; };
+struct Value { VType type; double num; char *str; int boolean; SList *list; SMap *map; TaskDef *task; };
 
 static Value vnum(double n)  { Value v = {0}; v.type = V_NUM;  v.num = n; return v; }
 static Value vstr(char *s)   { Value v = {0}; v.type = V_STR;  v.str = s; return v; }
@@ -69,6 +71,7 @@ static Value vbool(int b)    { Value v = {0}; v.type = V_BOOL; v.boolean = b; re
 static Value vnone(void)     { Value v = {0}; v.type = V_NONE; return v; }
 static Value vlist(SList *l) { Value v = {0}; v.type = V_LIST; v.list = l; return v; }
 static Value vmap(SMap *m)   { Value v = {0}; v.type = V_MAP;  v.map = m;  return v; }
+static Value vtask(TaskDef *t){ Value v = {0}; v.type = V_TASK; v.task = t; return v; }
 
 static SList *list_new(void) { return (SList *)calloc(1, sizeof(SList)); }
 static void list_push(SList *l, Value x) {
@@ -132,14 +135,15 @@ static char *stringify_inner(Value v) {
       for (int i = 0; m && i < m->n; i++) { if (i) sb_add(&out, &cap, &len, ", "); sb_add(&out, &cap, &len, m->keys[i]); sb_add(&out, &cap, &len, ": "); char *p = stringify(m->vals[i]); sb_add(&out, &cap, &len, p); }
       sb_add(&out, &cap, &len, "}"); return out;
     }
+    case V_TASK: { char buf[128]; snprintf(buf, sizeof buf, "task %s", taskdef_name(v.task)); return dup_str(buf); }
     default:     return dup_str("nothing");
   }
 }
 static const char *type_name(Value v) {
-  switch (v.type) { case V_NUM: return "a number"; case V_STR: return "text"; case V_BOOL: return "a yes/no"; case V_LIST: return "a list"; case V_MAP: return "a map"; default: return "nothing"; }
+  switch (v.type) { case V_NUM: return "a number"; case V_STR: return "text"; case V_BOOL: return "a yes/no"; case V_LIST: return "a list"; case V_MAP: return "a map"; case V_TASK: return "a task"; default: return "nothing"; }
 }
 static int is_truthy(Value v) {
-  switch (v.type) { case V_NUM: return v.num != 0; case V_STR: return v.str && v.str[0]; case V_BOOL: return v.boolean; case V_LIST: return v.list && v.list->n > 0; case V_MAP: return v.map && v.map->n > 0; default: return 0; }
+  switch (v.type) { case V_NUM: return v.num != 0; case V_STR: return v.str && v.str[0]; case V_BOOL: return v.boolean; case V_LIST: return v.list && v.list->n > 0; case V_MAP: return v.map && v.map->n > 0; case V_TASK: return 1; default: return 0; }
 }
 static int g_eq_depth = 0;
 static int values_equal_inner(Value a, Value b);
@@ -167,6 +171,7 @@ static int values_equal_inner(Value a, Value b) {
       for (int i = 0; i < x->n; i++) { int j = map_index(y, x->keys[i]); if (j < 0 || !values_equal(x->vals[i], y->vals[j])) return 0; }
       return 1;
     }
+    case V_TASK: return a.task == b.task;   /* two task values are equal iff they're the same task */
     default:     return 1;
   }
 }
@@ -826,8 +831,9 @@ static void env_assign(Env *e, const char *name, Value v, int line) {
 }
 
 /* tasks: top-level functions, hoisted so call order doesn't matter */
-typedef struct { char *name; char **params; int nparams; Stmt **body; int nbody; int line;
-                 int is_public; int fileid; Env *home; } TaskDef;
+struct TaskDef { char *name; char **params; int nparams; Stmt **body; int nbody; int line;
+                 int is_public; int fileid; Env *home; };   /* TaskDef typedef is forward-declared up by Value */
+static const char *taskdef_name(TaskDef *t) { return (t && t->name) ? t->name : "?"; }
 static TaskDef *tasks = NULL; static int ntasks = 0, captasks = 0;
 /* bare calls only see tasks of the CURRENT file; cross-file goes through a module namespace */
 static TaskDef *task_find(const char *name) {
@@ -908,15 +914,11 @@ static void exec_block(Stmt **list, int n, Env *env) { for (int i = 0; i < n; i+
 /* run a block in its OWN child scope, so `make` inside it doesn't leak out */
 static void exec_scoped(Stmt **list, int n, Env *parent) { Env *be = env_new(parent); exec_block(list, n, be); }
 
-static Value call_task_def(TaskDef *t, Expr *call, Env *env) {
-  if (call->nargs != t->nparams) {
-    char m[160]; snprintf(m, sizeof m, "the task '%s' wants %d input%s, but got %d.", t->name, t->nparams, t->nparams == 1 ? "" : "s", call->nargs);
-    fail(call->line, m);
-  }
-  if (++call_depth > MAX_DEPTH) fail(call->line, "this went too deep — a task may be calling itself with no way to stop.");
-  Env *frame = env_new(t->home);      /* a task sees its OWN file (privates + publics) + its locals */
-  for (int i = 0; i < t->nparams; i++) env_define(frame, t->params[i], eval(call->args[i], env));
-  if (g_learn) {                       /* narrate the call with its inputs */
+/* run a task body in a prepared frame (the params are already bound). Shared by the Expr-based
+   caller and the Value-based one (which higher-order builtins like map/filter use). */
+static Value run_task(TaskDef *t, Env *frame, int line) {
+  if (++call_depth > MAX_DEPTH) fail(line, "this went too deep — a task may be calling itself with no way to stop.");
+  if (g_learn) {
     printf("  " C_DIM "Calling %s(", t->name);
     for (int i = 0; i < t->nparams; i++) { if (i) printf(", "); Value *pv = env_find(frame, t->params[i]); char *ps = stringify(*pv); printf("%s", ps); free(ps); }
     printf(")" C_RESET "\n\n");
@@ -932,6 +934,22 @@ static Value call_task_def(TaskDef *t, Expr *call, Env *env) {
   cur_fileid = saved_fid; cur_file_env = saved_fe;
   call_depth--;
   return result;
+}
+static void task_arity_check(TaskDef *t, int got, int line) {
+  if (got != t->nparams) { char m[160]; snprintf(m, sizeof m, "the task '%s' wants %d input%s, but got %d.", t->name, t->nparams, t->nparams == 1 ? "" : "s", got); fail(line, m); }
+}
+static Value call_task_def(TaskDef *t, Expr *call, Env *env) {
+  task_arity_check(t, call->nargs, call->line);
+  Env *frame = env_new(t->home);      /* a task sees its OWN file (privates + publics) + its locals */
+  for (int i = 0; i < t->nparams; i++) env_define(frame, t->params[i], eval(call->args[i], env));
+  return run_task(t, frame, call->line);
+}
+/* call a task VALUE with already-evaluated args (used by map/filter/reduce/each) */
+static Value call_task_v(TaskDef *t, Value *argv, int argc, int line) {
+  task_arity_check(t, argc, line);
+  Env *frame = env_new(t->home);
+  for (int i = 0; i < argc; i++) env_define(frame, t->params[i], argv[i]);
+  return run_task(t, frame, line);
 }
 static Value call_task(Expr *call, Env *env) {
   TaskDef *t = task_find(call->name);
@@ -960,7 +978,7 @@ static int edit_distance(const char *a, const char *b) {
 
 static const char *const BUILTIN_NAMES[] = {
   "range","length","add","keys","contains","first","last",
-  "remove","insert","sort","reverse","index_of","values","copy","kind_of",
+  "remove","insert","sort","reverse","index_of","values","copy","kind_of","map","filter","reduce",
   "abs","round","floor","ceil","sqrt","pow","min","max","random","number",
   "upper","lower","trim","replace","split","join","starts_with","ends_with",
   "ask","now","today","wait","read","write","append","exists","remember","recall","forget",
@@ -1194,6 +1212,7 @@ static void to_json(Value v, char **o, size_t *c, size_t *l) {
     case V_BOOL: sb_add(o, c, l, v.boolean ? "true" : "false"); break;
     case V_LIST: sb_add(o, c, l, "["); for (int i = 0; v.list && i < v.list->n; i++) { if (i) sb_add(o, c, l, ","); to_json(v.list->items[i], o, c, l); } sb_add(o, c, l, "]"); break;
     case V_MAP:  sb_add(o, c, l, "{"); for (int i = 0; v.map && i < v.map->n; i++) { if (i) sb_add(o, c, l, ","); json_escape(v.map->keys[i], o, c, l); sb_add(o, c, l, ":"); to_json(v.map->vals[i], o, c, l); } sb_add(o, c, l, "}"); break;
+    case V_TASK: sb_add(o, c, l, "null"); break;   /* tasks aren't data - they don't persist */
     default:     sb_add(o, c, l, "null"); break;   /* nothing */
   }
   g_json_w_depth--;
@@ -1416,8 +1435,27 @@ static Value call_builtin(Expr *call, Env *env) {
   if (!strcmp(name, "kind_of")) {   /* a simple, switchable type tag for beginners: when kind_of(x) == "number": ... */
     if (n != 1) fail(call->line, "kind_of needs one value, like kind_of(x).");
     const char *k = "nothing";
-    switch (a[0].type) { case V_NUM: k="number"; break; case V_STR: k="text"; break; case V_BOOL: k="yes-no"; break; case V_LIST: k="list"; break; case V_MAP: k="map"; break; default: k="nothing"; }
+    switch (a[0].type) { case V_NUM: k="number"; break; case V_STR: k="text"; break; case V_BOOL: k="yes-no"; break; case V_LIST: k="list"; break; case V_MAP: k="map"; break; case V_TASK: k="task"; break; default: k="nothing"; }
     return vstr(dup_str(k));
+  }
+  /* ---- higher-order: run a task over a list (the "easy data" trio + each) ---- */
+  if (!strcmp(name, "map")) {
+    if (n != 2 || a[0].type != V_LIST || a[1].type != V_TASK) fail(call->line, "map needs a list and a task, like map(names, shout).");
+    SList *out = list_new(); int len = a[0].list ? a[0].list->n : 0;   /* snapshot length: a mutating task can't extend the loop */
+    for (int i = 0; i < len; i++) { Value arg = a[0].list->items[i]; list_push(out, call_task_v(a[1].task, &arg, 1, call->line)); }
+    return vlist(out);
+  }
+  if (!strcmp(name, "filter")) {
+    if (n != 2 || a[0].type != V_LIST || a[1].type != V_TASK) fail(call->line, "filter needs a list and a task that gives yes/no, like filter(nums, is_even).");
+    SList *out = list_new(); int len = a[0].list ? a[0].list->n : 0;
+    for (int i = 0; i < len; i++) { Value item = a[0].list->items[i]; if (is_truthy(call_task_v(a[1].task, &item, 1, call->line))) list_push(out, item); }
+    return vlist(out);
+  }
+  if (!strcmp(name, "reduce")) {
+    if (n != 3 || a[0].type != V_LIST || a[1].type != V_TASK) fail(call->line, "reduce needs a list, a task taking (total, item), and a starting value, like reduce(nums, add_up, 0).");
+    Value acc = a[2]; int len = a[0].list ? a[0].list->n : 0;
+    for (int i = 0; i < len; i++) { Value two[2] = { acc, a[0].list->items[i] }; acc = call_task_v(a[1].task, two, 2, call->line); }
+    return acc;
   }
   if (!strcmp(name, "pow")) { if (n != 2 || a[0].type != V_NUM || a[1].type != V_NUM) fail(call->line, "pow needs two numbers, like pow(2, 10)."); return vnum(pow(a[0].num, a[1].num)); }
   if (!strcmp(name, "starts_with")) { if (n != 2 || a[0].type != V_STR || a[1].type != V_STR) fail(call->line, "starts_with needs two pieces of text."); const char *h = a[0].str ? a[0].str : "", *p = a[1].str ? a[1].str : ""; return vbool(strncmp(h, p, strlen(p)) == 0); }
@@ -1674,13 +1712,12 @@ static Value eval(Expr *e, Env *env) {
     case E_VAR: {
       Value *v = env_find(env, e->name);
       if (!v) {
+        TaskDef *t = task_find(e->name);
+        if (t) return vtask(t);   /* a task's name used as a value -> a first-class task value */
         char msg[400];
-        if (task_find(e->name))   /* it's a task used as a value: no first-class functions (yet) */
-          snprintf(msg, sizeof msg, "'%s' is a task, and tasks can't be stored in a variable yet.\n\n  Call it instead, like:  %s(...)", e->name, e->name);
-        else { const char *sug = suggest_name(e->name, env, 1);
-          if (sug) snprintf(msg, sizeof msg, "I don't know what '%s' is.\n\n  Did you mean '%s'?", e->name, sug);
-          else snprintf(msg, sizeof msg, "I don't know what '%s' is.\n\n  Variables are made with 'make', like:\n      make %s = \"Sam\"", e->name, e->name);
-        }
+        const char *sug = suggest_name(e->name, env, 1);
+        if (sug) snprintf(msg, sizeof msg, "I don't know what '%s' is.\n\n  Did you mean '%s'?", e->name, sug);
+        else snprintf(msg, sizeof msg, "I don't know what '%s' is.\n\n  Variables are made with 'make', like:\n      make %s = \"Sam\"", e->name, e->name);
         fail_hard(e->line, "name", msg);
       }
       return *v;
@@ -1699,6 +1736,7 @@ static Value eval(Expr *e, Env *env) {
     }
     case E_BINARY: return eval_binary(e, env);
     case E_CALL:   if (e->module) return call_module(e, env);
+                   { Value *fv = env_find(env, e->name); if (fv && fv->type == V_TASK) return call_task_def(fv->task, e, env); }  /* call a task held in a variable */
                    return task_find(e->name) ? call_task(e, env) : call_builtin(e, env);
     case E_MEMBER: {
       if (!has_use(cur_fileid, e->module)) { char m[256]; snprintf(m, sizeof m, "to read %s.%s, add 'use %s' at the top of this file.", e->module, e->name, e->module); fail_hard(e->line, "name", m); }
@@ -1860,10 +1898,11 @@ static void exec(Stmt *s, Env *env) {
       sjmp_buf tb; sjmp_buf * volatile saved = err_jmp; sjmp_buf * volatile saved_top = g_top_jmp;
       err_jmp = &tb; g_top_jmp = &tb;
       volatile int sdepth = call_depth, sret = returning, sq = g_quiet_fail;
+      volatile int sfid = cur_fileid; Env * volatile sfe = cur_file_env;   /* restore file context if a cross-file task failed */
       if (SJSET(tb) == 0) {
         exec_block(s->body, s->nbody, env_new(env));   /* each test runs in its own scope */
       } else {                                          /* a runtime error stopped the test */
-        call_depth = sdepth; returning = sret; g_loopctl = 0; g_quiet_fail = sq; g_have_fail_override = 0;
+        call_depth = sdepth; returning = sret; g_loopctl = 0; g_quiet_fail = sq; g_have_fail_override = 0; cur_fileid = sfid; cur_file_env = sfe;
         if (!g_test_failed) { g_test_failed = 1; printf("  " C_RED "x" C_RESET "  %s " C_DIM "(stopped by an error)" C_RESET "\n", s->name); }
       }
       err_jmp = saved; g_top_jmp = saved_top; g_quiet_fail = sq; g_have_fail_override = 0;
@@ -1884,13 +1923,14 @@ static void exec(Stmt *s, Env *env) {
     }
     case S_EXPECT_ERROR: {                              /* `expect error [\"kind\"]:` — the block MUST fail */
       sjmp_buf tb; sjmp_buf * volatile saved = err_jmp; volatile int sq = g_quiet_fail; volatile int sdepth = call_depth;
+      volatile int sfid = cur_fileid; Env * volatile sfe = cur_file_env;
       err_jmp = &tb; g_quiet_fail = 1;                  /* catch SOFT errors; a hard error (typo) still aborts the test */
       volatile int errored = 0;
       if (SJSET(tb) == 0) {
         exec_block(s->body, s->nbody, env_new(env));    /* ran clean -> the assertion will fail */
         err_jmp = saved; g_quiet_fail = sq; g_have_fail_override = 0;
       } else {
-        err_jmp = saved; g_quiet_fail = sq; call_depth = sdepth; returning = 0; g_loopctl = 0;
+        err_jmp = saved; g_quiet_fail = sq; call_depth = sdepth; returning = 0; g_loopctl = 0; cur_fileid = sfid; cur_file_env = sfe;
         errored = 1;
       }
       if (!errored) {
@@ -2017,12 +2057,13 @@ static void exec(Stmt *s, Env *env) {
       sjmp_buf tb; sjmp_buf * volatile saved = err_jmp; err_jmp = &tb;   /* a try: is a CATCH boundary - sets err_jmp only, NOT g_top_jmp */
       volatile int sq = g_quiet_fail; g_quiet_fail = 1;   /* soft errors inside become catchable, not printed */
       volatile int sdepth = call_depth;                   /* read after the longjmp -> volatile (-O2 safety) */
+      volatile int sfid = cur_fileid; Env * volatile sfe = cur_file_env;  /* a failing cross-file task value leaves these in ITS file; restore on catch */
       if (SJSET(tb) == 0) {
         exec_scoped(s->body, s->nbody, env);              /* the protected steps */
         err_jmp = saved; g_quiet_fail = sq;               /* clean exit: give/stop/skip flags pass through, caught does NOT run */
       } else {                                            /* a soft error was caught (a hard one would have skipped to g_top_jmp) */
         err_jmp = saved; g_quiet_fail = sq;
-        call_depth = sdepth; returning = 0; g_loopctl = 0;   /* unwind the half-done try cleanly */
+        call_depth = sdepth; returning = 0; g_loopctl = 0; cur_fileid = sfid; cur_file_env = sfe;   /* unwind the half-done try cleanly */
         Value err = current_error_value();                /* {message, kind, line} (or the user's fail-map) */
         Env *be = env_new(env);
         if (s->name) env_define(be, s->name, err);        /* caught problem:  ->  'problem' holds the error map */
@@ -2047,7 +2088,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.0.19"
+#define SPROUT_VERSION "0.0.20"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);

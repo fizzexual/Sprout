@@ -16,33 +16,26 @@ ambitious — pick what fits the mission, in this order.
 
 ---
 
-## ⛔ Open decisions that GATE the v0.1.0 freeze (these are the owner's calls)
+## ✅ Mission DECIDED — "everything, easy to use"
 
-A gap audit (v0.0.17) confirmed the *engineering* freeze-prep is done (contracts pinned — see
-below). What remains before v0.1.0 is **strategic**, and these can't stay "under evaluation"
-through a freeze, because they define what the freeze even promises. My recommendation is noted,
-but the call is the language owner's:
+The owner set the north star: **Sprout should be able to do *everything*, while staying
+*beginner-easy*.** That resolves the strategic fork — Sprout is **general-purpose**, with
+**ease-of-use as the acceptance test for every feature** (capability is the goal; "would a
+10-minute beginner find this obvious?" is the bar). This answers what used to be open:
 
-1. **The mission fork — teaching language, or small multipurpose runtime?** Everything below
-   hangs off this. *Recommendation: declare v0.1.0 the freeze of the **teaching/CLI core**, and
-   make GC + the web server + first-class tasks an explicit **post-v0.1.0 "runtime" track** with
-   its own (re-)freeze — so "freeze" stays meaningful for the part that's actually done.*
+1. **First-class tasks → IN.** ✅ Shipped v0.0.20 (a task is a value; `map`/`filter`/`reduce`).
+   Needed for the easy data work everyone expects. Closures + a `do (x): …` lambda are next.
+2. **GC / memory model → IN, but invisible.** "Everything" needs long-running programs + a
+   server, which leak-until-exit can't do — so a real GC is required. "Easy" forbids manual
+   memory / a borrow-checker, so it must be **automatic and unseen**. (Phase 8.)
+3. **The web server, concurrency, a package manager → IN**, each in the simplest possible form.
+4. **Stay OUT (they fail the "easy" test):** static typing, generics, macros/eval, manual memory,
+   bitwise ops. Capability via *more power delivered simply*, not via ceremony.
 
-2. **Are tasks first-class (values)?** Today `make f = greet` errors. `map`/`filter`/`reduce`
-   (Phase 3) and server handlers (Phase 9) both need passing a task as a value, and adding it
-   *after* the freeze changes the type model. *Decision needed: in v0.1.0, or "never" — not
-   "under evaluation." Recommendation: not in the teaching-core freeze; it opens the runtime track.*
-
-3. **Memory model vs long-running programs.** Leak-until-exit is fine for scripts/CLIs and
-   **disqualifying for a server** (leaks per request). You cannot honestly freeze "a core to build
-   servers on" without GC. *Recommendation: the v0.1.0 teaching-core freeze does NOT promise
-   long-running use; GC is a prerequisite of the runtime track, not the freeze.*
-
-4. **Multiple return values** (Phase 2, "decide & document") — still undecided; pin it (a list/map,
-   or real multi-return) before freezing the calling convention.
-
-Until #1–#3 are decided, "v0.1.0 = freeze" is ambiguous. Everything in the phases below is either
-already shipped, additive (safe after the freeze), or part of the runtime track.
+The honest tension: *everything* + *easy surface* + *tiny zero-dep implementation* — the third
+is what gives. The user stays in easy-mode; the **interpreter** necessarily grows (as Python/Lua/Ruby
+did). Remaining before a meaningful v0.1.0 freeze: **multiple-return convention** (pin it), and the
+release ritual. The path: **lambdas+closures → GC → web `kind` → package manager → tooling.**
 
 ---
 
@@ -182,8 +175,8 @@ Every language dimension, each row probed against v0.0.13. Legend: **✅ in core
 | Feature | Status |
 | --- | --- |
 | `task`/`give`, recursion, top-level | ✅ |
-| first-class tasks · closures · lambdas (`do (x): …`) · default/named/variadic args | 📋 Phase 2 |
-| higher-order builtins (`map`/`filter`/`reduce`/…) | 📋 Phase 3 |
+| **first-class tasks** ✅ v0.0.20 · closures · lambdas (`do (x): …`) · default/named/variadic args 📋 | partial (Phase 2) |
+| **higher-order builtins** (`map`/`filter`/`reduce`) ✅ v0.0.20 · (`find`/`any`/`all`/`sort_by` 📋) | partial (Phase 3) |
 | **Multiple return values** (or "return a list/map" — decide & document) | ➕ Phase 2 |
 | **Iterator protocol** (so `for each` walks a user-defined type) | ➕ Phase 2/4 |
 | currying / partial application · decorators | 🚫 |
@@ -275,14 +268,16 @@ files, the web, and the server kind. It's literally where this project started (
 - [ ] **`finally:` / `always:`** — a cleanup block that runs whether or not the `try` failed.
 - [ ] **`assert <cond>`** — a guard outside tests: stop with a clear message if something that must be true isn't.
 
-## Phase 2 — Functions grow up 🟡 ⛓️(unblocks Phases 3, 9, 11)
+## Phase 2 — Functions grow up 🟡 ⛓️(unblocks Phases 3, 9, 11) — STARTED v0.0.20
 
-Reverses the "no first-class functions" freeze decision — on purpose. This is the single
-biggest ergonomics unlock (map/filter, callbacks, cleaner libraries).
+Reverses the "no first-class functions" freeze decision — on purpose (the new mission is
+"everything, easy to use", so power features are in, delivered simply). The single biggest
+ergonomics unlock (map/filter, callbacks, cleaner libraries).
 
-- [ ] **First-class tasks** — store, pass, and return tasks as values (`make f = greet` becomes legal).
-- [ ] **Anonymous tasks / lambdas** — `make double = do (x): give x * 2`.
-- [ ] **Closures** — a nested/anonymous task captures the surrounding scope.
+- [x] **First-class tasks** (v0.0.20) — store, pass, return, and call tasks as values (new V_TASK; `make f = greet`; `f(...)` calls a task held in a var; `map`/`filter`/`reduce` in Phase 3). Still top-level *definitions* and no capture.
+- [ ] **Anonymous tasks / lambdas** — `map(xs, do (x): give x * 2)`. THE next step for "easy" (so you don't have to name every tiny transform).
+- [ ] **Closures** — a nested/anonymous task captures the surrounding scope (`make factor = 3; map(xs, do (x): x * factor)`). Implies relaxing "top-level only".
+- [ ] **Builtins as task values** — `map(words, upper)` (today you wrap a builtin in a task). Needs a builtin-callable-by-value path.
 - [ ] **Default parameters** — `task greet(who, mark = "!")`.
 - [ ] **Named arguments** — `area(width: 3, height: 4)`.
 - [ ] **Variadic tasks** — `task add(...numbers)`.
@@ -417,7 +412,7 @@ Phase 1 (errors) ─┬─> Phase 9 (server)
 Phase 2 (functions) ─> Phase 3 (collections), Phase 11 (libraries)
 Phase 8 (arena/GC)  ─> Phase 9 (server), long-running programs
 ```
-First moves done: error handling (`try`/`caught`/`fail`, Phase 1) in v0.0.14–v0.0.15; ergonomics in v0.0.18; **persistence (`remember`/`recall`/`forget`) in v0.0.19**. The pre-freeze backlog is now mostly Tier-0 decisions + release polish (see the gate block at the top).
+Moves done: error handling (`try`/`caught`/`fail`) v0.0.14–15; ergonomics v0.0.18; persistence v0.0.19; **first-class tasks + `map`/`filter`/`reduce` v0.0.20** (Phase 2/3 started). Mission is now set — **"everything, easy to use"** — so the path is: lambdas+closures → GC → the web `kind` → package manager → tooling, each delivered in its easiest form.
 
 ## The one decision to make before unfreezing
 

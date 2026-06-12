@@ -1,0 +1,60 @@
+~ v0.0.20 first-class tasks: a task is a value you can store, pass, return, and call,
+~ plus map / filter / reduce. Guarded script: prints "FAIL ..." on any wrong result.
+
+task check(label, got, want):
+    when got != want:
+        show "FAIL", label, "- got", got, "wanted", want
+
+task double(n):
+    give n * 2
+task is_even(n):
+    give n % 2 == 0
+task add_up(total, n):
+    give total + n
+
+~ ---------- a task is a value ----------
+make f = double
+check("store + call a task value", f(21), 42)
+check("kind_of a task", kind_of(double), "task")
+check("a task is truthy", is_even or else "x", is_even)
+check("two names for the same task are equal", double == f, yes)
+check("different tasks are not equal", double == is_even, no)
+
+~ ---------- map / filter / reduce ----------
+check("map", map([1, 2, 3], double), [2, 4, 6])
+check("filter", filter([1, 2, 3, 4, 5, 6], is_even), [2, 4, 6])
+check("reduce", reduce([1, 2, 3, 4], add_up, 0), 10)
+check("map over empty", map([], double), [])
+check("filter over empty", filter([], is_even), [])
+check("reduce over empty returns start", reduce([], add_up, 99), 99)
+check("map doesn't mutate the source", double == double, yes)
+
+~ ---------- pass a task as an argument; return a task from a task ----------
+task apply_twice(g, x):
+    give g(g(x))
+check("task passed as an argument", apply_twice(double, 5), 20)
+
+task picker(which):
+    when which == "dbl":
+        give double
+    give is_even
+make chosen = picker("dbl")
+check("a task returned from a task", chosen(8), 16)
+
+~ ---------- tasks live in lists/maps ----------
+make ops = [double, add_up]
+make first = ops[0]
+check("task pulled from a list", first(7), 14)
+make tools = {"d": double}
+make d = tools["d"]
+check("task pulled from a map", d(9), 18)
+
+~ ---------- wrong arity is a catchable error ----------
+make caught_it = "no"
+try:
+    map([1, 2], add_up)
+caught e:
+    set caught_it = "yes"
+check("wrong arity into map is caught", caught_it, "yes")
+
+show "first_class: all checks ran"
