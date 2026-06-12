@@ -1,0 +1,3 @@
+~ Sorting: sort 100,000 numbers (worst case: fully reversed input).
+make xs = reverse(1 to 100000)
+show first(sort(xs))

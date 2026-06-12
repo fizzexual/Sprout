@@ -1,0 +1,7 @@
+~ List growth: append 500,000 items (amortized O(1) push).
+make xs = []
+make i = 0
+repeat 500000 times:
+    add(xs, i)
+    set i += 1
+show length(xs)

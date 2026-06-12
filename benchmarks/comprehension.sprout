@@ -1,0 +1,2 @@
+~ Allocation + iteration: build and sum a 1,000,000-element comprehension.
+show sum([x * x for each x in 1 to 1000000])

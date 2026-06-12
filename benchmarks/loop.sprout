@@ -1,0 +1,5 @@
+~ Tight loop / interpreter dispatch overhead: 5 million iterations.
+make total = 0
+repeat 5000000 times:
+    set total += 1
+show total

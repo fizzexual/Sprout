@@ -1,0 +1,7 @@
+~ String building: 30,000 single-character appends.
+~ NOTE: each `+=` copies the whole string, so this is O(n^2) — a known
+~ optimization target (a string builder / rope). See BENCHMARKS.md.
+make s = ""
+repeat 30000 times:
+    set s += "x"
+show length(s)

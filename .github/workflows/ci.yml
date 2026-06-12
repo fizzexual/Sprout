@@ -35,3 +35,23 @@ jobs:
 
       - name: Run test suite
         run: bash src/tests/run.sh
+
+  asan:
+    name: memory safety (AddressSanitizer, Linux)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build with AddressSanitizer
+        run: cc -O1 -g -fsanitize=address -fno-omit-frame-pointer -o src/sprout src/sprout.c -lm
+
+      # Sprout intentionally leaks until the GC lands, so leak detection is OFF here.
+      # This job guards against the bugs that matter: use-after-free, buffer overflows,
+      # bad frees. It is also the safety net the future garbage collector will be built against.
+      - name: Run the suite + examples under ASan
+        env:
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1:abort_on_error=1
+        run: bash src/tests/run.sh
