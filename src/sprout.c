@@ -1185,7 +1185,7 @@ static void gc_drain(void) {                    /* process the worklist iterativ
 /* The conservative scan deliberately reads the WHOLE C stack (and the register-spill
    buffer) looking for pointers — including the redzones AddressSanitizer poisons around
    stack variables. That's intentional and safe, so tell ASan not to instrument it. */
-#if defined(__SANITIZE_ADDRESS__) || (defined(__has_feature) && __has_feature(address_sanitizer))
+#if defined(__SANITIZE_ADDRESS__)        /* defined by gcc and clang under -fsanitize=address */
 #  define GC_NO_ASAN __attribute__((no_sanitize_address))
 #else
 #  define GC_NO_ASAN
