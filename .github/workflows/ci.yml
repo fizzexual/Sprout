@@ -51,15 +51,19 @@ jobs:
       # Sprout intentionally leaks until the GC lands, so leak detection is OFF here.
       # This job guards against the bugs that matter: use-after-free, buffer overflows,
       # bad frees. It is also the safety net the future garbage collector will be built against.
+      # detect_stack_use_after_return=0 keeps locals on the REAL C stack. ASan's default
+      # "fake stack" relocates them to the heap, where the GC's conservative stack scan
+      # can't see them — incompatible with conservative collection (Boehm documents the
+      # same). Heap use-after-free / overflow detection (what matters) stays on.
       - name: Run the suite + examples under ASan
         env:
-          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1:abort_on_error=1
+          ASAN_OPTIONS: detect_leaks=0:detect_stack_use_after_return=0:halt_on_error=1:abort_on_error=1
         run: bash src/tests/run.sh
 
       # The strongest GC check: collect on EVERY statement (so any missing root frees a
       # live object) WHILE AddressSanitizer watches for the resulting use-after-free.
       - name: Run the suite under GC stress + ASan
         env:
-          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1:abort_on_error=1
+          ASAN_OPTIONS: detect_leaks=0:detect_stack_use_after_return=0:halt_on_error=1:abort_on_error=1
           SPROUT_GC_STRESS: "1"
         run: bash src/tests/run.sh
