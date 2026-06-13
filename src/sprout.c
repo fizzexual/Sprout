@@ -1182,7 +1182,15 @@ static void gc_drain(void) {                    /* process the worklist iterativ
     else if (h->kind == GC_TASK) { TaskDef *t = (TaskDef *)p; gc_push(t->home); gc_push(t->file_env); }
   }
 }
-static void gc_scan_range(char *lo, char *hi) { for (; lo + sizeof(void *) <= hi; lo += sizeof(void *)) gc_push(*(void **)lo); }
+/* The conservative scan deliberately reads the WHOLE C stack (and the register-spill
+   buffer) looking for pointers — including the redzones AddressSanitizer poisons around
+   stack variables. That's intentional and safe, so tell ASan not to instrument it. */
+#if defined(__SANITIZE_ADDRESS__) || (defined(__has_feature) && __has_feature(address_sanitizer))
+#  define GC_NO_ASAN __attribute__((no_sanitize_address))
+#else
+#  define GC_NO_ASAN
+#endif
+static void GC_NO_ASAN gc_scan_range(char *lo, char *hi) { for (; lo + sizeof(void *) <= hi; lo += sizeof(void *)) gc_push(*(void **)lo); }
 static void gc_collect(void) {
   jmp_buf regs; setjmp(regs);               /* spill all callee-saved registers so we can scan them (never longjmp'd) */
   char marker; char *sp = &marker;          /* current stack top (lowest live address) */
