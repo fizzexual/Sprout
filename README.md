@@ -175,7 +175,7 @@ build.cmd                     # or: gcc -O2 -Wall -s -o sprout.exe sprout.c -lm 
 
 # run a program:
 sprout run hello.sprout     # or just: sprout hello.sprout
-sprout version              # -> Sprout v0.0.28
+sprout version              # -> Sprout v0.1.0
 sprout new myapp            # create a full multi-file project folder
 sprout build                # run the project in the current folder (reads sprout.toml)
 sprout test                 # run your tests (a file, or every tests/*.sprout)
@@ -435,8 +435,9 @@ Each evaluation captures **fresh** — `adder(5)` and `adder(100)` give independ
 closures, and a lambda created inside a `for each` keeps *that turn's* value. Capture
 is **by reference**: if you change a captured variable later, the closure sees the new
 value. (Lambdas pair naturally with `map`/`filter`/`reduce`; to map a builtin you can
-still wrap it, `task(s): upper(s)`.) Captured environments are never freed yet — a
-real concern only for very long-running programs, and the job of the planned GC.
+still wrap it, `task(s): upper(s)`.) Captured environments are reclaimed by the
+garbage collector once nothing can reach them (*v0.1.0*), so closures are fine even in
+long-running programs.
 
 **Tasks are first-class values.** A task's name used without `( )` is a *value* you
 can store, pass, return, and call: `make f = double` then `f(5)`; `apply(double, 5)`;
@@ -681,7 +682,7 @@ The interesting choices, and what each one costs — the places worth challengin
 | --- | --- | --- |
 | **Tree-walking interpreter** (no bytecode/JIT) | Tiny, simple, easy to read and trust | Slow vs. a bytecode VM; fine for learning, not for hot loops |
 | **All C, zero deps** (links only OS libs) | One ~86 KB exe, nothing to install, no supply chain | Reimplementing everything (JSON, HTTP) by hand; C memory risks |
-| **No GC — allocate and leak until exit** | Trivial, no pauses, correct for short CLI runs | Memory grows in long-running programs; **the biggest known weakness** |
+| **Conservative mark-sweep GC** *(v0.1.0)* | Long-running programs stay bounded; cycles collected; can't free a live object | Some overhead on allocation/call-heavy paths; strings not collected yet |
 | **Doubles only, no integer type** | One number type is simpler for beginners | Precision/overflow surprises; no bigint |
 | **Namespaced modules + `private` default** | Predictable, scales, no hidden global sharing | More to type across files (`module.name`) |
 | **Block scope + strict `make`** | Loop/`when` vars can't leak; a typo'd `make` can't silently reassign | You must `set` (not re-`make`) to change a value; shadowing is allowed |
@@ -753,17 +754,17 @@ There's a **[VS Code extension](vscode-extension)** for syntax highlighting too.
 
 ## Known limitations & open questions
 
-Sprout is **v0.0.28** — early, and deliberately small. Honest about the edges:
+Sprout is **v0.1.0** — the first frozen milestone, deliberately small. Honest about the edges:
 spotting more (or telling me which matter most) is exactly the feedback I want —
 [issues](https://github.com/fizzexual/Sprout/issues) /
 [discussions](https://github.com/fizzexual/Sprout/discussions) welcome.
 
 **On the roadmap — real gaps I want to close:**
 
-- **No garbage collection.** Memory grows for the life of the process — fine for
-  scripts/CLIs, wrong for a long-running server. The honest fix is a real GC or
-  arena; it's a sizeable change to a value model that currently passes values on
-  the C stack, so it's a deliberate slice, not a quick patch. Design input wanted.
+- **Strings aren't garbage-collected yet.** *(v0.1.0)* The conservative mark-sweep GC
+  reclaims lists, maps, environments, and closures, so long-running programs stay
+  bounded — but heap strings still leak (a safe first step). Collecting them is the
+  next memory-model slice. See [docs/gc-design.md](docs/gc-design.md).
 - **Performance.** Tree-walking, so tight numeric loops are slow. A bytecode VM
   would help — a large rewrite, not yet started.
 - **Errors abort on the first one** *unless* wrapped in `try:` / `caught:`

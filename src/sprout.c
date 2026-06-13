@@ -75,7 +75,26 @@ static Value vlist(SList *l) { Value v = {0}; v.type = V_LIST; v.list = l; retur
 static Value vmap(SMap *m)   { Value v = {0}; v.type = V_MAP;  v.map = m;  return v; }
 static Value vtask(TaskDef *t){ Value v = {0}; v.type = V_TASK; v.task = t; return v; }
 
-static SList *list_new(void) { return (SList *)calloc(1, sizeof(SList)); }
+/* ---------------- garbage collector: header + allocator (the collector is below) ----------------
+   A conservative mark-sweep GC. Every collectible object (list, map, environment, lambda
+   closure) carries a GCObj header and is tracked in `gc_all`; the collector finds roots by
+   scanning the C stack + registers plus a few precise globals, so it never frees a live
+   object. Strings are not collected yet (they leak — a deliberate, safe first step). */
+typedef enum { GC_LIST, GC_MAP, GC_ENV, GC_TASK } GCKind;
+typedef struct GCObj { struct GCObj *next; GCKind kind; int mark; } GCObj;
+static GCObj *gc_all = NULL;                        /* every live collectible allocation */
+static size_t gc_bytes = 0, gc_threshold = 4u << 20;   /* collect once ~4 MB has been allocated since the last GC */
+static int gc_stress = 0;                           /* SPROUT_GC_STRESS=1 -> collect aggressively (testing) */
+static void *gc_alloc(GCKind kind, size_t size) {   /* a zeroed object + header, tracked for sweeping */
+  GCObj *h = (GCObj *)calloc(1, sizeof(GCObj) + size);
+  if (!h) fail(0, "ran out of memory.");
+  h->kind = kind; h->next = gc_all; gc_all = h;
+  gc_bytes += size;
+  return (void *)(h + 1);
+}
+#define GC_HDR(p) ((GCObj *)(p) - 1)
+
+static SList *list_new(void) { return (SList *)gc_alloc(GC_LIST, sizeof(SList)); }
 static void list_push(SList *l, Value x) {
   if (l->n >= l->cap) {
     l->cap = l->cap ? l->cap * 2 : 8;
@@ -85,7 +104,7 @@ static void list_push(SList *l, Value x) {
   }
   l->items[l->n++] = x;
 }
-static SMap *map_new(void) { return (SMap *)calloc(1, sizeof(SMap)); }
+static SMap *map_new(void) { return (SMap *)gc_alloc(GC_MAP, sizeof(SMap)); }
 static unsigned map_hash(const char *s) {            /* FNV-1a */
   unsigned h = 2166136261u;
   while (*s) { h ^= (unsigned char)*s++; h *= 16777619u; }
@@ -975,7 +994,7 @@ static Env *cur_file_env = NULL;  /* the file scope currently running its top-le
 static int  cur_fileid = 0;       /* which file's code is executing (for private-task visibility) */
 static int  g_next_fileid = 0;
 
-static Env *env_new(Env *parent) { Env *e = (Env *)calloc(1, sizeof(Env)); e->parent = parent; return e; }
+static Env *env_new(Env *parent) { Env *e = (Env *)gc_alloc(GC_ENV, sizeof(Env)); e->parent = parent; return e; }
 static Value *env_local(Env *e, const char *name) { for (int i = 0; i < e->n; i++) if (!strcmp(e->vars[i].name, name)) return &e->vars[i].val; return NULL; }
 static Value *env_find(Env *e, const char *name) { for (; e; e = e->parent) { Value *v = env_local(e, name); if (v) return v; } return NULL; }
 static void env_define(Env *e, const char *name, Value v) {
@@ -1123,6 +1142,81 @@ static int g_learn = 0;     /* `learn on`: narrate each step as the program runs
 static int g_tpass = 0, g_tfail = 0;   /* test results so far */
 static const char *g_cur_test = NULL;  /* the test currently running (for expect messages) */
 static int g_test_failed = 0;          /* did the current test fail? */
+
+/* ---------------- garbage collector: the mark-sweep collector ----------------
+   At a safe point (the top of each statement) we mark everything reachable from a few
+   precise global roots PLUS anything the C stack/registers point at, then free the rest.
+   Over-approximating the roots means we never free a live object. */
+static char *gc_stack_bottom = NULL;        /* captured in main(): the outermost end of the stack */
+static void **gc_set = NULL; static size_t gc_setcap = 0;   /* live-object pointer set, rebuilt per collection */
+static GCObj *gc_lookup(void *p) {          /* is p a live collectible object? -> its header, else NULL */
+  if (!p || gc_setcap == 0) return NULL;
+  size_t mask = gc_setcap - 1, i = ((size_t)p >> 4) & mask;
+  while (gc_set[i]) { if (gc_set[i] == p) return GC_HDR(p); i = (i + 1) & mask; }
+  return NULL;
+}
+static void gc_set_put(void *p) { size_t mask = gc_setcap - 1, i = ((size_t)p >> 4) & mask; while (gc_set[i]) i = (i + 1) & mask; gc_set[i] = p; }
+/* Marking uses an explicit WORKLIST, not recursion, so arbitrarily deep structures
+   (a 30k-nested list, a long parent chain) can never overflow the C stack. The mark bit
+   doubles as the "already discovered" guard, which also terminates cycles. */
+static GCObj **gc_work = NULL; static size_t gc_workn = 0, gc_workcap = 0;
+static void gc_push(void *p) {                 /* discover an object: mark it + queue it to scan */
+  GCObj *h = gc_lookup(p);
+  if (!h || h->mark) return;
+  h->mark = 1;
+  if (gc_workn >= gc_workcap) { gc_workcap = gc_workcap ? gc_workcap * 2 : 1024; gc_work = (GCObj **)realloc(gc_work, gc_workcap * sizeof(GCObj *)); }
+  gc_work[gc_workn++] = h;
+}
+static void gc_push_value(Value v) {
+  if (v.type == V_LIST)      gc_push(v.list);
+  else if (v.type == V_MAP)  gc_push(v.map);
+  else if (v.type == V_TASK) gc_push(v.task);
+}
+static void gc_drain(void) {                    /* process the worklist iteratively (constant C-stack) */
+  while (gc_workn) {
+    GCObj *h = gc_work[--gc_workn];
+    void *p = (void *)(h + 1);
+    if (h->kind == GC_LIST)      { SList *l = (SList *)p; for (int i = 0; i < l->n; i++) gc_push_value(l->items[i]); }
+    else if (h->kind == GC_MAP)  { SMap *m = (SMap *)p; for (int i = 0; i < m->n; i++) gc_push_value(m->vals[i]); }
+    else if (h->kind == GC_ENV)  { Env *e = (Env *)p; for (int i = 0; i < e->n; i++) gc_push_value(e->vars[i].val); gc_push(e->parent); }
+    else if (h->kind == GC_TASK) { TaskDef *t = (TaskDef *)p; gc_push(t->home); gc_push(t->file_env); }
+  }
+}
+static void gc_scan_range(char *lo, char *hi) { for (; lo + sizeof(void *) <= hi; lo += sizeof(void *)) gc_push(*(void **)lo); }
+static void gc_collect(void) {
+  jmp_buf regs; setjmp(regs);               /* spill all callee-saved registers so we can scan them (never longjmp'd) */
+  char marker; char *sp = &marker;          /* current stack top (lowest live address) */
+  size_t count = 0; for (GCObj *h = gc_all; h; h = h->next) count++;
+  gc_setcap = 16; while (gc_setcap < count * 2) gc_setcap *= 2;
+  gc_set = (void **)calloc(gc_setcap, sizeof(void *));
+  for (GCObj *h = gc_all; h; h = h->next) gc_set_put((void *)(h + 1));
+  gc_workn = 0;                                               /* queue all the roots, then drain once */
+  gc_push(global_env); gc_push(cur_file_env);
+  for (int i = 0; i < g_nmods; i++) gc_push(g_mods[i].env);
+  for (int i = 0; i < ntasks; i++) { gc_push(tasks[i].home); gc_push(tasks[i].file_env); }
+  gc_push_value(return_value);
+  if (g_have_fail_override) gc_push_value(g_fail_override);
+  gc_scan_range((char *)&regs, (char *)&regs + sizeof regs);   /* the spilled registers */
+  char *lo = sp, *hi = gc_stack_bottom;
+  if (lo > hi) { char *t = lo; lo = hi; hi = t; }
+  while ((size_t)lo % sizeof(void *)) lo++;
+  gc_scan_range(lo, hi);                                       /* the whole live C stack */
+  gc_drain();                                                 /* mark everything reachable, iteratively */
+  GCObj **pp = &gc_all;                                        /* sweep */
+  while (*pp) {
+    GCObj *h = *pp;
+    if (h->mark) { h->mark = 0; pp = &h->next; continue; }
+    *pp = h->next;
+    void *p = (void *)(h + 1);
+    if (h->kind == GC_LIST)      free(((SList *)p)->items);
+    else if (h->kind == GC_MAP)  { SMap *m = (SMap *)p; for (int i = 0; i < m->n; i++) free(m->keys[i]); free(m->keys); free(m->vals); free(m->idx); }
+    else if (h->kind == GC_ENV)  { Env *e = (Env *)p; for (int i = 0; i < e->n; i++) free(e->vars[i].name); free(e->vars); }
+    free(h);
+  }
+  free(gc_set); gc_set = NULL; gc_setcap = 0;
+  gc_bytes = 0;
+}
+
 #define MAX_DEPTH 6000
 
 static Value eval(Expr *e, Env *env);
@@ -2039,7 +2133,7 @@ static Value eval(Expr *e, Env *env) {
     case E_BOOL: return vbool(e->boolean);
     case E_NONE: return vnone();
     case E_LAMBDA: {                                  /* a lambda value: copy the static template, capture THIS env */
-      TaskDef *t = (TaskDef *)malloc(sizeof(TaskDef));
+      TaskDef *t = (TaskDef *)gc_alloc(GC_TASK, sizeof(TaskDef));
       *t = *e->lambda;                                /* params/body/name/nparams/nbody/line (shared AST) */
       t->home = env;                                  /* the closure: a fresh capture per evaluation */
       t->fileid = cur_fileid;
@@ -2244,6 +2338,9 @@ static void learn_loop(Env *be, const char *n1, const char *n2) {
 }
 
 static void exec(Stmt *s, Env *env) {
+  /* a safe point: between statements every live value is a root. Inline the common
+     no-collect case (just a load + compare) so non-allocating loops pay almost nothing. */
+  if (gc_stack_bottom && (gc_bytes > gc_threshold || gc_stress)) gc_collect();
   switch (s->kind) {
     case S_MAKE: {
       Value v = eval(s->expr, env);
@@ -2499,7 +2596,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.0.30"
+#define SPROUT_VERSION "0.1.0"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);
@@ -3148,6 +3245,8 @@ static int cmd_test(int argc, char **argv) {
 }
 
 int main(int argc, char **argv) {
+  char gc_bottom_marker; gc_stack_bottom = &gc_bottom_marker;   /* the outermost stack address the GC scans up to */
+  gc_stress = getenv("SPROUT_GC_STRESS") != NULL;               /* aggressive collection for testing */
   srand((unsigned)time(NULL));
   console_setup();   /* enable UTF-8 + ANSI colour for every run */
   if (argc < 2) { wizard(); return 0; }

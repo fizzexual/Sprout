@@ -1,12 +1,17 @@
 # Sprout memory model & garbage-collector design
 
-**Status:** designed, not yet implemented. The interpreter currently frees nothing
-(`env_new` is `calloc`, there is no `env_free`; lists/maps/closures/strings all leak by
-design). That is fine for short scripts — the OS reclaims everything on exit — but it is
-a real blocker for **long-running programs** (a REPL session, a big loop, and the future
-web `kind`/server with its per-request churn). This document is the plan to fix it
-*safely*. The guiding principle: **for a beginner language, a crash is far worse than a
-leak — the collector must never free a live object, even at the cost of over-retaining.**
+**Status: IMPLEMENTED in v0.1.0** (this document is the design it was built from). Lists,
+maps, environments, and lambda closures are now collected by a conservative mark-sweep GC;
+**strings are not yet collected** (they still leak — a deliberate, safe first step, noted
+under *Rollout* below). The guiding principle held: **for a beginner language, a crash is
+far worse than a leak — the collector never frees a live object, even at the cost of
+over-retaining.** It is validated in CI by AddressSanitizer running the whole suite
+*twice* — once normally and once in **stress mode** (collect on every statement, so any
+missing root frees a live object and ASan catches the use-after-free).
+
+The motivation: before this, the interpreter freed nothing, which is fine for short
+scripts (the OS reclaims on exit) but a blocker for **long-running programs** — a REPL
+session, a big loop, the future web `kind`/server with its per-request churn.
 
 ## The heap (what the GC manages)
 

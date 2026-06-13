@@ -18,6 +18,9 @@ sprout run examples/leaderboard.sprout
 | [`bank.sprout`](bank.sprout) | Account ledger with overdraft errors | maps as records, `fail` + custom `kind`, `try`/`caught` |
 | [`roman.sprout`](roman.sprout) | Number → Roman numerals | parallel lists, `repeat while`, string building |
 | [`rpn.sprout`](rpn.sprout) | Reverse-Polish calculator (`3 4 + 5 *`) | a list as a stack, `words`, `number`, `match` |
+| [`calc.sprout`](calc.sprout) | Calculator with precedence & parens (`2 + 3 * 4`) | **recursive descent**, shared file state, `repeat while` |
+| [`budget.sprout`](budget.sprout) | Expense tracker, totals by category | records, a map accumulator, `sort_by` ranking |
+| [`stats.sprout`](stats.sprout) | Parse `name,score` rows and report | `lines`/`split`/`number`, `map`/`sum`/`filter`, `sort_by` |
 | [`todo.sprout`](todo.sprout) | A to-do list saved to disk | `remember`/`recall`/`forget`, `or else`, nested data |
 
 These also double as a smoke test of the language end-to-end: every one is expected to

@@ -1,0 +1,18 @@
+~ Tiny data analysis — parse rows of "name,score" and report on them.
+~ Shows: lines / split / number to parse text into records, map/sum, sort_by for the top.
+
+~ one CSV-ish string (\n separates rows — Sprout text stays on one line)
+make data = "ada,90\nmo,72\nsam,85\nlee,88\nkim,95"
+
+make rows = []
+for each line in lines(data):
+    make parts = split(line, ",")
+    add(rows, {name: parts[0], score: number(parts[1])})
+
+make scores = map(rows, task(r): r["score"])
+make ranked = reverse(sort_by(rows, task(r): r["score"]))
+
+show "students: " + length(rows)
+show "average:  " + round(sum(scores) / length(scores))
+show "top:      " + ranked[0]["name"] + " (" + ranked[0]["score"] + ")"
+show "passing (>= 80): " + length(filter(scores, task(s): s >= 80))

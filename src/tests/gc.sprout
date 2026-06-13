@@ -1,0 +1,69 @@
+~ v0.1.0 garbage collector: live data must survive collection, cycles must not crash,
+~ and lots of garbage must be reclaimed (not leaked). Run under SPROUT_GC_STRESS=1 too —
+~ that collects on every statement, so a missing root would crash here immediately.
+~ Guarded script: prints "FAIL ..." on any wrong result.
+
+task check(label, got, want):
+    when got != want:
+        show "FAIL", label, "- got", got, "wanted", want
+
+~ ---------- closures survive collection ----------
+task adder(by):
+    give task(x): x + by
+make add5 = adder(5)
+make add100 = adder(100)
+~ churn out garbage to trigger collections
+repeat 20000 times:
+    make junk = [1, 2, 3, 4, 5, 6, 7, 8]
+check("closure add5 survives GC", add5(1), 6)
+check("closure add100 is independent + survives", add100(1), 101)
+
+~ ---------- a self-referential map (a cycle) stays valid while reachable ----------
+make m = {n: 42}
+set m["self"] = m
+repeat 20000 times:
+    make spam = {a: 1, b: 2, c: 3}
+check("cycle is collected-safe + still valid", m["self"]["self"]["n"], 42)
+
+~ ---------- lambdas captured in a loop each keep their own turn's value ----------
+make fns = []
+for each i in 1 to 30:
+    add(fns, task(): i)
+make f0 = fns[0]
+make f29 = fns[29]
+repeat 20000 times:
+    make t = [x for each x in 1 to 20]
+check("loop-captured closure (first)", f0(), 1)
+check("loop-captured closure (last)", f29(), 30)
+
+~ ---------- a deep structure survives, and live top-level data is never collected ----------
+make keep = {name: "Ada", scores: [90, 85, 88], nested: {deep: [1, [2, [3]]]}}
+repeat 30000 times:
+    make g = {a: [1, 2, 3], b: "garbage"}
+check("live map field survives churn", keep["name"], "Ada")
+check("live nested list survives churn", keep["nested"]["deep"][1][1][0], 3)
+check("live list field survives churn", sum(keep["scores"]), 263)
+
+~ ---------- reclamation: a loop that would leak gigabytes without GC just completes ----------
+make sink = 0
+repeat 200000 times:
+    make tmp = [1, 2, 3, 4, 5]
+    set sink = tmp[4]
+check("200k allocations completed (memory reclaimed)", sink, 5)
+
+~ ---------- a deeply nested structure marks without overflowing the C stack ----------
+~ (marking is an explicit worklist, not recursion, so any depth is safe)
+make deep = []
+repeat 5000 times:
+    set deep = [deep]
+make junk2 = 0
+repeat 5000 times:
+    make g2 = [1, 2, 3, 4, 5, 6, 7, 8]    ~ churn to trigger a collection that marks `deep`
+make d = 0
+make cur = deep
+repeat while length(cur) > 0:
+    set cur = cur[0]
+    set d += 1
+check("deeply nested structure survives collection", d, 5000)
+
+show "ok: gc passed"

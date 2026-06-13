@@ -1,0 +1,28 @@
+~ Budget tracker — group expenses by category and show totals, biggest first.
+~ Shows: a list of records, a map as an accumulator, sort_by for ranking.
+
+make expenses = [
+    {what: "Coffee",    cat: "food", amount: 4},
+    {what: "Rent",      cat: "home", amount: 1200},
+    {what: "Groceries", cat: "food", amount: 60},
+    {what: "Internet",  cat: "home", amount: 50},
+    {what: "Movie",     cat: "fun",  amount: 15},
+    {what: "Lunch",     cat: "food", amount: 12},
+]
+
+~ total each category
+make totals = {}
+for each e in expenses:
+    make c = e["cat"]
+    when c in totals:
+        set totals[c] += e["amount"]
+    otherwise:
+        set totals[c] = e["amount"]
+
+~ rank categories high-to-low and print a little report
+make grand = 0
+for each c in reverse(sort_by(keys(totals), task(c): totals[c])):
+    show c + ": " + totals[c]
+    set grand += totals[c]
+show "------------"
+show "total: " + grand

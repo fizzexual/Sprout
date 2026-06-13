@@ -1,5 +1,14 @@
 # 🌱 Sprout — the road to the v0.1.0 freeze
 
+> ## ❄️ FROZEN at v0.1.0 — the freeze that's meant to hold.
+> The base-completion cycle is done. The path was: lambdas + closures (v0.0.24) →
+> ranges + comprehensions (v0.0.25) → pattern matching (v0.0.26) → pipe `|>` (v0.0.27)
+> → multi-line literals (v0.0.28) → dogfooding/examples + `sort_by` (v0.0.29) → a map
+> hash index (v0.0.30) → **a garbage collector + benchmarks + the v0.1.0 freeze**. The
+> core now stops moving; libraries can build on it. The big remaining slices (string GC,
+> a web `kind`, a package manager, tooling) are **post-0.1** and won't change the frozen
+> core's meaning.
+
 **v0.0.13 was "spec-complete" — every edge case decided.** It was originally called
 "the freeze," but it held exactly one version, so the honest name is a *release
 candidate*, not a freeze. This is the plan for the **base-completion cycle**: grow the

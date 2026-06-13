@@ -1,0 +1,58 @@
+~ A calculator — evaluates math with correct precedence and parentheses,
+~ by recursive descent (the same technique a real language parser uses).
+~ Tokens are split on spaces, so write expressions spaced: "2 + 3 * ( 4 - 1 )".
+~ Shows: tasks sharing file-level state, recursion, repeat-while, match.
+
+make toks = []
+make pos = 0
+
+task peek():
+    when pos < length(toks):
+        give toks[pos]
+    give "end"
+
+task eat():
+    make t = peek()
+    set pos += 1
+    give t
+
+~ factor = a number, or a parenthesised expression
+task factor():
+    when peek() == "(":
+        make ignore = eat()        ~ "("
+        make v = expr()
+        make ignore2 = eat()       ~ ")"
+        give v
+    give number(eat())
+
+~ term = factor (("*" | "/") factor)*
+task term():
+    make v = factor()
+    repeat while peek() == "*" or peek() == "/":
+        match eat():
+            is "*":
+                set v = v * factor()
+            otherwise:
+                set v = v / factor()
+    give v
+
+~ expr = term (("+" | "-") term)*
+task expr():
+    make v = term()
+    repeat while peek() == "+" or peek() == "-":
+        match eat():
+            is "+":
+                set v = v + term()
+            otherwise:
+                set v = v - term()
+    give v
+
+task calc(text):
+    set toks = words(text)
+    set pos = 0
+    give expr()
+
+show "2 + 3 * 4         = " + calc("2 + 3 * 4")
+show "( 2 + 3 ) * 4     = " + calc("( 2 + 3 ) * 4")
+show "10 - 2 - 3        = " + calc("10 - 2 - 3")
+show "2 * ( 3 + 4 ) - 1 = " + calc("2 * ( 3 + 4 ) - 1")

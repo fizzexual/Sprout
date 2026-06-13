@@ -10,17 +10,24 @@ bash benchmarks/run.sh /path/to/sprout
 Times are wall-clock per program (including ~process startup) — meant for **relative
 comparison and catching regressions**, not absolute scores.
 
-## Baseline (Windows, `-O2` build)
+## Baseline (Windows, `-O2` build, **with the v0.1.0 GC**)
 
 | Benchmark | Work | Time | Read |
 | --- | --- | --- | --- |
 | `sort` | sort 100,000 numbers | ~55 ms | **fast** — C `qsort`, O(n log n) |
-| `map_insert` | 20,000 distinct keys | ~57 ms | **fast** — O(1) hash lookup *(v0.0.30; was ~780 ms)* |
-| `list_build` | 500,000 `add`s | ~135 ms | **fast** — amortized O(1) push |
-| `loop` | 5,000,000 iterations | ~440 ms | fine — ~10M simple ops/s |
-| `comprehension` | build + sum 1,000,000 items | ~490 ms | fine |
-| `string_concat` | 30,000 `+=` appends | ~490 ms | ⚠️ **O(n²)** |
-| `fib` | naive `fib(30)` (~2.7M calls) | ~1300 ms | fine — ~2M calls/s for a tree-walker |
+| `map_insert` | 20,000 distinct keys | ~55 ms | **fast** — O(1) hash lookup *(v0.0.30; was ~780 ms)* |
+| `list_build` | 500,000 `add`s | ~160 ms | **fast** — amortized O(1) push |
+| `comprehension` | build + sum 1,000,000 items | ~450 ms | fine |
+| `string_concat` | 30,000 `+=` appends | ~485 ms | ⚠️ **O(n²)** |
+| `loop` | 5,000,000 iterations | ~800 ms | fine — pays the per-statement GC safe-point check |
+| `fib` | naive `fib(30)` (~2.7M calls) | ~1960 ms | fine — now collects ~2.7M envs that used to leak |
+
+**The v0.1.0 GC's cost.** Adding the garbage collector slowed the allocation- and
+call-heavy benchmarks (`fib` ~1.3 s → ~2.0 s, `loop` ~0.44 s → ~0.8 s, `list_build`
+~0.13 s → ~0.16 s) and left the rest unchanged. That's the standard GC trade — the
+language no longer leaks (a loop that used to leak gigabytes now runs in bounded memory),
+in exchange for some time on hot paths. The collector is a first implementation; the
+threshold and the per-statement safe-point check are the obvious tuning knobs.
 
 ## What this tells us
 

@@ -55,3 +55,11 @@ jobs:
         env:
           ASAN_OPTIONS: detect_leaks=0:halt_on_error=1:abort_on_error=1
         run: bash src/tests/run.sh
+
+      # The strongest GC check: collect on EVERY statement (so any missing root frees a
+      # live object) WHILE AddressSanitizer watches for the resulting use-after-free.
+      - name: Run the suite under GC stress + ASan
+        env:
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1:abort_on_error=1
+          SPROUT_GC_STRESS: "1"
+        run: bash src/tests/run.sh
