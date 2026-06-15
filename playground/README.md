@@ -4,8 +4,51 @@ Run **untrusted** Sprout submissions on your server without handing strangers yo
 filesystem, shell, or network. This is the operational layer on top of the `--sandbox`
 flag: a minimal, non-root image plus a resource-limited runner.
 
-The model is **one ephemeral container per submission** — the safest design. Your web
-backend pipes the code in on stdin and reads the (capped) output back.
+There are **two ways to run it**:
+
+1. **The web playground (one command)** — `docker compose up` gives you a browser-based
+   editor at `http://localhost:8080`. One shared, locked-down container serves everyone.
+   Easiest to self-host; good for a demo, a class, or a personal playground.
+2. **One ephemeral container per submission** — the strongest isolation (a fresh container
+   per run, `--network none`). Best for hostile, high-volume, multi-tenant traffic. Your
+   backend pipes code in on stdin. Documented further down.
+
+Both run untrusted code under `sprout --sandbox` (no files, shell, or network) with a
+timeout and an output cap; they differ only in isolation between submissions.
+
+## The web playground (`docker compose up`)
+
+From the **repository root**:
+
+```sh
+docker compose up --build
+# then open http://localhost:8080
+```
+
+That's it — a sandboxed editor with a Run button. Under the hood `docker-compose.yml`
+applies the full hardening (non-root, read-only root + `tmpfs`, `--cap-drop ALL`,
+`no-new-privileges`, memory/CPU/pids limits); a tiny dependency-free Python server
+(`server.py`) accepts code on `POST /run` and hands each submission to the **same** runner
+(`run.sh`) used below. Output is capped, runs time out, and at most
+`SPROUT_MAX_CONCURRENT` run at once (excess requests get HTTP 429).
+
+> **Shared-container trade-off:** submissions share one container, so isolation *between*
+> submissions is weaker than the per-submission model below. It's still safe for the code
+> it runs (sandbox + per-run timeout/limits + temp-file cleanup), but for hostile
+> multi-tenant traffic prefer one container per submission.
+
+Tunables (set in `docker-compose.yml` under `environment:`):
+
+| Var | Default | Meaning |
+| --- | --- | --- |
+| `SPROUT_WALL_SECONDS` | `5` | per-run wall-clock timeout |
+| `SPROUT_CPU_SECONDS` | `5` | per-run CPU-time limit |
+| `SPROUT_MAX_INPUT_BYTES` | `65536` | reject programs larger than this (HTTP 413) |
+| `SPROUT_MAX_OUTPUT_BYTES` | `65536` | output cap |
+| `SPROUT_MAX_CONCURRENT` | `4` | simultaneous runs; excess get HTTP 429 |
+| `SPROUT_VMEM_KB` | `262144` | per-run address-space limit (~256 MB) |
+
+## One ephemeral container per submission
 
 ## Build
 
@@ -83,3 +126,16 @@ as a backstop in case Docker itself stalls.)
 > submissions per user, and run the host with user namespaces / a seccomp profile if you
 > can. This setup is secure-by-default for the *code* it runs; it is not a substitute for
 > normal server hygiene.
+
+### Hardening the web server for the public internet
+
+The bundled `server.py` already defends itself against the obvious denial-of-service: it
+caps simultaneous connections (`SPROUT_MAX_CONNECTIONS`), force-closes any single request
+after `SPROUT_REQUEST_DEADLINE` seconds (so slow-drip *slowloris* clients can't tie up
+threads), caps concurrent runs (`SPROUT_MAX_CONCURRENT` → HTTP 429), and rejects oversized
+bodies (HTTP 413). That's enough for a demo, a class, or a low-traffic playground.
+
+For anything internet-facing, still put a **reverse proxy** (nginx, Caddy, a CDN) in front
+to add TLS, per-IP rate limiting, and request-timeout/buffering — the standard front line
+for a public HTTP service. The Python server is deliberately tiny and single-purpose, not a
+hardened edge server.

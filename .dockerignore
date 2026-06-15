@@ -1,4 +1,4 @@
-# Keep the playground build context small — only src/sprout.c and playground/run.sh are used.
+# Keep the playground build context small — only src/sprout.c and playground/{run.sh,server.py} are used.
 .git
 installer/dist
 *.exe

@@ -1,0 +1,42 @@
+# Sprout playground — a browser-based, sandboxed code editor.
+#
+#   docker compose up --build
+#   open http://localhost:8080
+#
+# Untrusted code runs under `sprout --sandbox` (no files, shell, or network) inside this
+# locked-down container. See playground/README.md for the full threat model. For maximum
+# isolation between submissions, the one-container-per-submission model in that README is
+# stronger; this single shared service is the convenient self-host option.
+services:
+  sprout-playground:
+    build:
+      context: .
+      dockerfile: playground/Dockerfile.web
+    image: sprout-playground-web:latest
+    container_name: sprout-playground
+    init: true                       # reap any stray child processes
+    ports:
+      - "8080:8080"
+    environment:
+      SPROUT_SANDBOX: "1"            # the language's doors stay shut (defense in depth; also baked in)
+      SPROUT_WALL_SECONDS: "5"       # per-run wall-clock timeout
+      SPROUT_CPU_SECONDS: "5"        # per-run CPU-time limit (ulimit -t)
+      SPROUT_MAX_INPUT_BYTES: "65536"   # reject programs larger than this
+      SPROUT_MAX_OUTPUT_BYTES: "65536"  # cap printed output
+      SPROUT_MAX_CONCURRENT: "4"     # simultaneous runs; excess requests get HTTP 429
+      SPROUT_MAX_CONNECTIONS: "64"   # simultaneous TCP connections (slowloris cap; excess dropped)
+      SPROUT_VMEM_KB: "262144"       # per-run address-space limit (ulimit -v, ~256 MB)
+      SPROUT_PROCS: "64"             # per-run process/thread limit (ulimit -u)
+    user: "10001:10001"             # non-root (also set in the image)
+    read_only: true                  # immutable root filesystem...
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m   # ...except a small, noexec scratch space
+    cap_drop:
+      - ALL                          # no Linux capabilities
+    security_opt:
+      - no-new-privileges:true       # cannot gain privileges via setuid, etc.
+    pids_limit: 256                  # container-wide fork-bomb cap
+    mem_limit: 512m                  # hard RAM ceiling for the whole service
+    memswap_limit: 512m              # ...with no swap headroom
+    cpus: 1.0                        # CPU ceiling
+    restart: unless-stopped

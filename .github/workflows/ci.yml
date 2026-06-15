@@ -92,3 +92,28 @@ jobs:
             printf '%s' "$blk" | grep -qi "sandbox mode" || { echo "FAIL: $op was NOT blocked"; exit 1; }
           done
           echo "playground image OK: safe code runs, file/shell/network blocked"
+
+      - name: Web playground (docker compose) — serve, run, block, no temp-file leak
+        run: |
+          docker compose up -d --build
+          # wait for health
+          for i in $(seq 1 30); do
+            s="$(docker inspect --format '{{.State.Health.Status}}' sprout-playground 2>/dev/null || echo none)"
+            [ "$s" = "healthy" ] && break; sleep 2
+          done
+          [ "$s" = "healthy" ] || { echo "FAIL: web playground never became healthy"; docker compose logs; docker compose down; exit 1; }
+          api() { curl -s -X POST --data-binary "$1" http://localhost:8080/run; }
+          safe="$(api 'show 6 * 7')"
+          echo "safe -> $safe"; printf '%s' "$safe" | grep -q '"output": "42' || { echo "FAIL: web safe run"; docker compose down; exit 1; }
+          blk="$(api 'show read("/etc/passwd")')"
+          printf '%s' "$blk" | grep -qi "sandbox mode" || { echo "FAIL: web read not blocked"; docker compose down; exit 1; }
+          # a big output flood must be capped (not error out) and must not leak temp files
+          flood="$(printf 'repeat 200000 times:\n    show "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"\n')"
+          for n in $(seq 1 6); do api "$flood" > /dev/null; done
+          left="$(docker exec sprout-playground sh -c 'ls -1 /tmp | wc -l')"
+          echo "temp files in /tmp after 6 floods: $left"
+          [ "$left" -eq 0 ] || { echo "FAIL: web playground leaked temp files"; docker compose down; exit 1; }
+          still="$(api 'show 1 + 1')"
+          printf '%s' "$still" | grep -q '"output": "2' || { echo "FAIL: web server broken after floods"; docker compose down; exit 1; }
+          echo "web playground OK: serves, sandboxes, caps output, cleans up temp files"
+          docker compose down

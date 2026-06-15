@@ -1,0 +1,43 @@
+# Hosted Sprout PLAYGROUND — a one-page web editor in front of the hardened sandbox.
+#
+# This is the `docker compose up` image: a tiny stdlib-only HTTP server (server.py)
+# that hands each submission to the SAME audited runner (run.sh) the one-shot image uses,
+# so every submission still runs `sprout --sandbox` with a timeout, output cap, and ulimits.
+#
+# Build from the REPO ROOT (the build needs src/sprout.c):
+#   docker compose build       (or)   docker build -f playground/Dockerfile.web -t sprout-playground-web .
+
+# ---- build: compile the interpreter (same flags as CI's Linux build) ----
+FROM gcc:bookworm AS build
+WORKDIR /b
+COPY src/sprout.c .
+RUN cc -O2 -Wall -s -o /sprout sprout.c -lm   # on Linux, Sprout links only libm
+
+# ---- runtime: python-slim (for the stdlib server), non-root, no compiler ----
+FROM python:3.12-slim
+RUN useradd --no-create-home --shell /usr/sbin/nologin --uid 10001 runner
+COPY --from=build /sprout /usr/local/bin/sprout
+COPY playground/run.sh /usr/local/bin/run-sprout
+COPY playground/server.py /app/server.py
+# strip any CR (in case the scripts were checked out with CRLF on Windows) + lock permissions
+RUN sed -i 's/\r$//' /usr/local/bin/run-sprout \
+ && chmod 0555 /usr/local/bin/sprout /usr/local/bin/run-sprout /app/server.py
+# Sandbox ON by default (even if the entrypoint is bypassed) + runner/server resource defaults.
+ENV SPROUT_SANDBOX=1 \
+    SPROUT_WALL_SECONDS=5 \
+    SPROUT_CPU_SECONDS=5 \
+    SPROUT_MAX_OUTPUT_BYTES=65536 \
+    SPROUT_MAX_INPUT_BYTES=65536 \
+    SPROUT_MAX_CONCURRENT=4 \
+    SPROUT_MAX_CONNECTIONS=64 \
+    SPROUT_VMEM_KB=262144 \
+    SPROUT_PROCS=64 \
+    PORT=8080 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+USER runner
+WORKDIR /tmp
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=4s --start-period=5s --retries=3 \
+  CMD python3 -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=2).status==200 else 1)"
+ENTRYPOINT ["python3", "/app/server.py"]
