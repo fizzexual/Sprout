@@ -1,27 +1,55 @@
 # Sprout playground — a browser-based, sandboxed code editor.
 #
+# SELF-CONTAINED: copy THIS ONE FILE into any empty folder and run
+#
 #   docker compose up --build
 #   open http://localhost:8080
 #
+# It downloads the Sprout source from GitHub and builds everything itself — you do NOT
+# need the repository, a `playground/` folder, or any other file. (Building from a local
+# checkout instead? Replace the whole `dockerfile_inline:` block below with one line:
+#   dockerfile: playground/Dockerfile.web   — and run it from the repo root.)
+#
 # Untrusted code runs under `sprout --sandbox` (no files, shell, or network) inside this
-# locked-down container. See playground/README.md for the full threat model. For maximum
-# isolation between submissions, the one-container-per-submission model in that README is
-# stronger; this single shared service is the convenient self-host option.
+# locked-down container. See playground/README.md for the full threat model.
 services:
   sprout-playground:
     build:
       context: .
-      dockerfile: playground/Dockerfile.web
+      dockerfile_inline: |
+        # ---- build the interpreter (fetched from GitHub; on Linux it links only libm) ----
+        FROM gcc:bookworm AS build
+        ADD https://raw.githubusercontent.com/fizzexual/Sprout/main/src/sprout.c /src/sprout.c
+        RUN cc -O2 -Wall -s -o /sprout /src/sprout.c -lm
+        # ---- runtime: tiny stdlib-only python server, non-root, no compiler ----
+        FROM python:3.12-slim
+        RUN useradd --no-create-home --shell /usr/sbin/nologin --uid 10001 runner
+        COPY --from=build /sprout /usr/local/bin/sprout
+        ADD https://raw.githubusercontent.com/fizzexual/Sprout/main/playground/run.sh /usr/local/bin/run-sprout
+        ADD https://raw.githubusercontent.com/fizzexual/Sprout/main/playground/server.py /app/server.py
+        RUN sed -i 's/\r$$//' /usr/local/bin/run-sprout \
+         && chmod 0555 /usr/local/bin/sprout /usr/local/bin/run-sprout /app/server.py
+        # Sandbox ON by default even if the entrypoint is bypassed; also the runner/server defaults.
+        ENV SPROUT_SANDBOX=1 SPROUT_WALL_SECONDS=5 SPROUT_CPU_SECONDS=5 \
+            SPROUT_MAX_OUTPUT_BYTES=65536 SPROUT_MAX_INPUT_BYTES=65536 \
+            SPROUT_MAX_CONCURRENT=4 SPROUT_MAX_CONNECTIONS=64 \
+            SPROUT_VMEM_KB=262144 SPROUT_PROCS=64 PORT=8080 \
+            PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+        USER runner
+        WORKDIR /tmp
+        EXPOSE 8080
+        HEALTHCHECK --interval=30s --timeout=4s --start-period=5s --retries=3 \
+          CMD python3 -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=2).status==200 else 1)"
+        ENTRYPOINT ["python3", "/app/server.py"]
     image: sprout-playground-web:latest
-    container_name: sprout-playground
     init: true                       # reap any stray child processes
     ports:
       - "8080:8080"
-    environment:
-      SPROUT_SANDBOX: "1"            # the language's doors stay shut (defense in depth; also baked in)
+    environment:                     # tunables (override the image defaults here)
+      SPROUT_SANDBOX: "1"            # the language's doors stay shut (also baked into the image)
       SPROUT_WALL_SECONDS: "5"       # per-run wall-clock timeout
       SPROUT_CPU_SECONDS: "5"        # per-run CPU-time limit (ulimit -t)
-      SPROUT_MAX_INPUT_BYTES: "65536"   # reject programs larger than this
+      SPROUT_MAX_INPUT_BYTES: "65536"   # reject programs larger than this (HTTP 413)
       SPROUT_MAX_OUTPUT_BYTES: "65536"  # cap printed output
       SPROUT_MAX_CONCURRENT: "4"     # simultaneous runs; excess requests get HTTP 429
       SPROUT_MAX_CONNECTIONS: "64"   # simultaneous TCP connections (slowloris cap; excess dropped)
@@ -36,7 +64,7 @@ services:
     security_opt:
       - no-new-privileges:true       # cannot gain privileges via setuid, etc.
     pids_limit: 256                  # container-wide fork-bomb cap
-    mem_limit: 512m                  # hard RAM ceiling for the whole service
+    mem_limit: 512m                  # hard RAM ceiling
     memswap_limit: 512m              # ...with no swap headroom
     cpus: 1.0                        # CPU ceiling
     restart: unless-stopped

@@ -93,27 +93,37 @@ jobs:
           done
           echo "playground image OK: safe code runs, file/shell/network blocked"
 
-      - name: Web playground (docker compose) — serve, run, block, no temp-file leak
+      - name: docker-compose.yml is valid
+        # The shipped compose is self-contained (it fetches source from GitHub), so we don't
+        # `up` it here — that would test GitHub's main, not this checkout. Just validate it.
+        run: docker compose config --quiet && echo "compose config OK"
+
+      - name: Web playground image (local build) — serve, run, block, no temp-file leak
+        # Build the web image from THIS checkout (Dockerfile.web COPYs the local source) and
+        # exercise it with the same hardening flags the compose file applies.
         run: |
-          docker compose up -d --build
-          # wait for health
+          docker build -f playground/Dockerfile.web -t sprout-web .
+          cid="$(docker run -d -p 8080:8080 \
+            --read-only --tmpfs /tmp:rw,noexec,nosuid,size=32m \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --pids-limit 256 --memory 512m --user 10001:10001 sprout-web)"
           for i in $(seq 1 30); do
-            s="$(docker inspect --format '{{.State.Health.Status}}' sprout-playground 2>/dev/null || echo none)"
+            s="$(docker inspect --format '{{.State.Health.Status}}' "$cid" 2>/dev/null || echo none)"
             [ "$s" = "healthy" ] && break; sleep 2
           done
-          [ "$s" = "healthy" ] || { echo "FAIL: web playground never became healthy"; docker compose logs; docker compose down; exit 1; }
+          [ "$s" = "healthy" ] || { echo "FAIL: web image never became healthy"; docker logs "$cid"; docker rm -f "$cid"; exit 1; }
           api() { curl -s -X POST --data-binary "$1" http://localhost:8080/run; }
           safe="$(api 'show 6 * 7')"
-          echo "safe -> $safe"; printf '%s' "$safe" | grep -q '"output": "42' || { echo "FAIL: web safe run"; docker compose down; exit 1; }
+          echo "safe -> $safe"; printf '%s' "$safe" | grep -q '"output": "42' || { echo "FAIL: web safe run"; docker rm -f "$cid"; exit 1; }
           blk="$(api 'show read("/etc/passwd")')"
-          printf '%s' "$blk" | grep -qi "sandbox mode" || { echo "FAIL: web read not blocked"; docker compose down; exit 1; }
+          printf '%s' "$blk" | grep -qi "sandbox mode" || { echo "FAIL: web read not blocked"; docker rm -f "$cid"; exit 1; }
           # a big output flood must be capped (not error out) and must not leak temp files
           flood="$(printf 'repeat 200000 times:\n    show "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"\n')"
           for n in $(seq 1 6); do api "$flood" > /dev/null; done
-          left="$(docker exec sprout-playground sh -c 'ls -1 /tmp | wc -l')"
+          left="$(docker exec "$cid" sh -c 'ls -1 /tmp | wc -l')"
           echo "temp files in /tmp after 6 floods: $left"
-          [ "$left" -eq 0 ] || { echo "FAIL: web playground leaked temp files"; docker compose down; exit 1; }
+          [ "$left" -eq 0 ] || { echo "FAIL: web playground leaked temp files"; docker rm -f "$cid"; exit 1; }
           still="$(api 'show 1 + 1')"
-          printf '%s' "$still" | grep -q '"output": "2' || { echo "FAIL: web server broken after floods"; docker compose down; exit 1; }
+          printf '%s' "$still" | grep -q '"output": "2' || { echo "FAIL: web server broken after floods"; docker rm -f "$cid"; exit 1; }
           echo "web playground OK: serves, sandboxes, caps output, cleans up temp files"
-          docker compose down
+          docker rm -f "$cid"
