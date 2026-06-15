@@ -2505,7 +2505,11 @@ static void exec(Stmt *s, Env *env) {
       mark_use(cur_fileid, base);
       int builtin = !strcmp(base, "system");     /* system is built in - no file to load */
       free(base);
-      if (!builtin) load_module(s->name);
+      if (!builtin) {
+        /* loading a module reads (and runs) another file from disk — block it for untrusted code */
+        if (g_sandbox) fail(s->line, "'use' is turned off in sandbox mode — a program can't load other files.");
+        load_module(s->name);
+      }
       break;
     }
     case S_GIVE: return_value = s->expr ? eval(s->expr, env) : vnone(); returning = 1; break;
@@ -2619,7 +2623,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.1.1"
+#define SPROUT_VERSION "0.1.2"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);

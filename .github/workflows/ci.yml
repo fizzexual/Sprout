@@ -67,3 +67,28 @@ jobs:
           ASAN_OPTIONS: detect_leaks=0:detect_stack_use_after_return=0:halt_on_error=1:abort_on_error=1
           SPROUT_GC_STRESS: "1"
         run: bash src/tests/run.sh
+
+  playground:
+    name: playground image (Docker)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the playground image
+        run: docker build -f playground/Dockerfile -t sprout-playground .
+
+      - name: Smoke test — safe code runs, dangerous code is blocked
+        run: |
+          run() { docker run --rm -i --network none --memory 256m --pids-limit 64 \
+            --read-only --tmpfs /tmp:size=16m --cap-drop ALL --security-opt no-new-privileges sprout-playground; }
+          out="$(echo 'show 2 + 2' | run)"
+          echo "safe -> $out"; [ "$out" = "4" ] || { echo "FAIL: safe code did not return 4"; exit 1; }
+          for op in 'read("/etc/passwd")' 'write("/x","y")' 'get("http://169.254.169.254/")'; do
+            blk="$(printf 'show %s\n' "$op" | run)"
+            echo "$op -> $(printf '%s' "$blk" | tr -d '\n' | head -c 80)"
+            printf '%s' "$blk" | grep -qi "sandbox mode" || { echo "FAIL: $op was NOT blocked"; exit 1; }
+          done
+          echo "playground image OK: safe code runs, file/shell/network blocked"

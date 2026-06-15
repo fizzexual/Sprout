@@ -59,7 +59,7 @@ rm -f sprout.data.json   # the todo example writes one; it's gitignored anyway
 # running untrusted code). The probe lives in tests/sandbox/ so the loop above skips it.
 if [ -f tests/sandbox/probe.sprout ]; then
   out="$(SPROUT_SANDBOX=1 "$bin" run tests/sandbox/probe.sprout 2>&1)"
-  if printf '%s' "$out" | grep -q "all 10 dangerous ops blocked"; then
+  if printf '%s' "$out" | grep -qE "ok: all [0-9]+ dangerous ops blocked"; then
     echo "ok:   sandbox blocks file/shell/network builtins"
   else
     echo "FAIL: sandbox did not block everything"

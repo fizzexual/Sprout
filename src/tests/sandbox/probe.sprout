@@ -4,7 +4,7 @@
 
 use system
 make blocked = 0
-make total = 10
+make total = 11
 
 try:
     read("x")
@@ -44,6 +44,10 @@ caught e:
     set blocked += 1
 try:
     system.run("echo hi")
+caught e:
+    set blocked += 1
+try:
+    use somefile            ~ loading another file from disk
 caught e:
     set blocked += 1
 
