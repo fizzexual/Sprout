@@ -1,0 +1,53 @@
+~ Run this under SPROUT_SANDBOX=1 (or --sandbox): EVERY file/shell/network op must be
+~ blocked. It lives in tests/sandbox/ (not tests/) so the normal suite skips it; run.sh
+~ invokes it with the env var set. Blocks are catchable, so we count them.
+
+use system
+make blocked = 0
+make total = 10
+
+try:
+    read("x")
+caught e:
+    set blocked += 1
+try:
+    write("x", "y")
+caught e:
+    set blocked += 1
+try:
+    append("x", "y")
+caught e:
+    set blocked += 1
+try:
+    exists("x")
+caught e:
+    set blocked += 1
+try:
+    remember("k", 1)
+caught e:
+    set blocked += 1
+try:
+    recall("k")
+caught e:
+    set blocked += 1
+try:
+    forget("k")
+caught e:
+    set blocked += 1
+try:
+    get("http://example.com")
+caught e:
+    set blocked += 1
+try:
+    explore("http://example.com")
+caught e:
+    set blocked += 1
+try:
+    system.run("echo hi")
+caught e:
+    set blocked += 1
+
+when blocked == total:
+    show "ok: all " + total + " dangerous ops blocked"
+otherwise:
+    show "FAIL: only " + blocked + " of " + total + " blocked"

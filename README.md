@@ -175,12 +175,32 @@ build.cmd                     # or: gcc -O2 -Wall -s -o sprout.exe sprout.c -lm 
 
 # run a program:
 sprout run hello.sprout     # or just: sprout hello.sprout
-sprout version              # -> Sprout v0.1.0
+sprout --sandbox run x.sprout   # run UNTRUSTED code: no file / shell / network access
+sprout version              # -> Sprout v0.1.1
 sprout new myapp            # create a full multi-file project folder
 sprout build                # run the project in the current folder (reads sprout.toml)
 sprout test                 # run your tests (a file, or every tests/*.sprout)
 sprout api <url>            # list every field an API returns
 ```
+
+### Running untrusted code — `--sandbox` (for an online playground)
+
+If you host a playground where strangers run Sprout on **your** server, pass `--sandbox`
+(anywhere on the line) or set `SPROUT_SANDBOX=1`. It turns **off** every builtin that can
+reach outside the program — the filesystem (`read` `write` `append` `exists`), the on-disk
+store (`remember` `recall` `forget`), the network (`get` `explore`), and the **shell**
+(the whole `system` module). Each blocked call is a clear, catchable error; everything
+else (math, text, lists, maps, tasks, `match`, the pipe, …) works normally.
+
+```
+sprout --sandbox run untrusted.sprout      # read/write/get/system... are all disabled
+```
+
+> **The flag is necessary but not sufficient.** It closes the *language's* outward APIs,
+> but a hosting server must still cap **CPU time, memory, and output** at the OS/container
+> level (a process timeout, a memory limit, an output cap) — Sprout can still loop forever
+> or allocate a lot. Run each submission as a short-lived, unprivileged, resource-limited
+> process. (The GC keeps memory *bounded per program*, but not *small*.)
 
 Tests use plain words too — `test` and `expect`:
 
@@ -754,7 +774,7 @@ There's a **[VS Code extension](vscode-extension)** for syntax highlighting too.
 
 ## Known limitations & open questions
 
-Sprout is **v0.1.0** — the first frozen milestone, deliberately small. Honest about the edges:
+Sprout is **v0.1.1** — the first frozen milestone (+ a `--sandbox` flag), deliberately small. Honest about the edges:
 spotting more (or telling me which matter most) is exactly the feedback I want —
 [issues](https://github.com/fizzexual/Sprout/issues) /
 [discussions](https://github.com/fizzexual/Sprout/discussions) welcome.

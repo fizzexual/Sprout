@@ -1632,9 +1632,23 @@ static int value_cmp(const void *pa, const void *pb) {
   return 0;
 }
 
+/* --sandbox (or the SPROUT_SANDBOX env var): for an online playground or any host that
+   runs untrusted code, turn off every builtin that can touch the filesystem, a shell, or
+   the network — otherwise a stranger's program gets file + shell + SSRF access to the host. */
+static int g_sandbox = 0;
+static int builtin_blocked(const char *name) {
+  static const char *const b[] = { "read", "write", "append", "exists",        /* filesystem */
+                                   "remember", "recall", "forget",             /* on-disk store */
+                                   "get", "explore" };                         /* network */
+  for (size_t i = 0; i < sizeof b / sizeof *b; i++) if (!strcmp(name, b[i])) return 1;
+  return 0;
+}
+
 static Value call_builtin(Expr *call, Env *env) {
   const char *name = call->name;
   int n = call->nargs;
+  if (g_sandbox && builtin_blocked(name))
+    failf(call->line, "'%s' is turned off in sandbox mode — file, shell, and network access are disabled here.", name);
   if (n > 16) fail(call->line, "that's too many inputs for a builtin.");
   Value a[16];
   for (int i = 0; i < n; i++) a[i] = eval(call->args[i], env);
@@ -2109,6 +2123,7 @@ static Value eval_binary(Expr *e, Env *env) {
 
 /* the built-in `system` module: OS-level, explicit (use system) actions like system.run(...) */
 static Value call_system(Expr *e, Env *env) {
+  if (g_sandbox) fail(e->line, "the 'system' module is turned off in sandbox mode — no shell access here.");
   if (!strcmp(e->name, "run")) {
     if (e->nargs != 1) fail(e->line, "system.run needs one piece of text, like system.run(\"echo hi\").");
     Value a = eval(e->args[0], env);
@@ -2604,7 +2619,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.1.0"
+#define SPROUT_VERSION "0.1.1"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);
@@ -2619,6 +2634,10 @@ static void usage(void) {
   printf("  sprout template load <name>   scaffold into THIS folder (wipes it)\n");
   printf("  sprout version           show the version\n");
   printf("  sprout help              show this help\n");
+  printf("\n");
+  printf("  --sandbox                run untrusted code safely: turns OFF file, shell, and\n");
+  printf("                           network builtins (read/write/remember/get/system...).\n");
+  printf("                           Works anywhere on the line; or set SPROUT_SANDBOX=1.\n");
 }
 
 /* --------------------------------------------------------- interactive (TUI) */
@@ -3255,6 +3274,10 @@ static int cmd_test(int argc, char **argv) {
 int main(int argc, char **argv) {
   char gc_bottom_marker; gc_stack_bottom = &gc_bottom_marker;   /* the outermost stack address the GC scans up to */
   gc_stress = getenv("SPROUT_GC_STRESS") != NULL;               /* aggressive collection for testing */
+  /* --sandbox anywhere on the command line (or SPROUT_SANDBOX in the environment) hardens
+     this run for untrusted code; strip the flag so the normal positional args still line up. */
+  if (getenv("SPROUT_SANDBOX")) g_sandbox = 1;
+  { int w = 1; for (int r = 1; r < argc; r++) { if (!strcmp(argv[r], "--sandbox")) { g_sandbox = 1; continue; } argv[w++] = argv[r]; } argc = w; }
   srand((unsigned)time(NULL));
   console_setup();   /* enable UTF-8 + ANSI colour for every run */
   if (argc < 2) { wizard(); return 0; }
