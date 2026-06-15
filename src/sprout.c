@@ -36,6 +36,7 @@
 #endif
 
 static char *dup_str(const char *s) { size_t n = strlen(s) + 1; char *p = (char *)malloc(n); memcpy(p, s, n); return p; }
+static char *gc_strdup(const char *s);   /* a GC-tracked copy of s (defined just after the GC allocator below) */
 
 /* terminal colours, used across messages, the TUI, and learn mode */
 #define C_RESET "\x1b[0m"
@@ -68,7 +69,7 @@ typedef struct { char **keys; Value *vals; int n, cap; int *idx; int idxcap; } S
 struct Value { VType type; double num; char *str; int boolean; SList *list; SMap *map; TaskDef *task; };
 
 static Value vnum(double n)  { Value v = {0}; v.type = V_NUM;  v.num = n; return v; }
-static Value vstr(char *s)   { Value v = {0}; v.type = V_STR;  v.str = s; return v; }
+static Value vstr(const char *s) { Value v = {0}; v.type = V_STR; v.str = gc_strdup(s ? s : ""); return v; }
 static Value vbool(int b)    { Value v = {0}; v.type = V_BOOL; v.boolean = b; return v; }
 static Value vnone(void)     { Value v = {0}; v.type = V_NONE; return v; }
 static Value vlist(SList *l) { Value v = {0}; v.type = V_LIST; v.list = l; return v; }
@@ -79,8 +80,11 @@ static Value vtask(TaskDef *t){ Value v = {0}; v.type = V_TASK; v.task = t; retu
    A conservative mark-sweep GC. Every collectible object (list, map, environment, lambda
    closure) carries a GCObj header and is tracked in `gc_all`; the collector finds roots by
    scanning the C stack + registers plus a few precise globals, so it never frees a live
-   object. Strings are not collected yet (they leak — a deliberate, safe first step). */
-typedef enum { GC_LIST, GC_MAP, GC_ENV, GC_TASK } GCKind;
+   object. Heap strings are collected too: every Value's text is a GC_STR copy (vstr copies
+   into the GC), so strings are marked and swept alongside the values that hold them. The
+   strings that map keys / env names / module tables own stay plain malloc — they live in
+   places the conservative scan never reaches, so the GC must not touch them. */
+typedef enum { GC_LIST, GC_MAP, GC_ENV, GC_TASK, GC_STR } GCKind;
 typedef struct GCObj { struct GCObj *next; GCKind kind; int mark; } GCObj;
 static GCObj *gc_all = NULL;                        /* every live collectible allocation */
 static size_t gc_bytes = 0, gc_threshold = 4u << 20;   /* collect once ~4 MB has been allocated since the last GC */
@@ -93,6 +97,11 @@ static void *gc_alloc(GCKind kind, size_t size) {   /* a zeroed object + header,
   return (void *)(h + 1);
 }
 #define GC_HDR(p) ((GCObj *)(p) - 1)
+/* A heap string the collector owns: it carries a GCObj header like any other object, so the
+   conservative scan can find it and the sweep can free it. vstr() copies into one of these;
+   vstr_take() does the same but frees a malloc'd original (used for builtin-built buffers). */
+static char *gc_strdup(const char *s) { size_t n = strlen(s) + 1; char *p = (char *)gc_alloc(GC_STR, n); memcpy(p, s, n); return p; }
+static Value vstr_take(char *owned) { Value v = vstr(owned ? owned : ""); free(owned); return v; }
 
 static SList *list_new(void) { return (SList *)gc_alloc(GC_LIST, sizeof(SList)); }
 static void list_push(SList *l, Value x) {
@@ -291,8 +300,8 @@ static Value g_fail_override;
 static Value current_error_value(void) {
   if (g_have_fail_override) { g_have_fail_override = 0; return g_fail_override; }
   SMap *m = map_new();
-  map_set(m, "message", vstr(dup_str(g_err_msg)));
-  map_set(m, "kind",    vstr(dup_str(g_err_kind ? g_err_kind : "error")));
+  map_set(m, "message", vstr_take(dup_str(g_err_msg)));
+  map_set(m, "kind",    vstr_take(dup_str(g_err_kind ? g_err_kind : "error")));
   map_set(m, "line",    vnum((double)g_err_line));
   return vmap(m);
 }
@@ -1171,6 +1180,7 @@ static void gc_push_value(Value v) {
   if (v.type == V_LIST)      gc_push(v.list);
   else if (v.type == V_MAP)  gc_push(v.map);
   else if (v.type == V_TASK) gc_push(v.task);
+  else if (v.type == V_STR)  gc_push(v.str);   /* the string itself is a GC_STR object */
 }
 static void gc_drain(void) {                    /* process the worklist iteratively (constant C-stack) */
   while (gc_workn) {
@@ -1439,7 +1449,7 @@ static Value jstring(JParse *j) {
     } else { buf[b++]=c; j->pos++; }
   }
   if (j->pos < j->len) j->pos++; else j->ok = 0;
-  buf[b]=0; return vstr(buf);
+  buf[b]=0; return vstr_take(buf);
 }
 static Value jvalue(JParse *j) {
   if (++j->depth > 200) { j->ok = 0; j->depth--; return vnone(); }   /* guard the C stack against deeply nested JSON */
@@ -1573,7 +1583,7 @@ static char *str_replace_all(const char *s, const char *find, const char *repl) 
 
 /* flatten a value into "path = value" lines — the heart of explore() / `sprout api` */
 static void explore_flatten(Value v, const char *prefix, SList *out, int depth) {
-  if (depth > 256) { list_push(out, vstr(dup_str("... (too deeply nested)"))); return; }
+  if (depth > 256) { list_push(out, vstr_take(dup_str("... (too deeply nested)"))); return; }
   if (v.type == V_MAP && v.map && v.map->n > 0) {
     for (int i = 0; i < v.map->n; i++) {
       const char *k = v.map->keys[i];
@@ -1598,7 +1608,7 @@ static void explore_flatten(Value v, const char *prefix, SList *out, int depth) 
     size_t need = strlen(p) + strlen(val) + 8;
     char *line = (char *)malloc(need);
     snprintf(line, need, "%s = %s", p, val);
-    list_push(out, vstr(line));
+    list_push(out, vstr_take(line));
   }
 }
 
@@ -1678,7 +1688,7 @@ static Value call_builtin(Expr *call, Env *env) {
   if (!strcmp(name, "keys")) {
     if (n != 1 || a[0].type != V_MAP) fail(call->line, "keys needs a map.");
     SList *l = list_new();
-    for (int i = 0; a[0].map && i < a[0].map->n; i++) list_push(l, vstr(dup_str(a[0].map->keys[i])));
+    for (int i = 0; a[0].map && i < a[0].map->n; i++) list_push(l, vstr_take(dup_str(a[0].map->keys[i])));
     return vlist(l);
   }
   if (!strcmp(name, "contains")) {
@@ -1797,7 +1807,7 @@ static Value call_builtin(Expr *call, Env *env) {
     if (n != 1) fail(call->line, "kind_of needs one value, like kind_of(x).");
     const char *k = "nothing";
     switch (a[0].type) { case V_NUM: k="number"; break; case V_STR: k="text"; break; case V_BOOL: k="yes-no"; break; case V_LIST: k="list"; break; case V_MAP: k="map"; break; case V_TASK: k="task"; break; default: k="nothing"; }
-    return vstr(dup_str(k));
+    return vstr_take(dup_str(k));
   }
   /* ---- higher-order: run a task over a list (the "easy data" trio + each) ---- */
   if (!strcmp(name, "map")) {
@@ -1865,7 +1875,7 @@ static Value call_builtin(Expr *call, Env *env) {
         if (idx >= s && idx < e) { char ch[5]; for (int j = 0; j < k; j++) ch[j] = p[i + j]; ch[k] = 0; sb_add(&out, &cap, &ln, ch); }
         i += k ? k : 1;
       }
-      return vstr(out ? out : dup_str(""));
+      return vstr_take(out ? out : dup_str(""));
     }
     fail(call->line, "slice works on a list or text.");
   }
@@ -1877,7 +1887,7 @@ static Value call_builtin(Expr *call, Env *env) {
       while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
       if (!*p) break;
       const char *st = p; while (*p && *p != ' ' && *p != '\t' && *p != '\n' && *p != '\r') p++;
-      int ln = (int)(p - st); char *w = (char *)malloc(ln + 1); memcpy(w, st, ln); w[ln] = 0; list_push(out, vstr(w));
+      int ln = (int)(p - st); char *w = (char *)malloc(ln + 1); memcpy(w, st, ln); w[ln] = 0; list_push(out, vstr_take(w));
     }
     return vlist(out);
   }
@@ -1885,7 +1895,7 @@ static Value call_builtin(Expr *call, Env *env) {
     if (n != 1 || a[0].type != V_STR) fail(call->line, "lines needs text.");
     const char *p = a[0].str ? a[0].str : ""; SList *out = list_new();
     if (*p) { const char *st = p; for (;;) {
-        if (*p == '\n' || *p == 0) { int ln = (int)(p - st); if (ln > 0 && st[ln - 1] == '\r') ln--; char *w = (char *)malloc(ln + 1); memcpy(w, st, ln); w[ln] = 0; list_push(out, vstr(w)); if (!*p) break; p++; st = p; if (!*p) break; }
+        if (*p == '\n' || *p == 0) { int ln = (int)(p - st); if (ln > 0 && st[ln - 1] == '\r') ln--; char *w = (char *)malloc(ln + 1); memcpy(w, st, ln); w[ln] = 0; list_push(out, vstr_take(w)); if (!*p) break; p++; st = p; if (!*p) break; }
         else p++;
     } }
     return vlist(out);
@@ -1894,7 +1904,7 @@ static Value call_builtin(Expr *call, Env *env) {
     if (n != 1 || a[0].type != V_STR) fail(call->line, "title needs text.");
     const char *p = a[0].str ? a[0].str : ""; size_t ln = strlen(p); char *out = (char *)malloc(ln + 1); int at_start = 1;
     for (size_t i = 0; i < ln; i++) { char c = p[i]; if (c == ' ' || c == '\t' || c == '\n' || c == '\r') { out[i] = c; at_start = 1; } else { out[i] = at_start ? (char)toupper((unsigned char)c) : (char)tolower((unsigned char)c); at_start = 0; } }
-    out[ln] = 0; return vstr(out);
+    out[ln] = 0; return vstr_take(out);
   }
   if (!strcmp(name, "seed")) {      /* make random() reproducible */
     if (n != 1 || a[0].type != V_NUM) fail(call->line, "seed needs a number, like seed(42).");
@@ -1941,24 +1951,24 @@ static Value call_builtin(Expr *call, Env *env) {
     if (n!=1||a[0].type!=V_STR) fail(call->line,"upper/lower need text.");
     char *s=dup_str(a[0].str?a[0].str:""); int up=(name[0]=='u');
     for (char*p=s;*p;p++) *p = up ? (char)toupper((unsigned char)*p) : (char)tolower((unsigned char)*p);
-    return vstr(s);
+    return vstr_take(s);
   }
   if (!strcmp(name,"trim")) {
     if (n!=1||a[0].type!=V_STR) fail(call->line,"trim needs text.");
     const char*p=a[0].str?a[0].str:""; while(*p==' '||*p=='\t'||*p=='\n'||*p=='\r')p++;
     int e=(int)strlen(p); while(e>0&&(p[e-1]==' '||p[e-1]=='\t'||p[e-1]=='\n'||p[e-1]=='\r'))e--;
-    char*s=(char*)malloc(e+1); memcpy(s,p,e); s[e]=0; return vstr(s);
+    char*s=(char*)malloc(e+1); memcpy(s,p,e); s[e]=0; return vstr_take(s);
   }
   if (!strcmp(name,"replace")) {
     if (n!=3||a[0].type!=V_STR||a[1].type!=V_STR||a[2].type!=V_STR) fail(call->line,"replace needs three pieces of text: replace(text, find, with).");
-    return vstr(str_replace_all(a[0].str?a[0].str:"", a[1].str?a[1].str:"", a[2].str?a[2].str:""));
+    return vstr_take(str_replace_all(a[0].str?a[0].str:"", a[1].str?a[1].str:"", a[2].str?a[2].str:""));
   }
   if (!strcmp(name,"split")) {
     if (n!=2||a[0].type!=V_STR||a[1].type!=V_STR) fail(call->line,"split needs text and a separator.");
     const char*s=a[0].str?a[0].str:""; const char*sep=a[1].str?a[1].str:""; SList*l=list_new();
-    if (!*sep) { for(int i=0;s[i];){int cl=utf8_clen((unsigned char)s[i]);char ch[5];int k=0;for(;k<cl&&s[i+k];k++)ch[k]=s[i+k];ch[k]=0;list_push(l,vstr(dup_str(ch)));i+=k?k:1;} return vlist(l); }
+    if (!*sep) { for(int i=0;s[i];){int cl=utf8_clen((unsigned char)s[i]);char ch[5];int k=0;for(;k<cl&&s[i+k];k++)ch[k]=s[i+k];ch[k]=0;list_push(l,vstr_take(dup_str(ch)));i+=k?k:1;} return vlist(l); }
     size_t sl=strlen(sep); const char*start=s;
-    for(;;){ const char*hit=strstr(start,sep); if(!hit){ list_push(l,vstr(dup_str(start))); break; } int ln=(int)(hit-start); char*part=(char*)malloc(ln+1); memcpy(part,start,ln); part[ln]=0; list_push(l,vstr(part)); start=hit+sl; }
+    for(;;){ const char*hit=strstr(start,sep); if(!hit){ list_push(l,vstr_take(dup_str(start))); break; } int ln=(int)(hit-start); char*part=(char*)malloc(ln+1); memcpy(part,start,ln); part[ln]=0; list_push(l,vstr_take(part)); start=hit+sl; }
     return vlist(l);
   }
   if (!strcmp(name,"join")) {
@@ -1966,20 +1976,20 @@ static Value call_builtin(Expr *call, Env *env) {
     const char*sep=(a[1].type==V_STR&&a[1].str)?a[1].str:""; size_t cap=0,len=0; char*out=NULL;
     for(int i=0;a[0].list&&i<a[0].list->n;i++){ if(i) sb_add(&out,&cap,&len,sep); char*t=stringify(a[0].list->items[i]); sb_add(&out,&cap,&len,t); }
     if(!out) out=dup_str("");
-    return vstr(out);
+    return vstr_take(out);
   }
   /* ---- input ---- */
   if (!strcmp(name,"ask")) {
     if (n>=1 && a[0].type==V_STR) { fputs(a[0].str?a[0].str:"", stdout); fflush(stdout); }
     char line[4096]; if (!fgets(line,sizeof line,stdin)) return vnone();
     size_t L=strlen(line); while(L&&(line[L-1]=='\n'||line[L-1]=='\r')) line[--L]=0;
-    return vstr(dup_str(line));
+    return vstr_take(dup_str(line));
   }
   /* ---- time ---- */
   if (!strcmp(name,"now")||!strcmp(name,"today")) {
     time_t tt=time(NULL); struct tm*lt=localtime(&tt); char buf[64];
     if (name[0]=='n') strftime(buf,sizeof buf,"%Y-%m-%d %H:%M:%S",lt); else strftime(buf,sizeof buf,"%Y-%m-%d",lt);
-    return vstr(dup_str(buf));
+    return vstr_take(dup_str(buf));
   }
   if (!strcmp(name,"wait")) {
     if (n!=1||a[0].type!=V_NUM) fail(call->line,"wait needs a number of seconds.");
@@ -1995,7 +2005,7 @@ static Value call_builtin(Expr *call, Env *env) {
   /* ---- files ---- */
   if (!strcmp(name,"read")) {
     if (n!=1||a[0].type!=V_STR) fail(call->line,"read needs a file name.");
-    char*c=read_whole_file(a[0].str?a[0].str:""); return c ? vstr(c) : vnone();
+    char*c=read_whole_file(a[0].str?a[0].str:""); return c ? vstr_take(c) : vnone();
   }
   if (!strcmp(name,"write")||!strcmp(name,"append")) {
     if (n!=2||a[0].type!=V_STR) fail(call->line,"write/append need a file name and some text.");
@@ -2035,7 +2045,7 @@ static Value call_builtin(Expr *call, Env *env) {
   /* ---- the superpowers: web, json, shell ---- */
   if (!strcmp(name,"get")) {
     if (n!=1||a[0].type!=V_STR) fail(call->line,"get needs a web address, like get(\"https://...\").");
-    char*body=http_get(a[0].str?a[0].str:""); return body ? vstr(body) : vnone();
+    char*body=http_get(a[0].str?a[0].str:""); return body ? vstr_take(body) : vnone();
   }
   if (!strcmp(name,"json")) {
     if (n!=1||a[0].type!=V_STR) fail(call->line,"json needs some text to read.");
@@ -2067,7 +2077,7 @@ static Value call_builtin(Expr *call, Env *env) {
     else if (!strcmp(cn,"dim"))    code="2";
     else fail(call->line,"unknown color. Try: red green yellow blue magenta cyan white gray bold dim.");
     const char *t=a[1].str?a[1].str:""; size_t need=strlen(t)+16; char*out=(char*)malloc(need);
-    snprintf(out,need,"\x1b[%sm%s\x1b[0m",code,t); return vstr(out);
+    snprintf(out,need,"\x1b[%sm%s\x1b[0m",code,t); return vstr_take(out);
   }
 
   {
@@ -2082,7 +2092,7 @@ static Value call_builtin(Expr *call, Env *env) {
 /* +, -, *, /, % on two values (shared by binary expressions and compound 'set x += ...') */
 static Value apply_arith(TokType op, Value l, Value r, int line) {
   if (op == T_PLUS) {
-    if (l.type == V_STR || r.type == V_STR) { char *a = stringify(l), *b = stringify(r); char *out = (char *)malloc(strlen(a) + strlen(b) + 1); strcpy(out, a); strcat(out, b); return vstr(out); }
+    if (l.type == V_STR || r.type == V_STR) { char *a = stringify(l), *b = stringify(r); char *out = (char *)malloc(strlen(a) + strlen(b) + 1); strcpy(out, a); strcat(out, b); Value rv = vstr_take(out); free(a); free(b); return rv; }
     if (l.type == V_NUM && r.type == V_NUM) return vnum(l.num + r.num);
     { char buf[256]; snprintf(buf, sizeof buf, "I can't add %s and a different kind of value.", type_name(l)); fail_kind(line, "type", buf); }
   }
@@ -2129,7 +2139,7 @@ static Value call_system(Expr *e, Env *env) {
     Value a = eval(e->args[0], env);
     if (a.type != V_STR) fail(e->line, "system.run needs text (the command to run).");
     char *out = run_command(a.str ? a.str : "");
-    return out ? vstr(out) : vnone();
+    return out ? vstr_take(out) : vnone();
   }
   { char m[200]; snprintf(m, sizeof m, "the system module has no '%s' (it has: run).", e->name); fail(e->line, m); }
   return vnone();
@@ -2185,7 +2195,7 @@ static Value eval(Expr *e, Env *env) {
       } else if (it.type == V_MAP) {                   /* loops over the keys (like `for each k in map`) */
         int len = it.map ? it.map->n : 0;
         for (int i = 0; i < len; i++) {
-          Env *be = env_new(env); env_define(be, e->name, vstr(dup_str(it.map->keys[i])));
+          Env *be = env_new(env); env_define(be, e->name, vstr_take(dup_str(it.map->keys[i])));
           if (!e->operand || is_truthy(eval(e->operand, be))) list_push(out, eval(e->left, be));
         }
       } else if (it.type == V_STR) {                   /* one whole UTF-8 character per step */
@@ -2194,7 +2204,7 @@ static Value eval(Expr *e, Env *env) {
           int cl = utf8_clen((unsigned char)p[i]); char ch[5]; int k = 0;
           for (; k < cl && p[i + k]; k++) { ch[k] = p[i + k]; }
           ch[k] = 0;
-          Env *be = env_new(env); env_define(be, e->name, vstr(dup_str(ch)));
+          Env *be = env_new(env); env_define(be, e->name, vstr_take(dup_str(ch)));
           if (!e->operand || is_truthy(eval(e->operand, be))) list_push(out, eval(e->left, be));
           i += k ? k : 1;
         }
@@ -2265,7 +2275,7 @@ static Value eval(Expr *e, Env *env) {
           int cl = utf8_clen((unsigned char)p[i]); int k = 0; char ch[5];
           for (; k < cl && p[i + k]; k++) ch[k] = p[i + k];
           ch[k] = 0;
-          if (idx == want) return vstr(dup_str(ch));
+          if (idx == want) return vstr_take(dup_str(ch));
           idx++; i += k ? k : 1;
         }
         fail_kind(e->line, "index", "that position doesn't exist in the text.");
@@ -2526,7 +2536,7 @@ static void exec(Stmt *s, Env *env) {
           exec_block(s->body, s->nbody, be); if (returning) break; if (g_loopctl) { int stop = g_loopctl == 2; g_loopctl = 0; if (stop) break; } }
       } else if (it.type == V_MAP) {
         int len = it.map ? it.map->n : 0;
-        for (int i = 0; i < len; i++) { Env *be = env_new(env); env_define(be, s->name, vstr(dup_str(it.map->keys[i])));
+        for (int i = 0; i < len; i++) { Env *be = env_new(env); env_define(be, s->name, vstr_take(dup_str(it.map->keys[i])));
           if (s->name2) env_define(be, s->name2, it.map->vals[i]);
           learn_loop(be, s->name, s->name2);
           exec_block(s->body, s->nbody, be); if (returning) break; if (g_loopctl) { int stop = g_loopctl == 2; g_loopctl = 0; if (stop) break; } }
@@ -2537,7 +2547,7 @@ static void exec(Stmt *s, Env *env) {
           for (; k < cl && p[i + k]; k++) ch[k] = p[i + k];
           ch[k] = 0;
           Env *be = env_new(env);
-          if (s->name2) { env_define(be, s->name, vnum((double)ci)); env_define(be, s->name2, vstr(dup_str(ch))); } else env_define(be, s->name, vstr(dup_str(ch)));
+          if (s->name2) { env_define(be, s->name, vnum((double)ci)); env_define(be, s->name2, vstr_take(dup_str(ch))); } else env_define(be, s->name, vstr_take(dup_str(ch)));
           learn_loop(be, s->name, s->name2);
           exec_block(s->body, s->nbody, be); if (returning) break; if (g_loopctl) { int stop = g_loopctl == 2; g_loopctl = 0; if (stop) { i += k ? k : 1; break; } }
           i += k ? k : 1;
@@ -2574,8 +2584,8 @@ static void exec(Stmt *s, Env *env) {
       Value m = eval(s->expr, env);
       if (m.type == V_MAP) {                               /* fail <map>: the map IS the error - carry it whole */
         if (m.map) {
-          if (map_index(m.map, "message") < 0) map_set(m.map, "message", vstr(dup_str("(no message)")));
-          if (map_index(m.map, "kind")    < 0) map_set(m.map, "kind",    vstr(dup_str("fail")));
+          if (map_index(m.map, "message") < 0) map_set(m.map, "message", vstr_take(dup_str("(no message)")));
+          if (map_index(m.map, "kind")    < 0) map_set(m.map, "kind",    vstr_take(dup_str("fail")));
           if (map_index(m.map, "line")    < 0) map_set(m.map, "line",    vnum((double)s->line));
         }
         g_fail_override = m; g_have_fail_override = 1;
@@ -2623,7 +2633,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.1.2"
+#define SPROUT_VERSION "0.1.3"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);

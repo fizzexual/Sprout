@@ -1,9 +1,12 @@
 # Sprout memory model & garbage-collector design
 
-**Status: IMPLEMENTED in v0.1.0** (this document is the design it was built from). Lists,
-maps, environments, and lambda closures are now collected by a conservative mark-sweep GC;
-**strings are not yet collected** (they still leak — a deliberate, safe first step, noted
-under *Rollout* below). The guiding principle held: **for a beginner language, a crash is
+**Status: IMPLEMENTED in v0.1.0; extended to strings in v0.1.3** (this document is the
+design it was built from). Lists, maps, environments, lambda closures, **and heap strings**
+are now collected by a conservative mark-sweep GC. Strings were the planned next slice: every
+`Value`'s text is a GC-owned copy (`vstr` copies into a `GC_STR`), so strings are marked and
+swept alongside the values that hold them — while the strings that map keys, environment
+names, and the module tables own stay plain `malloc` (they live where the conservative scan
+never reaches, so the GC must not touch them). The guiding principle held: **for a beginner language, a crash is
 far worse than a leak — the collector never frees a live object, even at the cost of
 over-retaining.** It is validated in CI by AddressSanitizer running the whole suite
 *twice* — once normally and once in **stress mode** (collect on every statement, so any

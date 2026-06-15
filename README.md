@@ -702,7 +702,7 @@ The interesting choices, and what each one costs — the places worth challengin
 | --- | --- | --- |
 | **Tree-walking interpreter** (no bytecode/JIT) | Tiny, simple, easy to read and trust | Slow vs. a bytecode VM; fine for learning, not for hot loops |
 | **All C, zero deps** (links only OS libs) | One ~86 KB exe, nothing to install, no supply chain | Reimplementing everything (JSON, HTTP) by hand; C memory risks |
-| **Conservative mark-sweep GC** *(v0.1.0)* | Long-running programs stay bounded; cycles collected; can't free a live object | Some overhead on allocation/call-heavy paths; strings not collected yet |
+| **Conservative mark-sweep GC** *(v0.1.0; strings v0.1.3)* | Long-running programs stay bounded — lists, maps, environments, closures, **and strings** all collected; cycles collected; can't free a live object | Some overhead on allocation/call-heavy paths |
 | **Doubles only, no integer type** | One number type is simpler for beginners | Precision/overflow surprises; no bigint |
 | **Namespaced modules + `private` default** | Predictable, scales, no hidden global sharing | More to type across files (`module.name`) |
 | **Block scope + strict `make`** | Loop/`when` vars can't leak; a typo'd `make` can't silently reassign | You must `set` (not re-`make`) to change a value; shadowing is allowed |
@@ -774,17 +774,13 @@ There's a **[VS Code extension](vscode-extension)** for syntax highlighting too.
 
 ## Known limitations & open questions
 
-Sprout is **v0.1.1** — the first frozen milestone (+ a `--sandbox` flag), deliberately small. Honest about the edges:
+Sprout is **v0.1.3** — the first frozen milestone (+ a `--sandbox` flag and a Docker playground), deliberately small. Honest about the edges:
 spotting more (or telling me which matter most) is exactly the feedback I want —
 [issues](https://github.com/fizzexual/Sprout/issues) /
 [discussions](https://github.com/fizzexual/Sprout/discussions) welcome.
 
 **On the roadmap — real gaps I want to close:**
 
-- **Strings aren't garbage-collected yet.** *(v0.1.0)* The conservative mark-sweep GC
-  reclaims lists, maps, environments, and closures, so long-running programs stay
-  bounded — but heap strings still leak (a safe first step). Collecting them is the
-  next memory-model slice. See [docs/gc-design.md](docs/gc-design.md).
 - **Performance.** Tree-walking, so tight numeric loops are slow. A bytecode VM
   would help — a large rewrite, not yet started.
 - **Errors abort on the first one** *unless* wrapped in `try:` / `caught:`
@@ -798,17 +794,20 @@ spotting more (or telling me which matter most) is exactly the feedback I want �
   the cost is precision/overflow at the extremes (`1e+21`).
 - **Maps are the only record** — no structs/methods/shape-checking. One concept,
   not two.
-- **Tasks are defined at the top level (but *are* first-class values).** You can
-  store/pass/return/call a task, but you can't *define* one inside a block, and tasks
-  don't capture surrounding locals (no closures yet) — keeps "what can call what"
-  obvious, and a `task` statement inside a block is a clear error, not a silent no-op.
+- **Named tasks are top-level; closures come from lambdas.** A `task` *statement* is
+  defined at the top level — it doesn't capture surrounding locals, and writing one
+  inside a block is a clear error (not a silent no-op), which keeps "what can call what"
+  obvious. When you *do* want to close over locals, an anonymous lambda
+  (`task(x): x + n` in expression position) captures them. Tasks — named or anonymous —
+  are first-class values you can store, pass, return, and call.
 - **`system.run` is the single, explicit escape hatch** for OS commands — gated
   behind `use system` so it's never ambient, but it's still real power.
 
 Each release goes through an adversarial review before shipping; fixes are in the
 [release notes](https://github.com/fizzexual/Sprout/releases). **Recently closed:**
-string indexing (`s[i]`), `get` on POSIX (via `curl`), and **CI that builds &
-tests on Linux, macOS, and Windows**.
+**full string garbage collection** *(v0.1.3 — heap strings are now reclaimed too, so the
+runtime no longer leaks)*, a hardened **Docker playground**, string indexing (`s[i]`),
+and **CI that builds & tests on Linux, macOS, and Windows**.
 
 ---
 

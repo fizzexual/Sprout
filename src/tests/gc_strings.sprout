@@ -1,0 +1,51 @@
+~ String garbage collection: build, store, capture, and transform many strings. Run under
+~ SPROUT_GC_STRESS=1 (the asan CI job does) the GC collects on EVERY statement, so any
+~ wrongly-freed live string corrupts a result below. Prints FAIL on any mismatch.
+make parts = []
+make i = 1
+repeat 400 times:
+    make s = "item-" + i + "-" + (i * i)
+    add(parts, s)
+    set i += 1
+make fails = 0
+when parts[0] != "item-1-1":
+    set fails += 1
+when parts[399] != "item-400-160000":
+    set fails += 1
+
+~ strings as map keys AND values, surviving rehash + collection
+make m = {}
+repeat 200 times:
+    make k = "key" + i
+    set m[k] = "val-" + i + "-" + upper("x")
+    set i += 1
+when m["key401"] != "val-401-X":
+    set fails += 1
+
+~ a closure capturing a string, plus heavy builtin churn (upper/split/join/replace)
+make make_greeter = task(name): task(): "hi " + name
+make g = make_greeter("world")
+make hold = []
+repeat 200 times:
+    add(hold, g())
+    add(hold, upper("a" + i))
+    add(hold, join(split("a,b,c," + i, ","), "-"))
+    add(hold, replace("x_y_z", "_", "" + i))
+    set i += 1
+when g() != "hi world":
+    set fails += 1
+when hold[0] != "hi world":
+    set fails += 1
+
+~ recompute the first batch from scratch and compare — nothing should have rotted
+make ok = 0
+make j = 0
+repeat 400 times:
+    make want = "item-" + (j + 1) + "-" + ((j + 1) * (j + 1))
+    when parts[j] == want:
+        set ok += 1
+    set j += 1
+when ok == 400 and fails == 0:
+    show "ok: strings survive collection (400 kept + maps + closures + builtins)"
+when ok != 400 or fails != 0:
+    show "FAIL: gc_strings ok=" + ok + " fails=" + fails
