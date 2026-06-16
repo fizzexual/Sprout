@@ -22,15 +22,15 @@ Plain-English code, helpful errors, and zero dependencies. No Node, no VM, no ru
 
 ---
 
-Sprout is a **real, from-scratch programming language** — its own lexer, parser, and
-tree-walking interpreter, written in **C**. **Sprout itself** is compiled to a tiny
-native executable that depends on **nothing but the operating system** (no Node, no
-JavaScript, no runtime to install); your **`.sprout` programs are then interpreted by
-that executable** — they aren't turned into machine code. The same path Python
-(CPython) and Lua took.
+I built Sprout as a **real, from-scratch programming language** — its own lexer, parser,
+and tree-walking interpreter, written in **C**. The interpreter compiles to a tiny native
+executable that depends on **nothing but the operating system** (no Node, no JavaScript,
+no runtime to install); your **`.sprout` programs are then interpreted by that
+executable** — they aren't turned into machine code. The same path Python (CPython) and
+Lua took.
 
-It has one goal: **be the kindest language to learn programming with.** When
-something's wrong, Sprout explains it in plain English, points at the line, and
+I had one goal the whole way: **make the kindest language to learn programming with.**
+When something's wrong, Sprout explains it in plain English, points at the line, and
 suggests a fix:
 
 ```
@@ -60,7 +60,7 @@ show x + y
 
 ## Code you can read out loud
 
-Sprout has its **own** vocabulary — `make`, `show`, `when`, `repeat`, `task` — so a
+I gave Sprout its **own** vocabulary — `make`, `show`, `when`, `repeat`, `task` — so a
 beginner can guess what a program does just by reading it. No `let`, no `print`, no `if`.
 
 ```sprout
@@ -83,8 +83,8 @@ show greet("Sprout")
 
 ## What works today
 
-Sprout is being **rebuilt from scratch in C**, one slice at a time. The core
-language runs now:
+I built Sprout **from scratch in C**, one slice at a time, and **froze the core at
+v0.1.0**. Here's everything it runs:
 
 - Values: numbers, text, `yes` / `no`, `nothing`
 - `make` (new name), `set` (change an existing one), `show` (print — *its* commas print with a space between; `make`/`set` take a single value)
@@ -610,19 +610,17 @@ stays callable, so it's clearer not to.
 > **`orwhen` stays.** It's the committed spelling for "else-if" (not `else when` /
 > `or when`) — one word, in keeping with Sprout's own vocabulary.
 
-### Not in the core *today* (and what's being decided before v0.1.0)
+### Not in the core (on purpose)
 
-What you can't assume in the current core: **no user-defined types** (maps are the
-record), **no multi-line string syntax**, **no negative indexing**, **no integer type**
-(numbers are doubles).
+A few things you won't find, by design: **no user-defined types** (maps are the record),
+**no multi-line string syntax**, **no negative indexing**, and **no separate integer
+type** (numbers are doubles). I left each of these out so there's one obvious way to do the
+thing — they're decisions, not gaps I'm getting to.
 
-**First-class/stored tasks** landed in v0.0.20, and **lambdas + closures** in v0.0.24
-(`task(x): x * 2`, capturing surrounding variables) — see *Lambdas (anonymous tasks)*
-above. **User-defined types** remain **under evaluation** for the v0.1.0 core (see
-[ROADMAP.md](ROADMAP.md)). The rest (multi-line strings, negative indexing, a separate
-integer type) are deliberate long-term choices, not omissions.
-(Error recovery — `try:` / `caught:` — landed in the cycle: v0.0.14, reshaped in
-v0.0.15.)
+For the record: **first-class/stored tasks** landed in v0.0.20 and **lambdas + closures**
+in v0.0.24 (`task(x): x * 2`, capturing surrounding variables — see *Lambdas (anonymous
+tasks)* above), and **error handling** (`try:` / `caught:`) in v0.0.14–v0.0.15. The core
+**froze at v0.1.0**; the longer plan lives in [ROADMAP.md](ROADMAP.md).
 
 ### Grammar (core, EBNF)
 
@@ -696,25 +694,29 @@ number     = digits [ "." digits ] [ ("e"|"E") ["+"|"-"] digits ] ;  (* 42, 2.5,
 
 ## Design decisions & rationale
 
-The interesting choices, and what each one costs — the places worth challenging:
+These are the calls I find most interesting — and what each one costs me. Every "Sprout is
+small" line below is a decision I'd make again, not a hole I'm hiding; if you'd have called
+one differently, [tell me](https://github.com/fizzexual/Sprout/issues).
 
-| Decision | Why | Trade-off / risk |
+| Decision | Why I chose it | What it costs |
 | --- | --- | --- |
-| **Tree-walking interpreter** (no bytecode/JIT) | Tiny, simple, easy to read and trust | Slow vs. a bytecode VM; fine for learning, not for hot loops |
-| **All C, zero deps** (links only OS libs) | One ~86 KB exe, nothing to install, no supply chain | Reimplementing everything (JSON, HTTP) by hand; C memory risks |
-| **Conservative mark-sweep GC** *(v0.1.0; strings v0.1.3)* | Long-running programs stay bounded — lists, maps, environments, closures, **and strings** all collected; cycles collected; can't free a live object | Some overhead on allocation/call-heavy paths |
-| **Doubles only, no integer type** | One number type is simpler for beginners | Precision/overflow surprises; no bigint |
+| **Tree-walking interpreter** (no bytecode/JIT) | Tiny, simple, the whole thing reads as one C file you can trust | Slower than a bytecode VM — I built it for learning and real scripts, not tight numeric hot loops |
+| **All C, zero deps** (links only OS libs) | One ~86 KB exe, nothing to install, no supply chain | I reimplement everything (JSON, HTTP) by hand; C memory discipline is on me |
+| **Conservative mark-sweep GC** *(v0.1.0; strings v0.1.3)* | Long-running programs stay bounded — lists, maps, environments, closures, **and strings** all collected; cycles collected; it can never free a live value | Some overhead on allocation/call-heavy paths |
+| **Doubles only, no integer type** | One number type means a beginner never has to pick one before `make x = 5` | Precision/overflow at the extremes (past `1e+21`); no bigint |
+| **Maps are the only record** | One way to group data, not two — fewer concepts before you're productive | No structs/methods/shape-checking |
+| **Named tasks are top-level; closures are lambdas** | "What can call what" stays obvious — a `task` statement in a block is a clear error, never a silent no-op | To capture surrounding locals you reach for an anonymous `task(x): …` lambda |
+| **One clear error at a time** (dynamic typing) | A beginner gets one fixable message, not a cascade or a type-checker to satisfy before running | No batch diagnostics; type mistakes surface at runtime (wrap risky work in `try:` / `caught:`) |
+| **`system.run` gated behind `use system`** | Shell access is explicit and never ambient; `--sandbox` removes it entirely for hosting untrusted code | It's still real OS power once you opt in |
 | **Namespaced modules + `private` default** | Predictable, scales, no hidden global sharing | More to type across files (`module.name`) |
 | **Block scope + strict `make`** | Loop/`when` vars can't leak; a typo'd `make` can't silently reassign | You must `set` (not re-`make`) to change a value; shadowing is allowed |
-| **Maps as the only record type** | Fewer concepts to learn | No fields/methods/type checking on shapes |
-| **First error aborts** | Simple, clear single message | No "here are all 12 errors" batch reporting |
 | **Own keywords** (`make`/`show`/`task`) | Readable out loud for first-timers | Unfamiliar to experienced devs; not C/JS-like |
 | **Indentation blocks** (Python-style) | Clean, no `{}`/`;` noise | Tabs-vs-spaces and copy-paste pitfalls |
 
 ## Roadmap
 
-The core grew back slice by slice; it's now in the base-completion cycle toward the
-v0.1.0 freeze:
+I grew the core back slice by slice, then **froze it at v0.1.0** — the milestone meant to
+hold. Here's the path I took, and what I've shipped since the freeze:
 
 1. ✅ **Core** — variables, math, text, `when`, `repeat`
 2. ✅ **Tasks** — `task` / `give`, function calls, recursion, scope
@@ -735,10 +737,18 @@ v0.1.0 freeze:
 17. ✅ **Pattern matching (v0.0.26)** — `match value:` with `is <pattern>:` arms (value/literal, list-destructure `[a, b]`, map-destructure `{name, age}`) and `otherwise`.
 18. ✅ **Pipe operator (v0.0.27)** — `x |> f` is `f(x)` and `x |> f(a)` is `f(x, a)`; left-associative, so `data |> filter(is_even) |> map(double) |> sum` reads top to bottom.
 19. ✅ **Multi-line literals (v0.0.28)** — lists, maps, and call arguments may span multiple lines (newlines inside `( ) [ ] { }` are ignored), with an optional trailing comma.
+20. ✅ **Dogfooding + faster maps (v0.0.29–v0.0.30)** — an `examples/` gallery of real programs (run by CI), `sort_by`, and an O(n²)→O(n) hash index for maps.
+21. ✅ **The freeze — v0.1.0** — a conservative mark-sweep garbage collector and more examples; the core stops moving.
+22. ✅ **`--sandbox` + Docker playground (v0.1.1–v0.1.2)** — run untrusted code safely (no files, shell, or network), plus a one-command, hardened web playground.
+23. ✅ **String GC (v0.1.3)** — heap strings join the collector; the runtime no longer leaks.
 
-The cycle continues toward **v0.1.0 — the freeze that's meant to hold**. The full,
-sequenced plan — first-class tasks, collections superpowers, user types, a memory
-model, the web `kind`, tooling — is in **[ROADMAP.md](ROADMAP.md)**.
+The language now does what I set out to do, so what's next is about **reach, not patching holes:**
+
+- **A bytecode VM**, eventually — the same language, just faster for tight loops. It's a big rewrite, so I'll take it slowly and keep it behind the exact syntax you already know.
+- **A simple way to share modules** (packaging + versioning) — once enough real programs have shown me the shape it should take.
+- **More real programs, not more syntax** — I'd rather prove the language by building with it than keep growing it.
+
+The longer, sequenced plan lives in **[ROADMAP.md](ROADMAP.md)**. I run an adversarial review over every release before it ships, and write down what each one fixed in the [release notes](https://github.com/fizzexual/Sprout/releases).
 
 ## How it works (architecture)
 
@@ -760,8 +770,10 @@ only the interpreter itself is compiled to machine code.
   (file scope → call frame). Tasks live in a table keyed by `(name, file)`;
   visibility is resolved against the current file id, with separate small
   registries for module namespaces, per-file imports (`use`), and `public` vars.
-- **Memory** — values are `malloc`'d and intentionally **not freed** (freed by
-  process exit). Recursion runs on a 64 MB stack with a call-depth guard.
+- **Memory** — a conservative mark-sweep **garbage collector** reclaims lists, maps,
+  environments, closures, and strings. It finds roots by scanning the C stack (plus a few
+  precise globals), so it can never free a value that's still in use. Recursion runs on a
+  64 MB stack with a call-depth guard.
 - **Built-ins, from scratch** — JSON is a hand-written parser; HTTP uses the OS
   (`urlmon` on Windows); shell via `popen`. No third-party libraries.
 
@@ -771,43 +783,6 @@ There's a **[VS Code extension](vscode-extension)** for syntax highlighting too.
 > Sprout previously had a TypeScript-on-Node implementation with a GUI, a
 > compile-to-JavaScript engine, and libraries. That has been retired so the
 > language can stand entirely on its own in C — it lives on in the git history.
-
-## Known limitations & open questions
-
-Sprout is **v0.1.3** — the first frozen milestone (+ a `--sandbox` flag and a Docker playground), deliberately small. Honest about the edges:
-spotting more (or telling me which matter most) is exactly the feedback I want —
-[issues](https://github.com/fizzexual/Sprout/issues) /
-[discussions](https://github.com/fizzexual/Sprout/discussions) welcome.
-
-**On the roadmap — real gaps I want to close:**
-
-- **Performance.** Tree-walking, so tight numeric loops are slow. A bytecode VM
-  would help — a large rewrite, not yet started.
-- **Errors abort on the first one** *unless* wrapped in `try:` / `caught:`
-  (added v0.0.14, reshaped v0.0.15) — there's still no batch diagnostics and no
-  static type checking; type errors surface at runtime.
-- **No package manager / versioning** for modules yet.
-
-**Deliberately small — design choices, not bugs (challenge them if you disagree):**
-
-- **One number type (doubles).** No separate int/bigint — simpler for a beginner;
-  the cost is precision/overflow at the extremes (`1e+21`).
-- **Maps are the only record** — no structs/methods/shape-checking. One concept,
-  not two.
-- **Named tasks are top-level; closures come from lambdas.** A `task` *statement* is
-  defined at the top level — it doesn't capture surrounding locals, and writing one
-  inside a block is a clear error (not a silent no-op), which keeps "what can call what"
-  obvious. When you *do* want to close over locals, an anonymous lambda
-  (`task(x): x + n` in expression position) captures them. Tasks — named or anonymous —
-  are first-class values you can store, pass, return, and call.
-- **`system.run` is the single, explicit escape hatch** for OS commands — gated
-  behind `use system` so it's never ambient, but it's still real power.
-
-Each release goes through an adversarial review before shipping; fixes are in the
-[release notes](https://github.com/fizzexual/Sprout/releases). **Recently closed:**
-**full string garbage collection** *(v0.1.3 — heap strings are now reclaimed too, so the
-runtime no longer leaks)*, a hardened **Docker playground**, string indexing (`s[i]`),
-and **CI that builds & tests on Linux, macOS, and Windows**.
 
 ---
 
