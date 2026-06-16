@@ -59,5 +59,5 @@ Sprout tries to explain problems in plain English and tell you which line:
 ## Next
 
 - The **[Cheat Sheet](cheatsheet.md)** — the whole language on one page.
-- **[Sprout Syntax](sprout-syntax.md)** — every part, explained slowly.
+- **[Sprout Syntax](syntax-basics.md)** — every part, explained slowly.
 - Try the smoke tests that ship with the source: `sprout.exe tests/core.sprout`.

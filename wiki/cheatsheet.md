@@ -146,7 +146,7 @@ show fib(10)          ~ ->  55
 ## Projects: many files
 
 Tie files together with a `sprout.toml`, expose things with `public`, and run it
-all with `sprout build`. Full guide: **[Projects & modules](projects.md)**.
+all with `sprout build`. Full guide: **[Projects & modules](modules-and-projects.md)**.
 
 ```sprout
 ~ modules/greeter.sprout

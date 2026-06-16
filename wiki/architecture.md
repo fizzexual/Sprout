@@ -115,5 +115,5 @@ A new piece of syntax usually touches this trail — the same order as the pipel
 
 ---
 
-See also: [Sprout Syntax](sprout-syntax.md) · [Cheat Sheet](cheatsheet.md) ·
+See also: [Sprout Syntax](syntax-basics.md) · [Cheat Sheet](cheatsheet.md) ·
 [the source readme](../src/README.md)

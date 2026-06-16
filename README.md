@@ -17,6 +17,7 @@ Plain-English code, helpful errors, and zero dependencies. No Node, no VM, no ru
 <p align="center">
   <a href="wiki/getting-started.md">Get started</a> ·
   <a href="wiki/cheatsheet.md">Cheat sheet</a> ·
+  <a href="wiki_navigator.md">Full wiki</a> ·
   <a href="wiki/architecture.md">How it works</a>
 </p>
 

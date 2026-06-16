@@ -1,22 +1,43 @@
 # 🌱 The Sprout Wiki
 
-Everything about **Sprout** — a small, friendly programming language written from
-scratch in **C**, depending on nothing but the operating system.
+Everything about **Sprout** — a small, friendly programming language written from scratch
+in **C**, depending on nothing but the operating system. These pages document the language
+**exactly as it works today** (the frozen core, v0.1.4), and every example was run against
+the real interpreter.
 
-> Sprout is being (re)built in C one slice at a time. These pages document the
-> language **as it works today** (the core). The [roadmap](#roadmap) lists what's
-> coming next.
+**→ Start at the [Wiki Navigator](../wiki_navigator.md)** for the full map plus a
+find-anything index of every keyword, operator, builtin, and command.
 
 ## Pages
 
-| Page | What's inside |
-| --- | --- |
-| **[Getting Started](getting-started.md)** | build the interpreter and run your first program |
-| **[Sprout Syntax](sprout-syntax.md)** | the language explained slowly — variables, math, text, conditions, loops, tasks |
-| **[Built-in Functions](builtins.md)** | the toolbox + the superpowers — `get`, `json`, `run`, files, math, text |
-| **[Projects & Modules](projects.md)** | many files in one program — `sprout.toml`, `use`, `sprout new`, `sprout build` |
-| **[Cheat Sheet](cheatsheet.md)** | the whole language on one page |
-| **[How Sprout Works](architecture.md)** | the architecture — the pipeline and how the C interpreter is built |
+**Start here**
+- [Getting started](getting-started.md) · [Cheat sheet](cheatsheet.md)
+
+**Language guide**
+- [Syntax basics](syntax-basics.md) — values, `make` / `set` / `show`, scope
+- [Operators](operators.md) — math, comparison, logic, `in`, `or else`, `|>`, ranges
+- [Control flow](control-flow.md) — `when` / `repeat` / `stop` / `skip`
+- [Text](text.md) — strings, f-strings, indexing
+- [Lists, maps, ranges & comprehensions](collections.md)
+- [Tasks, lambdas & closures](tasks-and-lambdas.md)
+- [Pattern matching](pattern-matching.md) — `match` / `is`
+- [Errors](errors.md) — `try` / `caught` / `fail`
+
+**Reference**
+- [Builtins reference](builtins-reference.md) — all 65 builtins
+- [Grammar & decided edge cases](grammar-and-edge-cases.md) — EBNF, indentation, reserved words
+- [Glossary](glossary.md)
+
+**Tooling, projects & hosting**
+- [Command line & flags](cli-and-flags.md)
+- [Modules & projects](modules-and-projects.md)
+- [Testing & learn mode](testing-and-learn.md)
+- [Persistence](persistence.md) — `remember` / `recall` / `forget`
+- [Files, web, system & time](io-web-system-time.md)
+- [Sandbox & the online playground](sandbox-and-playground.md)
+
+**Internals**
+- [How Sprout works](architecture.md)
 
 ## The 30-second tour
 
@@ -35,16 +56,5 @@ task add(a, b):
 show add(2, 3)        ~ 5
 ```
 
-Sprout has its **own** vocabulary — `make`, `set`, `show`, `when`, `repeat`,
-`task` — it doesn't borrow `let`, `print`, or `if` from anyone.
-
-## Roadmap
-
-1. ✅ **Core** — variables, math, text, `when`, `repeat`
-2. ✅ **Tasks** — `task` / `give`, function calls, recursion, scope
-3. ✅ **Collections** — lists `[...]`, maps `{...}`, indexing, `for each`, `range`
-4. ✅ **Superpowers** — the toolbox (math/text), files, the web (`get`), JSON, `run`, `ask`
-5. ✅ **Projects & modules** — `sprout.toml`, `use`, `sprout new`, `sprout build`
-6. ⏭️ **f-strings** (`f"Hi {name}"`) and `remember` / `recall`
-7. **Richer errors** — the `^` pointer and "did you mean?" suggestions
-8. **Apps & more** — GUI windows, libraries
+Sprout has its **own** vocabulary — `make`, `set`, `show`, `when`, `repeat`, `task` — it
+doesn't borrow `let`, `print`, or `if` from anyone.
