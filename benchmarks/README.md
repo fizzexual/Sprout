@@ -69,3 +69,19 @@ Measuring found two O(n²) hot spots. Both are *optimization* targets, not new f
 
 None of these change what programs *mean* — they're internal speedups, driven by data and
 tracked here so a future change can show its win in this same table.
+
+## Why there's no bytecode VM (I measured it)
+
+The obvious "make an interpreter faster" move is to compile to bytecode and run a VM loop
+instead of walking the AST. I built one — a full stack VM for the numeric/variable/control-
+flow core, reusing the same `Value`/`Env`/arithmetic/GC so it computed identically (verified
+against the tree-walker) — and **it was not faster** (`loop`: ~180 ms on both). The reason
+is that Sprout's cost lives in the *operations* — variable lookup, arithmetic, and (for
+recursion) per-call environment allocation — not in AST dispatch, which is what a VM
+replaces. A VM only pays off once it *also* changes those operations: slot-based locals (no
+name lookup) and a call model that avoids allocating a frame per call. That's a much larger
+change that fights the conservative GC, breaks the friendly "did you mean?" errors (which
+read the live environment), and roughly doubles the interpreter — the opposite of "one small
+C file you can trust." So the VM didn't ship. The honest levers remain the ones above:
+better variable access and per-call allocation, done in the one engine, only if a real
+program proves they're worth the complexity.
