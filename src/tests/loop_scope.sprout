@@ -1,0 +1,59 @@
+~ Loop scope elision (a make-free repeat body runs in the parent env, no per-turn scope)
+~ must not change any observable behavior. Prints FAIL on any mismatch.
+make fails = 0
+
+~ 1. a `make` inside the body still gets a FRESH scope each turn (no "already made" error)
+repeat 3 times:
+    make x = 5
+    set x += 1
+
+~ 2. a closure built in a make-free (elided) body still sees the right outer value
+make base = 100
+make fns = []
+repeat 3 times:
+    add(fns, task(): base)
+make first = fns[0]
+make last = fns[2]
+when first() != 100 or last() != 100:
+    set fails += 1
+
+~ 3. a `make` in a NESTED `when` (its own scope) works though the loop body itself elides
+make hits = 0
+repeat 4 times:
+    when yes:
+        make y = 7
+        set hits += y
+when hits != 28:
+    set fails += 1
+
+~ 4. repeat while with a set-only (elided) body counts correctly
+make n = 0
+repeat while n < 1000:
+    set n += 1
+when n != 1000:
+    set fails += 1
+
+~ 5. stop still leaves the loop from an elided body
+make seen = 0
+repeat 10 times:
+    set seen += 1
+    when seen == 5:
+        stop
+when seen != 5:
+    set fails += 1
+
+~ 6. skip still skips the rest of a turn in an elided body
+make evens = 0
+make i = 0
+repeat 10 times:
+    set i += 1
+    when i % 2 == 1:
+        skip
+    set evens += 1
+when evens != 5:
+    set fails += 1
+
+when fails == 0:
+    show "ok: loop scoping unchanged after elision (closures, nested makes, stop/skip)"
+when fails != 0:
+    show "FAIL: loop_scope fails=" + fails

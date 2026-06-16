@@ -1010,7 +1010,10 @@ static void env_define(Env *e, const char *name, Value v) {
   Value *slot = env_local(e, name);
   if (slot) { *slot = v; return; }
   if (e->n >= e->cap) { e->cap = e->cap ? e->cap * 2 : 8; e->vars = (Var *)realloc(e->vars, e->cap * sizeof(Var)); }
-  e->vars[e->n].name = dup_str(name); e->vars[e->n].val = v; e->n++;
+  /* Borrow the name — every caller passes a permanent string (an AST identifier: a task
+     param, a `make`/`for each` target, a destructure name, …), so there's no need to copy
+     it per definition. (This is hot: a recursive call binds its params on every call.) */
+  e->vars[e->n].name = (char *)name; e->vars[e->n].val = v; e->n++;
 }
 static const char *suggest_name(const char *name, Env *env, int include_vars);   /* defined below */
 static void env_assign(Env *e, const char *name, Value v, int line) {
@@ -1228,7 +1231,7 @@ static void gc_collect(void) {
     void *p = (void *)(h + 1);
     if (h->kind == GC_LIST)      free(((SList *)p)->items);
     else if (h->kind == GC_MAP)  { SMap *m = (SMap *)p; for (int i = 0; i < m->n; i++) free(m->keys[i]); free(m->keys); free(m->vals); free(m->idx); }
-    else if (h->kind == GC_ENV)  { Env *e = (Env *)p; for (int i = 0; i < e->n; i++) free(e->vars[i].name); free(e->vars); }
+    else if (h->kind == GC_ENV)  { Env *e = (Env *)p; free(e->vars); }   /* var names are borrowed (permanent AST text), never owned — only the array is ours */
     free(h);
   }
   free(gc_set); gc_set = NULL; gc_setcap = 0;
@@ -1245,6 +1248,12 @@ static int test_report(void);                 /* prints the test summary + retur
 static void exec_block(Stmt **list, int n, Env *env) { for (int i = 0; i < n; i++) { exec(list[i], env); if (returning || g_loopctl) return; } }
 /* run a block in its OWN child scope, so `make` inside it doesn't leak out */
 static void exec_scoped(Stmt **list, int n, Env *parent) { Env *be = env_new(parent); exec_block(list, n, be); }
+/* Does this block bind a name in its own scope? Only `make` defines into the current env —
+   `set` modifies an existing var, and `when`/`repeat`/`for each`/`try` run their bodies in
+   their own child scopes. So a block with no direct `make` needs no scope of its own, and a
+   loop can run it straight in the parent env instead of allocating a fresh one every turn.
+   (An empty scope is transparent to closures, so this is safe even when the body has lambdas.) */
+static int block_binds_names(Stmt **list, int n) { for (int i = 0; i < n; i++) if (list[i]->kind == S_MAKE) return 1; return 0; }
 
 /* run a task body in a prepared frame (the params are already bound). Shared by the Expr-based
    caller and the Value-based one (which higher-order builtins like map/filter use). */
@@ -2501,12 +2510,14 @@ static void exec(Stmt *s, Env *env) {
     case S_REPEAT_TIMES: {
       Value c = eval(s->count, env); if (c.type != V_NUM) fail(s->line, "'repeat ... times' needs a number.");
       long long times = (long long)c.num;
-      for (long long k = 0; k < times; k++) { if (g_learn) printf("  " C_DIM "Repeat turn %lld of %lld" C_RESET "\n\n", k + 1, times); exec_scoped(s->body, s->nbody, env); if (returning) break; if (g_loopctl) { int stop = g_loopctl == 2; g_loopctl = 0; if (stop) break; } }
+      int scoped = block_binds_names(s->body, s->nbody);   /* skip the per-turn scope when the body makes nothing */
+      for (long long k = 0; k < times; k++) { if (g_learn) printf("  " C_DIM "Repeat turn %lld of %lld" C_RESET "\n\n", k + 1, times); if (scoped) exec_scoped(s->body, s->nbody, env); else exec_block(s->body, s->nbody, env); if (returning) break; if (g_loopctl) { int stop = g_loopctl == 2; g_loopctl = 0; if (stop) break; } }
       break;
     }
     case S_REPEAT_WHILE: {
       long long turn = 0;
-      while (is_truthy(eval(s->expr, env))) { if (g_learn) printf("  " C_DIM "While-loop turn %lld (the test was true)" C_RESET "\n\n", ++turn); exec_scoped(s->body, s->nbody, env); if (returning) break; if (g_loopctl) { int stop = g_loopctl == 2; g_loopctl = 0; if (stop) break; } }
+      int scoped = block_binds_names(s->body, s->nbody);
+      while (is_truthy(eval(s->expr, env))) { if (g_learn) printf("  " C_DIM "While-loop turn %lld (the test was true)" C_RESET "\n\n", ++turn); if (scoped) exec_scoped(s->body, s->nbody, env); else exec_block(s->body, s->nbody, env); if (returning) break; if (g_loopctl) { int stop = g_loopctl == 2; g_loopctl = 0; if (stop) break; } }
       break;
     }
     case S_TASK: break;  /* registered before the run */
@@ -2633,7 +2644,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.1.3"
+#define SPROUT_VERSION "0.1.4"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);
