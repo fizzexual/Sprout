@@ -1,0 +1,75 @@
+{
+  "version": "v1.0.0",
+  "entity": {
+    "type": "individual",
+    "role": "owner",
+    "name": "Fizzexual",
+    "email": "fizzexual@gmail.com",
+    "description": "I'm the creator and maintainer of Sprout — a small, friendly programming language built from scratch in C to be the kindest way to learn programming. I work on the language, its documentation, and a sandboxed online playground.",
+    "webpageUrl": {
+      "url": "https://github.com/fizzexual"
+    }
+  },
+  "projects": [
+    {
+      "guid": "sprout",
+      "name": "Sprout",
+      "description": "Sprout is a from-scratch, zero-dependency programming language written in C. Plain-English syntax (make / show / when / repeat / task), friendly 'did you mean?' errors, a step-by-step learn mode, and a tiny native interpreter that depends on nothing but the operating system — no Node, no VM, no runtime to install. It has a garbage collector, first-class tasks and closures, pattern matching, a full standard library, built-in testing, and a hardened --sandbox mode for hosting untrusted code in an online playground. Built to be the kindest language to learn programming with.",
+      "webpageUrl": {
+        "url": "https://github.com/fizzexual/Sprout"
+      },
+      "repositoryUrl": {
+        "url": "https://github.com/fizzexual/Sprout"
+      },
+      "licenses": [
+        "spdx:MIT"
+      ],
+      "tags": [
+        "programming-language",
+        "interpreter",
+        "c",
+        "beginner-friendly",
+        "zero-dependencies",
+        "teaching",
+        "scripting-language",
+        "from-scratch"
+      ]
+    }
+  ],
+  "funding": {
+    "channels": [
+      {
+        "guid": "github-sponsors",
+        "type": "payment-provider",
+        "address": "https://github.com/sponsors/fizzexual",
+        "description": "Sponsor Sprout's development through GitHub Sponsors (one-time or monthly)."
+      }
+    ],
+    "plans": [
+      {
+        "guid": "any-one-time",
+        "status": "active",
+        "name": "One-time gift",
+        "description": "Chip in any amount, once, to support Sprout's development.",
+        "amount": 0,
+        "currency": "USD",
+        "frequency": "one-time",
+        "channels": [
+          "github-sponsors"
+        ]
+      },
+      {
+        "guid": "monthly-supporter",
+        "status": "active",
+        "name": "Monthly supporter",
+        "description": "Back ongoing work on Sprout — the language, the docs, and the playground.",
+        "amount": 5,
+        "currency": "USD",
+        "frequency": "monthly",
+        "channels": [
+          "github-sponsors"
+        ]
+      }
+    ]
+  }
+}
