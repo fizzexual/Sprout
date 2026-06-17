@@ -1,0 +1,119 @@
+~ ============================================================================
+~  Bloom 🌸 — Sprout's own stylesheet language, written in Sprout itself.
+~
+~  The browser only understands CSS, so Bloom *compiles to* CSS — but you write
+~  .bloom, not .css.  It's the same idea as serve(): Sprout shouldn't borrow a
+~  foreign thing (CSS, Python) when it can grow its own.
+~
+~  The whole language, by example:
+~
+~     ~ a comment starts with a tilde
+~     make green = #1f9d57          a named value — reuse it later as {green}
+~     make radius = 4px
+~
+~     .btn:                          a rule: any line that ENDS with ":"
+~         background {green}         a property and its value (split on the 1st space)
+~         border-radius {radius}
+~         padding 11px 22px
+~
+~     .btn:hover:                    pseudo-classes? just write the whole selector
+~         background #127a41
+~
+~     screen below 820px:            responsive — becomes @media (max-width: 820px)
+~         .grid:
+~             grid-template-columns 1fr
+~
+~  Indentation (4 spaces) groups a rule's properties.  Values are copied through
+~  untouched, so var(--tint, #fff), gradients, calc(), commas and quotes all work.
+~  One public task — to_css(source) — turns Bloom text into CSS text.
+~ ============================================================================
+
+~ how many leading spaces a line has (its indent)
+task indent_of(line):
+    make i = 0
+    repeat while i < length(line) and line[i] == " ":
+        set i += 1
+    give i
+
+~ replace every {name} in a value with the value that `make name = ...` gave it
+task subst(value, vars):
+    make v = value
+    for each name in keys(vars):
+        set v = replace(v, "{" + name + "}", vars[name])
+    give v
+
+~ a rule's closing brace, indented one step when it sits inside a media block
+task brace(media):
+    when media:
+        give "  }\n"
+    give "}\n"
+
+~ compile Bloom source text -> CSS text
+public task to_css(source):
+    make vars = {}
+    make out = ""
+    make open = no       ~ a rule block is currently open (waiting for its closing brace)
+    make media = no      ~ we're inside a `screen below ...:` block
+    for each raw in lines(source):
+        make indent = indent_of(raw)
+        make text = trim(raw)
+        ~ blank lines and comments contribute nothing
+        when text == "" or starts_with(text, "~"):
+            skip
+        ~ a named value:  make green = #1f9d57
+        when starts_with(text, "make "):
+            when open:
+                set out = out + brace(media)
+                set open = no
+            when media and indent == 0:
+                set out = out + "}\n"
+                set media = no
+            make rest = trim(slice(text, 5, length(text)))
+            make eq = index_of(rest, "=")
+            when eq != nothing:
+                make name = trim(slice(rest, 0, eq))
+                make val = trim(slice(rest, eq + 1, length(rest)))
+                set vars[name] = subst(val, vars)
+            skip
+        ~ a responsive block:  screen below 820px:
+        when starts_with(text, "screen below "):
+            when open:
+                set out = out + brace(media)
+                set open = no
+            when media:
+                set out = out + "}\n"
+                set media = no
+            make w = trim(slice(text, 13, length(text) - 1))
+            set out = out + "@media (max-width: " + w + ") {\n"
+            set media = yes
+            skip
+        ~ a rule: the line ends with ":"  -> the part before it is the selector
+        when text[length(text) - 1] == ":":
+            when open:
+                set out = out + brace(media)
+                set open = no
+            when media and indent == 0:
+                set out = out + "}\n"
+                set media = no
+            make sel = subst(trim(slice(text, 0, length(text) - 1)), vars)
+            make pad = ""
+            when media:
+                set pad = "  "
+            set out = out + pad + sel + " {\n"
+            set open = yes
+            skip
+        ~ otherwise it's a declaration:  property value
+        make sp = index_of(text, " ")
+        when sp == nothing:
+            skip
+        make prop = slice(text, 0, sp)
+        make value = subst(trim(slice(text, sp + 1, length(text))), vars)
+        make ipad = "  "
+        when media:
+            set ipad = "    "
+        set out = out + ipad + prop + ": " + value + ";\n"
+    when open:
+        set out = out + brace(media)
+    when media:
+        set out = out + "}\n"
+    give out

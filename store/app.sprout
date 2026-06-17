@@ -1,14 +1,18 @@
 ~ ============================================================================
-~  Sprout Store — a small e-commerce site written entirely in Sprout.
+~  Sprout Store — a complete e-commerce site written ENTIRELY in Sprout.
 ~
-~  The host (server.py) speaks HTTP and hands each request to this program on
-~  stdin; this program does ALL the work — auth, sessions, catalog, cart,
-~  orders, and the admin dashboard — and prints the HTTP response on stdout.
-~  Data lives in Sprout's own remember/recall store (sprout.data.json).
+~  Sprout is the web server (serve()), the whole backend (auth, sessions,
+~  catalog, cart, orders, dashboard), AND the styling: the look is authored in
+~  Bloom 🌸 — Sprout's own stylesheet language — in static/style.bloom, which
+~  bloom.sprout compiles to CSS on the way out. No Python, no hand-written CSS,
+~  no framework. Data lives in Sprout's own remember/recall store.
 ~
-~  Demo accounts (seeded on first run):  admin / admin   (the dashboard)
+~  Run it:   sprout run app.sprout      then open http://localhost:8090
+~  Demo admin (seeded on first run):    admin / admin
 ~  NOTE: the password hashing here is a simple demo hash, NOT real crypto.
 ~ ============================================================================
+
+use "bloom.sprout"
 
 ~ -------------------------------------------------------------- request helpers
 task p(req, key, dflt):
@@ -119,9 +123,10 @@ task logout_redirect(loc):
     make cookie = "session=; Path=/; HttpOnly; Max-Age=0"
     give {"status": 302, "headers": {"Location": loc, "Set-Cookie": cookie}, "body": ""}
 
+~ the stylesheet is Bloom source, compiled to CSS by Sprout itself on each request
 task css_response():
-    when exists("static/style.css"):
-        give {"status": 200, "headers": {"Content-Type": "text/css; charset=utf-8"}, "body": read("static/style.css")}
+    when exists("static/style.bloom"):
+        give {"status": 200, "headers": {"Content-Type": "text/css; charset=utf-8"}, "body": bloom.to_css(read("static/style.bloom"))}
     give {"status": 404, "body": "not found"}
 
 task not_found():
@@ -129,26 +134,26 @@ task not_found():
 
 ~ -------------------------------------------------------------------- chrome
 task chrome(me):
-    make cart = "<a class=\"act\" href=\"/cart\"><span class=\"ico\">🛒</span><span><small>Cart</small><b>" + money(me["total"]) + "</b></span></a>"
+    make cart = "<a class=\"hd-act\" href=\"/cart\"><span class=\"ic\">🛒</span><span><small>Cart</small><b>" + money(me["total"]) + "</b></span></a>"
     make acct = ""
     when me["in"]:
-        set acct = "<a class=\"act\" href=\"/orders\"><span class=\"ico\">👤</span><span><small>Hello</small><b>" + esc(me["name"]) + "</b></span></a>"
+        set acct = "<a class=\"hd-act\" href=\"/orders\"><span class=\"ic\">👤</span><span><small>Hello</small><b>" + esc(me["name"]) + "</b></span></a>"
         set acct = acct + "<form class=\"inline\" method=\"post\" action=\"/logout\"><button class=\"btn ghost\">Log out</button></form>"
     otherwise:
-        set acct = "<a class=\"act\" href=\"/login\"><span class=\"ico\">👤</span><span><small>Account</small><b>Log in</b></span></a>"
-    make links = "<a href=\"/\">Shop</a>"
+        set acct = "<a class=\"hd-act\" href=\"/login\"><span class=\"ic\">👤</span><span><small>Account</small><b>Log in</b></span></a>"
+    make links = "<a href=\"/\">Home</a><a href=\"/?q=Apparel\">Apparel</a><a href=\"/?q=Accessories\">Accessories</a><a href=\"/?q=Drinkware\">Drinkware</a><a href=\"/?q=Stationery\">Stationery</a>"
     when me["in"]:
         set links = links + "<a href=\"/orders\">My orders</a>"
         when me["role"] == "admin":
             set links = links + "<a href=\"/dashboard\">Dashboard</a>"
     give join([
-        "<div class=\"topbar\"><div class=\"wrap\"><span>🚚 <strong>Free shipping</strong> on orders over $50</span><span class=\"right\"><span>USD</span><span>Built in 🌱 Sprout</span></span></div></div>",
+        "<div class=\"topbar\"><div class=\"wrap\"><span>🚚 <strong>Free shipping</strong> over $50 · 30-day returns</span><span class=\"r\"><span>USD $</span><span>Built entirely in 🌱 Sprout</span></span></div></div>",
         "<header class=\"site\"><div class=\"wrap\">",
         "<a class=\"brand\" href=\"/\">🌱 Sprout<span>Store</span></a>",
-        "<form class=\"search\" method=\"get\" action=\"/\"><input name=\"q\" placeholder=\"Search products…\" autocomplete=\"off\"><button class=\"btn\">Search</button></form>",
-        "<div class=\"actions\">" + cart + acct + "</div>",
+        "<form class=\"search\" method=\"get\" action=\"/\"><input name=\"q\" placeholder=\"Search the shop…\" autocomplete=\"off\"><button class=\"btn\">Search</button></form>",
+        "<div class=\"hd-actions\">" + cart + acct + "</div>",
         "</div></header>",
-        "<nav class=\"main\"><div class=\"wrap\"><div class=\"links\">" + links + "</div><div class=\"tags\"><span>Limited Sale</span><span>Best Sellers</span><span>New Arrivals</span></div></div></nav>",
+        "<nav class=\"main\"><div class=\"wrap\"><span class=\"cats\">☰ Shop by category</span><div class=\"links\">" + links + "</div><span class=\"promo\">🔥 <b>Mid-season sale</b> — up to 26% off</span></div></nav>",
     ], "\n")
 
 task page(title, me, content):
@@ -157,12 +162,21 @@ task page(title, me, content):
         "<html lang=\"en\"><head><meta charset=\"utf-8\">",
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">",
         "<title>" + esc(title) + " · Sprout Store</title>",
-        "<link rel=\"stylesheet\" href=\"/static/style.css\"></head><body>",
+        "<link rel=\"stylesheet\" href=\"/static/style.bloom\"></head><body>",
         chrome(me),
         "<main>",
         content,
         "</main>",
-        "<footer class=\"site\"><div class=\"wrap\"><span><b>🌱 Sprout Store</b> — every page here is served by Sprout itself.</span><span>Built entirely in <a href=\"https://github.com/fizzexual/Sprout\">Sprout</a>, a language written from scratch in C.</span></div></footer>",
+        "<div class=\"wrap\"><div class=\"newsletter\"><div><h3>Be the first to know</h3><p>New drops, deals and Sprout news — no spam, ever.</p></div><form method=\"get\" action=\"/\"><input name=\"q\" placeholder=\"you@example.com\"><button class=\"btn\">Subscribe</button></form></div></div>",
+        "<footer class=\"site\">",
+        "<div class=\"cols\">",
+        "<div><div class=\"brand2\">🌱 Sprout<span>Store</span></div><p>A demo storefront where the web server, the whole backend, and even the styling (🌸 Bloom) are written in Sprout — a language built from scratch in C.</p></div>",
+        "<div><h4>Shop</h4><ul><li><a href=\"/\">All products</a></li><li><a href=\"/?q=Apparel\">Apparel</a></li><li><a href=\"/?q=Accessories\">Accessories</a></li><li><a href=\"/?q=Drinkware\">Drinkware</a></li></ul></div>",
+        "<div><h4>Account</h4><ul><li><a href=\"/login\">Log in</a></li><li><a href=\"/register\">Register</a></li><li><a href=\"/orders\">My orders</a></li><li><a href=\"/cart\">Cart</a></li></ul></div>",
+        "<div><h4>About</h4><ul><li><a href=\"https://github.com/fizzexual/Sprout\">The Sprout language</a></li><li><a href=\"https://github.com/fizzexual/Sprout\">serve() &amp; Bloom</a></li><li><a href=\"https://github.com/fizzexual/Sprout\">Written from scratch in C</a></li></ul></div>",
+        "</div>",
+        "<div class=\"copy\">© Sprout Store — every page served by Sprout's own serve(), every pixel styled with 🌸 Bloom.</div>",
+        "</footer>",
         "</body></html>",
     ], "\n")
 
@@ -213,13 +227,14 @@ task product_card(pr):
     give join([
         "<article class=\"card\">",
         badge,
-        "<a href=\"/product?id=" + pr["id"] + "\"><div class=\"thumb\" style=\"--tint:" + pf(pr, "tint", "#f3f5f8") + "\">" + pf(pr, "emoji", "📦") + "</div></a>",
+        "<a href=\"/product?id=" + pr["id"] + "\"><div class=\"thumb\" style=\"--tint:" + pf(pr, "tint", "#f3f5f8") + "\">" + pf(pr, "emoji", "📦") + "<span class=\"quick\">Quick view</span></div></a>",
         "<div class=\"body\">",
         "<span class=\"cat\">" + esc(pf(pr, "cat", "General")) + "</span>",
         "<a class=\"name\" href=\"/product?id=" + pr["id"] + "\">" + esc(pr["name"]) + "</a>",
         "<span class=\"rating\"><span class=\"stars\">" + stars(pf(pr, "rating", 5)) + "</span> " + pf(pr, "rating", 5) + " (" + pf(pr, "reviews", 0) + ")</span>",
         "<div class=\"price-row\">" + prices + "</div>",
         button,
+        "<div class=\"meta\"><a href=\"/product?id=" + pr["id"] + "\">♡ Wishlist</a><a href=\"/product?id=" + pr["id"] + "\">⇄ Compare</a></div>",
         "</div>",
         "</article>",
     ], "\n")
@@ -241,22 +256,27 @@ task view_home(req):
     when q == "":
         set hero = join([
             "<section class=\"hero\">",
-            "<div class=\"hero-text\">",
-            "<span class=\"tag\">🌱 New season drop</span>",
-            "<h1>Your one-stop <em>Sprout</em> shop</h1>",
-            "<p>Mugs, hoodies, stickers and more — everything for people who grow software. Free shipping on orders over $50.</p>",
-            "<a class=\"btn big\" href=\"#products\">Shop now</a>",
+            "<div class=\"main\">",
+            "<span class=\"kicker\">🌱 New season drop</span>",
+            "<h1>Grow your setup with Sprout gear</h1>",
+            "<div class=\"from\">Starting from <b>" + money(4.5) + "</b> · free shipping over $50</div>",
+            "<a class=\"btn big\" href=\"#products\">Shop the collection</a>",
+            "<span class=\"emoji\">🌱</span>",
             "</div>",
-            "<div class=\"hero-art\">🌱☕🧥</div>",
+            "<div class=\"side\">",
+            "<div class=\"promo-card a\"><span class=\"off\">Save up to 26%</span><h3>Leaf Hoodie</h3><a href=\"/product?id=3\">Shop now</a><span class=\"e\">🧥</span></div>",
+            "<div class=\"promo-card b\"><span class=\"off\">Fan favourite</span><h3>Sprout Mug</h3><a href=\"/product?id=1\">Shop now</a><span class=\"e\">☕</span></div>",
+            "</div>",
             "</section>",
             "<div class=\"trust\">",
-            trust_item("🚚", "Fast shipping", "Worldwide in 3–5 days"),
+            trust_item("🚚", "Free shipping &amp; returns", "On every order over $50"),
+            trust_item("💸", "Money-back guarantee", "30 days, no questions"),
+            trust_item("💬", "24/7 support", "We're always here to help"),
             trust_item("🔒", "Secure checkout", "Your data stays yours"),
-            trust_item("↩️", "Easy returns", "30-day no-fuss policy"),
-            trust_item("🌱", "Built in Sprout", "Served by serve()"),
             "</div>",
+            "<div class=\"chips\"><a class=\"chip\" href=\"/\">All products</a><a class=\"chip\" href=\"/?q=Apparel\">Apparel</a><a class=\"chip\" href=\"/?q=Accessories\">Accessories</a><a class=\"chip\" href=\"/?q=Drinkware\">Drinkware</a><a class=\"chip\" href=\"/?q=Stationery\">Stationery</a></div>",
         ], "\n")
-    make head = "<div class=\"section-head\" id=\"products\"><h2>Featured products</h2><a href=\"/\">View all →</a></div>"
+    make head = "<div class=\"section-head\" id=\"products\"><h2>Featured products</h2><a href=\"/\">Browse all →</a></div>"
     when q != "":
         set head = "<div class=\"section-head\" id=\"products\"><h2>" + shown + " result" + plural(shown) + " for &ldquo;" + esc(q) + "&rdquo;</h2><a href=\"/\">Clear search</a></div>"
     make grid = "<div class=\"grid\">" + cards + "</div>"
