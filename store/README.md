@@ -9,6 +9,8 @@ serves the HTTP itself with the built-in `serve()` function. It has:
 - **Your orders** — every order you've placed.
 - **An admin dashboard** — revenue / order / product / customer stats, recent orders, and a
   form to add new products. Gated to admins only.
+- **Pages written in Sprout, not HTML** — every view returns native Sprout data (nested
+  lists + maps); `view.sprout` renders it to HTML. You never concatenate tags by hand.
 
 ```
 $ cd store
@@ -26,9 +28,13 @@ every request, calls a Sprout task with a request map and sends back the respons
 returns:
 
 ```sprout
+use "view.sprout"
+
 task handle(req):
     when req["path"] == "/":
-        give {"status": 200, "body": "<h1>Hello from Sprout</h1>"}
+        give {"status": 200, "body": view.render(
+            ["h1", {}, "Hello from Sprout"]      ~ Sprout data — rendered to HTML
+        )}
     give {"status": 404, "body": "not found"}
 
 serve(8090, handle)
@@ -42,7 +48,36 @@ serve(8090, handle)
   `app.sprout` on first run and seeded with six products + the admin account).
 - The CSS is served by the handler reading `static/style.css` with `read()`.
 
-That's the whole stack — one `.sprout` file. No CGI, no Python, no framework.
+That's the whole stack — Sprout files only. No CGI, no Python, no framework.
+
+## The pages are Sprout data, not HTML
+
+The store never builds HTML by gluing strings together. A page is described with native
+Sprout values, and `view.sprout`'s `render` turns that tree into HTML:
+
+```sprout
+~ an element is a list shaped [tag, attrs-map, ...children]
+["a", {"class": "btn", "href": "/cart"}, "View cart"]
+~ ->  <a class="btn" href="/cart">View cart</a>
+```
+
+- **Text is escaped automatically.** A string child is HTML-escaped, so `"Tom & Jerry"`
+  renders as `Tom &amp; Jerry` — no XSS from user input, no manual `&amp;`.
+- **Lists splice in**, which makes loops trivial:
+
+```sprout
+make rows = []
+for each pr in products:
+    add(rows, ["li", {}, pr["name"]])
+give ["ul", {}, rows]          ~ a list child is rendered item by item
+```
+
+- **Boolean attributes** read naturally: `{"required": yes}` → `required`,
+  `{"hidden": no}` → omitted. **Void tags** (`input`, `br`, `img`, …) self-close.
+- Need raw HTML you already have? `view.raw("<svg>…</svg>")` drops it in unescaped.
+
+So a "template" is just a Sprout task that returns a list. `chrome()`, `product_card()`,
+`view_dashboard()` and the rest are all ordinary Sprout building ordinary Sprout data.
 
 ## Requirements
 
@@ -67,5 +102,6 @@ Delete `sprout.data.json` any time to reset the shop to its seeded state.
 | File | What it is |
 | --- | --- |
 | `app.sprout` | The whole store — server, auth, catalog, cart, orders, dashboard |
+| `view.sprout` | The view layer — `render` turns Sprout data (lists/maps) into HTML |
 | `static/style.css` | Styling |
 | `sprout.data.json` | The database (created on first run; git-ignored) |

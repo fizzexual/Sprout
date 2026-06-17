@@ -2,14 +2,17 @@
 ~  Sprout Store — a complete e-commerce site written ENTIRELY in Sprout.
 ~
 ~  Sprout is the web server (serve()) AND the whole backend — auth, sessions,
-~  catalog, cart, orders, and the admin dashboard. It speaks HTTP itself and
-~  serves its own pages and CSS. Data lives in Sprout's own remember/recall
-~  store (sprout.data.json). No Python, no external server, no framework.
+~  catalog, cart, orders, and the admin dashboard. The PAGES are Sprout too:
+~  every view returns native Sprout data (nested lists + maps) which view.sprout
+~  renders to HTML — no HTML is written by hand anywhere. Data lives in Sprout's
+~  own remember/recall store. No Python, no framework, no string templates.
 ~
 ~  Run it:   sprout run app.sprout      then open http://localhost:8090
 ~  Demo admin (seeded on first run):    admin / admin
 ~  NOTE: the password hashing here is a simple demo hash, NOT real crypto.
 ~ ============================================================================
+
+use "view.sprout"
 
 ~ -------------------------------------------------------------- request helpers
 task p(req, key, dflt):
@@ -89,14 +92,14 @@ task start_session(username):
     remember("sessions", sessions)
     give sid
 
-~ ------------------------------------------------------------------ responses
-task esc(s):
-    make t = "" + s
-    set t = replace(t, "&", "&amp;")
-    set t = replace(t, "<", "&lt;")
-    set t = replace(t, ">", "&gt;")
-    give t
+task find_product(id):
+    make products = load("products", [])
+    for each pr in products:
+        when ("" + pr["id"]) == ("" + id):
+            give pr
+    give nothing
 
+~ ------------------------------------------------------------------ responses
 task money(n):
     make cents = round(n * 100)
     make d = floor(cents / 100)
@@ -106,6 +109,7 @@ task money(n):
         set cs = "0" + c
     give "$" + d + "." + cs
 
+~ render a Sprout-data page node into a full HTTP 200 response
 task ok(body):
     give {"status": 200, "body": body}
 
@@ -125,62 +129,119 @@ task css_response():
         give {"status": 200, "headers": {"Content-Type": "text/css; charset=utf-8"}, "body": read("static/style.css")}
     give {"status": 404, "body": "not found"}
 
-task not_found():
-    give {"status": 404, "headers": [], "body": page("Not found", {"in": no, "name": "", "role": ""}, "<h1>404</h1><p>That page wandered off.</p><p><a href=\"/\">Back to the shop</a></p>")}
-
-~ -------------------------------------------------------------------- chrome
+~ ----------------------------------------------------------- the page shell
+~ chrome() and page() build the surrounding markup AS SPROUT DATA; view.render
+~ turns the whole tree into HTML once, at the very end of page().
 task chrome(me):
-    make cart = "<a class=\"hd-act\" href=\"/cart\"><span class=\"ic\">🛒</span><span><small>Cart</small><b>" + money(me["total"]) + "</b></span></a>"
-    make acct = ""
+    ~ cart + account quick-actions on the right of the header
+    make actions = [
+        ["a", {"class": "hd-act", "href": "/cart"},
+            ["span", {"class": "ic"}, "🛒"],
+            ["span", {}, ["small", {}, "Cart"], ["b", {}, money(me["total"])]]],
+    ]
     when me["in"]:
-        set acct = "<a class=\"hd-act\" href=\"/orders\"><span class=\"ic\">👤</span><span><small>Hello</small><b>" + esc(me["name"]) + "</b></span></a>"
-        set acct = acct + "<form class=\"inline\" method=\"post\" action=\"/logout\"><button class=\"btn ghost\">Log out</button></form>"
+        add(actions, ["a", {"class": "hd-act", "href": "/orders"},
+            ["span", {"class": "ic"}, "👤"],
+            ["span", {}, ["small", {}, "Hello"], ["b", {}, me["name"]]]])
+        add(actions, ["form", {"class": "inline", "method": "post", "action": "/logout"},
+            ["button", {"class": "btn ghost"}, "Log out"]])
     otherwise:
-        set acct = "<a class=\"hd-act\" href=\"/login\"><span class=\"ic\">👤</span><span><small>Account</small><b>Log in</b></span></a>"
-    make links = "<a href=\"/\">Home</a><a href=\"/?q=Apparel\">Apparel</a><a href=\"/?q=Accessories\">Accessories</a><a href=\"/?q=Drinkware\">Drinkware</a><a href=\"/?q=Stationery\">Stationery</a>"
+        add(actions, ["a", {"class": "hd-act", "href": "/login"},
+            ["span", {"class": "ic"}, "👤"],
+            ["span", {}, ["small", {}, "Account"], ["b", {}, "Log in"]]])
+    ~ the green category nav
+    make links = [
+        ["a", {"href": "/"}, "Home"],
+        ["a", {"href": "/?q=Apparel"}, "Apparel"],
+        ["a", {"href": "/?q=Accessories"}, "Accessories"],
+        ["a", {"href": "/?q=Drinkware"}, "Drinkware"],
+        ["a", {"href": "/?q=Stationery"}, "Stationery"],
+    ]
     when me["in"]:
-        set links = links + "<a href=\"/orders\">My orders</a>"
+        add(links, ["a", {"href": "/orders"}, "My orders"])
         when me["role"] == "admin":
-            set links = links + "<a href=\"/dashboard\">Dashboard</a>"
-    give join([
-        "<div class=\"topbar\"><div class=\"wrap\"><span>🚚 <strong>Free shipping</strong> over $50 · 30-day returns</span><span class=\"r\"><span>USD $</span><span>Built entirely in 🌱 Sprout</span></span></div></div>",
-        "<header class=\"site\"><div class=\"wrap\">",
-        "<a class=\"brand\" href=\"/\">🌱 Sprout<span>Store</span></a>",
-        "<form class=\"search\" method=\"get\" action=\"/\"><input name=\"q\" placeholder=\"Search the shop…\" autocomplete=\"off\"><button class=\"btn\">Search</button></form>",
-        "<div class=\"hd-actions\">" + cart + acct + "</div>",
-        "</div></header>",
-        "<nav class=\"main\"><div class=\"wrap\"><span class=\"cats\">☰ Shop by category</span><div class=\"links\">" + links + "</div><span class=\"promo\">🔥 <b>Mid-season sale</b> — up to 26% off</span></div></nav>",
-    ], "\n")
+            add(links, ["a", {"href": "/dashboard"}, "Dashboard"])
+    give [
+        ["div", {"class": "topbar"},
+            ["div", {"class": "wrap"},
+                ["span", {}, "🚚 ", ["strong", {}, "Free shipping"], " over $50 · 30-day returns"],
+                ["span", {"class": "r"}, ["span", {}, "USD $"], ["span", {}, "Built entirely in 🌱 Sprout"]]]],
+        ["header", {"class": "site"},
+            ["div", {"class": "wrap"},
+                ["a", {"class": "brand", "href": "/"}, "🌱 Sprout", ["span", {}, "Store"]],
+                ["form", {"class": "search", "method": "get", "action": "/"},
+                    ["input", {"name": "q", "placeholder": "Search the shop…", "autocomplete": "off"}],
+                    ["button", {"class": "btn"}, "Search"]],
+                ["div", {"class": "hd-actions"}, actions]]],
+        ["nav", {"class": "main"},
+            ["div", {"class": "wrap"},
+                ["span", {"class": "cats"}, "☰ Shop by category"],
+                ["div", {"class": "links"}, links],
+                ["span", {"class": "promo"}, "🔥 ", ["b", {}, "Mid-season sale"], " — up to 26% off"]]],
+    ]
+
+task footer():
+    give ["footer", {"class": "site"},
+        ["div", {"class": "cols"},
+            ["div", {},
+                ["div", {"class": "brand2"}, "🌱 Sprout", ["span", {}, "Store"]],
+                ["p", {}, "A demo storefront where the web server, the whole backend, and the views are all written in Sprout — a language built from scratch in C."]],
+            ["div", {},
+                ["h4", {}, "Shop"],
+                ["ul", {},
+                    ["li", {}, ["a", {"href": "/"}, "All products"]],
+                    ["li", {}, ["a", {"href": "/?q=Apparel"}, "Apparel"]],
+                    ["li", {}, ["a", {"href": "/?q=Accessories"}, "Accessories"]],
+                    ["li", {}, ["a", {"href": "/?q=Drinkware"}, "Drinkware"]]]],
+            ["div", {},
+                ["h4", {}, "Account"],
+                ["ul", {},
+                    ["li", {}, ["a", {"href": "/login"}, "Log in"]],
+                    ["li", {}, ["a", {"href": "/register"}, "Register"]],
+                    ["li", {}, ["a", {"href": "/orders"}, "My orders"]],
+                    ["li", {}, ["a", {"href": "/cart"}, "Cart"]]]],
+            ["div", {},
+                ["h4", {}, "About"],
+                ["ul", {},
+                    ["li", {}, ["a", {"href": "https://github.com/fizzexual/Sprout"}, "The Sprout language"]],
+                    ["li", {}, ["a", {"href": "https://github.com/fizzexual/Sprout"}, "Built with serve()"]],
+                    ["li", {}, ["a", {"href": "https://github.com/fizzexual/Sprout"}, "Written from scratch in C"]]]]],
+        ["div", {"class": "copy"}, "© Sprout Store — every page is described in Sprout data and served by Sprout's own serve()."]]
 
 task page(title, me, content):
-    give join([
-        "<!doctype html>",
-        "<html lang=\"en\"><head><meta charset=\"utf-8\">",
-        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">",
-        "<title>" + esc(title) + " · Sprout Store</title>",
-        "<link rel=\"stylesheet\" href=\"/static/style.css\"></head><body>",
-        chrome(me),
-        "<main>",
-        content,
-        "</main>",
-        "<div class=\"wrap\"><div class=\"newsletter\"><div><h3>Be the first to know</h3><p>New drops, deals and Sprout news — no spam, ever.</p></div><form method=\"get\" action=\"/\"><input name=\"q\" placeholder=\"you@example.com\"><button class=\"btn\">Subscribe</button></form></div></div>",
-        "<footer class=\"site\">",
-        "<div class=\"cols\">",
-        "<div><div class=\"brand2\">🌱 Sprout<span>Store</span></div><p>A demo storefront where the web server, the whole backend, and even the styling (🌸 Bloom) are written in Sprout — a language built from scratch in C.</p></div>",
-        "<div><h4>Shop</h4><ul><li><a href=\"/\">All products</a></li><li><a href=\"/?q=Apparel\">Apparel</a></li><li><a href=\"/?q=Accessories\">Accessories</a></li><li><a href=\"/?q=Drinkware\">Drinkware</a></li></ul></div>",
-        "<div><h4>Account</h4><ul><li><a href=\"/login\">Log in</a></li><li><a href=\"/register\">Register</a></li><li><a href=\"/orders\">My orders</a></li><li><a href=\"/cart\">Cart</a></li></ul></div>",
-        "<div><h4>About</h4><ul><li><a href=\"https://github.com/fizzexual/Sprout\">The Sprout language</a></li><li><a href=\"https://github.com/fizzexual/Sprout\">serve() &amp; Bloom</a></li><li><a href=\"https://github.com/fizzexual/Sprout\">Written from scratch in C</a></li></ul></div>",
-        "</div>",
-        "<div class=\"copy\">© Sprout Store — every page served by Sprout's own serve(), every pixel styled with 🌸 Bloom.</div>",
-        "</footer>",
-        "</body></html>",
-    ], "\n")
+    make tree = ["html", {"lang": "en"},
+        ["head", {},
+            ["meta", {"charset": "utf-8"}],
+            ["meta", {"name": "viewport", "content": "width=device-width, initial-scale=1"}],
+            ["title", {}, title + " · Sprout Store"],
+            ["link", {"rel": "stylesheet", "href": "/static/style.css"}]],
+        ["body", {},
+            chrome(me),
+            ["main", {}, content],
+            ["div", {"class": "wrap"},
+                ["div", {"class": "newsletter"},
+                    ["div", {},
+                        ["h3", {}, "Be the first to know"],
+                        ["p", {}, "New drops, deals and Sprout news — no spam, ever."]],
+                    ["form", {"method": "get", "action": "/"},
+                        ["input", {"name": "q", "placeholder": "you@example.com"}],
+                        ["button", {"class": "btn"}, "Subscribe"]]]],
+            footer()]]
+    give "<!doctype html>\n" + view.render(tree)
 
+task not_found():
+    make body = ["div", {},
+        ["h1", {}, "404"],
+        ["p", {}, "That page wandered off."],
+        ["p", {}, ["a", {"href": "/"}, "Back to the shop"]]]
+    give {"status": 404, "body": page("Not found", {"in": no, "name": "", "role": ""}, body)}
+
+~ -------------------------------------------------------------- small helpers
 task flash_box(req):
     make m = p(req, "msg", "")
     when m == "":
-        give ""
-    give "<div class=\"flash\">" + esc(m) + "</div>"
+        give nothing
+    give ["div", {"class": "flash"}, m]
 
 ~ a product field with a default (admin-added products may not have emoji/cat/rating)
 task pf(pr, key, dflt):
@@ -200,119 +261,130 @@ task stars(rating):
         set i += 1
     give s
 
-task trust_item(e, t, d):
-    give "<div class=\"trust-item\"><span class=\"e\">" + e + "</span><span><b>" + t + "</b><small>" + d + "</small></span></div>"
-
 task plural(n):
     when n == 1:
         give ""
     give "s"
 
+task trust_item(e, t, d):
+    give ["div", {"class": "trust-item"},
+        ["span", {"class": "e"}, e],
+        ["span", {}, ["b", {}, t], ["small", {}, d]]]
+
 ~ -------------------------------------------------------------- the storefront
+task price_row(pr):
+    make row = [["span", {"class": "price"}, money(pr["price"])]]
+    when contains(pr, "was"):
+        add(row, ["span", {"class": "was"}, money(pr["was"])])
+    give row
+
 task product_card(pr):
-    make badge = ""
+    make pid = "" + pr["id"]
+    make badge = nothing
     when contains(pr, "was"):
         make off = round((1 - pr["price"] / pr["was"]) * 100)
-        set badge = "<span class=\"badge\">-" + off + "%</span>"
-    make prices = "<span class=\"price\">" + money(pr["price"]) + "</span>"
-    when contains(pr, "was"):
-        set prices = prices + "<span class=\"was\">" + money(pr["was"]) + "</span>"
-    make button = "<form method=\"post\" action=\"/add-to-cart\"><input type=\"hidden\" name=\"id\" value=\"" + pr["id"] + "\"><button class=\"btn block\">Add to cart</button></form>"
+        set badge = ["span", {"class": "badge"}, "-" + off + "%"]
+    make button = ["form", {"method": "post", "action": "/add-to-cart"},
+        ["input", {"type": "hidden", "name": "id", "value": pid}],
+        ["button", {"class": "btn block"}, "Add to cart"]]
     when pr["stock"] <= 0:
-        set button = "<button class=\"btn block\" disabled>Sold out</button>"
-    give join([
-        "<article class=\"card\">",
+        set button = ["button", {"class": "btn block", "disabled": yes}, "Sold out"]
+    give ["article", {"class": "card"},
         badge,
-        "<a href=\"/product?id=" + pr["id"] + "\"><div class=\"thumb\" style=\"--tint:" + pf(pr, "tint", "#f3f5f8") + "\">" + pf(pr, "emoji", "📦") + "<span class=\"quick\">Quick view</span></div></a>",
-        "<div class=\"body\">",
-        "<span class=\"cat\">" + esc(pf(pr, "cat", "General")) + "</span>",
-        "<a class=\"name\" href=\"/product?id=" + pr["id"] + "\">" + esc(pr["name"]) + "</a>",
-        "<span class=\"rating\"><span class=\"stars\">" + stars(pf(pr, "rating", 5)) + "</span> " + pf(pr, "rating", 5) + " (" + pf(pr, "reviews", 0) + ")</span>",
-        "<div class=\"price-row\">" + prices + "</div>",
-        button,
-        "<div class=\"meta\"><a href=\"/product?id=" + pr["id"] + "\">♡ Wishlist</a><a href=\"/product?id=" + pr["id"] + "\">⇄ Compare</a></div>",
-        "</div>",
-        "</article>",
-    ], "\n")
+        ["a", {"href": "/product?id=" + pid},
+            ["div", {"class": "thumb", "style": "--tint:" + pf(pr, "tint", "#f3f5f8")},
+                pf(pr, "emoji", "📦"),
+                ["span", {"class": "quick"}, "Quick view"]]],
+        ["div", {"class": "body"},
+            ["span", {"class": "cat"}, pf(pr, "cat", "General")],
+            ["a", {"class": "name", "href": "/product?id=" + pid}, pr["name"]],
+            ["span", {"class": "rating"},
+                ["span", {"class": "stars"}, stars(pf(pr, "rating", 5))],
+                " " + pf(pr, "rating", 5) + " (" + pf(pr, "reviews", 0) + ")"],
+            ["div", {"class": "price-row"}, price_row(pr)],
+            button,
+            ["div", {"class": "meta"},
+                ["a", {"href": "/product?id=" + pid}, "♡ Wishlist"],
+                ["a", {"href": "/product?id=" + pid}, "⇄ Compare"]]]]
 
 task view_home(req):
     make me = who(req)
     make products = load("products", [])
     make q = trim(p(req, "q", ""))
-    make cards = ""
-    make shown = 0
+    make cards = []
     for each pr in products:
         make keep = yes
         when q != "":
             set keep = contains(lower(pr["name"] + " " + pf(pr, "cat", "")), lower(q))
         when keep:
-            set cards = cards + product_card(pr)
-            set shown += 1
-    make hero = ""
+            add(cards, product_card(pr))
+    make shown = length(cards)
+    make hero = nothing
     when q == "":
-        set hero = join([
-            "<section class=\"hero\">",
-            "<div class=\"main\">",
-            "<span class=\"kicker\">🌱 New season drop</span>",
-            "<h1>Grow your setup with Sprout gear</h1>",
-            "<div class=\"from\">Starting from <b>" + money(4.5) + "</b> · free shipping over $50</div>",
-            "<a class=\"btn big\" href=\"#products\">Shop the collection</a>",
-            "<span class=\"emoji\">🌱</span>",
-            "</div>",
-            "<div class=\"side\">",
-            "<div class=\"promo-card a\"><span class=\"off\">Save up to 26%</span><h3>Leaf Hoodie</h3><a href=\"/product?id=3\">Shop now</a><span class=\"e\">🧥</span></div>",
-            "<div class=\"promo-card b\"><span class=\"off\">Fan favourite</span><h3>Sprout Mug</h3><a href=\"/product?id=1\">Shop now</a><span class=\"e\">☕</span></div>",
-            "</div>",
-            "</section>",
-            "<div class=\"trust\">",
-            trust_item("🚚", "Free shipping &amp; returns", "On every order over $50"),
-            trust_item("💸", "Money-back guarantee", "30 days, no questions"),
-            trust_item("💬", "24/7 support", "We're always here to help"),
-            trust_item("🔒", "Secure checkout", "Your data stays yours"),
-            "</div>",
-            "<div class=\"chips\"><a class=\"chip\" href=\"/\">All products</a><a class=\"chip\" href=\"/?q=Apparel\">Apparel</a><a class=\"chip\" href=\"/?q=Accessories\">Accessories</a><a class=\"chip\" href=\"/?q=Drinkware\">Drinkware</a><a class=\"chip\" href=\"/?q=Stationery\">Stationery</a></div>",
-        ], "\n")
-    make head = "<div class=\"section-head\" id=\"products\"><h2>Featured products</h2><a href=\"/\">Browse all →</a></div>"
+        set hero = [
+            ["section", {"class": "hero"},
+                ["div", {"class": "main"},
+                    ["span", {"class": "kicker"}, "🌱 New season drop"],
+                    ["h1", {}, "Grow your setup with Sprout gear"],
+                    ["div", {"class": "from"}, "Starting from ", ["b", {}, money(4.5)], " · free shipping over $50"],
+                    ["a", {"class": "btn big", "href": "#products"}, "Shop the collection"],
+                    ["span", {"class": "emoji"}, "🌱"]],
+                ["div", {"class": "side"},
+                    ["div", {"class": "promo-card a"},
+                        ["span", {"class": "off"}, "Save up to 26%"], ["h3", {}, "Leaf Hoodie"],
+                        ["a", {"href": "/product?id=3"}, "Shop now"], ["span", {"class": "e"}, "🧥"]],
+                    ["div", {"class": "promo-card b"},
+                        ["span", {"class": "off"}, "Fan favourite"], ["h3", {}, "Sprout Mug"],
+                        ["a", {"href": "/product?id=1"}, "Shop now"], ["span", {"class": "e"}, "☕"]]]],
+            ["div", {"class": "trust"},
+                trust_item("🚚", "Free shipping & returns", "On every order over $50"),
+                trust_item("💸", "Money-back guarantee", "30 days, no questions"),
+                trust_item("💬", "24/7 support", "We're always here to help"),
+                trust_item("🔒", "Secure checkout", "Your data stays yours")],
+            ["div", {"class": "chips"},
+                ["a", {"class": "chip", "href": "/"}, "All products"],
+                ["a", {"class": "chip", "href": "/?q=Apparel"}, "Apparel"],
+                ["a", {"class": "chip", "href": "/?q=Accessories"}, "Accessories"],
+                ["a", {"class": "chip", "href": "/?q=Drinkware"}, "Drinkware"],
+                ["a", {"class": "chip", "href": "/?q=Stationery"}, "Stationery"]],
+        ]
+    make head = ["div", {"class": "section-head", "id": "products"},
+        ["h2", {}, "Featured products"], ["a", {"href": "/"}, "Browse all →"]]
     when q != "":
-        set head = "<div class=\"section-head\" id=\"products\"><h2>" + shown + " result" + plural(shown) + " for &ldquo;" + esc(q) + "&rdquo;</h2><a href=\"/\">Clear search</a></div>"
-    make grid = "<div class=\"grid\">" + cards + "</div>"
+        set head = ["div", {"class": "section-head", "id": "products"},
+            ["h2", {}, shown + " result" + plural(shown) + " for “" + q + "”"],
+            ["a", {"href": "/"}, "Clear search"]]
+    make grid = ["div", {"class": "grid"}, cards]
     when shown == 0:
-        set grid = "<p class=\"muted\">No products match &ldquo;" + esc(q) + "&rdquo;. <a href=\"/\">See everything →</a></p>"
-    give ok(page("Shop", me, flash_box(req) + hero + head + grid))
-
-task find_product(id):
-    make products = load("products", [])
-    for each pr in products:
-        when ("" + pr["id"]) == ("" + id):
-            give pr
-    give nothing
+        set grid = ["p", {"class": "muted"}, "No products match “" + q + "”. ", ["a", {"href": "/"}, "See everything →"]]
+    give ok(page("Shop", me, [flash_box(req), hero, head, grid]))
 
 task view_product(req):
     make me = who(req)
     make pr = find_product(p(req, "id", ""))
     when pr == nothing:
         give not_found()
-    make prices = "<span class=\"price\">" + money(pr["price"]) + "</span>"
-    when contains(pr, "was"):
-        set prices = prices + " <span class=\"was\">" + money(pr["was"]) + "</span>"
-    make button = "<form method=\"post\" action=\"/add-to-cart\"><input type=\"hidden\" name=\"id\" value=\"" + pr["id"] + "\"><button class=\"btn big\">Add to cart</button></form>"
+    make pid = "" + pr["id"]
+    make button = ["form", {"method": "post", "action": "/add-to-cart"},
+        ["input", {"type": "hidden", "name": "id", "value": pid}],
+        ["button", {"class": "btn big"}, "Add to cart"]]
     when pr["stock"] <= 0:
-        set button = "<button class=\"btn big\" disabled>Sold out</button>"
-    make body = join([
-        "<a class=\"backlink\" href=\"/\">← Back to shop</a>",
-        "<div class=\"detail\">",
-        "<div class=\"thumb\" style=\"--tint:" + pf(pr, "tint", "#f3f5f8") + "\">" + pf(pr, "emoji", "📦") + "</div>",
-        "<div>",
-        "<span class=\"cat\">" + esc(pf(pr, "cat", "General")) + "</span>",
-        "<h1>" + esc(pr["name"]) + "</h1>",
-        "<p class=\"rating\"><span class=\"stars\">" + stars(pf(pr, "rating", 5)) + "</span> " + pf(pr, "rating", 5) + " · " + pf(pr, "reviews", 0) + " reviews</p>",
-        "<div class=\"price-row\" style=\"margin:14px 0\">" + prices + "</div>",
-        "<p>" + esc(pr["desc"]) + "</p>",
-        "<p class=\"muted\">" + pr["stock"] + " in stock</p>",
-        button,
-        "</div>",
-        "</div>",
-    ], "\n")
+        set button = ["button", {"class": "btn big", "disabled": yes}, "Sold out"]
+    make body = [
+        ["a", {"class": "backlink", "href": "/"}, "← Back to shop"],
+        ["div", {"class": "detail"},
+            ["div", {"class": "thumb", "style": "--tint:" + pf(pr, "tint", "#f3f5f8")}, pf(pr, "emoji", "📦")],
+            ["div", {},
+                ["span", {"class": "cat"}, pf(pr, "cat", "General")],
+                ["h1", {}, pr["name"]],
+                ["p", {"class": "rating"},
+                    ["span", {"class": "stars"}, stars(pf(pr, "rating", 5))],
+                    " " + pf(pr, "rating", 5) + " · " + pf(pr, "reviews", 0) + " reviews"],
+                ["div", {"class": "price-row", "style": "margin:14px 0"}, price_row(pr)],
+                ["p", {}, pr["desc"]],
+                ["p", {"class": "muted"}, pr["stock"] + " in stock"],
+                button]],
+    ]
     give ok(page(pr["name"], me, body))
 
 ~ ------------------------------------------------------------------- the cart
@@ -359,18 +431,24 @@ task view_cart(req):
     make users = load("users", {})
     make c = cart_lines(users[me["name"]])
     when length(c["lines"]) == 0:
-        give ok(page("Cart", me, "<h1>Your cart</h1><p class=\"muted\">It's empty. <a href=\"/\">Go shopping →</a></p>"))
-    make rows = ""
+        give ok(page("Cart", me, ["div", {},
+            ["h1", {}, "Your cart"],
+            ["p", {"class": "muted"}, "It's empty. ", ["a", {"href": "/"}, "Go shopping →"]]]))
+    make rows = []
     for each ln in c["lines"]:
-        set rows = rows + "<tr><td>" + esc(ln["name"]) + "</td><td>" + money(ln["price"]) + "</td><td>" + ln["qty"] + "</td><td>" + money(ln["sub"]) + "</td></tr>"
-    make body = join([
-        "<h1>Your cart</h1>",
-        "<table><thead><tr><th>Item</th><th>Price</th><th>Qty</th><th>Subtotal</th></tr></thead><tbody>",
-        rows,
-        "</tbody></table>",
-        "<p class=\"total\">Total: " + money(c["total"]) + "</p>",
-        "<form method=\"post\" action=\"/checkout\"><button class=\"big\">Checkout</button></form>",
-    ], "\n")
+        add(rows, ["tr", {},
+            ["td", {}, ln["name"]],
+            ["td", {}, money(ln["price"])],
+            ["td", {}, ln["qty"]],
+            ["td", {}, money(ln["sub"])]])
+    make body = [
+        ["h1", {}, "Your cart"],
+        ["table", {},
+            ["thead", {}, ["tr", {}, ["th", {}, "Item"], ["th", {}, "Price"], ["th", {}, "Qty"], ["th", {}, "Subtotal"]]],
+            ["tbody", {}, rows]],
+        ["p", {"class": "total"}, "Total: " + money(c["total"])],
+        ["form", {"method": "post", "action": "/checkout"}, ["button", {"class": "btn big"}, "Checkout"]],
+    ]
     give ok(page("Cart", me, body))
 
 task do_checkout(req):
@@ -406,36 +484,38 @@ task view_orders(req):
     when not me["in"]:
         give redirect("/login")
     make orders = load("orders", [])
-    make mine = ""
-    make count = 0
+    make cards = []
     for each o in orders:
         when o["user"] == me["name"]:
-            set count += 1
-            make items = ""
+            make items = []
             for each it in o["items"]:
-                set items = items + "<li>" + it["qty"] + " × " + esc(it["name"]) + " — " + money(it["sub"]) + "</li>"
-            set mine = "<div class=\"order\"><h3>Order #" + o["id"] + " <span class=\"muted\">" + esc(o["date"]) + "</span></h3><ul>" + items + "</ul><p class=\"total\">" + money(o["total"]) + "</p></div>" + mine
-    when count == 0:
-        set mine = "<p class=\"muted\">No orders yet. <a href=\"/\">Start shopping →</a></p>"
-    give ok(page("My orders", me, flash_box(req) + "<h1>My orders</h1>" + mine))
+                add(items, ["li", {}, it["qty"] + " × " + it["name"] + " — " + money(it["sub"])])
+            ~ newest first
+            insert(cards, 0, ["div", {"class": "order"},
+                ["h3", {}, "Order #" + o["id"] + " ", ["span", {"class": "muted"}, o["date"]]],
+                ["ul", {}, items],
+                ["p", {"class": "total"}, money(o["total"])]])
+    make content = cards
+    when length(cards) == 0:
+        set content = [["p", {"class": "muted"}, "No orders yet. ", ["a", {"href": "/"}, "Start shopping →"]]]
+    give ok(page("My orders", me, [flash_box(req), ["h1", {}, "My orders"], content]))
 
 ~ --------------------------------------------------------------- register/login
 task view_register(req, err):
     make me = who(req)
-    make box = ""
+    make box = nothing
     when err != "":
-        set box = "<div class=\"flash err\">" + esc(err) + "</div>"
-    make body = join([
+        set box = ["div", {"class": "flash err"}, err]
+    make body = [
         box,
-        "<h1>Create an account</h1>",
-        "<form method=\"post\" action=\"/register\" class=\"stack\">",
-        "<label>Username<input name=\"username\" required></label>",
-        "<label>Display name<input name=\"name\"></label>",
-        "<label>Password<input name=\"password\" type=\"password\" required></label>",
-        "<button class=\"big\">Register</button>",
-        "</form>",
-        "<p class=\"muted\">Already have one? <a href=\"/login\">Log in</a>.</p>",
-    ], "\n")
+        ["h1", {}, "Create an account"],
+        ["form", {"method": "post", "action": "/register", "class": "stack"},
+            ["label", {}, "Username", ["input", {"name": "username", "required": yes}]],
+            ["label", {}, "Display name", ["input", {"name": "name"}]],
+            ["label", {}, "Password", ["input", {"name": "password", "type": "password", "required": yes}]],
+            ["button", {"class": "btn big"}, "Register"]],
+        ["p", {"class": "muted"}, "Already have one? ", ["a", {"href": "/login"}, "Log in"], "."],
+    ]
     give ok(page("Register", me, body))
 
 task do_register(req):
@@ -458,17 +538,16 @@ task view_login(req, err):
     make me = who(req)
     make box = flash_box(req)
     when err != "":
-        set box = "<div class=\"flash err\">" + esc(err) + "</div>"
-    make body = join([
+        set box = ["div", {"class": "flash err"}, err]
+    make body = [
         box,
-        "<h1>Log in</h1>",
-        "<form method=\"post\" action=\"/login\" class=\"stack\">",
-        "<label>Username<input name=\"username\" required></label>",
-        "<label>Password<input name=\"password\" type=\"password\" required></label>",
-        "<button class=\"big\">Log in</button>",
-        "</form>",
-        "<p class=\"muted\">No account? <a href=\"/register\">Register</a>. Demo admin: <code>admin / admin</code>.</p>",
-    ], "\n")
+        ["h1", {}, "Log in"],
+        ["form", {"method": "post", "action": "/login", "class": "stack"},
+            ["label", {}, "Username", ["input", {"name": "username", "required": yes}]],
+            ["label", {}, "Password", ["input", {"name": "password", "type": "password", "required": yes}]],
+            ["button", {"class": "btn big"}, "Log in"]],
+        ["p", {"class": "muted"}, "No account? ", ["a", {"href": "/register"}, "Register"], ". Demo admin: ", ["code", {}, "admin / admin"], "."],
+    ]
     give ok(page("Log in", me, body))
 
 task do_login(req):
@@ -501,41 +580,51 @@ task view_dashboard(req):
     make revenue = 0
     for each o in orders:
         set revenue = revenue + o["total"]
-    make rows = ""
+    make prows = []
     for each pr in products:
-        set rows = rows + "<tr><td>" + pr["id"] + "</td><td>" + esc(pr["name"]) + "</td><td>" + money(pr["price"]) + "</td><td>" + pr["stock"] + "</td></tr>"
-    make recent = ""
+        add(prows, ["tr", {},
+            ["td", {}, pr["id"]],
+            ["td", {}, pr["name"]],
+            ["td", {}, money(pr["price"])],
+            ["td", {}, pr["stock"]]])
+    make recent = []
     make shown = 0
     make k = length(orders) - 1
     repeat while k >= 0 and shown < 8:
         make o = orders[k]
-        set recent = recent + "<tr><td>#" + o["id"] + "</td><td>" + esc(o["user"]) + "</td><td>" + esc(o["date"]) + "</td><td>" + money(o["total"]) + "</td></tr>"
+        add(recent, ["tr", {},
+            ["td", {}, "#" + o["id"]],
+            ["td", {}, o["user"]],
+            ["td", {}, o["date"]],
+            ["td", {}, money(o["total"])]])
         set shown += 1
         set k = k - 1
-    when recent == "":
-        set recent = "<tr><td colspan=\"4\" class=\"muted\">No orders yet.</td></tr>"
-    make body = join([
+    when length(recent) == 0:
+        set recent = [["tr", {}, ["td", {"colspan": "4", "class": "muted"}, "No orders yet."]]]
+    make body = [
         flash_box(req),
-        "<h1>Dashboard</h1>",
-        "<div class=\"stats\">",
-        "<div class=\"stat accent\"><span>" + money(revenue) + "</span>Revenue</div>",
-        "<div class=\"stat\"><span>" + length(orders) + "</span>Orders</div>",
-        "<div class=\"stat\"><span>" + length(products) + "</span>Products</div>",
-        "<div class=\"stat\"><span>" + length(keys(users)) + "</span>Customers</div>",
-        "</div>",
-        "<h2>Recent orders</h2>",
-        "<table><thead><tr><th>Order</th><th>Customer</th><th>Date</th><th>Total</th></tr></thead><tbody>" + recent + "</tbody></table>",
-        "<h2>Products</h2>",
-        "<table><thead><tr><th>#</th><th>Name</th><th>Price</th><th>Stock</th></tr></thead><tbody>" + rows + "</tbody></table>",
-        "<h2>Add a product</h2>",
-        "<form method=\"post\" action=\"/add-product\" class=\"stack\">",
-        "<label>Name<input name=\"name\" required></label>",
-        "<label>Price<input name=\"price\" type=\"number\" step=\"0.01\" required></label>",
-        "<label>Stock<input name=\"stock\" type=\"number\" required></label>",
-        "<label>Description<input name=\"desc\"></label>",
-        "<button class=\"big\">Add product</button>",
-        "</form>",
-    ], "\n")
+        ["h1", {}, "Dashboard"],
+        ["div", {"class": "stats"},
+            ["div", {"class": "stat accent"}, ["span", {}, money(revenue)], "Revenue"],
+            ["div", {"class": "stat"}, ["span", {}, length(orders)], "Orders"],
+            ["div", {"class": "stat"}, ["span", {}, length(products)], "Products"],
+            ["div", {"class": "stat"}, ["span", {}, length(keys(users))], "Customers"]],
+        ["h2", {}, "Recent orders"],
+        ["table", {},
+            ["thead", {}, ["tr", {}, ["th", {}, "Order"], ["th", {}, "Customer"], ["th", {}, "Date"], ["th", {}, "Total"]]],
+            ["tbody", {}, recent]],
+        ["h2", {}, "Products"],
+        ["table", {},
+            ["thead", {}, ["tr", {}, ["th", {}, "#"], ["th", {}, "Name"], ["th", {}, "Price"], ["th", {}, "Stock"]]],
+            ["tbody", {}, prows]],
+        ["h2", {}, "Add a product"],
+        ["form", {"method": "post", "action": "/add-product", "class": "stack"},
+            ["label", {}, "Name", ["input", {"name": "name", "required": yes}]],
+            ["label", {}, "Price", ["input", {"name": "price", "type": "number", "step": "0.01", "required": yes}]],
+            ["label", {}, "Stock", ["input", {"name": "stock", "type": "number", "required": yes}]],
+            ["label", {}, "Description", ["input", {"name": "desc"}]],
+            ["button", {"class": "btn big"}, "Add product"]],
+    ]
     give ok(page("Dashboard", me, body))
 
 task do_add_product(req):
@@ -593,7 +682,7 @@ task handle(req):
         give not_found()
 
 ~ ------------------------------------------------------------------- main flow
-~ Sprout IS the web server now (the serve() builtin) — no external host needed.
+~ Sprout IS the web server (the serve() builtin) — no external host needed.
 ~ Seed the catalog + admin once, then handle every request with handle(req).
 seed_if_needed()
 show "🌱 Sprout Store is open — visit http://localhost:8090   (admin / admin for the dashboard)"
