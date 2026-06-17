@@ -63,7 +63,7 @@
         "status": "active",
         "name": "Monthly supporter",
         "description": "Back ongoing work on Sprout — the language, the docs, and the playground.",
-        "amount": 5,
+        "amount": 500,
         "currency": "USD",
         "frequency": "monthly",
         "channels": [
