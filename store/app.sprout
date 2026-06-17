@@ -1,18 +1,15 @@
 ~ ============================================================================
 ~  Sprout Store — a complete e-commerce site written ENTIRELY in Sprout.
 ~
-~  Sprout is the web server (serve()), the whole backend (auth, sessions,
-~  catalog, cart, orders, dashboard), AND the styling: the look is authored in
-~  Bloom 🌸 — Sprout's own stylesheet language — in static/style.bloom, which
-~  bloom.sprout compiles to CSS on the way out. No Python, no hand-written CSS,
-~  no framework. Data lives in Sprout's own remember/recall store.
+~  Sprout is the web server (serve()) AND the whole backend — auth, sessions,
+~  catalog, cart, orders, and the admin dashboard. It speaks HTTP itself and
+~  serves its own pages and CSS. Data lives in Sprout's own remember/recall
+~  store (sprout.data.json). No Python, no external server, no framework.
 ~
 ~  Run it:   sprout run app.sprout      then open http://localhost:8090
 ~  Demo admin (seeded on first run):    admin / admin
 ~  NOTE: the password hashing here is a simple demo hash, NOT real crypto.
 ~ ============================================================================
-
-use "bloom.sprout"
 
 ~ -------------------------------------------------------------- request helpers
 task p(req, key, dflt):
@@ -123,10 +120,9 @@ task logout_redirect(loc):
     make cookie = "session=; Path=/; HttpOnly; Max-Age=0"
     give {"status": 302, "headers": {"Location": loc, "Set-Cookie": cookie}, "body": ""}
 
-~ the stylesheet is Bloom source, compiled to CSS by Sprout itself on each request
 task css_response():
-    when exists("static/style.bloom"):
-        give {"status": 200, "headers": {"Content-Type": "text/css; charset=utf-8"}, "body": bloom.to_css(read("static/style.bloom"))}
+    when exists("static/style.css"):
+        give {"status": 200, "headers": {"Content-Type": "text/css; charset=utf-8"}, "body": read("static/style.css")}
     give {"status": 404, "body": "not found"}
 
 task not_found():
@@ -162,7 +158,7 @@ task page(title, me, content):
         "<html lang=\"en\"><head><meta charset=\"utf-8\">",
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">",
         "<title>" + esc(title) + " · Sprout Store</title>",
-        "<link rel=\"stylesheet\" href=\"/static/style.bloom\"></head><body>",
+        "<link rel=\"stylesheet\" href=\"/static/style.css\"></head><body>",
         chrome(me),
         "<main>",
         content,

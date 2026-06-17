@@ -9,8 +9,6 @@ serves the HTTP itself with the built-in `serve()` function. It has:
 - **Your orders** — every order you've placed.
 - **An admin dashboard** — revenue / order / product / customer stats, recent orders, and a
   form to add new products. Gated to admins only.
-- **Styled in Bloom 🌸** — even the stylesheet is Sprout. The look is authored in Bloom,
-  Sprout's own stylesheet language, and compiled to CSS by Sprout itself.
 
 ```
 $ cd store
@@ -42,40 +40,9 @@ serve(8090, handle)
   body string works too; `status` defaults to 200, `Content-Type` to `text/html`).
 - **Data** is Sprout's own `remember` / `recall` store (`sprout.data.json`, created next to
   `app.sprout` on first run and seeded with six products + the admin account).
-- **The styling is Sprout too** — see Bloom below.
+- The CSS is served by the handler reading `static/style.css` with `read()`.
 
-No CGI, no Python, no framework, not even hand-written CSS — the server, the backend, and the
-styling are all Sprout.
-
-## Styling with Bloom 🌸
-
-The same way `serve()` means Sprout doesn't need Python to be a web server, **Bloom** means it
-doesn't need hand-written CSS to have a look. Bloom is a tiny stylesheet language **written in
-Sprout itself** (`bloom.sprout`, ~70 lines). You author `static/style.bloom`; Sprout compiles
-it to CSS on the way out:
-
-```bloom
-make green  = #1f9d57          ~ name a value once, reuse it as {green}
-make radius = 4px
-
-.btn:                          ~ a rule is any line that ends with ":"
-    background {green}
-    border-radius {radius}
-    padding 11px 22px
-
-.btn:hover:                    ~ pseudo-classes? just write the whole selector
-    background #127a41
-
-screen below 820px:            ~ responsive -> @media (max-width: 820px)
-    .grid:
-        grid-template-columns 1fr
-```
-
-Indentation groups a rule's properties; `~` starts a comment; values pass through untouched
-(so `var(--tint, #fff)`, gradients and `calc()` all just work). The handler turns it into CSS
-with one call — `bloom.to_css(read("static/style.bloom"))` — and serves it as `text/css`.
-
-That's the whole stack — Sprout all the way down.
+That's the whole stack — one `.sprout` file. No CGI, no Python, no framework.
 
 ## Requirements
 
@@ -100,6 +67,5 @@ Delete `sprout.data.json` any time to reset the shop to its seeded state.
 | File | What it is |
 | --- | --- |
 | `app.sprout` | The whole store — server, auth, catalog, cart, orders, dashboard |
-| `bloom.sprout` | **Bloom** — a tiny stylesheet language, written in Sprout (one task, `to_css`) |
-| `static/style.bloom` | The store's styling, in Bloom (compiled to CSS at request time) |
+| `static/style.css` | Styling |
 | `sprout.data.json` | The database (created on first run; git-ignored) |
