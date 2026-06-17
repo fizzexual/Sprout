@@ -1,7 +1,7 @@
-# 🛒 Sprout Store — a real web app written in Sprout
+# 🛒 Sprout Store — a web app written **entirely** in Sprout
 
-A small but complete e-commerce site whose **entire backend is written in
-[Sprout](https://github.com/fizzexual/Sprout)** — the from-scratch language. It has:
+A small but complete e-commerce site — **no other language, no external server.** Sprout
+serves the HTTP itself with the built-in `serve()` function. It has:
 
 - **A storefront** — browse a product catalog, view product pages.
 - **Accounts & auth** — register, log in / out, cookie sessions, password hashing.
@@ -12,43 +12,43 @@ A small but complete e-commerce site whose **entire backend is written in
 
 ```
 $ cd store
-$ python server.py
-Sprout store running on  http://localhost:8090
+$ sprout run app.sprout
+🌱 Sprout Store is open — visit http://localhost:8090   (admin / admin for the dashboard)
 ```
 
 Open **http://localhost:8090**, register an account, shop — and log in as the seeded admin
 (`admin` / `admin`) to see the dashboard.
 
-## How it works (and why there's a Python file)
+## How it works — 100% Sprout
 
-Sprout doesn't have a built-in HTTP server yet (it's on the roadmap). So — exactly like
-**CGI** or classic **PHP** — a tiny, *app-agnostic* host speaks HTTP, and **all the actual
-store logic lives in Sprout**:
+`app.sprout` *is* the web server. Sprout's `serve(port, handler)` opens a TCP server and, for
+every request, calls a Sprout task with a request map and sends back the response the task
+returns:
 
+```sprout
+task handle(req):
+    when req["path"] == "/":
+        give {"status": 200, "body": "<h1>Hello from Sprout</h1>"}
+    give {"status": 404, "body": "not found"}
+
+serve(8090, handle)
 ```
-  browser ──HTTP──▶  server.py  ──stdin──▶  app.sprout  ──remember/recall──▶  sprout.data.json
-          ◀─HTML───  (≈170 lines,   ◀─stdout──  (the whole store:            (the "database")
-                      generic glue)              auth, cart, orders, …)
-```
 
-- **`server.py`** is ~170 lines and knows *nothing* about shops. For each request it writes
-  the method / path / cookies / form fields to Sprout's stdin as simple `key⇥value` lines,
-  runs `sprout run app.sprout`, and turns Sprout's printed response back into HTTP.
-- **`app.sprout`** is the application — routing, sessions, the catalog, the cart, orders, the
-  dashboard, and every HTML page. ~400 lines of Sprout.
-- **The database** is Sprout's own `remember` / `recall` store (`sprout.data.json`), created
-  next to `app.sprout` on first run and seeded with six products + the admin account.
+- **`req`** is a map: `req["method"]`, `req["path"]`, `req["params"]` (query + form fields),
+  `req["cookies"]`, `req["headers"]`, `req["body"]`.
+- The handler **returns** a map: `{"status": 200, "headers": {...}, "body": "..."}` (a bare
+  body string works too; `status` defaults to 200, `Content-Type` to `text/html`).
+- **Data** is Sprout's own `remember` / `recall` store (`sprout.data.json`, created next to
+  `app.sprout` on first run and seeded with six products + the admin account).
+- The CSS is served by the handler reading `static/style.css` with `read()`.
 
-That split is the honest, interesting part: it shows you can write a real web application's
-*logic* in Sprout today, using a host only for the HTTP plumbing.
+That's the whole stack — one `.sprout` file. No CGI, no Python, no framework.
 
 ## Requirements
 
-- **Python 3** (standard library only — no pip installs) for the host.
-- **The Sprout interpreter.** By default the host looks for `../src/sprout.exe` (or
-  `../src/sprout`); build it with `cc -O2 -o src/sprout src/sprout.c -lm` (or `gcc … -lurlmon`
-  on Windows). Or point it anywhere: `SPROUT_BIN=/path/to/sprout python server.py`.
-- Change the port with `PORT=9000 python server.py`.
+Just the **Sprout interpreter** (v0.1.5+, which added `serve()`). Build it from the repo
+root — `cd src && build.cmd` on Windows, or `cc -O2 -o sprout src/sprout.c -lm` on Linux/macOS
+— or install it, then run `sprout run app.sprout` from this folder.
 
 ## This is a demo, not a production store
 
@@ -56,8 +56,8 @@ It's a *showcase of what you can build in Sprout*, so a few things are deliberat
 
 - **Auth is demo-grade.** Passwords use a small deterministic hash (not bcrypt/argon2) and
   session ids aren't cryptographically random. Don't reuse this auth for anything real.
-- **One request at a time.** The host serializes requests so the shared `sprout.data.json`
-  isn't raced — fine for a demo, not built for load.
+- **One request at a time.** `serve()` handles requests sequentially, so the shared
+  `sprout.data.json` is never raced — fine for a demo, not built for heavy load.
 - **The data is a JSON file**, rewritten on each change.
 
 Delete `sprout.data.json` any time to reset the shop to its seeded state.
@@ -66,7 +66,6 @@ Delete `sprout.data.json` any time to reset the shop to its seeded state.
 
 | File | What it is |
 | --- | --- |
-| `app.sprout` | The whole store, written in Sprout |
-| `server.py` | Generic HTTP ↔ Sprout host (CGI-style) |
+| `app.sprout` | The whole store — server, auth, catalog, cart, orders, dashboard |
 | `static/style.css` | Styling |
 | `sprout.data.json` | The database (created on first run; git-ignored) |

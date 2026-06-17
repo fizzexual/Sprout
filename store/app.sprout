@@ -10,27 +10,7 @@
 ~  NOTE: the password hashing here is a simple demo hash, NOT real crypto.
 ~ ============================================================================
 
-~ ---------------------------------------------------------------- the request
-task read_request():
-    make req = {"method": "", "path": "", "session": "", "params": {}}
-    make line = ask("")
-    repeat while line != "__END__":
-        make parts = split(line, "\t")
-        make key = parts[0]
-        make val = ""
-        when length(parts) >= 2:
-            set val = parts[1]
-        when key == "method":
-            set req["method"] = val
-        orwhen key == "path":
-            set req["path"] = val
-        orwhen key == "session":
-            set req["session"] = val
-        orwhen starts_with(key, "param."):
-            set req["params"][slice(key, 6, length(key))] = val
-        set line = ask("")
-    give req
-
+~ -------------------------------------------------------------- request helpers
 task p(req, key, dflt):
     make ps = req["params"]
     when contains(ps, key):
@@ -81,7 +61,9 @@ task hash_pw(pw):
 
 task who(req):
     make sessions = load("sessions", {})
-    make sid = req["session"]
+    make sid = ""
+    when contains(req["cookies"], "session"):
+        set sid = req["cookies"]["session"]
     when sid == "" or not contains(sessions, sid):
         give {"in": no, "name": "", "role": ""}
     make un = sessions[sid]
@@ -116,18 +98,23 @@ task money(n):
     give "$" + d + "." + cs
 
 task ok(body):
-    give {"status": 200, "headers": [], "body": body}
+    give {"status": 200, "body": body}
 
 task redirect(loc):
-    give {"status": 302, "headers": [["Location", loc]], "body": ""}
+    give {"status": 302, "headers": {"Location": loc}, "body": ""}
 
 task redirect_session(loc, sid):
     make cookie = "session=" + sid + "; Path=/; HttpOnly; SameSite=Lax"
-    give {"status": 302, "headers": [["Location", loc], ["Set-Cookie", cookie]], "body": ""}
+    give {"status": 302, "headers": {"Location": loc, "Set-Cookie": cookie}, "body": ""}
 
 task logout_redirect(loc):
     make cookie = "session=; Path=/; HttpOnly; Max-Age=0"
-    give {"status": 302, "headers": [["Location", loc], ["Set-Cookie", cookie]], "body": ""}
+    give {"status": 302, "headers": {"Location": loc, "Set-Cookie": cookie}, "body": ""}
+
+task css_response():
+    when exists("static/style.css"):
+        give {"status": 200, "headers": {"Content-Type": "text/css; charset=utf-8"}, "body": read("static/style.css")}
+    give {"status": 404, "body": "not found"}
 
 task not_found():
     give {"status": 404, "headers": [], "body": page("Not found", {"in": no, "name": "", "role": ""}, "<h1>404</h1><p>That page wandered off.</p><p><a href=\"/\">Back to the shop</a></p>")}
@@ -460,10 +447,12 @@ task do_add_product(req):
     give redirect("/dashboard?msg=Added " + name + ".")
 
 ~ ------------------------------------------------------------------- the router
-task route(req):
+task handle(req):
     make m = req["method"]
     make path = req["path"]
-    when path == "/":
+    when starts_with(path, "/static/"):
+        give css_response()
+    orwhen path == "/":
         give view_home(req)
     orwhen path == "/product":
         give view_product(req)
@@ -493,12 +482,8 @@ task route(req):
         give not_found()
 
 ~ ------------------------------------------------------------------- main flow
+~ Sprout IS the web server now (the serve() builtin) — no external host needed.
+~ Seed the catalog + admin once, then handle every request with handle(req).
 seed_if_needed()
-make req = read_request()
-make resp = route(req)
-
-make out = "status\t" + resp["status"] + "\n"
-for each h in resp["headers"]:
-    set out = out + "header\t" + h[0] + "\t" + h[1] + "\n"
-set out = out + "__BODY__\n" + resp["body"]
-show out
+show "🌱 Sprout Store is open — visit http://localhost:8090   (admin / admin for the dashboard)"
+serve(8090, handle)
