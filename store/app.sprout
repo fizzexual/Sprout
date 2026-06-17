@@ -1,0 +1,504 @@
+~ ============================================================================
+~  Sprout Store — a small e-commerce site written entirely in Sprout.
+~
+~  The host (server.py) speaks HTTP and hands each request to this program on
+~  stdin; this program does ALL the work — auth, sessions, catalog, cart,
+~  orders, and the admin dashboard — and prints the HTTP response on stdout.
+~  Data lives in Sprout's own remember/recall store (sprout.data.json).
+~
+~  Demo accounts (seeded on first run):  admin / admin   (the dashboard)
+~  NOTE: the password hashing here is a simple demo hash, NOT real crypto.
+~ ============================================================================
+
+~ ---------------------------------------------------------------- the request
+task read_request():
+    make req = {"method": "", "path": "", "session": "", "params": {}}
+    make line = ask("")
+    repeat while line != "__END__":
+        make parts = split(line, "\t")
+        make key = parts[0]
+        make val = ""
+        when length(parts) >= 2:
+            set val = parts[1]
+        when key == "method":
+            set req["method"] = val
+        orwhen key == "path":
+            set req["path"] = val
+        orwhen key == "session":
+            set req["session"] = val
+        orwhen starts_with(key, "param."):
+            set req["params"][slice(key, 6, length(key))] = val
+        set line = ask("")
+    give req
+
+task p(req, key, dflt):
+    make ps = req["params"]
+    when contains(ps, key):
+        give ps[key]
+    give dflt
+
+~ ---------------------------------------------------------------- the database
+task load(key, dflt):
+    give recall(key) or else dflt
+
+task next_id(key):
+    make n = load(key, 0) + 1
+    remember(key, n)
+    give n
+
+task seed_if_needed():
+    when recall("products") == nothing:
+        remember("products", [
+            {"id": 1, "name": "Sprout Mug",        "price": 12.0,  "stock": 40, "desc": "A warm mug for warm code."},
+            {"id": 2, "name": "Sticker Pack",      "price": 4.50,  "stock": 200, "desc": "Six glossy 🌱 stickers."},
+            {"id": 3, "name": "Hoodie",            "price": 39.99, "stock": 25, "desc": "Soft cotton, leaf on the chest."},
+            {"id": 4, "name": "Enamel Pin",        "price": 7.0,   "stock": 80, "desc": "A tiny sprout for your bag."},
+            {"id": 5, "name": "Notebook",          "price": 9.50,  "stock": 60, "desc": "Dotted pages for plans + code."},
+            {"id": 6, "name": "Cap",               "price": 18.0,  "stock": 30, "desc": "Five-panel, embroidered leaf."},
+        ])
+        remember("product_counter", 6)
+        make users = {}
+        set users["admin"] = {"name": "Store Admin", "pwhash": hash_pw("admin"), "role": "admin", "cart": []}
+        remember("users", users)
+
+~ -------------------------------------------------------------------- auth
+task char_code(ch):
+    make alpha = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .@!?-_"
+    make c = index_of(alpha, ch)
+    when c == nothing:
+        give 91
+    give c + 1
+
+~ a small, deterministic demo hash (NOT secure — replace with real crypto for production)
+task hash_pw(pw):
+    make s = "sprout::" + pw + "::salt"
+    make h = 7919
+    make i = 0
+    repeat while i < length(s):
+        set h = (h * 131 + char_code(s[i])) % 1000000007
+        set i += 1
+    give "h" + h
+
+task who(req):
+    make sessions = load("sessions", {})
+    make sid = req["session"]
+    when sid == "" or not contains(sessions, sid):
+        give {"in": no, "name": "", "role": ""}
+    make un = sessions[sid]
+    make users = load("users", {})
+    when not contains(users, un):
+        give {"in": no, "name": "", "role": ""}
+    give {"in": yes, "name": un, "role": users[un]["role"]}
+
+task start_session(username):
+    make sessions = load("sessions", {})
+    make n = next_id("sid_counter")
+    make sid = "s" + n + hash_pw(username + "::session::" + n)
+    set sessions[sid] = username
+    remember("sessions", sessions)
+    give sid
+
+~ ------------------------------------------------------------------ responses
+task esc(s):
+    make t = "" + s
+    set t = replace(t, "&", "&amp;")
+    set t = replace(t, "<", "&lt;")
+    set t = replace(t, ">", "&gt;")
+    give t
+
+task money(n):
+    make cents = round(n * 100)
+    make d = floor(cents / 100)
+    make c = cents % 100
+    make cs = "" + c
+    when c < 10:
+        set cs = "0" + c
+    give "$" + d + "." + cs
+
+task ok(body):
+    give {"status": 200, "headers": [], "body": body}
+
+task redirect(loc):
+    give {"status": 302, "headers": [["Location", loc]], "body": ""}
+
+task redirect_session(loc, sid):
+    make cookie = "session=" + sid + "; Path=/; HttpOnly; SameSite=Lax"
+    give {"status": 302, "headers": [["Location", loc], ["Set-Cookie", cookie]], "body": ""}
+
+task logout_redirect(loc):
+    make cookie = "session=; Path=/; HttpOnly; Max-Age=0"
+    give {"status": 302, "headers": [["Location", loc], ["Set-Cookie", cookie]], "body": ""}
+
+task not_found():
+    give {"status": 404, "headers": [], "body": page("Not found", {"in": no, "name": "", "role": ""}, "<h1>404</h1><p>That page wandered off.</p><p><a href=\"/\">Back to the shop</a></p>")}
+
+~ -------------------------------------------------------------------- chrome
+task nav(me):
+    make right = ""
+    when me["in"]:
+        set right = right + "<a href=\"/cart\">Cart</a> <a href=\"/orders\">My orders</a>"
+        when me["role"] == "admin":
+            set right = right + " <a href=\"/dashboard\">Dashboard</a>"
+        set right = right + " <span class=\"who\">" + esc(me["name"]) + "</span>"
+        set right = right + " <form class=\"inline\" method=\"post\" action=\"/logout\"><button class=\"link\">Log out</button></form>"
+    otherwise:
+        set right = right + "<a href=\"/login\">Log in</a> <a href=\"/register\">Register</a>"
+    give "<header><a class=\"brand\" href=\"/\">🌱 Sprout Store</a><nav>" + right + "</nav></header>"
+
+task page(title, me, content):
+    give join([
+        "<!doctype html>",
+        "<html lang=\"en\"><head><meta charset=\"utf-8\">",
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">",
+        "<title>" + esc(title) + " · Sprout Store</title>",
+        "<link rel=\"stylesheet\" href=\"/static/style.css\"></head><body>",
+        nav(me),
+        "<main>",
+        content,
+        "</main>",
+        "<footer>Built entirely in <a href=\"https://github.com/fizzexual/Sprout\">Sprout</a> — a language written from scratch in C.</footer>",
+        "</body></html>",
+    ], "\n")
+
+task flash_box(req):
+    make m = p(req, "msg", "")
+    when m == "":
+        give ""
+    give "<div class=\"flash\">" + esc(m) + "</div>"
+
+~ -------------------------------------------------------------- the storefront
+task product_card(pr):
+    make sold_out = ""
+    make button = "<form method=\"post\" action=\"/add-to-cart\"><input type=\"hidden\" name=\"id\" value=\"" + pr["id"] + "\"><button>Add to cart</button></form>"
+    when pr["stock"] <= 0:
+        set button = "<button disabled>Sold out</button>"
+    give join([
+        "<article class=\"card\">",
+        "<a href=\"/product?id=" + pr["id"] + "\"><h3>" + esc(pr["name"]) + "</h3></a>",
+        "<p class=\"price\">" + money(pr["price"]) + "</p>",
+        "<p class=\"desc\">" + esc(pr["desc"]) + "</p>",
+        button,
+        "</article>",
+    ], "\n")
+
+task view_home(req):
+    make me = who(req)
+    make products = load("products", [])
+    make cards = ""
+    for each pr in products:
+        set cards = cards + product_card(pr)
+    make body = flash_box(req) + "<h1>The shop</h1><div class=\"grid\">" + cards + "</div>"
+    give ok(page("Shop", me, body))
+
+task find_product(id):
+    make products = load("products", [])
+    for each pr in products:
+        when ("" + pr["id"]) == ("" + id):
+            give pr
+    give nothing
+
+task view_product(req):
+    make me = who(req)
+    make pr = find_product(p(req, "id", ""))
+    when pr == nothing:
+        give not_found()
+    make button = "<form method=\"post\" action=\"/add-to-cart\"><input type=\"hidden\" name=\"id\" value=\"" + pr["id"] + "\"><button>Add to cart</button></form>"
+    when pr["stock"] <= 0:
+        set button = "<button disabled>Sold out</button>"
+    make body = join([
+        "<p><a href=\"/\">← Back</a></p>",
+        "<div class=\"detail\">",
+        "<h1>" + esc(pr["name"]) + "</h1>",
+        "<p class=\"price\">" + money(pr["price"]) + "</p>",
+        "<p>" + esc(pr["desc"]) + "</p>",
+        "<p class=\"muted\">" + pr["stock"] + " in stock</p>",
+        button,
+        "</div>",
+    ], "\n")
+    give ok(page(pr["name"], me, body))
+
+~ ------------------------------------------------------------------- the cart
+task do_add_to_cart(req):
+    make me = who(req)
+    when not me["in"]:
+        give redirect("/login?msg=Please log in to add things to your cart.")
+    make id = p(req, "id", "")
+    make pr = find_product(id)
+    when pr == nothing:
+        give not_found()
+    make users = load("users", {})
+    make u = users[me["name"]]
+    make cart = u["cart"]
+    make found = no
+    make i = 0
+    repeat while i < length(cart):
+        when ("" + cart[i]["pid"]) == ("" + id):
+            set cart[i]["qty"] = cart[i]["qty"] + 1
+            set found = yes
+        set i += 1
+    when not found:
+        add(cart, {"pid": pr["id"], "qty": 1})
+    set u["cart"] = cart
+    set users[me["name"]] = u
+    remember("users", users)
+    give redirect("/cart")
+
+task cart_lines(u):
+    make lines = []
+    make total = 0
+    for each item in u["cart"]:
+        make pr = find_product(item["pid"])
+        when pr != nothing:
+            make sub = pr["price"] * item["qty"]
+            set total = total + sub
+            add(lines, {"name": pr["name"], "price": pr["price"], "qty": item["qty"], "sub": sub})
+    give {"lines": lines, "total": total}
+
+task view_cart(req):
+    make me = who(req)
+    when not me["in"]:
+        give redirect("/login?msg=Log in to see your cart.")
+    make users = load("users", {})
+    make c = cart_lines(users[me["name"]])
+    when length(c["lines"]) == 0:
+        give ok(page("Cart", me, "<h1>Your cart</h1><p class=\"muted\">It's empty. <a href=\"/\">Go shopping →</a></p>"))
+    make rows = ""
+    for each ln in c["lines"]:
+        set rows = rows + "<tr><td>" + esc(ln["name"]) + "</td><td>" + money(ln["price"]) + "</td><td>" + ln["qty"] + "</td><td>" + money(ln["sub"]) + "</td></tr>"
+    make body = join([
+        "<h1>Your cart</h1>",
+        "<table><thead><tr><th>Item</th><th>Price</th><th>Qty</th><th>Subtotal</th></tr></thead><tbody>",
+        rows,
+        "</tbody></table>",
+        "<p class=\"total\">Total: " + money(c["total"]) + "</p>",
+        "<form method=\"post\" action=\"/checkout\"><button class=\"big\">Checkout</button></form>",
+    ], "\n")
+    give ok(page("Cart", me, body))
+
+task do_checkout(req):
+    make me = who(req)
+    when not me["in"]:
+        give redirect("/login")
+    make users = load("users", {})
+    make u = users[me["name"]]
+    make c = cart_lines(u)
+    when length(c["lines"]) == 0:
+        give redirect("/cart")
+    make orders = load("orders", [])
+    make oid = next_id("order_counter")
+    add(orders, {"id": oid, "user": me["name"], "items": c["lines"], "total": c["total"], "date": today()})
+    remember("orders", orders)
+    ~ decrement stock
+    make products = load("products", [])
+    for each item in u["cart"]:
+        make j = 0
+        repeat while j < length(products):
+            when ("" + products[j]["id"]) == ("" + item["pid"]):
+                set products[j]["stock"] = products[j]["stock"] - item["qty"]
+            set j += 1
+    remember("products", products)
+    ~ empty the cart
+    set u["cart"] = []
+    set users[me["name"]] = u
+    remember("users", users)
+    give redirect("/orders?msg=Order #" + oid + " placed. Thank you!")
+
+task view_orders(req):
+    make me = who(req)
+    when not me["in"]:
+        give redirect("/login")
+    make orders = load("orders", [])
+    make mine = ""
+    make count = 0
+    for each o in orders:
+        when o["user"] == me["name"]:
+            set count += 1
+            make items = ""
+            for each it in o["items"]:
+                set items = items + "<li>" + it["qty"] + " × " + esc(it["name"]) + " — " + money(it["sub"]) + "</li>"
+            set mine = "<div class=\"order\"><h3>Order #" + o["id"] + " <span class=\"muted\">" + esc(o["date"]) + "</span></h3><ul>" + items + "</ul><p class=\"total\">" + money(o["total"]) + "</p></div>" + mine
+    when count == 0:
+        set mine = "<p class=\"muted\">No orders yet. <a href=\"/\">Start shopping →</a></p>"
+    give ok(page("My orders", me, flash_box(req) + "<h1>My orders</h1>" + mine))
+
+~ --------------------------------------------------------------- register/login
+task view_register(req, err):
+    make me = who(req)
+    make box = ""
+    when err != "":
+        set box = "<div class=\"flash err\">" + esc(err) + "</div>"
+    make body = join([
+        box,
+        "<h1>Create an account</h1>",
+        "<form method=\"post\" action=\"/register\" class=\"stack\">",
+        "<label>Username<input name=\"username\" required></label>",
+        "<label>Display name<input name=\"name\"></label>",
+        "<label>Password<input name=\"password\" type=\"password\" required></label>",
+        "<button class=\"big\">Register</button>",
+        "</form>",
+        "<p class=\"muted\">Already have one? <a href=\"/login\">Log in</a>.</p>",
+    ], "\n")
+    give ok(page("Register", me, body))
+
+task do_register(req):
+    make un = trim(p(req, "username", ""))
+    make pw = p(req, "password", "")
+    make name = trim(p(req, "name", ""))
+    when un == "" or pw == "":
+        give view_register(req, "Username and password are required.")
+    make users = load("users", {})
+    when contains(users, un):
+        give view_register(req, "That username is taken.")
+    when name == "":
+        set name = un
+    set users[un] = {"name": name, "pwhash": hash_pw(pw), "role": "customer", "cart": []}
+    remember("users", users)
+    make sid = start_session(un)
+    give redirect_session("/?msg=Welcome, " + name + "!", sid)
+
+task view_login(req, err):
+    make me = who(req)
+    make box = flash_box(req)
+    when err != "":
+        set box = "<div class=\"flash err\">" + esc(err) + "</div>"
+    make body = join([
+        box,
+        "<h1>Log in</h1>",
+        "<form method=\"post\" action=\"/login\" class=\"stack\">",
+        "<label>Username<input name=\"username\" required></label>",
+        "<label>Password<input name=\"password\" type=\"password\" required></label>",
+        "<button class=\"big\">Log in</button>",
+        "</form>",
+        "<p class=\"muted\">No account? <a href=\"/register\">Register</a>. Demo admin: <code>admin / admin</code>.</p>",
+    ], "\n")
+    give ok(page("Log in", me, body))
+
+task do_login(req):
+    make un = trim(p(req, "username", ""))
+    make pw = p(req, "password", "")
+    make users = load("users", {})
+    when not contains(users, un):
+        give view_login(req, "No account with that username.")
+    when users[un]["pwhash"] != hash_pw(pw):
+        give view_login(req, "Wrong password.")
+    make sid = start_session(un)
+    give redirect_session("/", sid)
+
+task do_logout(req):
+    make sessions = load("sessions", {})
+    make sid = req["session"]
+    when contains(sessions, sid):
+        remove(sessions, sid)
+        remember("sessions", sessions)
+    give logout_redirect("/")
+
+~ ---------------------------------------------------------------- the dashboard
+task view_dashboard(req):
+    make me = who(req)
+    when not me["in"] or me["role"] != "admin":
+        give redirect("/login?msg=Admins only.")
+    make orders = load("orders", [])
+    make products = load("products", [])
+    make users = load("users", {})
+    make revenue = 0
+    for each o in orders:
+        set revenue = revenue + o["total"]
+    make rows = ""
+    for each pr in products:
+        set rows = rows + "<tr><td>" + pr["id"] + "</td><td>" + esc(pr["name"]) + "</td><td>" + money(pr["price"]) + "</td><td>" + pr["stock"] + "</td></tr>"
+    make recent = ""
+    make shown = 0
+    make k = length(orders) - 1
+    repeat while k >= 0 and shown < 8:
+        make o = orders[k]
+        set recent = recent + "<tr><td>#" + o["id"] + "</td><td>" + esc(o["user"]) + "</td><td>" + esc(o["date"]) + "</td><td>" + money(o["total"]) + "</td></tr>"
+        set shown += 1
+        set k = k - 1
+    when recent == "":
+        set recent = "<tr><td colspan=\"4\" class=\"muted\">No orders yet.</td></tr>"
+    make body = join([
+        flash_box(req),
+        "<h1>Dashboard</h1>",
+        "<div class=\"stats\">",
+        "<div class=\"stat\"><span>" + money(revenue) + "</span>Revenue</div>",
+        "<div class=\"stat\"><span>" + length(orders) + "</span>Orders</div>",
+        "<div class=\"stat\"><span>" + length(products) + "</span>Products</div>",
+        "<div class=\"stat\"><span>" + length(keys(users)) + "</span>Customers</div>",
+        "</div>",
+        "<h2>Recent orders</h2>",
+        "<table><thead><tr><th>Order</th><th>Customer</th><th>Date</th><th>Total</th></tr></thead><tbody>" + recent + "</tbody></table>",
+        "<h2>Products</h2>",
+        "<table><thead><tr><th>#</th><th>Name</th><th>Price</th><th>Stock</th></tr></thead><tbody>" + rows + "</tbody></table>",
+        "<h2>Add a product</h2>",
+        "<form method=\"post\" action=\"/add-product\" class=\"stack\">",
+        "<label>Name<input name=\"name\" required></label>",
+        "<label>Price<input name=\"price\" type=\"number\" step=\"0.01\" required></label>",
+        "<label>Stock<input name=\"stock\" type=\"number\" required></label>",
+        "<label>Description<input name=\"desc\"></label>",
+        "<button class=\"big\">Add product</button>",
+        "</form>",
+    ], "\n")
+    give ok(page("Dashboard", me, body))
+
+task do_add_product(req):
+    make me = who(req)
+    when not me["in"] or me["role"] != "admin":
+        give redirect("/login")
+    make name = trim(p(req, "name", ""))
+    when name == "":
+        give redirect("/dashboard?msg=Name is required.")
+    make products = load("products", [])
+    make id = next_id("product_counter")
+    add(products, {
+        "id": id,
+        "name": name,
+        "price": number(p(req, "price", "0")),
+        "stock": number(p(req, "stock", "0")),
+        "desc": trim(p(req, "desc", "")),
+    })
+    remember("products", products)
+    give redirect("/dashboard?msg=Added " + name + ".")
+
+~ ------------------------------------------------------------------- the router
+task route(req):
+    make m = req["method"]
+    make path = req["path"]
+    when path == "/":
+        give view_home(req)
+    orwhen path == "/product":
+        give view_product(req)
+    orwhen path == "/add-to-cart" and m == "POST":
+        give do_add_to_cart(req)
+    orwhen path == "/cart":
+        give view_cart(req)
+    orwhen path == "/checkout" and m == "POST":
+        give do_checkout(req)
+    orwhen path == "/orders":
+        give view_orders(req)
+    orwhen path == "/register" and m == "POST":
+        give do_register(req)
+    orwhen path == "/register":
+        give view_register(req, "")
+    orwhen path == "/login" and m == "POST":
+        give do_login(req)
+    orwhen path == "/login":
+        give view_login(req, "")
+    orwhen path == "/logout":
+        give do_logout(req)
+    orwhen path == "/dashboard":
+        give view_dashboard(req)
+    orwhen path == "/add-product" and m == "POST":
+        give do_add_product(req)
+    otherwise:
+        give not_found()
+
+~ ------------------------------------------------------------------- main flow
+seed_if_needed()
+make req = read_request()
+make resp = route(req)
+
+make out = "status\t" + resp["status"] + "\n"
+for each h in resp["headers"]:
+    set out = out + "header\t" + h[0] + "\t" + h[1] + "\n"
+set out = out + "__BODY__\n" + resp["body"]
+show out
