@@ -29,12 +29,12 @@ task next_id(key):
 task seed_if_needed():
     when recall("products") == nothing:
         remember("products", [
-            {"id": 1, "name": "Sprout Mug",        "price": 12.0,  "stock": 40, "desc": "A warm mug for warm code."},
-            {"id": 2, "name": "Sticker Pack",      "price": 4.50,  "stock": 200, "desc": "Six glossy 🌱 stickers."},
-            {"id": 3, "name": "Hoodie",            "price": 39.99, "stock": 25, "desc": "Soft cotton, leaf on the chest."},
-            {"id": 4, "name": "Enamel Pin",        "price": 7.0,   "stock": 80, "desc": "A tiny sprout for your bag."},
-            {"id": 5, "name": "Notebook",          "price": 9.50,  "stock": 60, "desc": "Dotted pages for plans + code."},
-            {"id": 6, "name": "Cap",               "price": 18.0,  "stock": 30, "desc": "Five-panel, embroidered leaf."},
+            {"id": 1, "name": "Sprout Mug",      "price": 12.0,  "stock": 40,  "desc": "A warm 350ml ceramic mug for warm code. Dishwasher-safe.",         "emoji": "☕", "cat": "Drinkware",  "rating": 4.8, "reviews": 124, "tint": "#fff1e8"},
+            {"id": 2, "name": "Sticker Pack",    "price": 4.50,  "was": 6.0, "stock": 200, "desc": "Six glossy die-cut 🌱 stickers for your laptop.",          "emoji": "✨", "cat": "Accessories","rating": 4.6, "reviews": 318, "tint": "#eef6ff"},
+            {"id": 3, "name": "Leaf Hoodie",     "price": 39.99, "was": 54.0,"stock": 25,  "desc": "Soft heavyweight cotton with an embroidered leaf.",         "emoji": "🧥", "cat": "Apparel",    "rating": 4.9, "reviews": 87,  "tint": "#eafaef"},
+            {"id": 4, "name": "Enamel Pin",      "price": 7.0,   "stock": 80,  "desc": "A tiny hard-enamel sprout for your bag or jacket.",         "emoji": "📌", "cat": "Accessories","rating": 4.5, "reviews": 56,  "tint": "#fdeef0"},
+            {"id": 5, "name": "Dotted Notebook", "price": 9.50,  "stock": 60,  "desc": "120 dotted pages for plans, sketches and pseudo-code.",     "emoji": "📓", "cat": "Stationery", "rating": 4.7, "reviews": 203, "tint": "#f3f0ff"},
+            {"id": 6, "name": "Five-Panel Cap",  "price": 18.0,  "stock": 30,  "desc": "Five-panel cap with an embroidered leaf and a curved brim.","emoji": "🧢", "cat": "Apparel",    "rating": 4.4, "reviews": 41,  "tint": "#fff6e6"},
         ])
         remember("product_counter", 6)
         make users = {}
@@ -65,12 +65,20 @@ task who(req):
     when contains(req["cookies"], "session"):
         set sid = req["cookies"]["session"]
     when sid == "" or not contains(sessions, sid):
-        give {"in": no, "name": "", "role": ""}
+        give {"in": no, "name": "", "role": "", "count": 0, "total": 0}
     make un = sessions[sid]
     make users = load("users", {})
     when not contains(users, un):
-        give {"in": no, "name": "", "role": ""}
-    give {"in": yes, "name": un, "role": users[un]["role"]}
+        give {"in": no, "name": "", "role": "", "count": 0, "total": 0}
+    make u = users[un]
+    make count = 0
+    make total = 0
+    for each item in u["cart"]:
+        make pr = find_product(item["pid"])
+        when pr != nothing:
+            set count = count + item["qty"]
+            set total = total + pr["price"] * item["qty"]
+    give {"in": yes, "name": un, "role": u["role"], "count": count, "total": total}
 
 task start_session(username):
     make sessions = load("sessions", {})
@@ -120,17 +128,28 @@ task not_found():
     give {"status": 404, "headers": [], "body": page("Not found", {"in": no, "name": "", "role": ""}, "<h1>404</h1><p>That page wandered off.</p><p><a href=\"/\">Back to the shop</a></p>")}
 
 ~ -------------------------------------------------------------------- chrome
-task nav(me):
-    make right = ""
+task chrome(me):
+    make cart = "<a class=\"act\" href=\"/cart\"><span class=\"ico\">🛒</span><span><small>Cart</small><b>" + money(me["total"]) + "</b></span></a>"
+    make acct = ""
     when me["in"]:
-        set right = right + "<a href=\"/cart\">Cart</a> <a href=\"/orders\">My orders</a>"
-        when me["role"] == "admin":
-            set right = right + " <a href=\"/dashboard\">Dashboard</a>"
-        set right = right + " <span class=\"who\">" + esc(me["name"]) + "</span>"
-        set right = right + " <form class=\"inline\" method=\"post\" action=\"/logout\"><button class=\"link\">Log out</button></form>"
+        set acct = "<a class=\"act\" href=\"/orders\"><span class=\"ico\">👤</span><span><small>Hello</small><b>" + esc(me["name"]) + "</b></span></a>"
+        set acct = acct + "<form class=\"inline\" method=\"post\" action=\"/logout\"><button class=\"btn ghost\">Log out</button></form>"
     otherwise:
-        set right = right + "<a href=\"/login\">Log in</a> <a href=\"/register\">Register</a>"
-    give "<header><a class=\"brand\" href=\"/\">🌱 Sprout Store</a><nav>" + right + "</nav></header>"
+        set acct = "<a class=\"act\" href=\"/login\"><span class=\"ico\">👤</span><span><small>Account</small><b>Log in</b></span></a>"
+    make links = "<a href=\"/\">Shop</a>"
+    when me["in"]:
+        set links = links + "<a href=\"/orders\">My orders</a>"
+        when me["role"] == "admin":
+            set links = links + "<a href=\"/dashboard\">Dashboard</a>"
+    give join([
+        "<div class=\"topbar\"><div class=\"wrap\"><span>🚚 <strong>Free shipping</strong> on orders over $50</span><span class=\"right\"><span>USD</span><span>Built in 🌱 Sprout</span></span></div></div>",
+        "<header class=\"site\"><div class=\"wrap\">",
+        "<a class=\"brand\" href=\"/\">🌱 Sprout<span>Store</span></a>",
+        "<form class=\"search\" method=\"get\" action=\"/\"><input name=\"q\" placeholder=\"Search products…\" autocomplete=\"off\"><button class=\"btn\">Search</button></form>",
+        "<div class=\"actions\">" + cart + acct + "</div>",
+        "</div></header>",
+        "<nav class=\"main\"><div class=\"wrap\"><div class=\"links\">" + links + "</div><div class=\"tags\"><span>Limited Sale</span><span>Best Sellers</span><span>New Arrivals</span></div></div></nav>",
+    ], "\n")
 
 task page(title, me, content):
     give join([
@@ -139,11 +158,11 @@ task page(title, me, content):
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">",
         "<title>" + esc(title) + " · Sprout Store</title>",
         "<link rel=\"stylesheet\" href=\"/static/style.css\"></head><body>",
-        nav(me),
+        chrome(me),
         "<main>",
         content,
         "</main>",
-        "<footer>Built entirely in <a href=\"https://github.com/fizzexual/Sprout\">Sprout</a> — a language written from scratch in C.</footer>",
+        "<footer class=\"site\"><div class=\"wrap\"><span><b>🌱 Sprout Store</b> — every page here is served by Sprout itself.</span><span>Built entirely in <a href=\"https://github.com/fizzexual/Sprout\">Sprout</a>, a language written from scratch in C.</span></div></footer>",
         "</body></html>",
     ], "\n")
 
@@ -153,29 +172,97 @@ task flash_box(req):
         give ""
     give "<div class=\"flash\">" + esc(m) + "</div>"
 
+~ a product field with a default (admin-added products may not have emoji/cat/rating)
+task pf(pr, key, dflt):
+    when contains(pr, key):
+        give pr[key]
+    give dflt
+
+task stars(rating):
+    make s = ""
+    make full = round(rating)
+    make i = 0
+    repeat 5 times:
+        when i < full:
+            set s = s + "★"
+        otherwise:
+            set s = s + "☆"
+        set i += 1
+    give s
+
+task trust_item(e, t, d):
+    give "<div class=\"trust-item\"><span class=\"e\">" + e + "</span><span><b>" + t + "</b><small>" + d + "</small></span></div>"
+
+task plural(n):
+    when n == 1:
+        give ""
+    give "s"
+
 ~ -------------------------------------------------------------- the storefront
 task product_card(pr):
-    make sold_out = ""
-    make button = "<form method=\"post\" action=\"/add-to-cart\"><input type=\"hidden\" name=\"id\" value=\"" + pr["id"] + "\"><button>Add to cart</button></form>"
+    make badge = ""
+    when contains(pr, "was"):
+        make off = round((1 - pr["price"] / pr["was"]) * 100)
+        set badge = "<span class=\"badge\">-" + off + "%</span>"
+    make prices = "<span class=\"price\">" + money(pr["price"]) + "</span>"
+    when contains(pr, "was"):
+        set prices = prices + "<span class=\"was\">" + money(pr["was"]) + "</span>"
+    make button = "<form method=\"post\" action=\"/add-to-cart\"><input type=\"hidden\" name=\"id\" value=\"" + pr["id"] + "\"><button class=\"btn block\">Add to cart</button></form>"
     when pr["stock"] <= 0:
-        set button = "<button disabled>Sold out</button>"
+        set button = "<button class=\"btn block\" disabled>Sold out</button>"
     give join([
         "<article class=\"card\">",
-        "<a href=\"/product?id=" + pr["id"] + "\"><h3>" + esc(pr["name"]) + "</h3></a>",
-        "<p class=\"price\">" + money(pr["price"]) + "</p>",
-        "<p class=\"desc\">" + esc(pr["desc"]) + "</p>",
+        badge,
+        "<a href=\"/product?id=" + pr["id"] + "\"><div class=\"thumb\" style=\"--tint:" + pf(pr, "tint", "#f3f5f8") + "\">" + pf(pr, "emoji", "📦") + "</div></a>",
+        "<div class=\"body\">",
+        "<span class=\"cat\">" + esc(pf(pr, "cat", "General")) + "</span>",
+        "<a class=\"name\" href=\"/product?id=" + pr["id"] + "\">" + esc(pr["name"]) + "</a>",
+        "<span class=\"rating\"><span class=\"stars\">" + stars(pf(pr, "rating", 5)) + "</span> " + pf(pr, "rating", 5) + " (" + pf(pr, "reviews", 0) + ")</span>",
+        "<div class=\"price-row\">" + prices + "</div>",
         button,
+        "</div>",
         "</article>",
     ], "\n")
 
 task view_home(req):
     make me = who(req)
     make products = load("products", [])
+    make q = trim(p(req, "q", ""))
     make cards = ""
+    make shown = 0
     for each pr in products:
-        set cards = cards + product_card(pr)
-    make body = flash_box(req) + "<h1>The shop</h1><div class=\"grid\">" + cards + "</div>"
-    give ok(page("Shop", me, body))
+        make keep = yes
+        when q != "":
+            set keep = contains(lower(pr["name"] + " " + pf(pr, "cat", "")), lower(q))
+        when keep:
+            set cards = cards + product_card(pr)
+            set shown += 1
+    make hero = ""
+    when q == "":
+        set hero = join([
+            "<section class=\"hero\">",
+            "<div class=\"hero-text\">",
+            "<span class=\"tag\">🌱 New season drop</span>",
+            "<h1>Your one-stop <em>Sprout</em> shop</h1>",
+            "<p>Mugs, hoodies, stickers and more — everything for people who grow software. Free shipping on orders over $50.</p>",
+            "<a class=\"btn big\" href=\"#products\">Shop now</a>",
+            "</div>",
+            "<div class=\"hero-art\">🌱☕🧥</div>",
+            "</section>",
+            "<div class=\"trust\">",
+            trust_item("🚚", "Fast shipping", "Worldwide in 3–5 days"),
+            trust_item("🔒", "Secure checkout", "Your data stays yours"),
+            trust_item("↩️", "Easy returns", "30-day no-fuss policy"),
+            trust_item("🌱", "Built in Sprout", "Served by serve()"),
+            "</div>",
+        ], "\n")
+    make head = "<div class=\"section-head\" id=\"products\"><h2>Featured products</h2><a href=\"/\">View all →</a></div>"
+    when q != "":
+        set head = "<div class=\"section-head\" id=\"products\"><h2>" + shown + " result" + plural(shown) + " for &ldquo;" + esc(q) + "&rdquo;</h2><a href=\"/\">Clear search</a></div>"
+    make grid = "<div class=\"grid\">" + cards + "</div>"
+    when shown == 0:
+        set grid = "<p class=\"muted\">No products match &ldquo;" + esc(q) + "&rdquo;. <a href=\"/\">See everything →</a></p>"
+    give ok(page("Shop", me, flash_box(req) + hero + head + grid))
 
 task find_product(id):
     make products = load("products", [])
@@ -189,17 +276,25 @@ task view_product(req):
     make pr = find_product(p(req, "id", ""))
     when pr == nothing:
         give not_found()
-    make button = "<form method=\"post\" action=\"/add-to-cart\"><input type=\"hidden\" name=\"id\" value=\"" + pr["id"] + "\"><button>Add to cart</button></form>"
+    make prices = "<span class=\"price\">" + money(pr["price"]) + "</span>"
+    when contains(pr, "was"):
+        set prices = prices + " <span class=\"was\">" + money(pr["was"]) + "</span>"
+    make button = "<form method=\"post\" action=\"/add-to-cart\"><input type=\"hidden\" name=\"id\" value=\"" + pr["id"] + "\"><button class=\"btn big\">Add to cart</button></form>"
     when pr["stock"] <= 0:
-        set button = "<button disabled>Sold out</button>"
+        set button = "<button class=\"btn big\" disabled>Sold out</button>"
     make body = join([
-        "<p><a href=\"/\">← Back</a></p>",
+        "<a class=\"backlink\" href=\"/\">← Back to shop</a>",
         "<div class=\"detail\">",
+        "<div class=\"thumb\" style=\"--tint:" + pf(pr, "tint", "#f3f5f8") + "\">" + pf(pr, "emoji", "📦") + "</div>",
+        "<div>",
+        "<span class=\"cat\">" + esc(pf(pr, "cat", "General")) + "</span>",
         "<h1>" + esc(pr["name"]) + "</h1>",
-        "<p class=\"price\">" + money(pr["price"]) + "</p>",
+        "<p class=\"rating\"><span class=\"stars\">" + stars(pf(pr, "rating", 5)) + "</span> " + pf(pr, "rating", 5) + " · " + pf(pr, "reviews", 0) + " reviews</p>",
+        "<div class=\"price-row\" style=\"margin:14px 0\">" + prices + "</div>",
         "<p>" + esc(pr["desc"]) + "</p>",
         "<p class=\"muted\">" + pr["stock"] + " in stock</p>",
         button,
+        "</div>",
         "</div>",
     ], "\n")
     give ok(page(pr["name"], me, body))
@@ -407,7 +502,7 @@ task view_dashboard(req):
         flash_box(req),
         "<h1>Dashboard</h1>",
         "<div class=\"stats\">",
-        "<div class=\"stat\"><span>" + money(revenue) + "</span>Revenue</div>",
+        "<div class=\"stat accent\"><span>" + money(revenue) + "</span>Revenue</div>",
         "<div class=\"stat\"><span>" + length(orders) + "</span>Orders</div>",
         "<div class=\"stat\"><span>" + length(products) + "</span>Products</div>",
         "<div class=\"stat\"><span>" + length(keys(users)) + "</span>Customers</div>",
