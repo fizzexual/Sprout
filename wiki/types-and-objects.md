@@ -164,6 +164,47 @@ show is_a(d, "Animal") ~ yes   (an ancestor)
 show is_a(d, "Cat")    ~ no
 ```
 
+## Operators & custom display
+
+A type can decide what `+`, `==`, `<` — and even how the object **prints** — mean, so your own
+types behave like built-in values.
+
+```sprout
+type Money:
+    make cents
+    task plus(self, other):
+        give Money(self.cents + other.cents)
+    task compare(self, other):
+        give self.cents - other.cents
+    task text(self):
+        give "$" + (self.cents / 100)
+
+make a = Money(500)
+make b = Money(750)
+show a + b        ~ $12.5         (plus, then text)
+show a < b        ~ yes           (compare)
+show [a, b]       ~ [$5, $7.5]    (text is used inside the list, too)
+```
+
+Define any of these methods and the matching operator calls it:
+
+| Method | Drives | Should give |
+| --- | --- | --- |
+| `plus(self, other)` | `a + b` | the result |
+| `minus(self, other)` | `a - b` | the result |
+| `multiply(self, other)` | `a * b` | the result |
+| `divide(self, other)` | `a / b` | the result |
+| `modulo(self, other)` | `a % b` | the result |
+| `equals(self, other)` | `a == b` and `a != b` | yes/no |
+| `compare(self, other)` | `a < b`, `<=`, `>`, `>=` | a number `< 0`, `0`, or `> 0` |
+| `text(self)` | `show a`, f-strings, `"" + a` | the text to display |
+
+- Dispatch is on the **left** operand: `a + b` uses `a`'s `plus`. (Right-hand dispatch like
+  `2 + money` is a planned refinement.)
+- A type without these methods uses the normal rules — `+` is for numbers/text, `==` compares
+  by value. Plain maps and lists are unaffected.
+- `text(self)` is used everywhere an object becomes text, **including inside lists and maps**.
+
 ## Notes & current limits
 
 - An object **is** a tagged map underneath, so it's a value like any other — store it in a

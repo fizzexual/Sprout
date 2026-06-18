@@ -28,7 +28,7 @@ link straight to the page that explains it.
 | [Text (strings)](wiki/text.md) | String literals, escapes, **f-strings**, character indexing `s[i]`, every text builtin |
 | [Lists, maps, ranges & comprehensions](wiki/collections.md) | `[…]` lists, `{…}` maps, indexing, `for each`, ranges, `[expr for each …]` |
 | [Tasks, lambdas & closures](wiki/tasks-and-lambdas.md) | `task` / `give`, recursion, first-class tasks, `map` / `filter` / `reduce`, lambdas, closures |
-| [Types & objects](wiki/types-and-objects.md) | `type`: classes, fields, methods, `self`, construction, inheritance (`from`), `is_a`, polymorphism |
+| [Types & objects](wiki/types-and-objects.md) | `type`: classes, fields, methods, `self`, construction, inheritance (`from`), `is_a`, polymorphism, operator overloading (`plus`/`compare`/`text`) |
 | [Pattern matching](wiki/pattern-matching.md) | `match` / `is` / `otherwise`, list `[a, b]` and map `{name}` destructuring |
 | [Errors](wiki/errors.md) | `try` / `caught` / `fail`, the `{message, kind, line}` error map, the 7 error kinds |
 

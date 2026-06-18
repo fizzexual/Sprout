@@ -1,0 +1,45 @@
+~ Operator overloading: make your own types behave like built-in values.
+~ A type can define plus / minus / multiply / divide / modulo, equals (== and !=),
+~ compare (for < <= > >=), and text (how it prints).
+
+type Money:
+    make cents
+    task plus(self, other):
+        give Money(self.cents + other.cents)
+    task minus(self, other):
+        give Money(self.cents - other.cents)
+    task compare(self, other):
+        give self.cents - other.cents
+    task text(self):
+        make c = self.cents % 100
+        make tail = "" + c
+        when c < 10:
+            set tail = "0" + c
+        give "$" + floor(self.cents / 100) + "." + tail
+
+make wallet = Money(2000)
+make coffee = Money(450)
+make snack = Money(199)
+show "You have", wallet
+show "After a coffee and a snack:", wallet - coffee - snack
+show "Coffee dearer than a snack?", coffee > snack
+show "Two coffees cost", coffee + coffee
+
+~ A 2-D vector that prints the way you want and adds with +.
+type Vec:
+    make x
+    make y
+    task plus(self, other):
+        give Vec(self.x + other.x, self.y + other.y)
+    task multiply(self, k):
+        give Vec(self.x * k, self.y * k)
+    task text(self):
+        give "<" + self.x + ", " + self.y + ">"
+
+make path = [Vec(0, 0), Vec(1, 2), Vec(3, 1)]
+make total = Vec(0, 0)
+for each step in path:
+    set total = total + step
+show "The path is", path
+show "Its sum is", total
+show "Doubled, that's", total * 2

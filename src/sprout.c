@@ -176,6 +176,19 @@ static void sb_add(char **buf, size_t *cap, size_t *len, const char *s) {
   memcpy(*buf + *len, s, sl + 1); *len += sl;
 }
 static int g_str_depth = 0;
+/* object types (classes) are defined much further down; declare what stringify() and
+   eval_binary() need so they can dispatch to a type's text()/plus()/compare()/... methods. */
+typedef struct TypeReg TypeReg;
+static TypeReg *type_find(const char *name);
+static int type_is_a(TypeReg *t, const char *name);
+static TaskDef *type_method(TypeReg *t, const char *name);
+static Value call_task_v(TaskDef *t, Value *argv, int argc, int line);
+/* if v is an object whose type defines method `name`, return that method, else NULL */
+static TaskDef *type_op_method(Value v, const char *name) {
+  if (v.type != V_MAP || !v.map || !v.map->classname) return NULL;
+  TypeReg *t = type_find(v.map->classname);
+  return t ? type_method(t, name) : NULL;
+}
 static char *stringify_inner(Value v);
 static char *stringify(Value v) {
   if (++g_str_depth > 300) { g_str_depth--; return dup_str("..."); }   /* guard self-referential values */
@@ -195,6 +208,10 @@ static char *stringify_inner(Value v) {
       sb_add(&out, &cap, &len, "]"); return out;
     }
     case V_MAP: {
+      if (v.map && v.map->classname) {                 /* an object with a text() method renders itself */
+        TaskDef *tm = type_op_method(v, "text");
+        if (tm) { Value rv = call_task_v(tm, &v, 1, 0); if (rv.type == V_STR) return dup_str(rv.str ? rv.str : ""); }
+      }
       SMap *m = v.map; size_t cap = 0, len = 0; char *out = NULL;
       if (m && m->classname) { sb_add(&out, &cap, &len, m->classname); sb_add(&out, &cap, &len, " "); }
       sb_add(&out, &cap, &len, "{");
@@ -1298,9 +1315,6 @@ static void gc_collect(void) {
 #define MAX_DEPTH 6000
 
 static Value eval(Expr *e, Env *env);
-typedef struct TypeReg TypeReg;                      /* object types (classes); defined fully below */
-static TypeReg *type_find(const char *name);
-static int type_is_a(TypeReg *t, const char *name);
 static void exec(Stmt *s, Env *env);
 static void load_module(const char *name);   /* defined near main(); pulls in another project file */
 static char *module_basename(const char *path);   /* "server" from "modules/server.sprout" */
@@ -2329,21 +2343,34 @@ static Value apply_arith(TokType op, Value l, Value r, int line) {
 static Value eval_binary(Expr *e, Env *env) {
   Value l = eval(e->left, env), r = eval(e->right, env);
   switch (e->op) {
-    case T_PLUS:
-    case T_MINUS: case T_STAR: case T_SLASH: case T_PERCENT:
+    case T_PLUS: case T_MINUS: case T_STAR: case T_SLASH: case T_PERCENT: {
+      const char *opm = (e->op==T_PLUS)?"plus":(e->op==T_MINUS)?"minus":(e->op==T_STAR)?"multiply":(e->op==T_SLASH)?"divide":"modulo";
+      TaskDef *om = type_op_method(l, opm);            /* a type overloads + - * / % via plus/minus/multiply/divide/modulo */
+      if (om) { Value argv[2] = { l, r }; return call_task_v(om, argv, 2, e->line); }
       return apply_arith(e->op, l, r, e->line);
+    }
     case T_LT: case T_LE: case T_GT: case T_GE: {
       int cmp;
-      if (l.type == V_NUM && r.type == V_NUM) cmp = (l.num < r.num) ? -1 : (l.num > r.num) ? 1 : 0;
+      TaskDef *cm = type_op_method(l, "compare");      /* a type orders itself via compare(self, other) -> number */
+      if (cm) {
+        Value argv[2] = { l, r };
+        Value cv = call_task_v(cm, argv, 2, e->line);
+        if (cv.type != V_NUM) fail_kind(e->line, "type", "compare(self, other) must give a number (< 0, 0, or > 0).");
+        cmp = (cv.num < 0) ? -1 : (cv.num > 0) ? 1 : 0;
+      }
+      else if (l.type == V_NUM && r.type == V_NUM) cmp = (l.num < r.num) ? -1 : (l.num > r.num) ? 1 : 0;
       else if (l.type == V_STR && r.type == V_STR) cmp = strcmp(l.str, r.str);
-      else { fail_kind(e->line, "type", "I can only compare two numbers or two pieces of text."); return vnone(); }
+      else { fail_kind(e->line, "type", "I can only compare two numbers or two pieces of text (or a type that has a compare method)."); return vnone(); }
       if (e->op == T_LT) return vbool(cmp < 0);
       if (e->op == T_LE) return vbool(cmp <= 0);
       if (e->op == T_GT) return vbool(cmp > 0);
       return vbool(cmp >= 0);
     }
-    case T_EQEQ:  return vbool(values_equal(l, r));
-    case T_BANGEQ:return vbool(!values_equal(l, r));
+    case T_EQEQ: case T_BANGEQ: {
+      TaskDef *em = type_op_method(l, "equals");       /* a type defines equals(self, other) -> yes/no */
+      int eq = em ? is_truthy(call_task_v(em, (Value[]){ l, r }, 2, e->line)) : values_equal(l, r);
+      return vbool(e->op == T_EQEQ ? eq : !eq);
+    }
     case T_IN:    /* `x in xs` — membership: list item, map key, or substring of text */
       if (r.type == V_LIST) { for (int i = 0; r.list && i < r.list->n; i++) if (values_equal(l, r.list->items[i])) return vbool(1); return vbool(0); }
       if (r.type == V_MAP)  return vbool(l.type == V_STR && r.map && map_index(r.map, l.str ? l.str : "") >= 0);
@@ -2956,7 +2983,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.1.10"
+#define SPROUT_VERSION "0.1.11"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);

@@ -55,8 +55,11 @@ The `type` keyword: classes that bundle **fields** (data) with **methods** (beha
 - **Override** a method by redefining it; calls use **virtual dispatch** (a parent method
   that calls `self.sound()` runs the child's version)
 - **`is_a(obj, "Animal")`** — true for the type or any ancestor (like Java's `instanceof`)
+- **Operator overloading + custom display** *(v0.1.11)* — a type can define `plus` / `minus` /
+  `multiply` / `divide` / `modulo`, `equals`, `compare`, and `text`, so `+` `-` `*` `==` `<`
+  and `show` all work on your own types
 
-→ Full page: **[Types & objects → Inheritance](types-and-objects.md#inheritance)**
+→ Full page: **[Types & objects](types-and-objects.md)** ([Inheritance](types-and-objects.md#inheritance) · [Operators](types-and-objects.md#operators--custom-display))
 
 ## Phase 3 — Interfaces & type annotations 📋
 
