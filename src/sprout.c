@@ -819,6 +819,8 @@ static Stmt *statement(void) {
     case T_TYPE: {                       /* type Point:  <make fields...>  <task methods...> */
       advance();
       Token name = expect(T_IDENT, "I expected a name for the type, like: type Point:");
+      char *parent = NULL;                 /* optional single inheritance: type Dog from Animal: */
+      if (check(T_IDENT) && !strcmp(peek().text, "from")) { advance(); Token pp = expect(T_IDENT, "I expected a parent type name after 'from' (like: type Dog from Animal:)."); parent = pp.text; }
       expect(T_COLON, "I expected ':' after the type name.");
       expect(T_NEWLINE, "I expected the type's body on the next lines.");
       expect(T_INDENT, "I expected the type's fields and tasks to be indented.");
@@ -843,7 +845,7 @@ static Stmt *statement(void) {
       }
       expect(T_DEDENT, "I expected the type's body to finish here.");
       Stmt *s = new_stmt(S_TYPE, name.line);
-      s->name = name.text; s->params = fields; s->nparams = nf; s->values = defs; s->nvalues = nf; s->body = methods; s->nbody = nm;
+      s->name = name.text; s->name2 = parent; s->params = fields; s->nparams = nf; s->values = defs; s->nvalues = nf; s->body = methods; s->nbody = nm;
       return s;
     }
     case T_FOR: {
@@ -1296,6 +1298,9 @@ static void gc_collect(void) {
 #define MAX_DEPTH 6000
 
 static Value eval(Expr *e, Env *env);
+typedef struct TypeReg TypeReg;                      /* object types (classes); defined fully below */
+static TypeReg *type_find(const char *name);
+static int type_is_a(TypeReg *t, const char *name);
 static void exec(Stmt *s, Env *env);
 static void load_module(const char *name);   /* defined near main(); pulls in another project file */
 static char *module_basename(const char *path);   /* "server" from "modules/server.sprout" */
@@ -1374,7 +1379,7 @@ static int edit_distance(const char *a, const char *b) {
 
 static const char *const BUILTIN_NAMES[] = {
   "range","length","add","keys","contains","first","last",
-  "remove","insert","sort","sort_by","reverse","index_of","values","copy","kind_of","map","filter","reduce",
+  "remove","insert","sort","sort_by","reverse","index_of","values","copy","kind_of","is_a","map","filter","reduce",
   "sum","count","unique","zip","flatten","slice","words","lines","title","seed",
   "abs","round","floor","ceil","sqrt","pow","min","max","random","number",
   "upper","lower","trim","replace","split","join","starts_with","ends_with",
@@ -1874,6 +1879,12 @@ static Value call_builtin(Expr *call, Env *env) {
     switch (a[0].type) { case V_NUM: k="number"; break; case V_STR: k="text"; break; case V_BOOL: k="yes-no"; break; case V_LIST: k="list"; break; case V_MAP: k=(a[0].map && a[0].map->classname) ? a[0].map->classname : "map"; break; case V_TASK: k="task"; break; default: k="nothing"; }
     return vstr_take(dup_str(k));
   }
+  if (!strcmp(name, "is_a")) {   /* is this object that type, or a descendant of it? (like Java's instanceof) */
+    if (n != 2 || a[1].type != V_STR) fail(call->line, "is_a needs a value and a type name, like is_a(d, \"Animal\").");
+    if (a[0].type != V_MAP || !a[0].map || !a[0].map->classname) return vbool(0);
+    TypeReg *t = type_find(a[0].map->classname);
+    return vbool(t && type_is_a(t, a[1].str ? a[1].str : ""));
+  }
   /* ---- higher-order: run a task over a list (the "easy data" trio + each) ---- */
   if (!strcmp(name, "map")) {
     if (n != 2 || a[0].type != V_LIST || a[1].type != V_TASK) fail(call->line, "map needs a list and a task, like map(names, shout).");
@@ -2215,23 +2226,31 @@ static Value call_system(Expr *e, Env *env) {
    `type Point:` defines a class. An instance is just a map (SMap) whose `classname` is the
    type name; its fields are the map's entries, so field get/set reuse the [ ] machinery.
    A method is a task whose first parameter is the receiver (by convention, `self`). */
-typedef struct { char *name; int fileid; char **fields; Expr **defaults; int nfields; TaskDef *methods; int nmethods; } TypeReg;
+struct TypeReg { char *name; char *parent; int fileid; char **fields; Expr **defaults; int nfields; TaskDef *methods; int nmethods; };
 static TypeReg *g_types = NULL; static int g_ntypes = 0, g_captypes = 0;
 
 static TypeReg *type_find(const char *name) {
   for (int i = 0; i < g_ntypes; i++) if (!strcmp(g_types[i].name, name)) return &g_types[i];
   return NULL;
 }
+/* find a method by name, looking up the inheritance chain (child overrides parent). */
 static TaskDef *type_method(TypeReg *t, const char *name) {
   for (int i = 0; i < t->nmethods; i++) if (!strcmp(t->methods[i].name, name)) return &t->methods[i];
+  if (t->parent) { TypeReg *p = type_find(t->parent); if (p) return type_method(p, name); }
   return NULL;
+}
+/* is `t` the type `name`, or does it inherit from it? (for is_a / instanceof) */
+static int type_is_a(TypeReg *t, const char *name) {
+  for (TypeReg *cur = t; cur; cur = cur->parent ? type_find(cur->parent) : NULL)
+    if (!strcmp(cur->name, name)) return 1;
+  return 0;
 }
 /* register a `type`: record its fields, and build a TaskDef for each method. */
 static void type_register(Stmt *s, int fileid, Env *home) {
   if (type_find(s->name)) failf(s->line, "there are two types named '%s'.", s->name);
   if (g_ntypes >= g_captypes) { g_captypes = g_captypes ? g_captypes * 2 : 8; g_types = (TypeReg *)realloc(g_types, g_captypes * sizeof(TypeReg)); }
   TypeReg *t = &g_types[g_ntypes++];
-  t->name = s->name; t->fileid = fileid; t->fields = s->params; t->defaults = s->values; t->nfields = s->nparams;
+  t->name = s->name; t->parent = s->name2; t->fileid = fileid; t->fields = s->params; t->defaults = s->values; t->nfields = s->nparams;
   t->nmethods = s->nbody;
   t->methods = s->nbody ? (TaskDef *)calloc((size_t)s->nbody, sizeof(TaskDef)) : NULL;
   for (int i = 0; i < s->nbody; i++) {
@@ -2241,17 +2260,34 @@ static void type_register(Stmt *s, int fileid, Env *home) {
     t->methods[i].is_public = 0; t->methods[i].fileid = fileid; t->methods[i].home = home; t->methods[i].file_env = home;
   }
 }
-/* build a new instance: bind the constructor args (then defaults) to the fields, in order. */
-static Value type_instantiate(TypeReg *t, Expr *call, Env *env) {
-  if (call->nargs > t->nfields) { char m[200]; snprintf(m, sizeof m, "%s takes at most %d value(s), but got %d.", t->name, t->nfields, call->nargs); fail(call->line, m); }
-  SMap *m = map_new(); m->classname = t->name;
+/* total number of fields, including those inherited from ancestors. */
+static int type_field_count(TypeReg *t) {
+  int n = t->nfields;
+  if (t->parent) { TypeReg *p = type_find(t->parent); if (p) n += type_field_count(p); }
+  return n;
+}
+/* bind the constructor args (then defaults) to the fields — ancestors' fields first. */
+static void type_bind_fields(TypeReg *t, Expr *call, Env *env, SMap *m, int *argi) {
+  if (t->parent) {
+    TypeReg *p = type_find(t->parent);
+    if (!p) { char mm[200]; snprintf(mm, sizeof mm, "type '%s' inherits from unknown type '%s' (is it spelled right, and defined?).", t->name, t->parent); fail(call->line, mm); return; }
+    type_bind_fields(p, call, env, m, argi);
+  }
   for (int i = 0; i < t->nfields; i++) {
     Value fv;
-    if (i < call->nargs)     fv = eval(call->args[i], env);
+    if (*argi < call->nargs) { fv = eval(call->args[*argi], env); (*argi)++; }
     else if (t->defaults[i]) fv = eval(t->defaults[i], env);
-    else { char mm[200]; snprintf(mm, sizeof mm, "%s needs a value for '%s'.", t->name, t->fields[i]); fail(call->line, mm); return vnone(); }
+    else { char mm[200]; snprintf(mm, sizeof mm, "%s needs a value for '%s'.", t->name, t->fields[i]); fail(call->line, mm); return; }
     map_set(m, t->fields[i], fv);
   }
+}
+/* build a new instance: its own type tag, with all fields (inherited + own) bound in order. */
+static Value type_instantiate(TypeReg *t, Expr *call, Env *env) {
+  int total = type_field_count(t);
+  if (call->nargs > total) { char m[200]; snprintf(m, sizeof m, "%s takes at most %d value(s), but got %d.", t->name, total, call->nargs); fail(call->line, m); }
+  SMap *m = map_new(); m->classname = t->name;
+  int argi = 0;
+  type_bind_fields(t, call, env, m, &argi);
   return vmap(m);
 }
 /* call a method on an instance: bind `self` to the receiver, then the given args. */
@@ -2773,7 +2809,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.1.7"
+#define SPROUT_VERSION "0.1.8"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);

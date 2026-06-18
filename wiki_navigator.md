@@ -6,7 +6,8 @@ link straight to the page that explains it.
 
 > New here? Read [Getting started](wiki/getting-started.md), keep the
 > [Cheat sheet](wiki/cheatsheet.md) open in another tab, and work down the **Language guide**
-> in order. Everything below is verified against the real interpreter (Sprout v0.1.5).
+> in order. Wondering what Sprout can do *yet*? See the **[Roadmap](wiki/roadmap.md)**.
+> Everything below is verified against the real interpreter (Sprout v0.1.8).
 
 ---
 
@@ -27,13 +28,14 @@ link straight to the page that explains it.
 | [Text (strings)](wiki/text.md) | String literals, escapes, **f-strings**, character indexing `s[i]`, every text builtin |
 | [Lists, maps, ranges & comprehensions](wiki/collections.md) | `[…]` lists, `{…}` maps, indexing, `for each`, ranges, `[expr for each …]` |
 | [Tasks, lambdas & closures](wiki/tasks-and-lambdas.md) | `task` / `give`, recursion, first-class tasks, `map` / `filter` / `reduce`, lambdas, closures |
+| [Types & objects](wiki/types-and-objects.md) | `type`: classes, fields, methods, `self`, construction, inheritance (`from`), `is_a`, polymorphism |
 | [Pattern matching](wiki/pattern-matching.md) | `match` / `is` / `otherwise`, list `[a, b]` and map `{name}` destructuring |
 | [Errors](wiki/errors.md) | `try` / `caught` / `fail`, the `{message, kind, line}` error map, the 7 error kinds |
 
 ### Reference
 | Page | What's inside |
 | --- | --- |
-| [Builtins reference](wiki/builtins-reference.md) | **All 65 builtins** — signature, behavior, example, and the error each raises |
+| [Builtins reference](wiki/builtins-reference.md) | **All 66 builtins** — signature, behavior, example, and the error each raises |
 | [Grammar & decided edge cases](wiki/grammar-and-edge-cases.md) | The EBNF, indentation rules, reserved words, the rules settled at the freeze |
 | [Glossary](wiki/glossary.md) | Every Sprout term, one line each |
 
@@ -97,7 +99,7 @@ link straight to the page that explains it.
 | `f"… {expr} …"` | f-string (text with values inside) | [Text](wiki/text.md) |
 | `~` | Comment to end of line | [Syntax basics](wiki/syntax-basics.md) |
 
-### Builtins (all 65)
+### Builtins (all 66)
 Full signatures, behavior, examples, and the error each raises live in the
 **[Builtins reference](wiki/builtins-reference.md)**. Grouped:
 
@@ -106,7 +108,7 @@ Full signatures, behavior, examples, and the error each raises live in the
 - **Lists** — `add` `append` `remove` `insert` `first` `last` `length` `sort` `sort_by` `reverse` `unique` `zip` `flatten` `slice` `range` `index_of` `contains` `count` → also [Collections](wiki/collections.md)
 - **Maps** — `keys` `values` `length` `remove` `contains` → also [Collections](wiki/collections.md)
 - **Higher-order** — `map` `filter` `reduce` → also [Tasks](wiki/tasks-and-lambdas.md)
-- **Inspect & convert** — `kind_of` `copy` `json` `number`
+- **Inspect & convert** — `kind_of` `is_a` `copy` `json` `number`
 - **Random & time** — `random` `seed` `now` `today` `wait` → also [Files, web, system & time](wiki/io-web-system-time.md)
 - **Input** — `ask`
 - **Files** — `read` `write` `append` `exists` → [Files, web, system & time](wiki/io-web-system-time.md)

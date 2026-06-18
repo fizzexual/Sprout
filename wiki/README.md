@@ -12,6 +12,7 @@ find-anything index of every keyword, operator, builtin, and command.
 
 **Start here**
 - [Getting started](getting-started.md) · [Cheat sheet](cheatsheet.md)
+- [**Roadmap**](roadmap.md) — every phase, what's built and what's planned (start here to find *"can Sprout do X yet?"*)
 
 **Language guide**
 - [Syntax basics](syntax-basics.md) — values, `make` / `set` / `show`, scope
@@ -25,7 +26,7 @@ find-anything index of every keyword, operator, builtin, and command.
 - [Errors](errors.md) — `try` / `caught` / `fail`
 
 **Reference**
-- [Builtins reference](builtins-reference.md) — all 65 builtins
+- [Builtins reference](builtins-reference.md) — all 66 builtins
 - [Grammar & decided edge cases](grammar-and-edge-cases.md) — EBNF, indentation, reserved words
 - [Glossary](glossary.md)
 

@@ -220,7 +220,7 @@ That's the complete set of 34. A few notes on the ones that surprise people:
 - **`otherwise` vs `caught`** are separate words on purpose: `otherwise` is the else-branch of `when`; `caught` is the catch-block of `try`. Keeping them distinct means each header reads as exactly one thing.
 - **`orwhen`** is the committed spelling for "else-if" — one word, not `else when` or `or when`.
 
-**Built-in functions** are predefined *names*, not keywords. You *may* shadow one with your own variable (`make length = 5`), and the function stays callable as a function — but it's clearer not to. The 65 builtins are listed and explained in [builtins reference](builtins-reference.md). There's also one reserved built-in module name: you can't define your own module called `system`.
+**Built-in functions** are predefined *names*, not keywords. You *may* shadow one with your own variable (`make length = 5`), and the function stays callable as a function — but it's clearer not to. The 66 builtins are listed and explained in [builtins reference](builtins-reference.md). There's also one reserved built-in module name: you can't define your own module called `system`.
 
 ---
 
@@ -491,6 +491,6 @@ Each was left out so there's one obvious way to do the thing.
 - [tasks & lambdas](tasks-and-lambdas.md) — named tasks, closures, first-class tasks
 - [pattern matching](pattern-matching.md) — `match` / `is` / `otherwise`
 - [errors](errors.md) — `try` / `caught` / `fail`, the `kind` table, hard vs soft
-- [builtins reference](builtins-reference.md) — all 65 built-in functions
+- [builtins reference](builtins-reference.md) — all 66 built-in functions
 - [cli & flags](cli-and-flags.md) — the `sprout` commands, `--sandbox`, env vars
 - [cheatsheet](cheatsheet.md) — the whole language on one page

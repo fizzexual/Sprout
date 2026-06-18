@@ -73,3 +73,43 @@ test "calling a method that doesn't exist is an error":
     expect error:
         make p = Point(1, 2)
         show p.nope()
+
+~ --- inheritance: type Child from Parent ---
+type Animal:
+    make name
+    make legs = 4
+    task sound(self):
+        give "..."
+    task describe(self):
+        give self.name + " says " + self.sound()
+
+type Dog from Animal:
+    make breed
+    task sound(self):
+        give "woof"
+
+type Cat from Animal:
+    make indoor = yes
+
+test "a child inherits its parent's fields (parent fields come first)":
+    make d = Dog("Rex", 4, "Lab")
+    expect d.name == "Rex"
+    expect d.legs == 4
+    expect d.breed == "Lab"
+
+test "a child inherits methods and overrides with virtual dispatch":
+    make d = Dog("Rex", 4, "Lab")
+    expect d.sound() == "woof"
+    expect d.describe() == "Rex says woof"
+
+test "inherited field defaults apply":
+    make c = Cat("Felix")
+    expect c.legs == 4
+    expect c.indoor == yes
+
+test "kind_of is the concrete type; is_a walks the inheritance chain":
+    make d = Dog("Rex", 4, "Lab")
+    expect kind_of(d) == "Dog"
+    expect is_a(d, "Dog")
+    expect is_a(d, "Animal")
+    expect is_a(d, "Cat") == no

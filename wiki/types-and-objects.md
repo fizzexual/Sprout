@@ -121,11 +121,55 @@ show p.x                 ~ 3  (unchanged)
 show kind_of(c)          ~ "Point"
 ```
 
+## Inheritance
+
+A type can build on another with `from`. The child **inherits** the parent's fields and
+methods, and may add its own or **override** them.
+
+```sprout
+type Animal:
+    make name
+    make legs = 4
+    task sound(self):
+        give "..."
+    task describe(self):
+        give self.name + " says " + self.sound()
+
+type Dog from Animal:        ~ a Dog is an Animal, plus a breed
+    make breed
+    task sound(self):        ~ override the parent's sound()
+        give "woof"
+
+make d = Dog("Rex", 4, "Lab")   ~ name, legs (inherited), breed (own) — parent fields first
+show d.describe()               ~ "Rex says woof"
+```
+
+- **Fields are inherited, parent-first.** A constructor fills the ancestor's fields, then the
+  child's, in declaration order: `Dog("Rex", 4, "Lab")` is `name`, `legs`, `breed`.
+- **Methods are inherited.** `d` can call `describe()` even though only `Animal` defines it.
+- **Overriding uses virtual dispatch.** `Dog` redefines `sound()`; the inherited `describe()`
+  calls `self.sound()`, which runs **Dog's** version — so `describe()` says "woof", not "...".
+- One parent per type (single inheritance); chains are fine (`type Puppy from Dog:`).
+
+### `is_a` — checking the type
+
+`is_a(value, "TypeName")` is true if the value is that type **or any ancestor** (like Java's
+`instanceof`). `kind_of` always gives the *concrete* type.
+
+```sprout
+make d = Dog("Rex", 4, "Lab")
+show kind_of(d)        ~ "Dog"
+show is_a(d, "Dog")    ~ yes
+show is_a(d, "Animal") ~ yes   (an ancestor)
+show is_a(d, "Cat")    ~ no
+```
+
 ## Notes & current limits
 
 - An object **is** a tagged map underneath, so it's a value like any other — store it in a
   list or map, pass it to a task, return it.
 - `self` is just the conventional name for the first parameter — you may name it anything, but
   `self` reads clearly.
-- **Inheritance, interfaces, and type annotations are not here yet** — they're the next steps
-  on the roadmap. Today a type is a concrete blueprint with fields and methods.
+- Types are defined at the **top level** of a file (like tasks), not inside a task or block.
+- **Interfaces and type annotations aren't here yet** — they're the next steps on the
+  [roadmap](roadmap.md). There's no `super` call to a parent's overridden method yet, either.

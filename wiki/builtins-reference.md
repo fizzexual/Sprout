@@ -22,7 +22,7 @@ errors follow, see [Errors & error handling](errors.md).
 - [How builtins behave (the three patterns)](#how-builtins-behave-the-three-patterns)
 - [Numbers & math](#numbers--math) — `abs` `ceil` `floor` `round` `sqrt` `pow` `min` `max` `sum`
 - [Random & time](#random--time) — `random` `seed` `now` `today` `wait`
-- [Conversion & inspection](#conversion--inspection) — `number` `kind_of` `json`
+- [Conversion & inspection](#conversion--inspection) — `number` `kind_of` `is_a` `json`
 - [Text](#text) — `upper` `lower` `title` `trim` `replace` `split` `join` `words` `lines` `contains` `starts_with` `ends_with` `index_of` `count` `slice` `length`
 - [Lists](#lists) — `add` `remove` `insert` `first` `last` `length` `sort` `sort_by` `reverse` `unique` `zip` `flatten` `range` `slice` `map` `filter` `reduce` `copy` `contains` `index_of` `count` `sum`
 - [Maps](#maps) — `keys` `values` `contains` `remove` `length` `copy`
@@ -33,7 +33,7 @@ errors follow, see [Errors & error handling](errors.md).
 - [Persistence](#persistence) — `remember` `recall` `forget`
 - [Output & colour](#output--colour) — `color` (and `show`)
 - [The error a builtin raises](#the-error-a-builtin-raises)
-- [Quick index of all 65](#quick-index-of-all-65)
+- [Quick index of all 66](#quick-index-of-all-66)
 
 ---
 
@@ -299,7 +299,8 @@ The `or else` idiom is the standard way to supply a default — see
 ### `kind_of(x)` → text
 
 A value's type as text — one of `"number"`, `"text"`, `"yes-no"`, `"nothing"`,
-`"list"`, `"map"`, `"task"`. **Returns** new text. Perfect for branching on a type.
+`"list"`, `"map"`, `"task"` — or, for an **object** (an instance of a [`type`](types-and-objects.md)),
+the type's own name (e.g. `"Point"`). **Returns** new text. Perfect for branching on a type.
 
 ```sprout
 show kind_of(42)
@@ -320,6 +321,26 @@ map
 ```
 
 Bad input: `kind_of needs one value, like kind_of(x).`
+
+### `is_a(value, "TypeName")` → yes/no
+
+Is `value` an object of that [type](types-and-objects.md), or of a type that **inherits** from
+it? (Like Java's `instanceof`.) Non-objects are always `no`. **Returns** `yes`/`no`.
+
+```sprout
+type Animal:
+    make name
+type Dog from Animal:
+    make breed
+
+make d = Dog("Rex", "Lab")
+show is_a(d, "Dog")       ~ yes
+show is_a(d, "Animal")    ~ yes  (an ancestor)
+show is_a(d, "Cat")       ~ no
+show is_a(42, "Animal")   ~ no
+```
+
+Bad input: `is_a needs a value and a type name, like is_a(d, "Animal").`
 
 ### `json(text)` → any
 
@@ -1333,7 +1354,7 @@ The full model — the two tiers, the `caught` map shape, `fail` with a map — 
 
 ---
 
-## Quick index of all 65
+## Quick index of all 66
 
 | Builtin | Group | Mutates? | Returns |
 | --- | --- | --- | --- |
@@ -1353,6 +1374,7 @@ The full model — the two tiers, the `caught` map shape, `fail` with a map — 
 | `wait` | time | no | nothing |
 | `number` | conversion | no | number / nothing |
 | `kind_of` | inspection | no | text |
+| `is_a` | inspection | no | yes/no |
 | `json` | conversion | no | any |
 | `upper` | text | no | text |
 | `lower` | text | no | text |
@@ -1401,7 +1423,7 @@ The full model — the two tiers, the `caught` map shape, `fail` with a map — 
 | `run` (`system.run`) | system | (shell) | text / nothing |
 | `color` | output | no | text |
 
-That's all 65 (counting `run`, reached as `system.run`).
+That's all 66 (counting `run`, reached as `system.run`).
 
 ---
 
