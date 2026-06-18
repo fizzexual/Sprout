@@ -65,7 +65,7 @@ static const char *taskdef_name(TaskDef *t);   /* TaskDef's fields aren't known 
 typedef struct { Value *items; int n, cap; } SList;
 /* keys[]/vals[] stay insertion-ordered (so iteration order is unchanged); idx[] is an
    open-addressing hash index (storing position+1, 0 = empty) that makes key lookup O(1). */
-typedef struct { char **keys; Value *vals; int n, cap; int *idx; int idxcap; } SMap;
+typedef struct { char **keys; Value *vals; int n, cap; int *idx; int idxcap; const char *classname; } SMap;  /* classname != NULL marks an object instance of that type */
 struct Value { VType type; double num; char *str; int boolean; SList *list; SMap *map; TaskDef *task; };
 
 static Value vnum(double n)  { Value v = {0}; v.type = V_NUM;  v.num = n; return v; }
@@ -196,6 +196,7 @@ static char *stringify_inner(Value v) {
     }
     case V_MAP: {
       SMap *m = v.map; size_t cap = 0, len = 0; char *out = NULL;
+      if (m && m->classname) { sb_add(&out, &cap, &len, m->classname); sb_add(&out, &cap, &len, " "); }
       sb_add(&out, &cap, &len, "{");
       for (int i = 0; m && i < m->n; i++) { if (i) sb_add(&out, &cap, &len, ", "); sb_add(&out, &cap, &len, m->keys[i]); sb_add(&out, &cap, &len, ": "); char *p = stringify(m->vals[i]); sb_add(&out, &cap, &len, p); }
       sb_add(&out, &cap, &len, "}"); return out;
@@ -311,7 +312,7 @@ typedef enum {
   T_NUM, T_STR, T_IDENT,
   T_MAKE, T_SET, T_SHOW, T_WHEN, T_ORWHEN, T_OTHERWISE, T_REPEAT, T_WHILE, T_TIMES,
   T_MATCH, T_IS,
-  T_TASK, T_GIVE, T_FOR, T_EACH, T_IN, T_TO, T_USE, T_PUBLIC, T_PRIVATE, T_LEARN, T_TEST, T_EXPECT,
+  T_TASK, T_TYPE, T_GIVE, T_FOR, T_EACH, T_IN, T_TO, T_USE, T_PUBLIC, T_PRIVATE, T_LEARN, T_TEST, T_EXPECT,
   T_TRY, T_CAUGHT, T_FAIL, T_STOP, T_SKIP,
   T_AND, T_OR, T_NOT, T_YES, T_NO, T_NOTHING,
   T_PLUS, T_MINUS, T_STAR, T_SLASH, T_PERCENT, T_DOT,
@@ -336,7 +337,7 @@ static TokType keyword(const char *w) {
   static const struct { const char *word; TokType type; } table[] = {
     { "make", T_MAKE }, { "set", T_SET }, { "show", T_SHOW }, { "when", T_WHEN },
     { "orwhen", T_ORWHEN }, { "otherwise", T_OTHERWISE }, { "repeat", T_REPEAT },
-    { "while", T_WHILE }, { "times", T_TIMES }, { "task", T_TASK }, { "give", T_GIVE },
+    { "while", T_WHILE }, { "times", T_TIMES }, { "task", T_TASK }, { "type", T_TYPE }, { "give", T_GIVE },
     { "match", T_MATCH }, { "is", T_IS },
     { "for", T_FOR }, { "each", T_EACH }, { "in", T_IN }, { "to", T_TO }, { "use", T_USE },
     { "public", T_PUBLIC }, { "private", T_PRIVATE }, { "learn", T_LEARN },
@@ -508,7 +509,7 @@ static void tokenize(const char *src, int len) {
 }
 
 /* ---------------------------------------------------------------------- AST */
-typedef enum { E_NUM, E_STR, E_BOOL, E_NONE, E_VAR, E_UNARY, E_BINARY, E_LOGICAL, E_COALESCE, E_CALL, E_LIST, E_MAP, E_INDEX, E_MEMBER, E_LAMBDA, E_RANGE, E_COMPREHENSION } EKind;
+typedef enum { E_NUM, E_STR, E_BOOL, E_NONE, E_VAR, E_UNARY, E_BINARY, E_LOGICAL, E_COALESCE, E_CALL, E_LIST, E_MAP, E_INDEX, E_MEMBER, E_LAMBDA, E_RANGE, E_COMPREHENSION, E_METHODCALL } EKind;
 typedef struct Expr {
   EKind kind; double num; char *str; int boolean; char *name; char *module;  /* module: server.name */
   TokType op; struct Expr *left, *right, *operand; int line;
@@ -518,7 +519,7 @@ typedef struct Expr {
   TaskDef *lambda;                        /* E_LAMBDA: the anonymous task's static template (home set at eval) */
 } Expr;
 
-typedef enum { S_MAKE, S_SET, S_SHOW, S_WHEN, S_MATCH, S_REPEAT_TIMES, S_REPEAT_WHILE, S_TASK, S_GIVE, S_EXPR, S_FOREACH, S_INDEXSET, S_USE, S_LEARN, S_TEST, S_EXPECT, S_EXPECT_ERROR, S_TRY, S_FAIL, S_STOP, S_SKIP } SKind;
+typedef enum { S_MAKE, S_SET, S_SHOW, S_WHEN, S_MATCH, S_REPEAT_TIMES, S_REPEAT_WHILE, S_TASK, S_GIVE, S_EXPR, S_FOREACH, S_INDEXSET, S_USE, S_LEARN, S_TEST, S_EXPECT, S_EXPECT_ERROR, S_TRY, S_FAIL, S_STOP, S_SKIP, S_TYPE } SKind;
 typedef struct Stmt Stmt;
 typedef struct { Expr *cond; Stmt **body; int nbody; } Branch;
 /* one arm of a `match`. patkind: 0 = literal (compare `lit` by value), 1 = list-destructure
@@ -611,7 +612,7 @@ static Expr *primary(void) {
       advance();
       Token m = expect(T_IDENT, "I expected a name after '.' (like server.start).");
       module = who; who = m.text;
-      if (check(T_DOT)) fail(peek().line, "you can only use one '.' here (like module.name). To go deeper, store it first or use [ ].");
+      /* a deeper chain (a.b.c) or method on a field is handled by postfix() below */
     }
     if (check(T_LPAREN)) {           /* a call: name(args) or module.name(args) */
       advance();
@@ -634,13 +635,33 @@ static Expr *primary(void) {
   fail(t.line, "I expected a value here (a number, some text, or a name).");
   return NULL;
 }
-static Expr *postfix(void) {        /* primary followed by any number of [index] */
+static Expr *postfix(void) {        /* primary followed by any number of [index], .field, or .method(args) */
   Expr *e = primary();
-  while (check(T_LBRACK)) {
-    int line = peek().line; advance();
-    Expr *idx = expression();
-    expect(T_RBRACK, "I expected a ']' to close the index.");
-    Expr *ix = new_expr(E_INDEX, line); ix->target = e; ix->index = idx; e = ix;
+  while (check(T_LBRACK) || check(T_DOT)) {
+    int line = peek().line;
+    if (check(T_LBRACK)) {
+      advance();
+      Expr *idx = expression();
+      expect(T_RBRACK, "I expected a ']' to close the index.");
+      Expr *ix = new_expr(E_INDEX, line); ix->target = e; ix->index = idx; e = ix;
+    } else {                          /* '.' on a value: a field (e.field) or a method call (e.method(...)) */
+      advance();
+      Token nm = expect(T_IDENT, "I expected a name after '.' (a field or method).");
+      if (check(T_LPAREN)) {          /* e.method(args)  ->  E_METHODCALL */
+        advance();
+        Expr **args = NULL; int n = 0, cap = 0;
+        if (!check(T_RPAREN)) do {
+          if (check(T_RPAREN)) break;
+          if (n >= cap) { cap = cap ? cap * 2 : 4; args = (Expr **)realloc(args, cap * sizeof(Expr *)); }
+          args[n++] = expression();
+        } while (match(T_COMMA));
+        expect(T_RPAREN, "I expected a ')' to close the inputs.");
+        Expr *mc = new_expr(E_METHODCALL, line); mc->target = e; mc->name = nm.text; mc->args = args; mc->nargs = n; e = mc;
+      } else {                        /* e.field  ->  index by the field name (reuses map get/set) */
+        Expr *ix = new_expr(E_INDEX, line); ix->target = e;
+        Expr *key = new_expr(E_STR, line); key->str = nm.text; ix->index = key; e = ix;
+      }
+    }
   }
   return e;
 }
@@ -788,8 +809,42 @@ static Stmt *statement(void) {
       Expr *val = expression();
       if (lhs->kind == E_VAR)   { Stmt *s = new_stmt(S_SET, t.line);      s->name = lhs->name;       s->expr = val; s->setop = op; return s; }
       if (lhs->kind == E_INDEX) { Stmt *s = new_stmt(S_INDEXSET, t.line); s->target = lhs->target; s->index = lhs->index; s->expr = val; s->setop = op; return s; }
-      fail(t.line, "you can only 'set' a name, or an item inside a list or map.");
+      if (lhs->kind == E_MEMBER){ Stmt *s = new_stmt(S_INDEXSET, t.line); /* set obj.field = v  ->  obj["field"] = v */
+        Expr *tv = new_expr(E_VAR, t.line); tv->name = lhs->module;
+        Expr *key = new_expr(E_STR, t.line); key->str = lhs->name;
+        s->target = tv; s->index = key; s->expr = val; s->setop = op; return s; }
+      fail(t.line, "you can only 'set' a name, an item inside a list or map, or an object's field.");
       return NULL;
+    }
+    case T_TYPE: {                       /* type Point:  <make fields...>  <task methods...> */
+      advance();
+      Token name = expect(T_IDENT, "I expected a name for the type, like: type Point:");
+      expect(T_COLON, "I expected ':' after the type name.");
+      expect(T_NEWLINE, "I expected the type's body on the next lines.");
+      expect(T_INDENT, "I expected the type's fields and tasks to be indented.");
+      char **fields = NULL; Expr **defs = NULL; int nf = 0, fcap = 0;
+      Stmt **methods = NULL; int nm = 0, mcap = 0;
+      while (!check(T_DEDENT) && !check(T_EOF)) {
+        if (match(T_NEWLINE)) continue;
+        if (check(T_MAKE)) {             /* a field, with an optional default:  make x   |   make x = 0 */
+          advance();
+          Token fn = expect(T_IDENT, "I expected a field name after 'make'.");
+          Expr *def = NULL;
+          if (match(T_EQ)) def = expression();
+          if (nf >= fcap) { fcap = fcap ? fcap * 2 : 4; fields = (char **)realloc(fields, fcap * sizeof(char *)); defs = (Expr **)realloc(defs, fcap * sizeof(Expr *)); }
+          fields[nf] = fn.text; defs[nf] = def; nf++;
+        } else if (check(T_TASK)) {      /* a method: task name(self, ...):  <body> */
+          Stmt *m = statement();
+          if (nm >= mcap) { mcap = mcap ? mcap * 2 : 4; methods = (Stmt **)realloc(methods, mcap * sizeof(Stmt *)); }
+          methods[nm++] = m;
+        } else {
+          fail(peek().line, "inside a type, write 'make <field>' for a field or 'task <name>(self, ...):' for a method.");
+        }
+      }
+      expect(T_DEDENT, "I expected the type's body to finish here.");
+      Stmt *s = new_stmt(S_TYPE, name.line);
+      s->name = name.text; s->params = fields; s->nparams = nf; s->values = defs; s->nvalues = nf; s->body = methods; s->nbody = nm;
+      return s;
     }
     case T_FOR: {
       advance();
@@ -1634,6 +1689,7 @@ static Value deep_copy(Value v) {
     r = vlist(l);
   } else if (v.type == V_MAP) {
     SMap *m = map_new();
+    if (v.map) m->classname = v.map->classname;   /* a copied object keeps its type */
     for (int i = 0; v.map && i < v.map->n; i++) map_set(m, v.map->keys[i], deep_copy(v.map->vals[i]));
     r = vmap(m);
   } else {
@@ -1815,7 +1871,7 @@ static Value call_builtin(Expr *call, Env *env) {
   if (!strcmp(name, "kind_of")) {   /* a simple, switchable type tag for beginners: when kind_of(x) == "number": ... */
     if (n != 1) fail(call->line, "kind_of needs one value, like kind_of(x).");
     const char *k = "nothing";
-    switch (a[0].type) { case V_NUM: k="number"; break; case V_STR: k="text"; break; case V_BOOL: k="yes-no"; break; case V_LIST: k="list"; break; case V_MAP: k="map"; break; case V_TASK: k="task"; break; default: k="nothing"; }
+    switch (a[0].type) { case V_NUM: k="number"; break; case V_STR: k="text"; break; case V_BOOL: k="yes-no"; break; case V_LIST: k="list"; break; case V_MAP: k=(a[0].map && a[0].map->classname) ? a[0].map->classname : "map"; break; case V_TASK: k="task"; break; default: k="nothing"; }
     return vstr_take(dup_str(k));
   }
   /* ---- higher-order: run a task over a list (the "easy data" trio + each) ---- */
@@ -2155,7 +2211,73 @@ static Value call_system(Expr *e, Env *env) {
 }
 
 /* a namespaced call:  server.start(...)  or  system.run(...)  */
+/* ============================ types: classes of objects ============================
+   `type Point:` defines a class. An instance is just a map (SMap) whose `classname` is the
+   type name; its fields are the map's entries, so field get/set reuse the [ ] machinery.
+   A method is a task whose first parameter is the receiver (by convention, `self`). */
+typedef struct { char *name; int fileid; char **fields; Expr **defaults; int nfields; TaskDef *methods; int nmethods; } TypeReg;
+static TypeReg *g_types = NULL; static int g_ntypes = 0, g_captypes = 0;
+
+static TypeReg *type_find(const char *name) {
+  for (int i = 0; i < g_ntypes; i++) if (!strcmp(g_types[i].name, name)) return &g_types[i];
+  return NULL;
+}
+static TaskDef *type_method(TypeReg *t, const char *name) {
+  for (int i = 0; i < t->nmethods; i++) if (!strcmp(t->methods[i].name, name)) return &t->methods[i];
+  return NULL;
+}
+/* register a `type`: record its fields, and build a TaskDef for each method. */
+static void type_register(Stmt *s, int fileid, Env *home) {
+  if (type_find(s->name)) failf(s->line, "there are two types named '%s'.", s->name);
+  if (g_ntypes >= g_captypes) { g_captypes = g_captypes ? g_captypes * 2 : 8; g_types = (TypeReg *)realloc(g_types, g_captypes * sizeof(TypeReg)); }
+  TypeReg *t = &g_types[g_ntypes++];
+  t->name = s->name; t->fileid = fileid; t->fields = s->params; t->defaults = s->values; t->nfields = s->nparams;
+  t->nmethods = s->nbody;
+  t->methods = s->nbody ? (TaskDef *)calloc((size_t)s->nbody, sizeof(TaskDef)) : NULL;
+  for (int i = 0; i < s->nbody; i++) {
+    Stmt *m = s->body[i];
+    t->methods[i].name = m->name; t->methods[i].params = m->params; t->methods[i].nparams = m->nparams;
+    t->methods[i].body = m->body; t->methods[i].nbody = m->nbody; t->methods[i].line = m->line;
+    t->methods[i].is_public = 0; t->methods[i].fileid = fileid; t->methods[i].home = home; t->methods[i].file_env = home;
+  }
+}
+/* build a new instance: bind the constructor args (then defaults) to the fields, in order. */
+static Value type_instantiate(TypeReg *t, Expr *call, Env *env) {
+  if (call->nargs > t->nfields) { char m[200]; snprintf(m, sizeof m, "%s takes at most %d value(s), but got %d.", t->name, t->nfields, call->nargs); fail(call->line, m); }
+  SMap *m = map_new(); m->classname = t->name;
+  for (int i = 0; i < t->nfields; i++) {
+    Value fv;
+    if (i < call->nargs)     fv = eval(call->args[i], env);
+    else if (t->defaults[i]) fv = eval(t->defaults[i], env);
+    else { char mm[200]; snprintf(mm, sizeof mm, "%s needs a value for '%s'.", t->name, t->fields[i]); fail(call->line, mm); return vnone(); }
+    map_set(m, t->fields[i], fv);
+  }
+  return vmap(m);
+}
+/* call a method on an instance: bind `self` to the receiver, then the given args. */
+static Value type_method_call(Value recv, const char *name, Expr **args, int nargs, Env *env, int line) {
+  if (recv.type != V_MAP || !recv.map || !recv.map->classname)
+    failf(line, "only an object has methods to call (tried '.%s').", name);
+  TypeReg *t = type_find(recv.map->classname);
+  if (!t) failf(line, "I don't know the type '%s'.", recv.map->classname);
+  TaskDef *md = type_method(t, name);
+  if (!md) { char m[200]; snprintf(m, sizeof m, "a %s has no method called '%s'.", t->name, name); fail(line, m); }
+  Value *argv = (Value *)malloc((size_t)(nargs + 1) * sizeof(Value));
+  argv[0] = recv;
+  for (int i = 0; i < nargs; i++) argv[i + 1] = eval(args[i], env);
+  Value r = call_task_v(md, argv, nargs + 1, line);
+  free(argv);
+  return r;
+}
+/* register a freshly-parsed file's top-level tasks AND types before it runs. */
+static void register_top(Stmt *s, int fileid, Env *home) {
+  if (s->kind == S_TASK) task_register(s, fileid, home);
+  else if (s->kind == S_TYPE) type_register(s, fileid, home);
+}
+
 static Value call_module(Expr *e, Env *env) {
+  /* if `module` is actually a variable holding an object, this is a method call: obj.method(...) */
+  { Value *ov = env_find(env, e->module); if (ov && ov->type == V_MAP && ov->map && ov->map->classname) return type_method_call(*ov, e->name, e->args, e->nargs, env, e->line); }
   if (!has_use(cur_fileid, e->module)) {
     char m[256]; snprintf(m, sizeof m, "to call %s.%s, add 'use %s' at the top of this file.", e->module, e->name, e->module);
     fail_hard(e->line, "name", m);
@@ -2248,8 +2370,12 @@ static Value eval(Expr *e, Env *env) {
     case E_BINARY: return eval_binary(e, env);
     case E_CALL:   if (e->module) return call_module(e, env);
                    { Value *fv = env_find(env, e->name); if (fv && fv->type == V_TASK) return call_task_def(fv->task, e, env); }  /* call a task held in a variable */
+                   { TypeReg *ty = type_find(e->name); if (ty) return type_instantiate(ty, e, env); }  /* TypeName(args) -> a new object */
                    return task_find(e->name) ? call_task(e, env) : call_builtin(e, env);
+    case E_METHODCALL: { Value recv = eval(e->target, env); return type_method_call(recv, e->name, e->args, e->nargs, env, e->line); }
     case E_MEMBER: {
+      /* obj.field — when `module` is actually a variable holding an object, read its field */
+      { Value *ov = env_find(env, e->module); if (ov && ov->type == V_MAP && ov->map && ov->map->classname) { int i = map_index(ov->map, e->name); return i >= 0 ? ov->map->vals[i] : vnone(); } }
       if (!has_use(cur_fileid, e->module)) { char m[256]; snprintf(m, sizeof m, "to read %s.%s, add 'use %s' at the top of this file.", e->module, e->name, e->module); fail_hard(e->line, "name", m); }
       if (!strcmp(e->module, "system")) { char m[200]; snprintf(m, sizeof m, "system.%s is an action - call it, like system.%s(...).", e->name, e->name); fail_hard(e->line, "name", m); }
       ModNS *mod = modns_get(e->module);
@@ -2339,6 +2465,8 @@ static void render_expr(Expr *e, int wv, Env *env, char **o, size_t *c, size_t *
     case E_MAP: sb_add(o, c, l, "{");
       for (int i = 0; i < e->nargs; i++) { if (i) sb_add(o, c, l, ", "); sb_add(o, c, l, e->keys[i]); sb_add(o, c, l, ": "); render_expr(e->args[i], wv, env, o, c, l); } sb_add(o, c, l, "}"); break;
     case E_INDEX: render_expr(e->target, wv, env, o, c, l); sb_add(o, c, l, "["); render_expr(e->index, wv, env, o, c, l); sb_add(o, c, l, "]"); break;
+    case E_METHODCALL: render_expr(e->target, wv, env, o, c, l); sb_add(o, c, l, "."); sb_add(o, c, l, e->name); sb_add(o, c, l, "(");
+      for (int i = 0; i < e->nargs; i++) { if (i) sb_add(o, c, l, ", "); render_expr(e->args[i], wv, env, o, c, l); } sb_add(o, c, l, ")"); break;
     case E_LAMBDA: sb_add(o, c, l, "task(");
       for (int i = 0; e->lambda && i < e->lambda->nparams; i++) { if (i) sb_add(o, c, l, ", "); sb_add(o, c, l, e->lambda->params[i]); } sb_add(o, c, l, "): ..."); break;
     case E_RANGE: render_expr(e->left, wv, env, o, c, l); sb_add(o, c, l, " to "); render_expr(e->right, wv, env, o, c, l); break;
@@ -2521,6 +2649,7 @@ static void exec(Stmt *s, Env *env) {
       break;
     }
     case S_TASK: break;  /* registered before the run */
+    case S_TYPE: break;  /* a type is registered before the run too */
     case S_USE: {                                /* import a module so this file can name it */
       char *base = module_basename(s->name);
       mark_use(cur_fileid, base);
@@ -2644,7 +2773,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.1.6"
+#define SPROUT_VERSION "0.1.7"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);
@@ -2681,7 +2810,7 @@ static void run_snippet(const char *src) {
   ntok = 0; pos = 0;
   tokenize(src, (int)strlen(src));
   int n; Stmt **prog = parse_program(&n);
-  for (int i = 0; i < n; i++) if (prog[i]->kind == S_TASK) task_register(prog[i], cur_fileid, cur_file_env);
+  for (int i = 0; i < n; i++) register_top(prog[i], cur_fileid, cur_file_env);
   exec_block(prog, n, cur_file_env);
   returning = 0; g_loopctl = 0;   /* don't let a stray flag carry over to the next snippet */
 }
@@ -3210,7 +3339,7 @@ static void load_module(const char *name) {
   int prevfid = cur_fileid; Env *prevfe = cur_file_env;
   cur_fileid = ++g_next_fileid; cur_file_env = fe;
   { char *base = module_basename(path); modns_register(base, cur_fileid, fe); free(base); }   /* reachable as base.member */
-  for (int i = 0; i < n; i++) if (prog[i]->kind == S_TASK) task_register(prog[i], cur_fileid, fe);
+  for (int i = 0; i < n; i++) register_top(prog[i], cur_fileid, fe);
   exec_block(prog, n, fe);
   returning = 0;                 /* a module's top-level `give` (if any) doesn't return to the user */
   cur_fileid = prevfid; cur_file_env = prevfe;
@@ -3265,7 +3394,7 @@ static void run_test_file(const char *path) {
   int pf = cur_fileid; Env *pe = cur_file_env;
   cur_fileid = ++g_next_fileid; cur_file_env = fe;
   { char *base = module_basename(path); modns_register(base, cur_fileid, fe); free(base); }
-  for (int i = 0; i < n; i++) if (prog[i]->kind == S_TASK) task_register(prog[i], cur_fileid, fe);
+  for (int i = 0; i < n; i++) register_top(prog[i], cur_fileid, fe);
   exec_block(prog, n, fe);
   returning = 0;
   cur_fileid = pf; cur_file_env = pe; g_current_file = prev;
@@ -3337,7 +3466,7 @@ int main(int argc, char **argv) {
   tokenize(src, len);
   int ncount; Stmt **program = parse_program(&ncount);
   { char *base = module_basename(file); modns_register(base, cur_fileid, cur_file_env); free(base); }  /* same as `sprout build` */
-  for (int i = 0; i < ncount; i++) if (program[i]->kind == S_TASK) task_register(program[i], cur_fileid, cur_file_env);
+  for (int i = 0; i < ncount; i++) register_top(program[i], cur_fileid, cur_file_env);
   exec_block(program, ncount, cur_file_env);
   err_jmp = NULL; g_top_jmp = NULL;
   return test_report();   /* if the file had tests, report + set the exit code */

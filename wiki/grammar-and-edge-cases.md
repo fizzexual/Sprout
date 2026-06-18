@@ -43,7 +43,7 @@ The grammar is **descriptive, not a formal spec** — the source code is the fin
 ```ebnf
 program    = { statement } ;
 statement  = make | set | show | when | repeat | foreach
-           | task | give | use | learn | try | fail | "stop" | "skip"
+           | task | type | give | use | learn | try | fail | "stop" | "skip"
            | ( expr NEWLINE ) ;
 
 make       = [ "public" | "private" ] "make" ident "=" expr NEWLINE ;
@@ -208,7 +208,7 @@ Two limits to remember:
 **Keywords** are reserved; you can't use them as variable or task names:
 
 ```
-make set show when orwhen otherwise repeat while times task give
+make set show when orwhen otherwise repeat while times task type give
 for each in to match is use public private learn test expect and or not
 yes no nothing try caught fail stop skip
 ```

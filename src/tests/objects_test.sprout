@@ -1,0 +1,75 @@
+~ Objects: the `type` keyword — fields, defaults, methods, self, mutation, nesting.
+~ A *_test.sprout file, so run.sh gates it via `sprout test` (exit code).
+
+type Point:
+    make x
+    make y = 0
+    task length(self):
+        give sqrt(self.x * self.x + self.y * self.y)
+    task move(self, dx, dy):
+        set self.x = self.x + dx
+        set self.y = self.y + dy
+        give self
+
+type Line:
+    make a
+    make b
+    task span(self):
+        give self.b.x - self.a.x
+
+test "fields and construction":
+    make p = Point(3, 4)
+    expect p.x == 3
+    expect p.y == 4
+
+test "a field default applies when the arg is omitted":
+    make q = Point(10)
+    expect q.x == 10
+    expect q.y == 0
+
+test "a method computes from its fields":
+    make p = Point(3, 4)
+    expect p.length() == 5
+
+test "a method can mutate self":
+    make p = Point(1, 1)
+    p.move(2, 3)
+    expect p.x == 3
+    expect p.y == 4
+
+test "methods chain when they give self":
+    make p = Point(0, 0)
+    expect p.move(3, 4).length() == 5
+
+test "kind_of returns the type name":
+    make p = Point(1, 2)
+    expect kind_of(p) == "Point"
+
+test "objects hold objects; nested field read and write":
+    make ln = Line(Point(2, 0), Point(9, 0))
+    expect ln.span() == 7
+    expect ln.a.x == 2
+    set ln.a.x = 5
+    expect ln.a.x == 5
+    expect ln.span() == 4
+
+test "a copy keeps its type and is independent":
+    make p = Point(3, 4)
+    make c = copy(p)
+    set c.x = 99
+    expect p.x == 3
+    expect c.x == 99
+    expect kind_of(c) == "Point"
+
+test "too many constructor args is an error":
+    expect error:
+        make bad = Point(1, 2, 3)
+
+test "a missing required field is an error":
+    expect error:
+        make bad = Point()
+
+test "calling a method that doesn't exist is an error":
+    expect error:
+        make p = Point(1, 2)
+        show p.nope()

@@ -20,6 +20,7 @@ find-anything index of every keyword, operator, builtin, and command.
 - [Text](text.md) — strings, f-strings, indexing
 - [Lists, maps, ranges & comprehensions](collections.md)
 - [Tasks, lambdas & closures](tasks-and-lambdas.md)
+- [Types & objects](types-and-objects.md) — `type`: classes with fields, methods, `self`
 - [Pattern matching](pattern-matching.md) — `match` / `is`
 - [Errors](errors.md) — `try` / `caught` / `fail`
 

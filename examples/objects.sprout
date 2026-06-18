@@ -1,0 +1,43 @@
+~ Objects in Sprout — the `type` keyword gives you classes: state (fields) and
+~ behaviour (methods) bundled together. A method's first input is the object itself
+~ (by convention, `self`). Different types with the same method name just work
+~ (that's polymorphism) — Sprout picks the right one at run time.
+
+type Circle:
+    make radius
+    task area(self):
+        give 3.14159 * self.radius * self.radius
+    task name(self):
+        give "circle"
+
+type Rectangle:
+    make width
+    make height
+    task area(self):
+        give self.width * self.height
+    task name(self):
+        give "rectangle"
+
+make shapes = [Circle(2), Rectangle(3, 4), Circle(5)]
+show "Shapes:"
+for each s in shapes:
+    show "  a " + s.name() + " has area " + round(s.area())
+
+~ A tiny bank account: the balance and the rules that guard it live together.
+type Account:
+    make owner
+    make balance = 0
+    task deposit(self, amount):
+        set self.balance = self.balance + amount
+        give self
+    task withdraw(self, amount):
+        when amount > self.balance:
+            fail "insufficient funds"
+        set self.balance = self.balance - amount
+        give self
+
+make acc = Account("Ada")
+acc.deposit(100)
+acc.withdraw(30)
+show acc.owner + " now has " + acc.balance       ~ Ada now has 70
+show "kind of acc: " + kind_of(acc)              ~ Account

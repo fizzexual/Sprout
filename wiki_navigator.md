@@ -73,6 +73,7 @@ link straight to the page that explains it.
 | `stop` / `skip` | Leave a loop / skip the rest of a turn | [Control flow](wiki/control-flow.md) |
 | `for` / `each` | Walk a list or map (`for each x in xs`) | [Collections](wiki/collections.md) |
 | `task` / `give` | Define a function / return a value | [Tasks & lambdas](wiki/tasks-and-lambdas.md) |
+| `type` | Define a class (fields + methods) | [Types & objects](wiki/types-and-objects.md) |
 | `match` / `is` | Pattern matching | [Pattern matching](wiki/pattern-matching.md) |
 | `try` / `caught` / `fail` | Catch a soft error / raise your own | [Errors](wiki/errors.md) |
 | `test` / `expect` | Built-in testing (`expect error` too) | [Testing & learn](wiki/testing-and-learn.md) |
