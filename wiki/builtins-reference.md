@@ -1,6 +1,6 @@
 # Builtins reference (complete)
 
-Every one of Sprout's **66 built-in functions**, with a signature, what it does,
+Every one of Sprout's **74 built-in functions**, with a signature, what it does,
 whether it changes its input or returns a new value, a tiny example you can run
 right now, its real output, and the error it raises on bad input. This is the
 long one — bookmark it.
@@ -20,7 +20,7 @@ errors follow, see [Errors & error handling](errors.md).
 ## Contents
 
 - [How builtins behave (the three patterns)](#how-builtins-behave-the-three-patterns)
-- [Numbers & math](#numbers--math) — `abs` `ceil` `floor` `round` `sqrt` `pow` `min` `max` `sum`
+- [Numbers & math](#numbers--math) — `abs` `ceil` `floor` `round` `sqrt` `pow` `min` `max` `sum` `sin` `cos` `tan` `exp` `log` `pi`
 - [Random & time](#random--time) — `random` `seed` `now` `today` `wait`
 - [Conversion & inspection](#conversion--inspection) — `number` `kind_of` `is_a` `json`
 - [Text](#text) — `upper` `lower` `title` `trim` `replace` `split` `join` `words` `lines` `contains` `starts_with` `ends_with` `index_of` `count` `slice` `length`
@@ -30,10 +30,11 @@ errors follow, see [Errors & error handling](errors.md).
 - [Files](#files) — `read` `write` `append` `exists`
 - [Web](#web) — `get` `explore`
 - [System](#system) — `system.run`
+- [Environment & arguments](#environment--arguments) — `args` `env`
 - [Persistence](#persistence) — `remember` `recall` `forget`
 - [Output & colour](#output--colour) — `color` (and `show`)
 - [The error a builtin raises](#the-error-a-builtin-raises)
-- [Quick index of all 66](#quick-index-of-all-66)
+- [Quick index of all 74](#quick-index-of-all-74)
 
 ---
 
@@ -184,6 +185,76 @@ show sum([])
 ```
 
 Bad input: not a list → `sum needs a list of numbers, like sum([1, 2, 3]).` · a non-number item → `sum needs every item to be a number.` (kind `"type"`).
+
+### `sin(x)` / `cos(x)` / `tan(x)` → number
+
+Trigonometry. The angle `x` is in **radians** (use `pi()` to convert — a full turn is
+`2 * pi()`). **Return** a new number.
+
+```sprout
+show round(sin(0))
+show round(cos(0))
+show round(sin(pi() / 2))   ~ sin(90°) = 1
+```
+
+```text
+0
+1
+1
+```
+
+Bad input: `sin needs a number (an angle in radians).` (same shape for `cos` / `tan`).
+
+### `exp(x)` → number
+
+`e` raised to the power `x` (the inverse of `log`). **Returns** a new number.
+
+```sprout
+show round(exp(0))   ~ e^0 = 1
+show round(exp(1))   ~ e ~ 2.718 -> 3
+```
+
+```text
+1
+3
+```
+
+Bad input: `exp needs a number.`
+
+### `log(x)` / `log(x, base)` → number
+
+The **natural** logarithm of `x` (base *e*), or the logarithm of `x` in an explicit `base`.
+**Returns** a new number. `x` must be **positive**; a `base` must be positive and not `1`.
+
+```sprout
+show round(log(exp(1)))   ~ ln(e) = 1
+show round(log(8, 2))     ~ log2(8) = 3
+show round(log(1000, 10)) ~ 3
+```
+
+```text
+1
+3
+3
+```
+
+Bad input: `log needs a number, and an optional base: log(x) or log(x, base).` ·
+`log(0)` / `log(-1)` → `log needs a positive number.` (kind `"math"`) ·
+`log(8, 1)` → `a logarithm base must be positive and not 1.` (kind `"math"`).
+
+### `pi()` → number
+
+The constant π ≈ `3.141592653589793`. Takes no inputs. **Returns** a new number.
+
+```sprout
+show round(pi() * 100) / 100
+```
+
+```text
+3.14
+```
+
+Bad input: `pi takes no inputs, like pi().`
 
 ---
 
@@ -1195,6 +1266,43 @@ Bad input: wrong shape → `system.run needs one piece of text, like system.run(
 
 ---
 
+## Environment & arguments
+
+### `args()` → list
+
+The command-line arguments passed to your program, as a list of text — everything after the
+script name in `sprout run app.sprout these are args`. Empty when there are none. **Returns** a
+new list.
+
+```sprout
+~ run as:  sprout run greet.sprout Ada Grace
+for each who in args():
+    show "hello " + who
+```
+
+```text
+hello Ada
+hello Grace
+```
+
+Takes no inputs: `args takes no inputs, like args().`
+
+### `env(name)` / `env(name, default)` → text or nothing
+
+Reads an environment variable. **Returns** its value as text, or `nothing` if it isn't set —
+or the `default` you pass. **Off in `--sandbox`** (environment variables can hold secrets).
+
+```sprout
+make port = env("PORT", "8080")
+show "starting on port " + port
+when env("DEBUG") != nothing:
+    show "debug mode is on"
+```
+
+Bad input: `env needs a name, and an optional default: env("HOME") or env("PORT", "8080").`
+
+---
+
 ## Persistence
 
 A tiny key/value store that survives between runs — one `sprout.data.json` file in
@@ -1354,7 +1462,7 @@ The full model — the two tiers, the `caught` map shape, `fail` with a map — 
 
 ---
 
-## Quick index of all 66
+## Quick index of all 74
 
 | Builtin | Group | Mutates? | Returns |
 | --- | --- | --- | --- |
@@ -1364,6 +1472,12 @@ The full model — the two tiers, the `caught` map shape, `fail` with a map — 
 | `round` | numbers | no | number |
 | `sqrt` | numbers | no | number |
 | `pow` | numbers | no | number |
+| `sin` / `cos` / `tan` | numbers | no | number |
+| `exp` | numbers | no | number |
+| `log` | numbers | no | number |
+| `pi` | numbers | no | number |
+| `args` | environment | no | list |
+| `env` | environment | no | text / nothing |
 | `min` | numbers | no | number |
 | `max` | numbers | no | number |
 | `sum` | numbers/lists | no | number |
@@ -1423,7 +1537,7 @@ The full model — the two tiers, the `caught` map shape, `fail` with a map — 
 | `run` (`system.run`) | system | (shell) | text / nothing |
 | `color` | output | no | text |
 
-That's all 66 (counting `run`, reached as `system.run`).
+That's all 74 (counting `run`, reached as `system.run`).
 
 ---
 

@@ -35,7 +35,7 @@ link straight to the page that explains it.
 ### Reference
 | Page | What's inside |
 | --- | --- |
-| [Builtins reference](wiki/builtins-reference.md) | **All 66 builtins** — signature, behavior, example, and the error each raises |
+| [Builtins reference](wiki/builtins-reference.md) | **All 74 builtins** — signature, behavior, example, and the error each raises |
 | [Grammar & decided edge cases](wiki/grammar-and-edge-cases.md) | The EBNF, indentation rules, reserved words, the rules settled at the freeze |
 | [Glossary](wiki/glossary.md) | Every Sprout term, one line each |
 
@@ -99,18 +99,18 @@ link straight to the page that explains it.
 | `f"… {expr} …"` | f-string (text with values inside) | [Text](wiki/text.md) |
 | `~` | Comment to end of line | [Syntax basics](wiki/syntax-basics.md) |
 
-### Builtins (all 66)
+### Builtins (all 74)
 Full signatures, behavior, examples, and the error each raises live in the
 **[Builtins reference](wiki/builtins-reference.md)**. Grouped:
 
-- **Numbers & math** — `abs` `ceil` `floor` `round` `sqrt` `pow` `min` `max` `sum` `random` `seed` `number`
+- **Numbers & math** — `abs` `ceil` `floor` `round` `sqrt` `pow` `min` `max` `sum` `sin` `cos` `tan` `log` `exp` `pi` `random` `seed` `number`
 - **Text** — `upper` `lower` `title` `trim` `replace` `split` `join` `words` `lines` `contains` `starts_with` `ends_with` `index_of` `count` `length` `slice` → also [Text](wiki/text.md)
 - **Lists** — `add` `append` `remove` `insert` `first` `last` `length` `sort` `sort_by` `reverse` `unique` `zip` `flatten` `slice` `range` `index_of` `contains` `count` → also [Collections](wiki/collections.md)
 - **Maps** — `keys` `values` `length` `remove` `contains` → also [Collections](wiki/collections.md)
 - **Higher-order** — `map` `filter` `reduce` → also [Tasks](wiki/tasks-and-lambdas.md)
 - **Inspect & convert** — `kind_of` `is_a` `copy` `json` `number`
 - **Random & time** — `random` `seed` `now` `today` `wait` → also [Files, web, system & time](wiki/io-web-system-time.md)
-- **Input** — `ask`
+- **Input & environment** — `ask` `args` `env`
 - **Files** — `read` `write` `append` `exists` → [Files, web, system & time](wiki/io-web-system-time.md)
 - **Web** — `get` `explore` → [Files, web, system & time](wiki/io-web-system-time.md)
 - **Persistence** — `remember` `recall` `forget` → [Persistence](wiki/persistence.md)

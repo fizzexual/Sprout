@@ -15,7 +15,7 @@ If you want to know *"can Sprout do X yet?"* — start here.
 | 1 | **Classes & objects** | ✅ Done — v0.1.7 | [Types & objects](types-and-objects.md) |
 | 2 | **Inheritance & polymorphism** | ✅ Done — v0.1.8 | [Types & objects → Inheritance](types-and-objects.md#inheritance) |
 | 3 | **Interfaces & type annotations** | 📋 Planned | — |
-| 4 | **Standard-library breadth** | 📋 Planned | — |
+| 4 | **Standard-library breadth** | 🔜 In progress — v0.1.9 | [Builtins reference](builtins-reference.md) |
 | 5 | **Package manager** | 📋 Planned | — |
 | 6 | **Tooling** (LSP, formatter, debugger) | 📋 Planned | — |
 
@@ -64,10 +64,16 @@ The plan: a way to say *"this type provides these methods"* (interfaces / protoc
 **optional** type annotations that are checked when you write them — keeping the dynamic core
 for everyday code while adding safety where you want it.
 
-## Phase 4 — Standard-library breadth 📋
+## Phase 4 — Standard-library breadth 🔜 *(in progress, v0.1.9)*
 
-Closing the "batteries included" gap: regular expressions, real date & time (today `now` /
-`today` are text), sets / queues, command-line arguments, and a wider math library.
+Closing the "batteries included" gap. **Shipped so far:**
+
+- **Math** — `sin` `cos` `tan` `exp` `log` (natural, or `log(x, base)`) `pi()`
+- **`args()`** — your program's command-line arguments (a list of text)
+- **`env(name)` / `env(name, default)`** — read environment variables
+
+**Still planned:** regular expressions, real date & time (`now` / `today` are text today), sets
+and queues, and a wider math library.
 
 ## Phase 5 — Package manager 📋
 

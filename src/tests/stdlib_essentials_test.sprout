@@ -1,0 +1,35 @@
+~ Standard-library essentials: math (sin/cos/tan/log/exp/pi), CLI args, environment.
+~ A *_test.sprout file, so run.sh gates it via `sprout test` (exit code).
+
+test "trig at zero":
+    expect round(sin(0)) == 0
+    expect round(cos(0)) == 1
+    expect round(tan(0)) == 0
+
+test "exp and log are inverses":
+    expect round(exp(0)) == 1
+    expect round(log(exp(1))) == 1
+    expect round(log(exp(3))) == 3
+
+test "log with an explicit base":
+    expect round(log(8, 2)) == 3
+    expect round(log(100, 10)) == 2
+
+test "pi is about 3.14159":
+    expect round(pi() * 100000) == 314159
+
+test "log domain errors are kind \"math\"":
+    expect error "math":
+        show log(0)
+    expect error "math":
+        show log(-1)
+    expect error "math":
+        show log(8, 1)
+
+test "args() is always a list":
+    expect kind_of(args()) == "list"
+
+test "env reads a var, defaults, and is nothing when unset":
+    expect env("PATH") != nothing
+    expect env("SPROUT_NOPE_XYZ_123") == nothing
+    expect env("SPROUT_NOPE_XYZ_123", "fallback") == "fallback"

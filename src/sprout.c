@@ -1382,6 +1382,7 @@ static const char *const BUILTIN_NAMES[] = {
   "remove","insert","sort","sort_by","reverse","index_of","values","copy","kind_of","is_a","map","filter","reduce",
   "sum","count","unique","zip","flatten","slice","words","lines","title","seed",
   "abs","round","floor","ceil","sqrt","pow","min","max","random","number",
+  "sin","cos","tan","log","exp","pi","args","env",
   "upper","lower","trim","replace","split","join","starts_with","ends_with",
   "ask","now","today","wait","read","write","append","exists","remember","recall","forget",
   "get","json","explore","color",
@@ -1716,10 +1717,12 @@ static int value_cmp(const void *pa, const void *pb) {
    runs untrusted code, turn off every builtin that can touch the filesystem, a shell, or
    the network — otherwise a stranger's program gets file + shell + SSRF access to the host. */
 static int g_sandbox = 0;
+static char **g_prog_args = NULL; static int g_prog_nargs = 0;   /* the program's own CLI args, for args() */
 static int builtin_blocked(const char *name) {
   static const char *const b[] = { "read", "write", "append", "exists",        /* filesystem */
                                    "remember", "recall", "forget",             /* on-disk store */
-                                   "get", "explore" };                /* network */
+                                   "get", "explore",                           /* network */
+                                   "env" };                                    /* host environment (may hold secrets) */
   for (size_t i = 0; i < sizeof b / sizeof *b; i++) if (!strcmp(name, b[i])) return 1;
   return 0;
 }
@@ -1996,6 +1999,24 @@ static Value call_builtin(Expr *call, Env *env) {
   if (!strcmp(name, "floor")) { if (n!=1||a[0].type!=V_NUM) fail(call->line,"floor needs a number."); return vnum(floor(a[0].num)); }
   if (!strcmp(name, "ceil"))  { if (n!=1||a[0].type!=V_NUM) fail(call->line,"ceil needs a number.");  return vnum(ceil(a[0].num)); }
   if (!strcmp(name, "sqrt"))  { if (n!=1||a[0].type!=V_NUM) fail(call->line,"sqrt needs a number."); if (a[0].num<0) fail_kind(call->line,"math","sqrt can't take a negative number."); return vnum(sqrt(a[0].num)); }
+  if (!strcmp(name, "sin"))   { if (n!=1||a[0].type!=V_NUM) fail(call->line,"sin needs a number (an angle in radians).");  return vnum(sin(a[0].num)); }
+  if (!strcmp(name, "cos"))   { if (n!=1||a[0].type!=V_NUM) fail(call->line,"cos needs a number (an angle in radians).");  return vnum(cos(a[0].num)); }
+  if (!strcmp(name, "tan"))   { if (n!=1||a[0].type!=V_NUM) fail(call->line,"tan needs a number (an angle in radians).");  return vnum(tan(a[0].num)); }
+  if (!strcmp(name, "exp"))   { if (n!=1||a[0].type!=V_NUM) fail(call->line,"exp needs a number."); return vnum(exp(a[0].num)); }
+  if (!strcmp(name, "log"))   {   /* natural log; log(x, base) for any base */
+    if ((n!=1 && n!=2) || a[0].type!=V_NUM || (n==2 && a[1].type!=V_NUM)) fail(call->line,"log needs a number, and an optional base: log(x) or log(x, base).");
+    if (a[0].num <= 0) fail_kind(call->line,"math","log needs a positive number.");
+    if (n==2) { if (a[1].num<=0 || a[1].num==1) fail_kind(call->line,"math","a logarithm base must be positive and not 1."); return vnum(log(a[0].num)/log(a[1].num)); }
+    return vnum(log(a[0].num));
+  }
+  if (!strcmp(name, "pi"))    { if (n!=0) fail(call->line,"pi takes no inputs, like pi()."); return vnum(3.14159265358979323846); }
+  if (!strcmp(name, "args"))  { if (n!=0) fail(call->line,"args takes no inputs, like args()."); SList *l=list_new(); for (int i=0;i<g_prog_nargs;i++) list_push(l, vstr(g_prog_args[i])); return vlist(l); }
+  if (!strcmp(name, "env"))   {   /* read an environment variable; off in --sandbox (may hold secrets) */
+    if (n<1 || n>2 || a[0].type!=V_STR) fail(call->line,"env needs a name, and an optional default: env(\"HOME\") or env(\"PORT\", \"8080\").");
+    const char *v = getenv(a[0].str ? a[0].str : "");
+    if (v) return vstr(v);
+    return n==2 ? a[1] : vnone();
+  }
   if (!strcmp(name, "min") || !strcmp(name, "max")) {
     if (n<1) fail(call->line,"min/max need at least one number.");
     double best=0; int set=0; int wantMin = (name[1]=='i');
@@ -2809,7 +2830,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.1.8"
+#define SPROUT_VERSION "0.1.9"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);
@@ -3484,10 +3505,14 @@ int main(int argc, char **argv) {
   }
 
   const char *file = arg;
+  int prog_argstart = 2;                /* `sprout file.sprout ARGS...`  -> args start at argv[2] */
   if (!strcmp(arg, "run")) {
     if (argc < 3) return cmd_build();   /* `sprout run` with no file builds the project here */
     file = argv[2];
+    prog_argstart = 3;                  /* `sprout run file.sprout ARGS...` -> args start at argv[3] */
   }
+  g_prog_args = argv + prog_argstart;   /* what args() returns to the program */
+  g_prog_nargs = argc > prog_argstart ? argc - prog_argstart : 0;
 
   int len; char *src = read_file(file, &len);
   g_current_file = file;
