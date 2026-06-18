@@ -1,0 +1,42 @@
+~ Regex: matches / find / find_all. A *_test.sprout file (gated via `sprout test`).
+~ Shorthands like \d are written "\\d" in a Sprout string (a backslash escapes a backslash,
+~ same as Java/JS); character classes like [0-9] need no escaping.
+
+test "matches: whole-string match":
+    expect matches("abc123", "[a-z]+[0-9]+")
+    expect matches("abc 123", "[a-z]+[0-9]+") == no
+    expect matches("hello", "h.llo")
+    expect matches("colour", "colou?r")
+    expect matches("color", "colou?r")
+    expect matches("", "a*")
+    expect matches("aaab", "a+") == no
+
+test "matches: counted repeats / a date shape":
+    expect matches("2026-06-19", "[0-9]{4}-[0-9]{2}-[0-9]{2}")
+    expect matches("26-6-19", "[0-9]{4}-[0-9]{2}-[0-9]{2}") == no
+
+test "find: first match or nothing":
+    expect find("order 42 then 99", "[0-9]+") == "42"
+    expect find("nothing here", "[0-9]+") == nothing
+    expect find("hello world", "world$") == "world"
+
+test "find_all: every non-overlapping match":
+    expect find_all("a1 b2 c3", "[0-9]") == ["1", "2", "3"]
+    expect find_all("cat hat bat", "[a-z]at") == ["cat", "hat", "bat"]
+    expect length(find_all("2026-06-19", "[0-9]+")) == 3
+
+test "anchors ^ and $":
+    expect find("say hi", "^[a-z]+") == "say"
+    expect matches("hi", "^hi$")
+    expect matches("hi there", "^hi$") == no
+
+test "shorthands (written with a double backslash)":
+    expect matches("a_b9", "\\w+")
+    expect find_all("a1 b2 c3", "\\d") == ["1", "2", "3"]
+    expect find("phone 555-1234", "\\d{3}-\\d{4}") == "555-1234"
+
+test "input must be text":
+    expect error:
+        show matches(42, "x")
+    expect error:
+        show find("x", 42)

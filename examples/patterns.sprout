@@ -1,0 +1,21 @@
+~ Regular expressions in Sprout: matches / find / find_all.
+~ A pattern is just text. Character classes like [0-9] need no escaping; the
+~ shorthands \d \w \s are written "\\d" etc. (a backslash escapes a backslash).
+
+~ 1. Validate inputs against a whole-string pattern.
+make date_shape = "[0-9]{4}-[0-9]{2}-[0-9]{2}"
+make samples = ["2026-06-19", "hello", "26-6-19", "1999-12-31"]
+show "Which look like dates?"
+for each s in samples:
+    when matches(s, date_shape):
+        show "  " + s + "  yes"
+    otherwise:
+        show "  " + s + "  no"
+
+~ 2. Pull every number out of a messy line.
+make line = "room 42 holds 7 chairs and 3 tables"
+show "Numbers found: " + join(find_all(line, "[0-9]+"), ", ")
+
+~ 3. Find the first match of a pattern.
+show "First word:  " + find("  the quick fox", "[a-z]+")
+show "First price: " + find("subtotal: 19 dollars", "[0-9]+")

@@ -1383,6 +1383,7 @@ static const char *const BUILTIN_NAMES[] = {
   "sum","count","unique","zip","flatten","slice","words","lines","title","seed",
   "abs","round","floor","ceil","sqrt","pow","min","max","random","number",
   "sin","cos","tan","log","exp","pi","args","env",
+  "matches","find","find_all",
   "upper","lower","trim","replace","split","join","starts_with","ends_with",
   "ask","now","today","wait","read","write","append","exists","remember","recall","forget",
   "get","json","explore","color",
@@ -1727,6 +1728,104 @@ static int builtin_blocked(const char *name) {
   return 0;
 }
 
+/* ===================== a small regex engine (from scratch) =====================
+   A byte-oriented backtracking matcher. Supports: literals, '.', '^'/'$', character
+   classes [..] / [^..] with ranges, the shorthands \d \w \s \D \W \S, escapes
+   (\. \\ \n \t ...), and greedy quantifiers * + ? and {n} / {n,} / {n,m}. (Groups (...)
+   and alternation a|b are a planned follow-up.) A step budget bounds backtracking so a
+   pathological pattern can never hang. Byte-oriented: '.' and classes match one byte,
+   which is exactly right for ASCII patterns. */
+#define RE_BUDGET 3000000L
+typedef struct { int kind; unsigned char c; unsigned char set[32]; int neg; } REAtom;  /* kind: 0=char 1=any 2=class */
+
+static void re_set_add(unsigned char *set, unsigned char ch) { set[ch >> 3] |= (unsigned char)(1u << (ch & 7)); }
+static int  re_set_has(const unsigned char *set, unsigned char ch) { return (set[ch >> 3] >> (ch & 7)) & 1; }
+static void re_set_range(unsigned char *set, unsigned a, unsigned b) { for (unsigned x = a; x <= b && x < 256; x++) re_set_add(set, (unsigned char)x); }
+
+/* OR a \-shorthand's members into set; returns 1 if `e` was d/w/s/D/W/S, else 0. */
+static int re_shorthand(unsigned char e, unsigned char *set) {
+  unsigned char low = (e=='D'?'d':(e=='W'?'w':(e=='S'?'s':e)));
+  if (low!='d' && low!='w' && low!='s') return 0;
+  unsigned char tmp[32]; memset(tmp, 0, 32);
+  if (low=='d') re_set_range(tmp,'0','9');
+  else if (low=='w') { re_set_range(tmp,'a','z'); re_set_range(tmp,'A','Z'); re_set_range(tmp,'0','9'); re_set_add(tmp,'_'); }
+  else { re_set_add(tmp,' '); re_set_add(tmp,'\t'); re_set_add(tmp,'\n'); re_set_add(tmp,'\r'); re_set_add(tmp,'\f'); re_set_add(tmp,'\v'); }
+  if (e=='D'||e=='W'||e=='S') for (int i=0;i<32;i++) tmp[i] = (unsigned char)~tmp[i];   /* negate the shorthand */
+  for (int i=0;i<32;i++) set[i] |= tmp[i];
+  return 1;
+}
+static unsigned char re_escape_char(unsigned char e) {
+  switch (e) { case 'n': return '\n'; case 't': return '\t'; case 'r': return '\r'; case 'f': return '\f'; case 'v': return '\v'; default: return e; }
+}
+/* parse one atom at pat[pi]; fill `a`; return the index just AFTER the atom. */
+static int re_parse_atom(const char *pat, int pi, REAtom *a) {
+  memset(a, 0, sizeof *a);
+  unsigned char c = (unsigned char)pat[pi];
+  if (c == '.') { a->kind = 1; return pi + 1; }
+  if (c == '\\' && pat[pi+1]) {
+    unsigned char e = (unsigned char)pat[pi+1];
+    if (re_shorthand(e, a->set)) { a->kind = 2; return pi + 2; }
+    a->kind = 0; a->c = re_escape_char(e); return pi + 2;
+  }
+  if (c == '[') {
+    a->kind = 2; int i = pi + 1;
+    if (pat[i] == '^') { a->neg = 1; i++; }
+    if (pat[i] == ']') { re_set_add(a->set, ']'); i++; }            /* a leading ] is a literal */
+    while (pat[i] && pat[i] != ']') {
+      if (pat[i] == '\\' && pat[i+1]) { unsigned char e=(unsigned char)pat[i+1]; if (re_shorthand(e, a->set)) i+=2; else { re_set_add(a->set, re_escape_char(e)); i+=2; } continue; }
+      if (pat[i+1] == '-' && pat[i+2] && pat[i+2] != ']') { re_set_range(a->set,(unsigned char)pat[i],(unsigned char)pat[i+2]); i+=3; continue; }
+      re_set_add(a->set, (unsigned char)pat[i]); i++;
+    }
+    if (pat[i] == ']') i++;
+    return i;
+  }
+  a->kind = 0; a->c = c; return pi + 1;
+}
+static int re_atom_match(const REAtom *a, unsigned char ch) {
+  int r = (a->kind == 1) ? (ch != '\n') : (a->kind == 2) ? re_set_has(a->set, ch) : (ch == a->c);
+  if (a->kind == 2 && a->neg) r = !r;
+  return r;
+}
+/* match pat[pi..] against text[ti..tlen); return the end index on success, or -1. */
+static int re_here(const char *pat, int pi, const char *text, int ti, int tlen, long *budget) {
+  if (--*budget < 0) return -1;
+  unsigned char pc = (unsigned char)pat[pi];
+  if (pc == 0) return ti;
+  if (pc == '^') return (ti == 0) ? re_here(pat, pi+1, text, ti, tlen, budget) : -1;
+  if (pc == '$' && pat[pi+1] == 0) return (ti == tlen) ? ti : -1;
+  REAtom a; int api = re_parse_atom(pat, pi, &a);
+  int mn = 1, mx = 1, after = api;
+  unsigned char q = (unsigned char)pat[api];
+  if      (q == '*') { mn = 0; mx = 1<<30; after = api+1; }
+  else if (q == '+') { mn = 1; mx = 1<<30; after = api+1; }
+  else if (q == '?') { mn = 0; mx = 1;     after = api+1; }
+  else if (q == '{') {
+    int j = api+1, lo = 0, nd = 0;
+    while (pat[j] >= '0' && pat[j] <= '9') { lo = lo*10 + (pat[j]-'0'); j++; nd++; }
+    int hi = lo;
+    if (nd && pat[j] == ',') { j++; if (pat[j] >= '0' && pat[j] <= '9') { hi = 0; while (pat[j]>='0'&&pat[j]<='9'){ hi=hi*10+(pat[j]-'0'); j++; } } else hi = 1<<30; }
+    if (nd && pat[j] == '}') { mn = lo; mx = hi; after = j+1; }     /* else: not a quantifier; '{' is a literal next */
+  }
+  int cur = ti, count = 0;
+  while (count < mx && cur < tlen && re_atom_match(&a, (unsigned char)text[cur])) { cur++; count++; }
+  while (count >= mn) {
+    int r = re_here(pat, after, text, cur, tlen, budget);
+    if (r >= 0) return r;
+    if (count == mn) break;
+    count--; cur--;
+  }
+  return -1;
+}
+/* search for the leftmost match at start >= from; on success set *mb,*me and return 1. */
+static int re_search(const char *pat, const char *text, int from, int tlen, int *mb, int *me) {
+  for (int start = from; start <= tlen; start++) {
+    long budget = RE_BUDGET;
+    int r = re_here(pat, 0, text, start, tlen, &budget);
+    if (r >= 0) { *mb = start; *me = r; return 1; }
+  }
+  return 0;
+}
+
 static Value call_builtin(Expr *call, Env *env) {
   const char *name = call->name;
   int n = call->nargs;
@@ -2016,6 +2115,33 @@ static Value call_builtin(Expr *call, Env *env) {
     const char *v = getenv(a[0].str ? a[0].str : "");
     if (v) return vstr(v);
     return n==2 ? a[1] : vnone();
+  }
+  if (!strcmp(name, "matches")) {   /* does the WHOLE text match the regex pattern? */
+    if (n!=2 || a[0].type!=V_STR || a[1].type!=V_STR) fail(call->line,"matches needs text and a pattern, like matches(name, \"[a-z]+\").");
+    const char *s = a[0].str?a[0].str:"", *p = a[1].str?a[1].str:"";
+    int tlen = (int)strlen(s); long budget = RE_BUDGET;
+    int r = re_here(p, 0, s, 0, tlen, &budget);
+    return vbool(r == tlen);
+  }
+  if (!strcmp(name, "find")) {      /* the first substring matching the pattern, or nothing */
+    if (n!=2 || a[0].type!=V_STR || a[1].type!=V_STR) fail(call->line,"find needs text and a pattern, like find(s, \"[0-9]+\").");
+    const char *s = a[0].str?a[0].str:"", *p = a[1].str?a[1].str:"";
+    int tlen = (int)strlen(s), mb, me;
+    if (!re_search(p, s, 0, tlen, &mb, &me)) return vnone();
+    char *buf = (char*)malloc((size_t)(me-mb)+1); memcpy(buf, s+mb, (size_t)(me-mb)); buf[me-mb]=0;
+    return vstr_take(buf);
+  }
+  if (!strcmp(name, "find_all")) {  /* every non-overlapping match, as a list of text */
+    if (n!=2 || a[0].type!=V_STR || a[1].type!=V_STR) fail(call->line,"find_all needs text and a pattern, like find_all(s, \"[0-9]+\").");
+    const char *s = a[0].str?a[0].str:"", *p = a[1].str?a[1].str:"";
+    int tlen = (int)strlen(s); SList *l = list_new();
+    int pos = 0, mb, me;
+    while (pos <= tlen && re_search(p, s, pos, tlen, &mb, &me)) {
+      char *buf = (char*)malloc((size_t)(me-mb)+1); memcpy(buf, s+mb, (size_t)(me-mb)); buf[me-mb]=0;
+      list_push(l, vstr_take(buf));
+      pos = (me > mb) ? me : mb + 1;
+    }
+    return vlist(l);
   }
   if (!strcmp(name, "min") || !strcmp(name, "max")) {
     if (n<1) fail(call->line,"min/max need at least one number.");
@@ -2830,7 +2956,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.1.9"
+#define SPROUT_VERSION "0.1.10"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);

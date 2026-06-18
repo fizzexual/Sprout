@@ -71,9 +71,11 @@ Closing the "batteries included" gap. **Shipped so far:**
 - **Math** — `sin` `cos` `tan` `exp` `log` (natural, or `log(x, base)`) `pi()`
 - **`args()`** — your program's command-line arguments (a list of text)
 - **`env(name)` / `env(name, default)`** — read environment variables
+- **Regex** — `matches` / `find` / `find_all` (classes, quantifiers `* + ? {n,m}`, anchors
+  `^ $`, and the `\d \w \s` shorthands) — see [Builtins → Text patterns](builtins-reference.md#text-patterns-regex)
 
-**Still planned:** regular expressions, real date & time (`now` / `today` are text today), sets
-and queues, and a wider math library.
+**Still planned:** real date & time (`now` / `today` are text today), sets and queues, a wider
+math library, and regex groups `( )` + alternation `a|b`.
 
 ## Phase 5 — Package manager 📋
 

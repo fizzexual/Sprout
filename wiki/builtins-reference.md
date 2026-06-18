@@ -1,6 +1,6 @@
 # Builtins reference (complete)
 
-Every one of Sprout's **74 built-in functions**, with a signature, what it does,
+Every one of Sprout's **77 built-in functions**, with a signature, what it does,
 whether it changes its input or returns a new value, a tiny example you can run
 right now, its real output, and the error it raises on bad input. This is the
 long one — bookmark it.
@@ -24,6 +24,7 @@ errors follow, see [Errors & error handling](errors.md).
 - [Random & time](#random--time) — `random` `seed` `now` `today` `wait`
 - [Conversion & inspection](#conversion--inspection) — `number` `kind_of` `is_a` `json`
 - [Text](#text) — `upper` `lower` `title` `trim` `replace` `split` `join` `words` `lines` `contains` `starts_with` `ends_with` `index_of` `count` `slice` `length`
+- [Text patterns (regex)](#text-patterns-regex) — `matches` `find` `find_all`
 - [Lists](#lists) — `add` `remove` `insert` `first` `last` `length` `sort` `sort_by` `reverse` `unique` `zip` `flatten` `range` `slice` `map` `filter` `reduce` `copy` `contains` `index_of` `count` `sum`
 - [Maps](#maps) — `keys` `values` `contains` `remove` `length` `copy`
 - [Input](#input) — `ask`
@@ -34,7 +35,7 @@ errors follow, see [Errors & error handling](errors.md).
 - [Persistence](#persistence) — `remember` `recall` `forget`
 - [Output & colour](#output--colour) — `color` (and `show`)
 - [The error a builtin raises](#the-error-a-builtin-raises)
-- [Quick index of all 74](#quick-index-of-all-74)
+- [Quick index of all 77](#quick-index-of-all-77)
 
 ---
 
@@ -671,6 +672,78 @@ show length("")
 4
 0
 ```
+
+---
+
+## Text patterns (regex)
+
+Three functions match a **regular expression** against text. A pattern is itself text, so a
+shorthand that starts with a backslash is written with **two** backslashes (`"\\d"`) — a
+backslash escapes a backslash, exactly like Java or JavaScript. Character classes like `[0-9]`
+need no escaping and are often clearer.
+
+### `matches(text, pattern)` → yes/no
+
+Does the **whole** `text` match `pattern`? **Returns** `yes`/`no`.
+
+```sprout
+show matches("2026-06-19", "[0-9]{4}-[0-9]{2}-[0-9]{2}")
+show matches("hello world", "[a-z]+")          ~ no: the space breaks a full match
+show matches("a_b9", "\\w+")
+```
+
+```text
+yes
+no
+yes
+```
+
+### `find(text, pattern)` → text or nothing
+
+The **first** substring of `text` that matches `pattern`, scanning left to right — or
+`nothing` if there's no match. **Returns** new text.
+
+```sprout
+show find("order 42 then 99", "[0-9]+")        ~ 42
+show find("phone 555-1234", "\\d{3}-\\d{4}")   ~ 555-1234
+show find("nothing here", "[0-9]+")            ~ nothing
+```
+
+### `find_all(text, pattern)` → list
+
+**Every** non-overlapping match, left to right, as a list of text (empty if none).
+**Returns** a new list.
+
+```sprout
+show find_all("a1 b2 c3", "[0-9]")
+show find_all("cat hat bat", "[a-z]at")
+```
+
+```text
+[1, 2, 3]
+[cat, hat, bat]
+```
+
+Bad input (all three): the text and pattern must both be text — e.g.
+`find needs text and a pattern, like find(s, "[0-9]+").`
+
+### Pattern syntax
+
+| Write | Matches |
+| --- | --- |
+| `abc` | the literal characters `a`, `b`, `c` |
+| `.` | any one character (except a newline) |
+| `^` … `$` | the start / end of the text |
+| `[abc]` `[a-z]` | one character in the set / range |
+| `[^abc]` | one character **not** in the set |
+| `\\d` `\\w` `\\s` | a digit / word char (`[A-Za-z0-9_]`) / whitespace |
+| `\\D` `\\W` `\\S` | the negation of each |
+| `\\.` `\\\\` | a literal `.`, `\`, and so on |
+| `x*` `x+` `x?` | zero-or-more / one-or-more / optional (greedy) |
+| `x{3}` `x{2,}` `x{2,5}` | exactly / at least / between *n* and *m* times |
+
+A built-in step limit means even a pathological pattern returns quickly instead of hanging.
+**Not yet supported:** groups `( … )` and alternation `a|b` — a planned follow-up.
 
 ---
 
@@ -1462,7 +1535,7 @@ The full model — the two tiers, the `caught` map shape, `fail` with a map — 
 
 ---
 
-## Quick index of all 74
+## Quick index of all 77
 
 | Builtin | Group | Mutates? | Returns |
 | --- | --- | --- | --- |
@@ -1506,6 +1579,9 @@ The full model — the two tiers, the `caught` map shape, `fail` with a map — 
 | `count` | text/list | no | number |
 | `slice` | text/list | no | text / list |
 | `length` | text/list/map | no | number |
+| `matches` | regex | no | yes/no |
+| `find` | regex | no | text / nothing |
+| `find_all` | regex | no | list |
 | `add` | lists | **yes** | nothing |
 | `insert` | lists | **yes** | nothing |
 | `remove` | lists/maps | **yes** | removed item |
@@ -1537,7 +1613,7 @@ The full model — the two tiers, the `caught` map shape, `fail` with a map — 
 | `run` (`system.run`) | system | (shell) | text / nothing |
 | `color` | output | no | text |
 
-That's all 74 (counting `run`, reached as `system.run`).
+That's all 77 (counting `run`, reached as `system.run`).
 
 ---
 
