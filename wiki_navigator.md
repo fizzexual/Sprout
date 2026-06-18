@@ -33,7 +33,7 @@ link straight to the page that explains it.
 ### Reference
 | Page | What's inside |
 | --- | --- |
-| [Builtins reference](wiki/builtins-reference.md) | **All 66 builtins** — signature, behavior, example, and the error each raises |
+| [Builtins reference](wiki/builtins-reference.md) | **All 65 builtins** — signature, behavior, example, and the error each raises |
 | [Grammar & decided edge cases](wiki/grammar-and-edge-cases.md) | The EBNF, indentation rules, reserved words, the rules settled at the freeze |
 | [Glossary](wiki/glossary.md) | Every Sprout term, one line each |
 
@@ -96,7 +96,7 @@ link straight to the page that explains it.
 | `f"… {expr} …"` | f-string (text with values inside) | [Text](wiki/text.md) |
 | `~` | Comment to end of line | [Syntax basics](wiki/syntax-basics.md) |
 
-### Builtins (all 66)
+### Builtins (all 65)
 Full signatures, behavior, examples, and the error each raises live in the
 **[Builtins reference](wiki/builtins-reference.md)**. Grouped:
 
@@ -109,7 +109,7 @@ Full signatures, behavior, examples, and the error each raises live in the
 - **Random & time** — `random` `seed` `now` `today` `wait` → also [Files, web, system & time](wiki/io-web-system-time.md)
 - **Input** — `ask`
 - **Files** — `read` `write` `append` `exists` → [Files, web, system & time](wiki/io-web-system-time.md)
-- **Web** — `serve` `get` `explore` → [Files, web, system & time](wiki/io-web-system-time.md)
+- **Web** — `get` `explore` → [Files, web, system & time](wiki/io-web-system-time.md)
 - **Persistence** — `remember` `recall` `forget` → [Persistence](wiki/persistence.md)
 - **System & output** — `run` (`system.run`) · `color` → [Files, web, system & time](wiki/io-web-system-time.md)
 

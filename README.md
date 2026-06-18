@@ -104,7 +104,6 @@ v0.1.0**. Here's everything it runs:
 - **Toolbox:** `length` `add` `remove` `insert` `keys` `values` `contains` `first` `last` `index_of` `sort` `sort_by` `reverse` `copy` `kind_of` `map` `filter` `reduce` `sum` `count` `unique` `zip` `flatten` `slice` `range` · `sqrt` `pow` `abs` `round` `floor` `ceil` `min` `max` `random` `seed` `number` · `upper` `lower` `trim` `replace` `split` `join` `starts_with` `ends_with` `words` `lines` `title` · `now` `today` `wait` · `ask` · `color` (terminal colour)
 - **Superpowers — built in, no libraries:**
   - 🌐 `get(url)` — fetch any web page or API
-  - 🕸️ `serve(port, handler)` — **run a real HTTP server** and write a whole website in Sprout (see the [store demo](store/) — auth, cart, and an admin dashboard, all in Sprout)
   - 🧩 `json(text)` — parse JSON straight into native lists & maps
   - 🔎 `explore(value)` — a *function* that returns a list of every `path = value` inside a value (the `sprout api <url>` *command* is just the CLI shortcut that fetches a URL and prints this)
   - 📄 `read` / `write` / `append` / `exists` — files

@@ -28,12 +28,12 @@ errors follow, see [Errors & error handling](errors.md).
 - [Maps](#maps) — `keys` `values` `contains` `remove` `length` `copy`
 - [Input](#input) — `ask`
 - [Files](#files) — `read` `write` `append` `exists`
-- [Web](#web) — `serve` `get` `explore`
+- [Web](#web) — `get` `explore`
 - [System](#system) — `system.run`
 - [Persistence](#persistence) — `remember` `recall` `forget`
 - [Output & colour](#output--colour) — `color` (and `show`)
 - [The error a builtin raises](#the-error-a-builtin-raises)
-- [Quick index of all 66](#quick-index-of-all-66)
+- [Quick index of all 65](#quick-index-of-all-65)
 
 ---
 
@@ -1102,38 +1102,8 @@ Bad input: `exists needs a file name.`
 
 ## Web
 
-`get`, `explore`, and `serve` are turned **off in sandbox mode** (network access).
+`get` and `explore` are turned **off in sandbox mode** (network access).
 
-### `serve(port, handler)` → runs forever
-
-Start a real **HTTP server** on `localhost:port`. For every request, Sprout calls your
-`handler` task with a **request map** and sends back the **response** it returns — so you can
-write a whole website in Sprout, no other server needed. **Blocks** until you stop the program
-(Ctrl+C).
-
-- The request map has: `req["method"]`, `req["path"]`, `req["params"]` (query + form fields,
-  as a map), `req["cookies"]` (map), `req["headers"]` (map, lower-cased names), `req["body"]`
-  (raw text).
-- The handler **returns** a map `{"status": 200, "headers": {…}, "body": "…"}`. A bare body
-  string works too; `status` defaults to `200` and `Content-Type` to `text/html`. Set a
-  cookie or a redirect by returning a `headers` map (`{"Location": "/", "Set-Cookie": "…"}`).
-
-```sprout
-task handle(req):
-    when req["path"] == "/hello":
-        give {"status": 200, "body": "<h1>Hi from Sprout!</h1>"}
-    when req["path"] == "/echo":
-        give {"status": 200, "headers": {"Content-Type": "text/plain"}, "body": req["params"]["name"]}
-    give {"status": 404, "body": "not found"}
-
-serve(8080, handle)
-~ then open http://localhost:8080/hello
-```
-
-A full example — a store with accounts, a cart, and an admin dashboard, all in Sprout — is in
-[`store/`](https://github.com/fizzexual/Sprout/tree/main/store). Bad input:
-`serve needs a port number and a handler task, like serve(8080, handle).` A handler that fails
-on one request returns a `500` and the server keeps running.
 
 ### `get(url)` → text or nothing
 
@@ -1363,7 +1333,7 @@ The full model — the two tiers, the `caught` map shape, `fail` with a map — 
 
 ---
 
-## Quick index of all 66
+## Quick index of all 65
 
 | Builtin | Group | Mutates? | Returns |
 | --- | --- | --- | --- |
@@ -1424,7 +1394,6 @@ The full model — the two tiers, the `caught` map shape, `fail` with a map — 
 | `append` | files | (file) | nothing |
 | `exists` | files | no | yes/no |
 | `get` | web | (network) | text / nothing |
-| `serve` | web | runs an HTTP server | (blocks) |
 | `explore` | web | no | list |
 | `remember` | persistence | (store) | nothing |
 | `recall` | persistence | no | any |
@@ -1432,7 +1401,7 @@ The full model — the two tiers, the `caught` map shape, `fail` with a map — 
 | `run` (`system.run`) | system | (shell) | text / nothing |
 | `color` | output | no | text |
 
-That's all 66 (counting `run`, reached as `system.run`).
+That's all 65 (counting `run`, reached as `system.run`).
 
 ---
 

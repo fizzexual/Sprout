@@ -24,8 +24,6 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
-#include <winsock2.h>   /* serve(): TCP sockets — must come before windows.h */
-#include <ws2tcpip.h>
 #include <windows.h>
 #include <urlmon.h>
 #endif
@@ -35,9 +33,6 @@
 #include <dirent.h>     /* opendir() to test if a folder is empty */
 #include <limits.h>     /* PATH_MAX for realpath() */
 #include <unistd.h>     /* getpid() for the POSIX http_get temp file */
-#include <sys/socket.h> /* serve(): TCP sockets */
-#include <netinet/in.h>
-#include <arpa/inet.h>
 #endif
 
 static char *dup_str(const char *s) { size_t n = strlen(s) + 1; char *p = (char *)malloc(n); memcpy(p, s, n); return p; }
@@ -1329,7 +1324,7 @@ static const char *const BUILTIN_NAMES[] = {
   "abs","round","floor","ceil","sqrt","pow","min","max","random","number",
   "upper","lower","trim","replace","split","join","starts_with","ends_with",
   "ask","now","today","wait","read","write","append","exists","remember","recall","forget",
-  "get","json","explore","color","serve",
+  "get","json","explore","color",
 };
 static const int NBUILTIN_NAMES = (int)(sizeof BUILTIN_NAMES / sizeof BUILTIN_NAMES[0]);
 
@@ -1656,268 +1651,6 @@ static int value_cmp(const void *pa, const void *pb) {
   return 0;
 }
 
-/* ============================ serve(port, handler): a tiny HTTP server ============================
-   Opens a TCP server on localhost:port and, for every request, calls the Sprout task `handler`
-   with a request map { method, path, params, cookies, headers, body } and writes back the
-   response it returns — a map { status, headers, body } (or just a body string). This is
-   Sprout's "web" slice: a whole site can be written in Sprout, no external server needed.
-   Blocks until the program is stopped (Ctrl+C). */
-#ifdef _WIN32
-typedef SOCKET SvSock;
-#define SV_BAD INVALID_SOCKET
-#define sv_close closesocket
-#else
-typedef int SvSock;
-#define SV_BAD (-1)
-#define sv_close close
-#endif
-
-static int sv_hexval(int ch) {
-  if (ch >= '0' && ch <= '9') return ch - '0';
-  if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
-  if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
-  return -1;
-}
-/* decode %XX and '+' from s[0..len) into out (which must hold >= len+1 chars) */
-static void sv_url_decode(const char *s, int len, char *out) {
-  int o = 0;
-  for (int i = 0; i < len; i++) {
-    char c = s[i];
-    if (c == '+') { out[o++] = ' '; }
-    else if (c == '%' && i + 2 < len && sv_hexval(s[i+1]) >= 0 && sv_hexval(s[i+2]) >= 0) {
-      out[o++] = (char)(sv_hexval(s[i+1]) * 16 + sv_hexval(s[i+2])); i += 2;
-    } else out[o++] = c;
-  }
-  out[o] = 0;
-}
-/* parse "a=1&b=2" (url-encoded) into map m */
-static void sv_parse_pairs(SMap *m, const char *s, int len) {
-  int i = 0;
-  while (i < len) {
-    int amp = i; while (amp < len && s[amp] != '&') amp++;
-    int eq = i;  while (eq < amp && s[eq] != '=') eq++;
-    int klen = eq - i;
-    int vlen = (eq < amp) ? amp - eq - 1 : 0;
-    const char *vp = (eq < amp) ? s + eq + 1 : "";
-    char *kb = (char *)malloc(klen + 1), *vb = (char *)malloc(vlen + 1);
-    sv_url_decode(s + i, klen, kb);
-    sv_url_decode(vp, vlen, vb);
-    if (kb[0]) map_set(m, kb, vstr(vb));
-    free(kb); free(vb);
-    i = amp + 1;
-  }
-}
-static void sv_send_all(SvSock c, const char *buf, size_t n) {
-  size_t off = 0;
-  while (off < n) {
-    int w = send(c, buf + off, (int)(n - off), 0);
-    if (w <= 0) break;
-    off += (size_t)w;
-  }
-}
-/* read a whole HTTP request (headers + any Content-Length body) into a malloc'd buffer */
-static char *sv_read_request(SvSock c, int *out_len) {
-  size_t cap = 8192, n = 0;
-  char *buf = (char *)malloc(cap);
-  int header_end = -1;
-  long content_length = 0;
-  for (;;) {
-    if (n + 1 >= cap) { cap *= 2; buf = (char *)realloc(buf, cap); }
-    int r = recv(c, buf + n, (int)(cap - n - 1), 0);
-    if (r <= 0) break;
-    n += (size_t)r; buf[n] = 0;
-    if (header_end < 0) {
-      char *he = strstr(buf, "\r\n\r\n");
-      if (he) {
-        header_end = (int)(he - buf) + 4;
-        char *low = (char *)malloc((size_t)header_end + 1);
-        for (int i = 0; i < header_end; i++) low[i] = (char)tolower((unsigned char)buf[i]);
-        low[header_end] = 0;
-        char *cl = strstr(low, "content-length:");
-        if (cl) content_length = atol(cl + 15);
-        free(low);
-      }
-    }
-    if (header_end >= 0) {
-      if (content_length <= 0 || (long)n - header_end >= content_length) break;
-    }
-    if (n > (1u << 20)) break;   /* cap a request at ~1 MB */
-  }
-  *out_len = (int)n;
-  return buf;
-}
-/* turn the raw request bytes into a Sprout request map */
-static Value sv_parse_request(char *raw, int len) {
-  SMap *req = map_new();
-  SMap *params = map_new();
-  SMap *cookies = map_new();
-  SMap *headers = map_new();
-  /* request line: METHOD SP PATH SP HTTP/x */
-  int i = 0;
-  while (i < len && raw[i] != ' ') i++;
-  char method[16]; int mlen = i < 15 ? i : 15; memcpy(method, raw, (size_t)mlen); method[mlen] = 0;
-  int ps = i + 1, pe = ps;
-  while (pe < len && raw[pe] != ' ' && raw[pe] != '\r' && raw[pe] != '\n') pe++;
-  /* path?query */
-  int q = ps; while (q < pe && raw[q] != '?') q++;
-  char *path = (char *)malloc((size_t)(q - ps) + 1); memcpy(path, raw + ps, (size_t)(q - ps)); path[q - ps] = 0;
-  if (q < pe) sv_parse_pairs(params, raw + q + 1, pe - q - 1);
-  map_set(req, "method", vstr(method));
-  map_set(req, "path", vstr(path));
-  free(path);
-  /* headers: walk lines until a blank one */
-  int li = ps; while (li < len && raw[li] != '\n') li++; li++;   /* skip the request line */
-  int body_at = -1;
-  long content_length = 0;
-  while (li < len) {
-    if (raw[li] == '\r' || raw[li] == '\n') { body_at = (raw[li] == '\r' && li + 1 < len) ? li + 2 : li + 1; break; }
-    int le = li; while (le < len && raw[le] != '\r' && raw[le] != '\n') le++;
-    int colon = li; while (colon < le && raw[colon] != ':') colon++;
-    if (colon < le) {
-      int nlen = colon - li;
-      char *hn = (char *)malloc((size_t)nlen + 1);
-      for (int k = 0; k < nlen; k++) hn[k] = (char)tolower((unsigned char)raw[li + k]);
-      hn[nlen] = 0;
-      int vs = colon + 1; while (vs < le && raw[vs] == ' ') vs++;
-      int vlen = le - vs;
-      char *hv = (char *)malloc((size_t)vlen + 1); memcpy(hv, raw + vs, (size_t)vlen); hv[vlen] = 0;
-      map_set(headers, hn, vstr(hv));
-      if (!strcmp(hn, "content-length")) content_length = atol(hv);
-      if (!strcmp(hn, "cookie")) {
-        int cs = 0;
-        while (cs < vlen) {
-          int semi = cs; while (semi < vlen && hv[semi] != ';') semi++;
-          int e = cs; while (e < semi && hv[e] != '=') e++;
-          int b = cs; while (b < e && hv[b] == ' ') b++;
-          if (e < semi) {
-            int cknlen = e - b, ckvlen = semi - e - 1;
-            char *ckn = (char *)malloc((size_t)cknlen + 1); memcpy(ckn, hv + b, (size_t)cknlen); ckn[cknlen] = 0;
-            char *ckv = (char *)malloc((size_t)ckvlen + 1); memcpy(ckv, hv + e + 1, (size_t)ckvlen); ckv[ckvlen] = 0;
-            if (ckn[0]) map_set(cookies, ckn, vstr(ckv));
-            free(ckn); free(ckv);
-          }
-          cs = semi + 1;
-        }
-      }
-      free(hn); free(hv);
-    }
-    li = le;                                          /* skip exactly THIS line's ending (one CRLF/LF), */
-    if (li < len && raw[li] == '\r') li++;            /* so the blank separator line is seen next turn  */
-    if (li < len && raw[li] == '\n') li++;
-  }
-  /* body (form-encoded merges into params; raw body always available) */
-  const char *body = ""; int blen = 0;
-  if (body_at >= 0 && body_at < len) { body = raw + body_at; blen = len - body_at; }
-  if (content_length > 0 && content_length < blen) blen = (int)content_length;
-  if (!strcmp(method, "POST") && blen > 0) sv_parse_pairs(params, body, blen);
-  { char *bb = (char *)malloc((size_t)blen + 1); memcpy(bb, body, (size_t)blen); bb[blen] = 0; map_set(req, "body", vstr(bb)); free(bb); }
-  map_set(req, "params", vmap(params));
-  map_set(req, "cookies", vmap(cookies));
-  map_set(req, "headers", vmap(headers));
-  return vmap(req);
-}
-static const char *sv_reason(long s) {
-  switch (s) {
-    case 200: return "OK";            case 201: return "Created";      case 204: return "No Content";
-    case 301: return "Moved Permanently"; case 302: return "Found";    case 303: return "See Other";
-    case 304: return "Not Modified";  case 400: return "Bad Request";  case 401: return "Unauthorized";
-    case 403: return "Forbidden";     case 404: return "Not Found";    case 405: return "Method Not Allowed";
-    case 429: return "Too Many Requests"; case 500: return "Internal Server Error";
-    default: return "OK";
-  }
-}
-static int sv_ieq(const char *a, const char *b) {   /* ASCII case-insensitive equality */
-  for (; *a && *b; a++, b++) if (tolower((unsigned char)*a) != tolower((unsigned char)*b)) return 0;
-  return *a == *b;
-}
-/* serialize the handler's response value into a full HTTP/1.0 response */
-static char *sv_build_response(Value resp) {
-  long status = 200;
-  Value body = vstr("");
-  SMap *hmap = NULL;
-  if (resp.type == V_MAP) {
-    int i;
-    if ((i = map_index(resp.map, "status")) >= 0 && resp.map->vals[i].type == V_NUM) status = (long)resp.map->vals[i].num;
-    if ((i = map_index(resp.map, "body")) >= 0) body = resp.map->vals[i];
-    if ((i = map_index(resp.map, "headers")) >= 0 && resp.map->vals[i].type == V_MAP) hmap = resp.map->vals[i].map;
-  } else if (resp.type == V_STR) {
-    body = resp;
-  }
-  int owns_body = 0;
-  char *bodystr = (body.type == V_STR && body.str) ? body.str : (owns_body = 1, stringify(body));
-  size_t blen = strlen(bodystr);
-  char *out = NULL; size_t cap = 0, len = 0; char tmp[64];
-  snprintf(tmp, sizeof tmp, "HTTP/1.0 %ld ", status); sb_add(&out, &cap, &len, tmp);
-  sb_add(&out, &cap, &len, sv_reason(status)); sb_add(&out, &cap, &len, "\r\n");
-  int has_ctype = 0;
-  if (hmap) {
-    for (int i = 0; i < hmap->n; i++) {
-      const char *hn = hmap->keys[i];
-      if (sv_ieq(hn, "content-length")) continue;   /* we set this ourselves */
-      char *hv = (hmap->vals[i].type == V_STR && hmap->vals[i].str) ? hmap->vals[i].str : NULL;
-      char *tmpv = NULL;
-      if (!hv) { tmpv = stringify(hmap->vals[i]); hv = tmpv; }
-      sb_add(&out, &cap, &len, hn); sb_add(&out, &cap, &len, ": "); sb_add(&out, &cap, &len, hv); sb_add(&out, &cap, &len, "\r\n");
-      if (sv_ieq(hn, "content-type")) has_ctype = 1;
-      free(tmpv);
-    }
-  }
-  if (!has_ctype) sb_add(&out, &cap, &len, "Content-Type: text/html; charset=utf-8\r\n");
-  snprintf(tmp, sizeof tmp, "Content-Length: %zu\r\n", blen); sb_add(&out, &cap, &len, tmp);
-  sb_add(&out, &cap, &len, "Connection: close\r\n\r\n");
-  sb_add(&out, &cap, &len, bodystr);
-  if (owns_body) free(bodystr);
-  return out;
-}
-static Value do_serve(long port, Value handler, int line) {
-  if (handler.type != V_TASK) fail_kind(line, "type", "serve needs a task to handle requests, like serve(8080, handle).");
-#ifdef _WIN32
-  { static int wsa = 0; if (!wsa) { WSADATA w; if (WSAStartup(MAKEWORD(2, 2), &w) != 0) fail_kind(line, "io", "could not start Windows sockets."); wsa = 1; } }
-#endif
-  SvSock ls = socket(AF_INET, SOCK_STREAM, 0);
-  if (ls == SV_BAD) fail_kind(line, "io", "could not create a server socket.");
-  int yes = 1; setsockopt(ls, SOL_SOCKET, SO_REUSEADDR, (const char *)&yes, sizeof yes);
-  struct sockaddr_in addr; memset(&addr, 0, sizeof addr);
-  addr.sin_family = AF_INET; addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK); addr.sin_port = htons((unsigned short)port);
-  if (bind(ls, (struct sockaddr *)&addr, sizeof addr) != 0) { sv_close(ls); fail_kind(line, "io", "could not bind to that port (is it already in use?)."); }
-  if (listen(ls, 32) != 0) { sv_close(ls); fail_kind(line, "io", "could not listen on that port."); }
-  printf("Sprout serving on http://localhost:%ld   (press Ctrl+C to stop)\n", port); fflush(stdout);
-  for (;;) {
-    SvSock c = accept(ls, NULL, NULL);
-    if (c == SV_BAD) continue;
-    int rl = 0;
-    char *raw = sv_read_request(c, &rl);
-    char *response = NULL;
-    if (raw && rl > 0) {
-      Value req = sv_parse_request(raw, rl);
-      sjmp_buf tb; sjmp_buf *saved = err_jmp; err_jmp = &tb;     /* catch a soft error per request so one bad request can't kill the server */
-      volatile int sq = g_quiet_fail; g_quiet_fail = 1;
-      volatile int sdepth = call_depth;
-      if (SJSET(tb) == 0) {
-        Value resp = call_task_v(handler.task, &req, 1, line);
-        err_jmp = saved; g_quiet_fail = sq;
-        response = sv_build_response(resp);
-      } else {
-        err_jmp = saved; g_quiet_fail = sq; call_depth = sdepth; returning = 0; g_loopctl = 0; g_have_fail_override = 0;
-        Value err = current_error_value();
-        const char *msg = "the request handler failed.";
-        if (err.type == V_MAP) { int mi = map_index(err.map, "message"); if (mi >= 0 && err.map->vals[mi].type == V_STR) msg = err.map->vals[mi].str; }
-        Value e500 = vmap(map_new());
-        map_set(e500.map, "status", vnum(500));
-        char *b = NULL; size_t bc = 0, bl = 0;
-        sb_add(&b, &bc, &bl, "<h1>500 \xE2\x80\x94 something went wrong</h1><pre>"); sb_add(&b, &bc, &bl, msg); sb_add(&b, &bc, &bl, "</pre>");
-        map_set(e500.map, "body", vstr(b ? b : "")); free(b);
-        response = sv_build_response(e500);
-      }
-    }
-    free(raw);
-    if (response) { sv_send_all(c, response, strlen(response)); free(response); }
-    sv_close(c);
-    if (gc_stack_bottom) gc_collect();   /* keep memory bounded between requests */
-  }
-  return vnone();   /* not reached — the accept loop runs until the program is stopped */
-}
-
 /* --sandbox (or the SPROUT_SANDBOX env var): for an online playground or any host that
    runs untrusted code, turn off every builtin that can touch the filesystem, a shell, or
    the network — otherwise a stranger's program gets file + shell + SSRF access to the host. */
@@ -1925,7 +1658,7 @@ static int g_sandbox = 0;
 static int builtin_blocked(const char *name) {
   static const char *const b[] = { "read", "write", "append", "exists",        /* filesystem */
                                    "remember", "recall", "forget",             /* on-disk store */
-                                   "get", "explore", "serve" };                /* network */
+                                   "get", "explore" };                /* network */
   for (size_t i = 0; i < sizeof b / sizeof *b; i++) if (!strcmp(name, b[i])) return 1;
   return 0;
 }
@@ -2322,10 +2055,6 @@ static Value call_builtin(Expr *call, Env *env) {
   if (!strcmp(name,"get")) {
     if (n!=1||a[0].type!=V_STR) fail(call->line,"get needs a web address, like get(\"https://...\").");
     char*body=http_get(a[0].str?a[0].str:""); return body ? vstr_take(body) : vnone();
-  }
-  if (!strcmp(name,"serve")) {
-    if (n!=2||a[0].type!=V_NUM) fail(call->line,"serve needs a port number and a handler task, like serve(8080, handle).");
-    return do_serve((long)a[0].num, a[1], call->line);
   }
   if (!strcmp(name,"json")) {
     if (n!=1||a[0].type!=V_STR) fail(call->line,"json needs some text to read.");
@@ -2915,7 +2644,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.1.5"
+#define SPROUT_VERSION "0.1.6"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);
