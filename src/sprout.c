@@ -26,6 +26,8 @@
 #define NOMINMAX
 #include <windows.h>
 #include <urlmon.h>
+#include <io.h>         /* _setmode — clean LF stdout for `sprout format` */
+#include <fcntl.h>
 #endif
 
 #ifndef _WIN32
@@ -3065,7 +3067,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.1.14"
+#define SPROUT_VERSION "0.1.15"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);
@@ -3074,6 +3076,7 @@ static void usage(void) {
   printf("  sprout build             run the project here (reads sprout.toml)\n");
   printf("  sprout test [file]       run tests (a file, or every tests/*.sprout)\n");
   printf("  sprout bundle <file>     package a program into a standalone executable\n");
+  printf("  sprout format <file>     tidy a program's formatting (--write to edit, --check for CI)\n");
   printf("  sprout <file.sprout>     run a single program\n");
   printf("  sprout run <file>        run a single program\n");
   printf("  sprout api <url>         show every field an API gives back\n");
@@ -3812,6 +3815,77 @@ static int cmd_bundle(int argc, char **argv) {
   return 0;
 }
 
+/* ===================== `sprout format` — a code formatter =====================
+   Re-indents to 4 spaces per block level, trims trailing whitespace, collapses blank runs, and
+   ends the file with one newline. Every comment and token is preserved; lines inside a multi-line
+   ( [ { literal are left exactly as written. Structure-preserving (it only changes insignificant
+   whitespace) and idempotent. Defaults to printing to stdout — `--write` edits in place. */
+static int fmt_bracket_delta(const char *s, const char *e) {   /* net () [] {} on a line, ignoring strings/comments */
+  int d = 0, instr = 0;
+  for (const char *p = s; p < e; p++) {
+    if (instr) { if (*p == '\\' && p + 1 < e) p++; else if (*p == '"') instr = 0; continue; }
+    if (*p == '"') instr = 1;
+    else if (*p == '~') break;
+    else if (*p == '(' || *p == '[' || *p == '{') d++;
+    else if (*p == ')' || *p == ']' || *p == '}') d--;
+  }
+  return d;
+}
+static char *format_source(const char *src) {
+  size_t cap = strlen(src) * 2 + 256, len = 0; char *out = (char *)malloc(cap);
+  int stack[256], sp = 0; stack[0] = 0;     /* original indent widths; depth = sp */
+  int bracket = 0, blanks = 0;
+  for (const char *p = src; *p; ) {
+    const char *ls = p; while (*p && *p != '\n') p++;
+    const char *le = p; if (*p == '\n') p++;
+    const char *c = ls; int iw = 0;
+    while (c < le && (*c == ' ' || *c == '\t')) { iw += (*c == '\t') ? 4 : 1; c++; }
+    const char *ce = le; while (ce > c && (ce[-1] == ' ' || ce[-1] == '\t' || ce[-1] == '\r')) ce--;
+    int clen = (int)(ce - c);
+    if (len + (size_t)(le - ls) + 1200 > cap) { cap = (len + (size_t)(le - ls) + 1200) * 2; out = (char *)realloc(out, cap); }
+    if (bracket > 0) {                        /* inside a multi-line literal: keep the line as written */
+      if (clen > 0) { size_t n = (size_t)(ce - ls); memcpy(out + len, ls, n); len += n; }
+      out[len++] = '\n'; bracket += fmt_bracket_delta(c, ce); blanks = 0; continue;
+    }
+    if (clen == 0) { if (++blanks <= 1) out[len++] = '\n'; continue; }   /* collapse blank runs to one */
+    blanks = 0;
+    if (*c != '~') {                          /* a comment line doesn't open/close a block level */
+      while (sp > 0 && iw < stack[sp]) sp--;
+      if (iw > stack[sp] && sp < 255) stack[++sp] = iw;
+    }
+    for (int i = 0; i < sp * 4; i++) out[len++] = ' ';
+    memcpy(out + len, c, (size_t)clen); len += (size_t)clen;
+    out[len++] = '\n';
+    bracket += fmt_bracket_delta(c, ce);
+  }
+  while (len > 1 && out[len - 1] == '\n' && out[len - 2] == '\n') len--;   /* exactly one trailing newline */
+  if (len > 0 && out[len - 1] != '\n') out[len++] = '\n';
+  out[len] = 0; return out;
+}
+static int cmd_format(int argc, char **argv) {
+  console_setup();
+  if (argc < 3) { fprintf(stderr, "\n  Usage:  sprout format <file.sprout> [--write] [--check]\n\n"); return 1; }
+  const char *file = argv[2]; int dowrite = 0, docheck = 0;
+  for (int i = 3; i < argc; i++) { if (!strcmp(argv[i], "--write") || !strcmp(argv[i], "-w")) dowrite = 1; else if (!strcmp(argv[i], "--check")) docheck = 1; }
+  int slen; char *src = read_file(file, &slen);
+  char *fmt = format_source(src);
+  int changed = (strcmp(src, fmt) != 0);
+  int rc = 0;
+  if (docheck) {
+    if (changed) { fprintf(stderr, "  %s is not formatted (run: sprout format %s --write).\n", file, file); rc = 1; }
+    else printf("  %s is already formatted.\n", file);
+  } else if (dowrite) {
+    if (changed) { FILE *f = fopen(file, "wb"); if (!f) { fprintf(stderr, "  I couldn't write %s\n", file); rc = 1; } else { fwrite(fmt, 1, strlen(fmt), f); fclose(f); printf("  Formatted %s\n", file); } }
+    else printf("  %s is already formatted.\n", file);
+  } else {
+#ifdef _WIN32
+    fflush(stdout); _setmode(_fileno(stdout), _O_BINARY);   /* emit clean LF, not CRLF */
+#endif
+    fwrite(fmt, 1, strlen(fmt), stdout);
+  }
+  free(src); free(fmt); return rc;
+}
+
 int main(int argc, char **argv) {
   char gc_bottom_marker; gc_stack_bottom = &gc_bottom_marker;   /* the outermost stack address the GC scans up to */
   gc_stress = getenv("SPROUT_GC_STRESS") != NULL;               /* aggressive collection for testing */
@@ -3846,6 +3920,7 @@ int main(int argc, char **argv) {
   if (!strcmp(arg, "build")) return cmd_build();
   if (!strcmp(arg, "test")) return cmd_test(argc, argv);
   if (!strcmp(arg, "bundle")) return cmd_bundle(argc, argv);
+  if (!strcmp(arg, "format") || !strcmp(arg, "fmt")) return cmd_format(argc, argv);
   if (!strcmp(arg, "api")) {
     if (argc < 3) { fprintf(stderr, "  api needs a web address:  sprout api https://...\n"); return 1; }
     return cmd_api(argv[2]);

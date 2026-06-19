@@ -47,6 +47,18 @@ jobs:
           printf '%s' "$out" | grep -q "Fizz" || { echo "FAIL: the bundled program did not run"; exit 1; }
           echo "bundle round-trip OK ($app ran with no interpreter)"
 
+      - name: Code formatter (idempotent + behaviour-preserving)
+        shell: bash
+        run: |
+          bin=src/sprout; [ -f src/sprout.exe ] && bin=src/sprout.exe
+          for f in examples/*.sprout src/tests/*.sprout; do
+            "$bin" format "$f" > /tmp/a; "$bin" format /tmp/a > /tmp/b
+            diff -q /tmp/a /tmp/b >/dev/null || { echo "FAIL: sprout format is not idempotent on $f"; exit 1; }
+          done
+          "$bin" format src/tests/collections_power_test.sprout > /tmp/t.sprout
+          "$bin" test /tmp/t.sprout
+          echo "formatter OK: idempotent on all files + a formatted test still passes"
+
   asan:
     name: memory safety (AddressSanitizer, Linux)
     runs-on: ubuntu-latest

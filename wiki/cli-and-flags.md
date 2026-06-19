@@ -16,6 +16,7 @@ with [getting started](getting-started.md) and the [cheatsheet](cheatsheet.md).
 - [`sprout build` — run the project here](#sprout-build--run-the-project-here)
 - [`sprout test [file]` — run your tests](#sprout-test-file--run-your-tests)
 - [`sprout bundle <file>` — make a standalone executable](#sprout-bundle-file--make-a-standalone-executable)
+- [`sprout format <file>` — tidy your code](#sprout-format-file--tidy-your-code)
 - [`sprout template list` / `template load`](#sprout-template-list--sprout-template-load-name)
 - [`sprout api <url>` — peek at any web API](#sprout-api-url--peek-at-any-web-api)
 - [`sprout version` and `sprout help`](#sprout-version-and-sprout-help)
@@ -35,6 +36,7 @@ with [getting started](getting-started.md) and the [cheatsheet](cheatsheet.md).
 | `sprout build` | run the project in the current folder (reads `sprout.toml`) |
 | `sprout test [file]` | run tests — one file, or every `tests/*.sprout` |
 | `sprout bundle <file>` | package a program into a **standalone executable** |
+| `sprout format <file>` | tidy a program's formatting (`--write` to edit, `--check` for CI) |
 | `sprout template list` | list the project templates |
 | `sprout template load <name>` | scaffold a template **into the current folder** (wipes it) |
 | `sprout api <url>` | print every field a web API returns |
@@ -307,6 +309,26 @@ hello Ada
   `use`s *other `.sprout` files* isn't bundled with them yet — keep a bundled program in one file.
 - The file is the interpreter (~200 KB) plus your script, so it's small. Anti-virus tools
   occasionally flag freshly-appended executables; that's a false positive on an unsigned binary.
+
+## `sprout format <file>` — tidy your code
+
+Sprout's code formatter — like `gofmt` or `black`. It re-indents to **4 spaces per block level**,
+trims trailing whitespace, collapses runs of blank lines, and ends the file with one newline. It's
+**structure-preserving** (it only touches insignificant whitespace), **comment-preserving**, and
+**idempotent** (running it twice changes nothing).
+
+```
+$ sprout format messy.sprout          # prints the tidy version to the screen
+$ sprout format messy.sprout --write  # edit the file in place
+$ sprout format messy.sprout --check  # exit 1 if it isn't already formatted (for CI)
+```
+
+- By **default it prints to stdout** and changes nothing — safe to preview. Pass `--write`
+  (or `-w`) to edit the file.
+- Lines inside a multi-line `( [ {` literal are left exactly as you wrote them, so your own
+  alignment is respected.
+- `--check` makes it a CI gate: it returns a non-zero exit code when a file would be reformatted.
+- (`sprout fmt` is a shorthand for `sprout format`.)
 
 ## `sprout template list` / `sprout template load <name>`
 

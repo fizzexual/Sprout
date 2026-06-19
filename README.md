@@ -114,6 +114,7 @@ v0.1.0**. Here's everything it runs:
 - **System module:** OS-level actions are explicit — `use system` then `system.run("...")`
 - **Scaffolding:** `sprout new <folder>` creates a full multi-file project · `sprout template load <name>` scaffolds into the current folder · **`sprout api <url>`** dumps every field an API returns
 - **Ship it as one file:** **`sprout bundle app.sprout`** packages your program into a **standalone executable** — no interpreter, no source, nothing to install. Hand someone the one file and it runs (`./app.exe`)
+- **Tidy your code:** **`sprout format`** re-indents and cleans up a program (like `gofmt` / `black`) — safe by default (prints to screen), `--write` to edit, `--check` for CI
 - `~` comments, indentation blocks, friendly errors with line numbers
 
 ```sprout

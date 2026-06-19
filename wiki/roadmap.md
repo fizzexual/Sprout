@@ -17,7 +17,7 @@ If you want to know *"can Sprout do X yet?"* — start here.
 | 3 | **Interfaces & type annotations** | 📋 Planned | — |
 | 4 | **Standard-library breadth** | 🔜 In progress — v0.1.9 | [Builtins reference](builtins-reference.md) |
 | 5 | **Package manager** | 📋 Planned | — |
-| 6 | **Tooling & distribution** | 🔜 standalone exe done (v0.1.14) | [CLI → bundle](cli-and-flags.md#sprout-bundle-file--make-a-standalone-executable) |
+| 6 | **Tooling & distribution** | 🔜 `bundle` + `format` done | [CLI](cli-and-flags.md) |
 
 Legend: ✅ done · 🔜 in progress · 📋 planned
 
@@ -97,8 +97,10 @@ build on each other.
 - ✅ **Standalone executables** *(v0.1.14)* — `sprout bundle app.sprout` packages a program into
   a single native executable you can hand to anyone (no interpreter, no source). See
   [CLI → bundle](cli-and-flags.md#sprout-bundle-file--make-a-standalone-executable).
-- 📋 The rest of the professional developer experience: editor/LSP support, a formatter, a
-  linter, a debugger.
+- ✅ **Code formatter** *(v0.1.15)* — `sprout format` re-indents and tidies a program (like
+  `gofmt`), idempotent and structure-preserving, with `--write` and `--check`. See
+  [CLI → format](cli-and-flags.md#sprout-format-file--tidy-your-code).
+- 📋 The rest of the professional developer experience: editor/LSP support, a linter, a debugger.
 
 ---
 
