@@ -3067,7 +3067,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.1.15"
+#define SPROUT_VERSION "0.1.16"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);
@@ -3077,6 +3077,9 @@ static void usage(void) {
   printf("  sprout test [file]       run tests (a file, or every tests/*.sprout)\n");
   printf("  sprout bundle <file>     package a program into a standalone executable\n");
   printf("  sprout format <file>     tidy a program's formatting (--write to edit, --check for CI)\n");
+  printf("  sprout add <source>      install a library (a path, https url, or github:user/repo)\n");
+  printf("  sprout install           fetch every library in sprout.packages\n");
+  printf("  sprout remove <name>     uninstall a library\n");
   printf("  sprout <file.sprout>     run a single program\n");
   printf("  sprout run <file>        run a single program\n");
   printf("  sprout api <url>         show every field an API gives back\n");
@@ -3600,9 +3603,9 @@ static char *resolve_module(const char *name) {
   int looks_path = strstr(name, ".sprout") || strchr(name, '/') || strchr(name, '\\');
   if (looks_path) return path_exists(name) ? dup_str(name) : NULL;
   for (int i = 0; i < g_nmod; i++) if (!strcmp(g_modname[i], name)) return dup_str(g_modpath[i]);
-  const char *pre[] = { "", "modules/", "src/", "lib/" };
+  const char *pre[] = { "", "modules/", "src/", "lib/", "sprout_packages/" };
   char buf[1024];
-  for (int k = 0; k < 4; k++) { snprintf(buf, sizeof buf, "%s%s.sprout", pre[k], name); if (path_exists(buf)) return dup_str(buf); }
+  for (int k = 0; k < (int)(sizeof pre / sizeof pre[0]); k++) { snprintf(buf, sizeof buf, "%s%s.sprout", pre[k], name); if (path_exists(buf)) return dup_str(buf); }
   return NULL;
 }
 
@@ -3886,6 +3889,104 @@ static int cmd_format(int argc, char **argv) {
   free(src); free(fmt); return rc;
 }
 
+/* ===================== packages: `sprout add` / `install` / `remove` =====================
+   A tiny package manager. A package is a Sprout file that exposes `public` tasks. `sprout add`
+   fetches it — from a local path, an http(s) URL, or a `github:user/repo` shorthand — into
+   sprout_packages/<name>.sprout and records it in the `sprout.packages` manifest; `use <name>`
+   then finds it (sprout_packages/ is on the module search path). `sprout install` re-fetches
+   everything in the manifest, so you can share a project without committing its packages. No
+   central registry — a source is a path or URL you choose to trust. */
+#define PKG_DIR "sprout_packages"
+#define PKG_MANIFEST "sprout.packages"
+
+static void pkg_name_of(const char *source, char *out, size_t outsz) {   /* a package's name from its source */
+  const char *s = source;
+  if (!strncmp(s, "github:", 7)) s += 7;
+  const char *b = s;
+  for (const char *p = s; *p; p++) if (*p == '/' || *p == '\\') b = p + 1;
+  size_t n = strlen(b);
+  if (n > 7 && !strcmp(b + n - 7, ".sprout")) n -= 7;
+  if (n >= outsz) n = outsz - 1;
+  memcpy(out, b, n); out[n] = 0;
+}
+static char *pkg_fetch(const char *source) {   /* a package's source text, or NULL */
+  if (!strncmp(source, "http://", 7) || !strncmp(source, "https://", 8)) return http_get(source);
+  if (!strncmp(source, "github:", 7)) {
+    const char *spec = source + 7;             /* user/repo  ->  raw .../user/repo/main/repo.sprout */
+    const char *slash = strchr(spec, '/');
+    if (!slash || !slash[1]) return NULL;
+    char url[700]; snprintf(url, sizeof url, "https://raw.githubusercontent.com/%s/main/%s.sprout", spec, slash + 1);
+    return http_get(url);
+  }
+  return read_whole_file(source);              /* a local path */
+}
+static int pkg_install_one(const char *name, const char *source) {   /* fetch + write the package file */
+  char *content = pkg_fetch(source);
+  if (!content) { fprintf(stderr, "  Couldn't fetch package '%s' from %s\n", name, source); return 1; }
+  char path[1024]; snprintf(path, sizeof path, "%s/%s.sprout", PKG_DIR, name);
+  ensure_parent_dirs(path);
+  FILE *f = fopen(path, "wb");
+  if (!f) { free(content); fprintf(stderr, "  Couldn't write %s\n", path); return 1; }
+  fwrite(content, 1, strlen(content), f); fclose(f); free(content);
+  return 0;
+}
+static void pkg_manifest_set(const char *name, const char *source) {   /* one line per name in the manifest */
+  char *old = read_whole_file(PKG_MANIFEST);
+  FILE *f = fopen(PKG_MANIFEST, "wb");
+  if (!f) { free(old); return; }
+  if (!old || !old[0]) fputs("# Sprout packages: `sprout add` records here, `sprout install` restores them.\n", f);
+  if (old) { for (char *line = strtok(old, "\n"); line; line = strtok(NULL, "\n")) {
+      char ln[256] = ""; sscanf(line, "%255s", ln);
+      if (line[0] && strcmp(ln, name) != 0) fprintf(f, "%s\n", line);
+  } }
+  fprintf(f, "%s %s\n", name, source);
+  fclose(f); free(old);
+}
+static int cmd_add(int argc, char **argv) {
+  console_setup();
+  if (argc < 3) { fprintf(stderr, "\n  Usage:  sprout add <path | https://... | github:user/repo> [name]\n\n"); return 1; }
+  const char *source = argv[2];
+  char name[256];
+  if (argc >= 4) snprintf(name, sizeof name, "%s", argv[3]); else pkg_name_of(source, name, sizeof name);
+  if (!name[0]) { fprintf(stderr, "  I couldn't work out a package name — pass one:  sprout add %s <name>\n", source); return 1; }
+  if (pkg_install_one(name, source) != 0) return 1;
+  pkg_manifest_set(name, source);
+  printf("\n  " C_GREEN C_BOLD "Added" C_RESET " package " C_CYAN "%s" C_RESET " — use it with:  " C_CYAN "use %s" C_RESET "\n\n", name, name);
+  return 0;
+}
+static int cmd_install(void) {
+  console_setup();
+  char *m = read_whole_file(PKG_MANIFEST);
+  if (!m) { fprintf(stderr, "\n  No %s here. Add a package first:  sprout add <source>\n\n", PKG_MANIFEST); return 1; }
+  int got = 0, have = 0, failed = 0;
+  for (char *line = strtok(m, "\n"); line; line = strtok(NULL, "\n")) {
+    if (!line[0] || line[0] == '#') continue;
+    char name[256], source[768];
+    if (sscanf(line, "%255s %767s", name, source) != 2) continue;
+    char path[1024]; snprintf(path, sizeof path, "%s/%s.sprout", PKG_DIR, name);
+    if (path_exists(path)) have++;
+    else if (pkg_install_one(name, source) == 0) { printf("  installed %s\n", name); got++; }
+    else failed++;
+  }
+  free(m);
+  printf("\n  %d installed, %d already present%s.\n\n", got, have, failed ? " (some failed)" : "");
+  return failed ? 1 : 0;
+}
+static int cmd_remove(int argc, char **argv) {
+  console_setup();
+  if (argc < 3) { fprintf(stderr, "\n  Usage:  sprout remove <name>\n\n"); return 1; }
+  const char *name = argv[2];
+  char path[1024]; snprintf(path, sizeof path, "%s/%s.sprout", PKG_DIR, name); remove(path);
+  char *old = read_whole_file(PKG_MANIFEST);
+  if (old) {
+    FILE *f = fopen(PKG_MANIFEST, "wb");
+    if (f) { for (char *line = strtok(old, "\n"); line; line = strtok(NULL, "\n")) { char ln[256] = ""; sscanf(line, "%255s", ln); if (strcmp(ln, name) != 0) fprintf(f, "%s\n", line); } fclose(f); }
+    free(old);
+  }
+  printf("  Removed package %s\n", name);
+  return 0;
+}
+
 int main(int argc, char **argv) {
   char gc_bottom_marker; gc_stack_bottom = &gc_bottom_marker;   /* the outermost stack address the GC scans up to */
   gc_stress = getenv("SPROUT_GC_STRESS") != NULL;               /* aggressive collection for testing */
@@ -3921,6 +4022,9 @@ int main(int argc, char **argv) {
   if (!strcmp(arg, "test")) return cmd_test(argc, argv);
   if (!strcmp(arg, "bundle")) return cmd_bundle(argc, argv);
   if (!strcmp(arg, "format") || !strcmp(arg, "fmt")) return cmd_format(argc, argv);
+  if (!strcmp(arg, "add")) return cmd_add(argc, argv);
+  if (!strcmp(arg, "install")) return cmd_install();
+  if (!strcmp(arg, "remove")) return cmd_remove(argc, argv);
   if (!strcmp(arg, "api")) {
     if (argc < 3) { fprintf(stderr, "  api needs a web address:  sprout api https://...\n"); return 1; }
     return cmd_api(argv[2]);

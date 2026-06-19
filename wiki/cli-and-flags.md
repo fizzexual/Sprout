@@ -17,6 +17,7 @@ with [getting started](getting-started.md) and the [cheatsheet](cheatsheet.md).
 - [`sprout test [file]` — run your tests](#sprout-test-file--run-your-tests)
 - [`sprout bundle <file>` — make a standalone executable](#sprout-bundle-file--make-a-standalone-executable)
 - [`sprout format <file>` — tidy your code](#sprout-format-file--tidy-your-code)
+- [Packages — `sprout add` / `install` / `remove`](#packages--sprout-add--install--remove)
 - [`sprout template list` / `template load`](#sprout-template-list--sprout-template-load-name)
 - [`sprout api <url>` — peek at any web API](#sprout-api-url--peek-at-any-web-api)
 - [`sprout version` and `sprout help`](#sprout-version-and-sprout-help)
@@ -37,6 +38,9 @@ with [getting started](getting-started.md) and the [cheatsheet](cheatsheet.md).
 | `sprout test [file]` | run tests — one file, or every `tests/*.sprout` |
 | `sprout bundle <file>` | package a program into a **standalone executable** |
 | `sprout format <file>` | tidy a program's formatting (`--write` to edit, `--check` for CI) |
+| `sprout add <source>` | install a library (a path, `https://` URL, or `github:user/repo`) |
+| `sprout install` | fetch every library listed in `sprout.packages` |
+| `sprout remove <name>` | uninstall a library |
 | `sprout template list` | list the project templates |
 | `sprout template load <name>` | scaffold a template **into the current folder** (wipes it) |
 | `sprout api <url>` | print every field a web API returns |
@@ -330,6 +334,69 @@ $ sprout format messy.sprout --check  # exit 1 if it isn't already formatted (fo
 - `--check` makes it a CI gate: it returns a non-zero exit code when a file would be reformatted.
 - (`sprout fmt` is a shorthand for `sprout format`.)
 
+## Packages — `sprout add` / `install` / `remove`
+
+Sprout's package manager. A **package** is just a Sprout file that exposes `public` tasks; once
+installed, `use <name>` finds it. There's no central registry — a *source* is a location you
+choose to trust (a file on disk, a URL, or a public GitHub repo).
+
+### `sprout add <source> [name]`
+
+Fetch a library, install it under `sprout_packages/`, and record it in a `sprout.packages`
+manifest. The source can be:
+
+- a **local path** — `sprout add ./libs/mathx.sprout`
+- an **`https://` URL** — `sprout add https://example.com/mathx.sprout`
+- a **`github:user/repo` shorthand** — `sprout add github:alice/mathx`, which fetches
+  `mathx.sprout` from the repository's default branch
+
+```
+$ sprout add ./mathx.sprout
+  Added package mathx — use it with:  use mathx
+```
+
+The package name is taken from the file name (`mathx.sprout` → `mathx`); pass a second word to
+choose your own (`sprout add ./m.sprout mathx`). Then just `use` it like any module:
+
+```sprout
+use mathx
+show mathx.square(5)     ~ 25
+```
+
+### `sprout install`
+
+Re-fetch **every** library listed in `sprout.packages`. Commit the manifest (a few lines of text)
+but *not* the downloaded `sprout_packages/` folder, and anyone who clones your project restores
+its libraries in one step:
+
+```
+$ sprout install
+  installed mathx
+  1 installed, 0 already present.
+```
+
+It only fetches what's missing, so it's safe to re-run. A `sprout.packages` is plain text:
+
+```
+# Sprout packages: `sprout add` records here, `sprout install` restores them.
+mathx ./mathx.sprout
+strutil github:alice/strutil
+```
+
+### `sprout remove <name>`
+
+Uninstall a library: delete its file from `sprout_packages/` and drop its line from the manifest.
+
+```
+$ sprout remove mathx
+  Removed package mathx
+```
+
+> **Where packages live.** Installed packages sit in `sprout_packages/` next to your program, and
+> that folder is on the [module search path](modules-and-projects.md) — so `use <name>` resolves
+> an installed package exactly the way it resolves a local module. Think of `sprout_packages/` as
+> Sprout's `node_modules/` and `sprout.packages` as the lockfile you commit.
+
 ## `sprout template list` / `sprout template load <name>`
 
 `sprout template list` shows the built-in starting points:
@@ -449,12 +516,17 @@ sprout help
 ```
 
 ```
-Sprout v0.1.4 - a small, friendly language, written from scratch in C.
+Sprout v0.1.16 - a small, friendly language, written from scratch in C.
 
   sprout                   open the interactive screen
   sprout new <folder>      create a new project folder
   sprout build             run the project here (reads sprout.toml)
   sprout test [file]       run tests (a file, or every tests/*.sprout)
+  sprout bundle <file>     package a program into a standalone executable
+  sprout format <file>     tidy a program's formatting (--write to edit, --check for CI)
+  sprout add <source>      install a library (a path, https url, or github:user/repo)
+  sprout install           fetch every library in sprout.packages
+  sprout remove <name>     uninstall a library
   sprout <file.sprout>     run a single program
   sprout run <file>        run a single program
   sprout api <url>         show every field an API gives back

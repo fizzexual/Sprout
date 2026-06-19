@@ -59,6 +59,24 @@ jobs:
           "$bin" test /tmp/t.sprout
           echo "formatter OK: idempotent on all files + a formatted test still passes"
 
+      - name: Package manager round-trip (add / use / install / remove)
+        shell: bash
+        run: |
+          bin="$PWD/src/sprout"; [ -f "$PWD/src/sprout.exe" ] && bin="$PWD/src/sprout.exe"
+          work="$(mktemp -d)"; cd "$work"
+          printf 'public task square(n):\n    give n * n\n' > mathx.sprout
+          printf 'use mathx\nshow mathx.square(6)\n' > app.sprout
+          "$bin" add ./mathx.sprout
+          out="$("$bin" app.sprout)"; echo "use -> $out"
+          [ "$out" = "36" ] || { echo "FAIL: use of the added package"; exit 1; }
+          rm -rf sprout_packages                       # simulate a fresh clone with only the manifest
+          "$bin" install
+          out="$("$bin" app.sprout)"
+          [ "$out" = "36" ] || { echo "FAIL: install did not restore the package"; exit 1; }
+          "$bin" remove mathx
+          grep -q '^mathx ' sprout.packages && { echo "FAIL: remove left a manifest entry"; exit 1; }
+          echo "package manager OK: add, use, install-restore, remove"
+
   asan:
     name: memory safety (AddressSanitizer, Linux)
     runs-on: ubuntu-latest

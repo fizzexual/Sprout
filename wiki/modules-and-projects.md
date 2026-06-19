@@ -17,6 +17,7 @@ commands that scaffold and run a project.
 - [`public` vs `private`](#public-vs-private)
 - [`use system` — the built-in module](#use-system--the-built-in-module)
 - [Re-import safety](#re-import-safety)
+- [Installing libraries — `sprout add`](#installing-libraries--sprout-add)
 - [The CLI: `new`, `build`, `template`](#the-cli-new-build-template)
 - [Errors & gotchas](#errors--gotchas)
 - [See also](#see-also)
@@ -151,11 +152,13 @@ resolves the name in this order:
    or via its filename), that exact path wins.
 2. **A folder search**, trying each of these in turn:
    `greeter.sprout`, `modules/greeter.sprout`, `src/greeter.sprout`,
-   `lib/greeter.sprout`.
+   `lib/greeter.sprout`, `sprout_packages/greeter.sprout`.
 
 So dropping a file in `modules/` (or `src/` or `lib/`) is enough for `use` to find
 it even before you list it in the manifest. Listing it in `include` is still what
-makes `sprout build` *load* it as part of the whole program.
+makes `sprout build` *load* it as part of the whole program. The last entry,
+`sprout_packages/`, is where the [package manager](#installing-libraries--sprout-add)
+puts libraries you install — so an installed package is `use`d just like a local module.
 
 You can also point `use` straight at a file path — see the next section.
 
@@ -368,6 +371,31 @@ show "re-use is harmless"
 Hello, world!
 re-use is harmless
 ```
+
+## Installing libraries — `sprout add`
+
+A module doesn't have to be one you wrote. **`sprout add <source>`** fetches a library and drops
+it in `sprout_packages/`, which (as the [search order](#the-modules-layout) above shows) is on the
+module path — so an installed package is `use`d exactly like a local module. The source is a path,
+an `https://` URL, or a `github:user/repo` shorthand:
+
+```
+$ sprout add github:alice/mathx
+  Added package mathx — use it with:  use mathx
+```
+
+```sprout
+~ app.sprout
+use mathx
+show mathx.square(9)
+```
+
+Each `add` also records the package in a **`sprout.packages`** manifest. Commit that file (not the
+downloaded `sprout_packages/` folder), and a fresh clone restores every library with one
+**`sprout install`**. Remove one with **`sprout remove <name>`**. A package is just a `.sprout`
+file that exposes `public` tasks — the same `public`/`private` rules as any module — so publishing
+a library is nothing more than putting one Sprout file somewhere others can fetch it. Full
+reference: [CLI → packages](cli-and-flags.md#packages--sprout-add--install--remove).
 
 ## The CLI: `new`, `build`, `template`
 

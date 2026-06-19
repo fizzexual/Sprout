@@ -5,6 +5,16 @@ All notable changes to **Sprout**. The format follows
 `sprout version`. Binaries for each release are on the
 [Releases](https://github.com/fizzexual/Sprout/releases) page.
 
+## [0.1.16] — Package manager
+
+### Added
+- **`sprout add <source>`** — install a library from a local path, an `https://` URL, or a
+  `github:user/repo` shorthand. It lands in `sprout_packages/<name>.sprout`, where `use <name>`
+  finds it, and is recorded in a `sprout.packages` manifest.
+- **`sprout install`** — fetch every library listed in `sprout.packages`, so a project can be
+  shared and restored without committing its dependencies.
+- **`sprout remove <name>`** — uninstall a library and drop it from the manifest.
+
 ## [0.1.15] — Code formatter
 
 ### Added
@@ -81,6 +91,7 @@ All notable changes to **Sprout**. The format follows
   mark-sweep garbage collector, built-in testing (`test` / `expect`), and persistence
   (`remember` / `recall`).
 
+[0.1.16]: https://github.com/fizzexual/Sprout/releases/tag/v0.1.16
 [0.1.15]: https://github.com/fizzexual/Sprout/releases/tag/v0.1.15
 [0.1.14]: https://github.com/fizzexual/Sprout/releases/tag/v0.1.14
 [0.1.13]: https://github.com/fizzexual/Sprout/releases/tag/v0.1.13
