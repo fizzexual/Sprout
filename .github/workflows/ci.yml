@@ -36,6 +36,17 @@ jobs:
       - name: Run test suite
         run: bash src/tests/run.sh
 
+      - name: Standalone bundle round-trip
+        shell: bash
+        run: |
+          bin=src/sprout; [ -f src/sprout.exe ] && bin=src/sprout.exe
+          "$bin" bundle examples/fizzbuzz.sprout
+          app=./fizzbuzz; [ -f fizzbuzz.exe ] && app=./fizzbuzz.exe
+          out="$("$app")"
+          printf '%s\n' "$out" | head -3
+          printf '%s' "$out" | grep -q "Fizz" || { echo "FAIL: the bundled program did not run"; exit 1; }
+          echo "bundle round-trip OK ($app ran with no interpreter)"
+
   asan:
     name: memory safety (AddressSanitizer, Linux)
     runs-on: ubuntu-latest

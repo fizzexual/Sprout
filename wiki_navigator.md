@@ -42,7 +42,7 @@ link straight to the page that explains it.
 ### Tooling, projects & hosting
 | Page | What's inside |
 | --- | --- |
-| [Command line & flags](wiki/cli-and-flags.md) | Every `sprout` command, plus `--sandbox`, `SPROUT_SANDBOX`, `SPROUT_GC_STRESS` |
+| [Command line & flags](wiki/cli-and-flags.md) | Every `sprout` command (incl. `bundle` → a standalone exe), plus `--sandbox`, `SPROUT_SANDBOX`, `SPROUT_GC_STRESS` |
 | [Modules & projects](wiki/modules-and-projects.md) | `sprout.toml`, `use`, `public` / `private`, `sprout new` / `build` / `template` |
 | [Testing & learn mode](wiki/testing-and-learn.md) | `test` / `expect` / `expect error`, `sprout test`, `learn on` / `off` |
 | [Persistence](wiki/persistence.md) | `remember` / `recall` / `forget` and the `sprout.data.json` store |

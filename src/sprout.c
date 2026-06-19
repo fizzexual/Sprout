@@ -34,6 +34,9 @@
 #include <limits.h>     /* PATH_MAX for realpath() */
 #include <unistd.h>     /* getpid() for the POSIX http_get temp file */
 #endif
+#ifdef __APPLE__
+#include <mach-o/dyld.h>   /* _NSGetExecutablePath, for `sprout bundle` */
+#endif
 
 static char *dup_str(const char *s) { size_t n = strlen(s) + 1; char *p = (char *)malloc(n); memcpy(p, s, n); return p; }
 static char *gc_strdup(const char *s);   /* a GC-tracked copy of s (defined just after the GC allocator below) */
@@ -3062,7 +3065,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.1.13"
+#define SPROUT_VERSION "0.1.14"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);
@@ -3070,6 +3073,7 @@ static void usage(void) {
   printf("  sprout new <folder>      create a new project folder\n");
   printf("  sprout build             run the project here (reads sprout.toml)\n");
   printf("  sprout test [file]       run tests (a file, or every tests/*.sprout)\n");
+  printf("  sprout bundle <file>     package a program into a standalone executable\n");
   printf("  sprout <file.sprout>     run a single program\n");
   printf("  sprout run <file>        run a single program\n");
   printf("  sprout api <url>         show every field an API gives back\n");
@@ -3714,6 +3718,100 @@ static int cmd_test(int argc, char **argv) {
   return test_report();
 }
 
+/* ===================== standalone bundles: ship a program as one executable =====================
+   `sprout bundle app.sprout` copies this interpreter and appends the script plus a trailer:
+   [interpreter bytes][script bytes][MAGIC(16)][script length (8 bytes, little-endian)].
+   At startup the interpreter reads its own tail; if the MAGIC is there it runs the embedded
+   script instead of reading the command line. The OS loader ignores bytes appended after a
+   valid PE/ELF executable, so the combined file still runs. Single-file programs (plus built-in
+   modules like `use system`); a program that `use`s other files isn't bundled with them yet. */
+#define SB_MAGIC "SPROUT_BUNDLE_01"
+#define SB_MAGIC_LEN 16
+#define SB_TRAILER (SB_MAGIC_LEN + 8)
+
+static char *self_exe_path(void) {   /* the path to THIS running executable, or NULL */
+#ifdef _WIN32
+  char buf[1024]; DWORD n = GetModuleFileNameA(NULL, buf, (DWORD)sizeof buf);
+  if (n == 0 || n >= sizeof buf) return NULL;
+  return dup_str(buf);
+#elif defined(__APPLE__)
+  char buf[4096]; uint32_t sz = sizeof buf;
+  if (_NSGetExecutablePath(buf, &sz) != 0) return NULL;
+  return dup_str(buf);
+#else
+  char buf[4096]; ssize_t n = readlink("/proc/self/exe", buf, sizeof buf - 1);
+  if (n <= 0) return NULL;
+  buf[n] = 0;
+  return dup_str(buf);
+#endif
+}
+static unsigned char *read_bytes(const char *path, long *len) {   /* whole file as bytes; NULL on failure */
+  FILE *f = fopen(path, "rb"); if (!f) return NULL;
+  if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return NULL; }
+  long n = ftell(f); if (n < 0) { fclose(f); return NULL; }
+  fseek(f, 0, SEEK_SET);
+  unsigned char *buf = (unsigned char *)malloc((size_t)n + 1); if (!buf) { fclose(f); return NULL; }
+  size_t got = fread(buf, 1, (size_t)n, f); fclose(f); buf[got] = 0; *len = (long)got; return buf;
+}
+/* if this exe has a script baked into its tail, return it (null-terminated, malloc'd), else NULL.
+   Reads only the small trailer in the common (un-bundled) case, so startup stays fast. */
+static char *embedded_script(void) {
+  char *path = self_exe_path(); if (!path) return NULL;
+  FILE *f = fopen(path, "rb"); free(path); if (!f) return NULL;
+  if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return NULL; }
+  long total = ftell(f);
+  if (total < SB_TRAILER) { fclose(f); return NULL; }
+  unsigned char tr[SB_TRAILER];
+  fseek(f, total - SB_TRAILER, SEEK_SET);
+  if (fread(tr, 1, SB_TRAILER, f) != (size_t)SB_TRAILER || memcmp(tr, SB_MAGIC, SB_MAGIC_LEN) != 0) { fclose(f); return NULL; }
+  unsigned long slen = 0; for (int i = 0; i < 8; i++) slen |= (unsigned long)tr[SB_MAGIC_LEN + i] << (8 * i);
+  if (slen == 0 || (long)slen > total - SB_TRAILER) { fclose(f); return NULL; }
+  char *src = (char *)malloc(slen + 1);
+  fseek(f, total - SB_TRAILER - (long)slen, SEEK_SET);
+  size_t got = fread(src, 1, slen, f); fclose(f);
+  src[got] = 0; return src;
+}
+static int cmd_bundle(int argc, char **argv) {
+  console_setup();
+  if (argc < 3) { fprintf(stderr, "\n  Usage:  sprout bundle <app.sprout> [-o <output>]\n\n"); return 1; }
+  const char *script = argv[2]; const char *out = NULL;
+  for (int i = 3; i + 1 < argc; i++) if (!strcmp(argv[i], "-o")) out = argv[i + 1];
+  char outbuf[1024];
+  if (!out) {   /* default: the script's base name (+ .exe on Windows) */
+    const char *b = script; for (const char *p = script; *p; p++) if (*p == '/' || *p == '\\') b = p + 1;
+    int bl = (int)strlen(b); if (bl > 7 && !strcmp(b + bl - 7, ".sprout")) bl -= 7;
+#ifdef _WIN32
+    snprintf(outbuf, sizeof outbuf, "%.*s.exe", bl, b);
+#else
+    snprintf(outbuf, sizeof outbuf, "%.*s", bl, b);
+#endif
+    out = outbuf;
+  }
+  char *self = self_exe_path();
+  if (!self) { fprintf(stderr, "  I couldn't find my own program file to copy.\n"); return 1; }
+  long ilen; unsigned char *interp = read_bytes(self, &ilen); free(self);
+  if (!interp) { fprintf(stderr, "  I couldn't read my own program file.\n"); return 1; }
+  if (ilen >= SB_TRAILER && memcmp(interp + ilen - SB_TRAILER, SB_MAGIC, SB_MAGIC_LEN) == 0) {   /* strip an old bundle */
+    unsigned long old = 0; for (int i = 0; i < 8; i++) old |= (unsigned long)interp[ilen - 8 + i] << (8 * i);
+    if ((long)(old + SB_TRAILER) <= ilen) ilen -= (long)(old + SB_TRAILER);
+  }
+  long slen; unsigned char *src = read_bytes(script, &slen);
+  if (!src) { free(interp); fprintf(stderr, "  I couldn't open the script: %s\n", script); return 1; }
+  FILE *o = fopen(out, "wb");
+  if (!o) { free(interp); free(src); fprintf(stderr, "  I couldn't create %s\n", out); return 1; }
+  fwrite(interp, 1, (size_t)ilen, o);
+  fwrite(src, 1, (size_t)slen, o);
+  fwrite(SB_MAGIC, 1, SB_MAGIC_LEN, o);
+  unsigned char lenbytes[8]; for (int i = 0; i < 8; i++) lenbytes[i] = (unsigned char)((unsigned long)slen >> (8 * i));
+  fwrite(lenbytes, 1, 8, o);
+  fclose(o); free(interp); free(src);
+#ifndef _WIN32
+  chmod(out, 0755);
+#endif
+  printf("\n  " C_GREEN C_BOLD "Bundled" C_RESET " %s into a standalone program:  " C_CYAN "%s" C_RESET "\n  Run it directly — no Sprout needed.\n\n", script, out);
+  return 0;
+}
+
 int main(int argc, char **argv) {
   char gc_bottom_marker; gc_stack_bottom = &gc_bottom_marker;   /* the outermost stack address the GC scans up to */
   gc_stress = getenv("SPROUT_GC_STRESS") != NULL;               /* aggressive collection for testing */
@@ -3723,6 +3821,22 @@ int main(int argc, char **argv) {
   { int w = 1; for (int r = 1; r < argc; r++) { if (!strcmp(argv[r], "--sandbox")) { g_sandbox = 1; continue; } argv[w++] = argv[r]; } argc = w; }
   srand((unsigned)time(NULL));
   console_setup();   /* enable UTF-8 + ANSI colour for every run */
+  { char *baked = embedded_script();   /* a standalone bundle: run the script baked into this exe */
+    if (baked) {
+      g_prog_args = argv + 1; g_prog_nargs = argc - 1;   /* every arg goes straight to the program */
+      g_current_file = "<bundled>";
+      global_env = env_new(NULL); cur_file_env = env_new(global_env); cur_fileid = ++g_next_fileid;
+      sjmp_buf jb; err_jmp = &jb; g_top_jmp = &jb;
+      if (SJSET(jb) != 0) { return 1; }
+      tokenize(baked, (int)strlen(baked));
+      int ncount; Stmt **program = parse_program(&ncount);
+      modns_register("main", cur_fileid, cur_file_env);
+      for (int i = 0; i < ncount; i++) register_top(program[i], cur_fileid, cur_file_env);
+      exec_block(program, ncount, cur_file_env);
+      err_jmp = NULL; g_top_jmp = NULL;
+      return test_report();
+    }
+  }
   if (argc < 2) { wizard(); return 0; }
   const char *arg = argv[1];
   if (!strcmp(arg, "version") || !strcmp(arg, "--version") || !strcmp(arg, "-v")) { printf("Sprout v%s\n", SPROUT_VERSION); return 0; }
@@ -3731,6 +3845,7 @@ int main(int argc, char **argv) {
   if (!strcmp(arg, "new")) return cmd_new(argc, argv);
   if (!strcmp(arg, "build")) return cmd_build();
   if (!strcmp(arg, "test")) return cmd_test(argc, argv);
+  if (!strcmp(arg, "bundle")) return cmd_bundle(argc, argv);
   if (!strcmp(arg, "api")) {
     if (argc < 3) { fprintf(stderr, "  api needs a web address:  sprout api https://...\n"); return 1; }
     return cmd_api(argv[2]);

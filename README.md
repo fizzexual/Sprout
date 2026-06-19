@@ -113,6 +113,7 @@ v0.1.0**. Here's everything it runs:
 - **Projects & modules:** a `sprout.toml` ties many files into one program — `use server` then call it by name (`server.start()`), `public` exposes a task/value (private by default — no hidden global sharing), and `sprout build` runs the whole thing
 - **System module:** OS-level actions are explicit — `use system` then `system.run("...")`
 - **Scaffolding:** `sprout new <folder>` creates a full multi-file project · `sprout template load <name>` scaffolds into the current folder · **`sprout api <url>`** dumps every field an API returns
+- **Ship it as one file:** **`sprout bundle app.sprout`** packages your program into a **standalone executable** — no interpreter, no source, nothing to install. Hand someone the one file and it runs (`./app.exe`)
 - `~` comments, indentation blocks, friendly errors with line numbers
 
 ```sprout

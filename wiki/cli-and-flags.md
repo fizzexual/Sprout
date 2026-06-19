@@ -15,6 +15,7 @@ with [getting started](getting-started.md) and the [cheatsheet](cheatsheet.md).
 - [`sprout new <folder>` — start a project](#sprout-new-folder--start-a-project)
 - [`sprout build` — run the project here](#sprout-build--run-the-project-here)
 - [`sprout test [file]` — run your tests](#sprout-test-file--run-your-tests)
+- [`sprout bundle <file>` — make a standalone executable](#sprout-bundle-file--make-a-standalone-executable)
 - [`sprout template list` / `template load`](#sprout-template-list--sprout-template-load-name)
 - [`sprout api <url>` — peek at any web API](#sprout-api-url--peek-at-any-web-api)
 - [`sprout version` and `sprout help`](#sprout-version-and-sprout-help)
@@ -33,6 +34,7 @@ with [getting started](getting-started.md) and the [cheatsheet](cheatsheet.md).
 | `sprout new <folder>` | create a new project folder |
 | `sprout build` | run the project in the current folder (reads `sprout.toml`) |
 | `sprout test [file]` | run tests — one file, or every `tests/*.sprout` |
+| `sprout bundle <file>` | package a program into a **standalone executable** |
 | `sprout template list` | list the project templates |
 | `sprout template load <name>` | scaffold a template **into the current folder** (wipes it) |
 | `sprout api <url>` | print every field a web API returns |
@@ -282,6 +284,29 @@ PASS: greet() says hello
 
 See [testing & learn mode](testing-and-learn.md) for `expect error`, the
 `expect a == b` mismatch report, and more.
+
+## `sprout bundle <file>` — make a standalone executable
+
+Package a program into a **single executable** that runs on its own — no Sprout, no source
+file, nothing to install. Hand someone the one file and it just runs.
+
+```
+$ sprout bundle greet.sprout
+  Bundled greet.sprout into a standalone program:  greet.exe
+  Run it directly — no Sprout needed.
+
+$ ./greet.exe Ada
+hello Ada
+```
+
+- The output is named after the script (`greet.exe` on Windows, `greet` elsewhere). Choose your
+  own with `-o`: `sprout bundle greet.sprout -o hello`.
+- It's a real native executable — Sprout copies itself, appends your script, and the bundled
+  program runs that script at startup. (Arguments after the program name reach `args()` as usual.)
+- **Single-file programs.** Built-in modules like `use system` still work, but a program that
+  `use`s *other `.sprout` files* isn't bundled with them yet — keep a bundled program in one file.
+- The file is the interpreter (~200 KB) plus your script, so it's small. Anti-virus tools
+  occasionally flag freshly-appended executables; that's a false positive on an unsigned binary.
 
 ## `sprout template list` / `sprout template load <name>`
 

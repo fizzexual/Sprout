@@ -17,7 +17,7 @@ If you want to know *"can Sprout do X yet?"* — start here.
 | 3 | **Interfaces & type annotations** | 📋 Planned | — |
 | 4 | **Standard-library breadth** | 🔜 In progress — v0.1.9 | [Builtins reference](builtins-reference.md) |
 | 5 | **Package manager** | 📋 Planned | — |
-| 6 | **Tooling** (LSP, formatter, debugger) | 📋 Planned | — |
+| 6 | **Tooling & distribution** | 🔜 standalone exe done (v0.1.14) | [CLI → bundle](cli-and-flags.md#sprout-bundle-file--make-a-standalone-executable) |
 
 Legend: ✅ done · 🔜 in progress · 📋 planned
 
@@ -92,10 +92,13 @@ Closing the "batteries included" gap. **Shipped so far:**
 Importing shared libraries by name, with a registry and versioning — so Sprout programs can
 build on each other.
 
-## Phase 6 — Tooling 📋
+## Phase 6 — Tooling & distribution 🔜
 
-The professional developer experience: editor/LSP support, a formatter, a linter, a debugger
-— and bundling a program into a standalone executable you can hand to someone.
+- ✅ **Standalone executables** *(v0.1.14)* — `sprout bundle app.sprout` packages a program into
+  a single native executable you can hand to anyone (no interpreter, no source). See
+  [CLI → bundle](cli-and-flags.md#sprout-bundle-file--make-a-standalone-executable).
+- 📋 The rest of the professional developer experience: editor/LSP support, a formatter, a
+  linter, a debugger.
 
 ---
 
