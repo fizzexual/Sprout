@@ -15,8 +15,10 @@ Plain-English code, helpful errors, and zero dependencies. No Node, no VM, no ru
 </p>
 
 <p align="center">
+  <a href="https://github.com/fizzexual/Sprout/releases">Download</a> ·
   <a href="wiki/getting-started.md">Get started</a> ·
   <a href="wiki/cheatsheet.md">Cheat sheet</a> ·
+  <a href="CHANGELOG.md">Changelog</a> ·
   <a href="wiki_navigator.md">Full wiki</a> ·
   <a href="wiki/architecture.md">How it works</a>
 </p>

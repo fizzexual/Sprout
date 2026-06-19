@@ -1,0 +1,59 @@
+name: Release
+
+# Push a version tag to cut a release:  git tag v0.1.15 && git push origin v0.1.15
+# This builds Sprout on Linux, macOS and Windows, runs the test suite on each, and publishes a
+# GitHub Release with all three binaries attached (plus auto-generated notes).
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    name: build ${{ matrix.asset }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,  asset: sprout-linux-x86_64 }
+          - { os: macos-latest,   asset: sprout-macos-arm64 }
+          - { os: windows-latest, asset: sprout-windows-x86_64.exe }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build, smoke-test, and run the suite
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            gcc -O2 -Wall -s -Wl,--stack,67108864 -o "${{ matrix.asset }}" src/sprout.c -lm -lurlmon
+            cp "${{ matrix.asset }}" src/sprout.exe
+          else
+            cc -O2 -Wall -o "${{ matrix.asset }}" src/sprout.c -lm
+            cp "${{ matrix.asset }}" src/sprout
+          fi
+          "./${{ matrix.asset }}" version
+          bash src/tests/run.sh          # never ship a binary that fails its tests
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+
+  release:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write                    # required to create the GitHub Release
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
