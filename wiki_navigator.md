@@ -35,7 +35,7 @@ link straight to the page that explains it.
 ### Reference
 | Page | What's inside |
 | --- | --- |
-| [Builtins reference](wiki/builtins-reference.md) | **All 84 builtins** — signature, behavior, example, and the error each raises |
+| [Builtins reference](wiki/builtins-reference.md) | **All 89 builtins** — signature, behavior, example, and the error each raises |
 | [Grammar & decided edge cases](wiki/grammar-and-edge-cases.md) | The EBNF, indentation rules, reserved words, the rules settled at the freeze |
 | [Glossary](wiki/glossary.md) | Every Sprout term, one line each |
 
@@ -99,7 +99,7 @@ link straight to the page that explains it.
 | `f"… {expr} …"` | f-string (text with values inside) | [Text](wiki/text.md) |
 | `~` | Comment to end of line | [Syntax basics](wiki/syntax-basics.md) |
 
-### Builtins (all 84)
+### Builtins (all 89)
 Full signatures, behavior, examples, and the error each raises live in the
 **[Builtins reference](wiki/builtins-reference.md)**. Grouped:
 
@@ -108,7 +108,7 @@ Full signatures, behavior, examples, and the error each raises live in the
 - **Regex** — `matches` `find` `find_all` (regular-expression match / search / find-all)
 - **Lists** — `add` `append` `remove` `insert` `first` `last` `length` `sort` `sort_by` `reverse` `unique` `zip` `flatten` `slice` `range` `index_of` `contains` `count` → also [Collections](wiki/collections.md)
 - **Maps** — `keys` `values` `length` `remove` `contains` → also [Collections](wiki/collections.md)
-- **Higher-order** — `map` `filter` `reduce` → also [Tasks](wiki/tasks-and-lambdas.md)
+- **Higher-order** — `map` `filter` `reduce` `group_by` `min_by` `max_by` `partition` `chunk` → also [Tasks](wiki/tasks-and-lambdas.md)
 - **Inspect & convert** — `kind_of` `is_a` `copy` `json` `number`
 - **Random & time & dates** — `random` `seed` `now` `today` `time` `time_parts` `time_make` `time_format` `days` `hours` `minutes` `wait` → also [Files, web, system & time](wiki/io-web-system-time.md)
 - **Input & environment** — `ask` `args` `env`

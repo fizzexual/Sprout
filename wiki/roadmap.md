@@ -81,6 +81,9 @@ Closing the "batteries included" gap. **Shipped so far:**
   `time_format`, and `days` / `hours` / `minutes` so date maths reads naturally
   (`time() + days(7)`, `(b - a) / days(1)`)
 
+- **Collection power tools** *(v0.1.13)* — `group_by`, `min_by` / `max_by`, `partition`, and
+  `chunk` join `map` / `filter` / `reduce` / `sort_by` for real data processing
+
 **Still planned:** sets and queues, a wider math library (inverse trig), and regex groups `( )`
 + alternation `a|b`.
 

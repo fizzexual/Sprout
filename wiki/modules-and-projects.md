@@ -523,7 +523,7 @@ Other things to keep in mind:
 - [Getting started](getting-started.md) — build the interpreter and run your first file.
 - [Tasks & lambdas](tasks-and-lambdas.md) — what `task`, `give`, and closures do inside a module.
 - [Testing & learn mode](testing-and-learn.md) — `test`/`expect` and the `tests/` folder a project ships with.
-- [Built-in functions](builtins-reference.md) — the 84 builtins every module gets for free.
+- [Built-in functions](builtins-reference.md) — the 89 builtins every module gets for free.
 - [Pattern matching](pattern-matching.md) — `match`/`is` for branching on shapes.
 - [Sandbox & playground](sandbox-and-playground.md) — what `--sandbox` switches off (including `use system`).
 - [Errors](errors.md) — the catchable error map `{message, kind, line}` and why parse errors aren't catchable.

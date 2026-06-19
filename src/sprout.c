@@ -1393,7 +1393,7 @@ static int edit_distance(const char *a, const char *b) {
 
 static const char *const BUILTIN_NAMES[] = {
   "range","length","add","keys","contains","first","last",
-  "remove","insert","sort","sort_by","reverse","index_of","values","copy","kind_of","is_a","map","filter","reduce",
+  "remove","insert","sort","sort_by","reverse","index_of","values","copy","kind_of","is_a","map","filter","reduce","group_by","min_by","max_by","partition","chunk",
   "sum","count","unique","zip","flatten","slice","words","lines","title","seed",
   "abs","round","floor","ceil","sqrt","pow","min","max","random","number",
   "sin","cos","tan","log","exp","pi","args","env",
@@ -2020,6 +2020,49 @@ static Value call_builtin(Expr *call, Env *env) {
     Value acc = a[2]; int len = a[0].list ? a[0].list->n : 0;
     for (int i = 0; i < len; i++) { Value two[2] = { acc, a[0].list->items[i] }; acc = call_task_v(a[1].task, two, 2, call->line); }
     return acc;
+  }
+  if (!strcmp(name, "group_by")) {   /* group items into a map; the task gives each item's key (used as text) */
+    if (n != 2 || a[0].type != V_LIST || a[1].type != V_TASK) fail(call->line, "group_by needs a list and a task that gives each item's key, like group_by(people, get_city).");
+    SMap *m = map_new(); int len = a[0].list ? a[0].list->n : 0;
+    for (int i = 0; i < len; i++) {
+      Value item = a[0].list->items[i];
+      char *ks = stringify(call_task_v(a[1].task, &item, 1, call->line));
+      int idx = map_index(m, ks);
+      if (idx < 0) { map_set(m, ks, vlist(list_new())); idx = map_index(m, ks); }
+      list_push(m->vals[idx].list, item);
+      free(ks);
+    }
+    return vmap(m);
+  }
+  if (!strcmp(name, "min_by") || !strcmp(name, "max_by")) {   /* the item whose key (from the task) is smallest / largest */
+    int wantmax = (name[1] == 'a');
+    if (n != 2 || a[0].type != V_LIST || a[1].type != V_TASK) fail(call->line, "min_by/max_by need a list and a task that gives a number or text key, like min_by(people, get_age).");
+    int len = a[0].list ? a[0].list->n : 0;
+    if (len == 0) return vnone();
+    Value best = a[0].list->items[0], bk = call_task_v(a[1].task, &best, 1, call->line);
+    if (bk.type != V_NUM && bk.type != V_STR) fail_kind(call->line, "type", "min_by/max_by's task must give a number or text.");
+    for (int i = 1; i < len; i++) {
+      Value item = a[0].list->items[i], k = call_task_v(a[1].task, &item, 1, call->line);
+      if (k.type != bk.type) fail_kind(call->line, "type", "min_by/max_by's task must give the same kind of value for every item.");
+      int c = (bk.type == V_NUM) ? ((k.num > bk.num) - (k.num < bk.num)) : strcmp(k.str ? k.str : "", bk.str ? bk.str : "");
+      if (wantmax ? (c > 0) : (c < 0)) { best = item; bk = k; }
+    }
+    return best;
+  }
+  if (!strcmp(name, "partition")) {   /* split a list into [matches, rest] by a yes/no task */
+    if (n != 2 || a[0].type != V_LIST || a[1].type != V_TASK) fail(call->line, "partition needs a list and a task that gives yes/no, like partition(nums, is_even).");
+    SList *yes = list_new(), *no = list_new(); int len = a[0].list ? a[0].list->n : 0;
+    for (int i = 0; i < len; i++) { Value item = a[0].list->items[i]; if (is_truthy(call_task_v(a[1].task, &item, 1, call->line))) list_push(yes, item); else list_push(no, item); }
+    SList *pair = list_new(); list_push(pair, vlist(yes)); list_push(pair, vlist(no));
+    return vlist(pair);
+  }
+  if (!strcmp(name, "chunk")) {   /* split a list into pieces of at most `size` items */
+    if (n != 2 || a[0].type != V_LIST || a[1].type != V_NUM) fail(call->line, "chunk needs a list and a size, like chunk(items, 3).");
+    int size = (int)a[1].num;
+    if (size < 1) fail(call->line, "chunk needs a size of at least 1.");
+    SList *out = list_new(); int len = a[0].list ? a[0].list->n : 0; SList *cur = NULL;
+    for (int i = 0; i < len; i++) { if (i % size == 0) { cur = list_new(); list_push(out, vlist(cur)); } list_push(cur, a[0].list->items[i]); }
+    return vlist(out);
   }
   /* ---- collection batteries ---- */
   if (!strcmp(name, "sum")) {
@@ -3019,7 +3062,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.1.12"
+#define SPROUT_VERSION "0.1.13"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);

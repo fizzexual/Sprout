@@ -1,6 +1,6 @@
 # Builtins reference (complete)
 
-Every one of Sprout's **84 built-in functions**, with a signature, what it does,
+Every one of Sprout's **89 built-in functions**, with a signature, what it does,
 whether it changes its input or returns a new value, a tiny example you can run
 right now, its real output, and the error it raises on bad input. This is the
 long one — bookmark it.
@@ -25,7 +25,7 @@ errors follow, see [Errors & error handling](errors.md).
 - [Conversion & inspection](#conversion--inspection) — `number` `kind_of` `is_a` `json`
 - [Text](#text) — `upper` `lower` `title` `trim` `replace` `split` `join` `words` `lines` `contains` `starts_with` `ends_with` `index_of` `count` `slice` `length`
 - [Text patterns (regex)](#text-patterns-regex) — `matches` `find` `find_all`
-- [Lists](#lists) — `add` `remove` `insert` `first` `last` `length` `sort` `sort_by` `reverse` `unique` `zip` `flatten` `range` `slice` `map` `filter` `reduce` `copy` `contains` `index_of` `count` `sum`
+- [Lists](#lists) — `add` `remove` `insert` `first` `last` `length` `sort` `sort_by` `reverse` `unique` `zip` `flatten` `range` `slice` `map` `filter` `reduce` `group_by` `min_by` `max_by` `partition` `chunk` `copy` `contains` `index_of` `count` `sum`
 - [Maps](#maps) — `keys` `values` `contains` `remove` `length` `copy`
 - [Input](#input) — `ask`
 - [Files](#files) — `read` `write` `append` `exists`
@@ -35,7 +35,7 @@ errors follow, see [Errors & error handling](errors.md).
 - [Persistence](#persistence) — `remember` `recall` `forget`
 - [Output & colour](#output--colour) — `color` (and `show`)
 - [The error a builtin raises](#the-error-a-builtin-raises)
-- [Quick index of all 84](#quick-index-of-all-84)
+- [Quick index of all 89](#quick-index-of-all-89)
 
 ---
 
@@ -1109,6 +1109,77 @@ abc
 
 Bad input: `reduce needs a list, a task taking (total, item), and a starting value, like reduce(nums, add_up, 0).`
 
+### `group_by(list, task)` → map
+
+Buckets the items into a map. The task returns each item's **key**; items with the same key
+end up in a list under it (used as text, so any key works). Keeps insertion order. **Returns**
+a new map.
+
+```sprout
+make people = [{name: "Ada", city: "London"}, {name: "Bo", city: "Paris"}, {name: "Cy", city: "London"}]
+make g = group_by(people, task(p): p["city"])
+show keys(g)
+show map(g["London"], task(p): p["name"])
+```
+
+```text
+[London, Paris]
+[Ada, Cy]
+```
+
+Bad input: `group_by needs a list and a task that gives each item's key, like group_by(people, get_city).`
+
+### `min_by(list, task)` / `max_by(list, task)` → an item or nothing
+
+The **item** whose key (from the task) is smallest / largest. The key may be a number or text.
+`nothing` for an empty list. **Returns** one of the list's items.
+
+```sprout
+make products = [{n: "pen", p: 3}, {n: "mug", p: 9}, {n: "cap", p: 5}]
+show min_by(products, task(x): x["p"])["n"]   ~ cheapest
+show max_by(products, task(x): x["p"])["n"]   ~ dearest
+```
+
+```text
+pen
+mug
+```
+
+Bad input: `min_by/max_by need a list and a task that gives a number or text key, like min_by(people, get_age).`
+
+### `partition(list, task)` → [matches, rest]
+
+Splits a list in two by a yes/no task: a list of **two lists**, the items that passed and the
+items that didn't. **Returns** a new list.
+
+```sprout
+make r = partition([1, 2, 3, 4, 5, 6], task(n): n % 2 == 0)
+show r[0]
+show r[1]
+```
+
+```text
+[2, 4, 6]
+[1, 3, 5]
+```
+
+Bad input: `partition needs a list and a task that gives yes/no, like partition(nums, is_even).`
+
+### `chunk(list, size)` → list of lists
+
+Splits a list into consecutive pieces of at most `size` items (the last may be shorter).
+**Returns** a new list of lists.
+
+```sprout
+show chunk([1, 2, 3, 4, 5, 6, 7], 3)
+```
+
+```text
+[[1, 2, 3], [4, 5, 6], [7]]
+```
+
+Bad input: `chunk needs a list and a size, like chunk(items, 3).` · a size below 1 → `chunk needs a size of at least 1.`
+
 ### `copy(x)` → new value
 
 A **deep** copy of any value. **Returns** the copy. The only way to get an
@@ -1619,7 +1690,7 @@ The full model — the two tiers, the `caught` map shape, `fail` with a map — 
 
 ---
 
-## Quick index of all 84
+## Quick index of all 89
 
 | Builtin | Group | Mutates? | Returns |
 | --- | --- | --- | --- |
@@ -1686,6 +1757,10 @@ The full model — the two tiers, the `caught` map shape, `fail` with a map — 
 | `map` | lists | no | list |
 | `filter` | lists | no | list |
 | `reduce` | lists | no | any |
+| `group_by` | lists | no | map |
+| `min_by` / `max_by` | lists | no | an item |
+| `partition` | lists | no | list of 2 lists |
+| `chunk` | lists | no | list of lists |
 | `copy` | lists/maps | no | new value |
 | `keys` | maps | no | list |
 | `values` | maps | no | list |
@@ -1702,7 +1777,7 @@ The full model — the two tiers, the `caught` map shape, `fail` with a map — 
 | `run` (`system.run`) | system | (shell) | text / nothing |
 | `color` | output | no | text |
 
-That's all 84 (counting `run`, reached as `system.run`).
+That's all 89 (counting `run`, reached as `system.run`).
 
 ---
 

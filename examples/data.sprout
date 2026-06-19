@@ -1,0 +1,27 @@
+~ Data processing in Sprout: group, summarise, find extremes, split, page — all built in.
+
+make orders = [
+    {"who": "Ada", "item": "pen",  "cost": 3},
+    {"who": "Bo",  "item": "mug",  "cost": 9},
+    {"who": "Ada", "item": "cap",  "cost": 5},
+    {"who": "Cy",  "item": "book", "cost": 12},
+    {"who": "Bo",  "item": "pen",  "cost": 3},
+]
+
+~ Group the orders by customer and total each one's spend.
+make by_who = group_by(orders, task(o): o["who"])
+show "Spend per customer:"
+for each who in keys(by_who):
+    make total = sum(map(by_who[who], task(o): o["cost"]))
+    show "  " + who + ": " + total
+
+~ The cheapest and dearest order.
+show "Cheapest order:", min_by(orders, task(o): o["cost"])["item"]
+show "Dearest order: ", max_by(orders, task(o): o["cost"])["item"]
+
+~ Split into big (>= 5) and small orders.
+make split = partition(orders, task(o): o["cost"] >= 5)
+show "Big orders:", length(split[0]), " small orders:", length(split[1])
+
+~ Page the item names two at a time.
+show "Pages of 2:", chunk(map(orders, task(o): o["item"]), 2)
