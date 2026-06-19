@@ -7,7 +7,7 @@ link straight to the page that explains it.
 > New here? Read [Getting started](wiki/getting-started.md), keep the
 > [Cheat sheet](wiki/cheatsheet.md) open in another tab, and work down the **Language guide**
 > in order. Wondering what Sprout can do *yet*? See the **[Roadmap](wiki/roadmap.md)**.
-> Everything below is verified against the real interpreter (Sprout v0.1.8).
+> Everything below is verified against the real interpreter (Sprout v0.1.12).
 
 ---
 
@@ -35,7 +35,7 @@ link straight to the page that explains it.
 ### Reference
 | Page | What's inside |
 | --- | --- |
-| [Builtins reference](wiki/builtins-reference.md) | **All 77 builtins** — signature, behavior, example, and the error each raises |
+| [Builtins reference](wiki/builtins-reference.md) | **All 84 builtins** — signature, behavior, example, and the error each raises |
 | [Grammar & decided edge cases](wiki/grammar-and-edge-cases.md) | The EBNF, indentation rules, reserved words, the rules settled at the freeze |
 | [Glossary](wiki/glossary.md) | Every Sprout term, one line each |
 
@@ -99,7 +99,7 @@ link straight to the page that explains it.
 | `f"… {expr} …"` | f-string (text with values inside) | [Text](wiki/text.md) |
 | `~` | Comment to end of line | [Syntax basics](wiki/syntax-basics.md) |
 
-### Builtins (all 77)
+### Builtins (all 84)
 Full signatures, behavior, examples, and the error each raises live in the
 **[Builtins reference](wiki/builtins-reference.md)**. Grouped:
 
@@ -110,7 +110,7 @@ Full signatures, behavior, examples, and the error each raises live in the
 - **Maps** — `keys` `values` `length` `remove` `contains` → also [Collections](wiki/collections.md)
 - **Higher-order** — `map` `filter` `reduce` → also [Tasks](wiki/tasks-and-lambdas.md)
 - **Inspect & convert** — `kind_of` `is_a` `copy` `json` `number`
-- **Random & time** — `random` `seed` `now` `today` `wait` → also [Files, web, system & time](wiki/io-web-system-time.md)
+- **Random & time & dates** — `random` `seed` `now` `today` `time` `time_parts` `time_make` `time_format` `days` `hours` `minutes` `wait` → also [Files, web, system & time](wiki/io-web-system-time.md)
 - **Input & environment** — `ask` `args` `env`
 - **Files** — `read` `write` `append` `exists` → [Files, web, system & time](wiki/io-web-system-time.md)
 - **Web** — `get` `explore` → [Files, web, system & time](wiki/io-web-system-time.md)

@@ -77,8 +77,12 @@ Closing the "batteries included" gap. **Shipped so far:**
 - **Regex** — `matches` / `find` / `find_all` (classes, quantifiers `* + ? {n,m}`, anchors
   `^ $`, and the `\d \w \s` shorthands) — see [Builtins → Text patterns](builtins-reference.md#text-patterns-regex)
 
-**Still planned:** real date & time (`now` / `today` are text today), sets and queues, a wider
-math library, and regex groups `( )` + alternation `a|b`.
+- **Date & time** *(v0.1.12)* — `time()` (a moment as a number), `time_parts` / `time_make` /
+  `time_format`, and `days` / `hours` / `minutes` so date maths reads naturally
+  (`time() + days(7)`, `(b - a) / days(1)`)
+
+**Still planned:** sets and queues, a wider math library (inverse trig), and regex groups `( )`
++ alternation `a|b`.
 
 ## Phase 5 — Package manager 📋
 

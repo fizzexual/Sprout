@@ -1,6 +1,6 @@
 # Builtins reference (complete)
 
-Every one of Sprout's **77 built-in functions**, with a signature, what it does,
+Every one of Sprout's **84 built-in functions**, with a signature, what it does,
 whether it changes its input or returns a new value, a tiny example you can run
 right now, its real output, and the error it raises on bad input. This is the
 long one — bookmark it.
@@ -21,7 +21,7 @@ errors follow, see [Errors & error handling](errors.md).
 
 - [How builtins behave (the three patterns)](#how-builtins-behave-the-three-patterns)
 - [Numbers & math](#numbers--math) — `abs` `ceil` `floor` `round` `sqrt` `pow` `min` `max` `sum` `sin` `cos` `tan` `exp` `log` `pi`
-- [Random & time](#random--time) — `random` `seed` `now` `today` `wait`
+- [Random & time](#random--time) — `random` `seed` `now` `today` `wait` `time` `days` `hours` `minutes` `time_parts` `time_make` `time_format`
 - [Conversion & inspection](#conversion--inspection) — `number` `kind_of` `is_a` `json`
 - [Text](#text) — `upper` `lower` `title` `trim` `replace` `split` `join` `words` `lines` `contains` `starts_with` `ends_with` `index_of` `count` `slice` `length`
 - [Text patterns (regex)](#text-patterns-regex) — `matches` `find` `find_all`
@@ -35,7 +35,7 @@ errors follow, see [Errors & error handling](errors.md).
 - [Persistence](#persistence) — `remember` `recall` `forget`
 - [Output & colour](#output--colour) — `color` (and `show`)
 - [The error a builtin raises](#the-error-a-builtin-raises)
-- [Quick index of all 77](#quick-index-of-all-77)
+- [Quick index of all 84](#quick-index-of-all-84)
 
 ---
 
@@ -337,6 +337,90 @@ done
 ```
 
 Bad input: `wait needs a number of seconds.`
+
+### `time()` → number
+
+The current moment as a **number**: seconds since 1970 (the Unix epoch). Because it's just a
+number, you can do maths on it — add `days(7)`, subtract two moments to get the seconds
+between them. (`now()` is the same instant as readable *text*; `time()` is the one you compute
+with.) **Returns** a new number. Takes no inputs.
+
+```sprout
+make a = time()
+wait(0)
+show time() - a >= 0     ~ time never goes backwards
+```
+
+```text
+yes
+```
+
+### `days(n)` / `hours(n)` / `minutes(n)` → number
+
+The number of **seconds** in `n` days / hours / minutes — so date maths reads naturally.
+**Return** a new number.
+
+```sprout
+show days(1)
+show hours(2)
+show minutes(30)
+```
+
+```text
+86400
+7200
+1800
+```
+
+### `time_parts(timestamp)` → map
+
+Breaks a timestamp into a map with `year`, `month` (1–12), `day`, `hour`, `minute`, `second`,
+and `weekday` (a name like `"Friday"`), in **local** time. **Returns** a new map.
+
+```sprout
+make p = time_parts(time_make(2026, 6, 19, 14, 30, 0))
+show p["year"], p["month"], p["day"]
+show p["weekday"]
+```
+
+```text
+2026 6 19
+Friday
+```
+
+Bad input: `time_parts needs a timestamp (a number from time()), like time_parts(time()).`
+
+### `time_make(year, month, day [, hour, minute, second])` → number
+
+Builds a timestamp from calendar parts (local time); hour/minute/second default to `0`.
+Out-of-range parts **normalise** (month `13` rolls into next January), which makes "30 days
+from now" easy. **Returns** a new number.
+
+```sprout
+make xmas = time_make(2026, 12, 25)
+make today = time_make(2026, 6, 19)
+show round((xmas - today) / days(1))    ~ days until Christmas
+```
+
+```text
+189
+```
+
+Bad input: `time_make needs year, month, day (and optionally hour, minute, second).`
+
+### `time_format(timestamp)` → text
+
+A timestamp as readable text, `YYYY-MM-DD HH:MM:SS`, in local time. **Returns** new text.
+
+```sprout
+show time_format(time_make(2026, 6, 19, 9, 5, 0))
+```
+
+```text
+2026-06-19 09:05:00
+```
+
+Bad input: `time_format needs a timestamp (a number from time()), like time_format(time()).`
 
 ---
 
@@ -1535,7 +1619,7 @@ The full model — the two tiers, the `caught` map shape, `fail` with a map — 
 
 ---
 
-## Quick index of all 77
+## Quick index of all 84
 
 | Builtin | Group | Mutates? | Returns |
 | --- | --- | --- | --- |
@@ -1559,6 +1643,11 @@ The full model — the two tiers, the `caught` map shape, `fail` with a map — 
 | `now` | time | no | text |
 | `today` | time | no | text |
 | `wait` | time | no | nothing |
+| `time` | time | no | number |
+| `days` / `hours` / `minutes` | time | no | number |
+| `time_parts` | time | no | map |
+| `time_make` | time | no | number |
+| `time_format` | time | no | text |
 | `number` | conversion | no | number / nothing |
 | `kind_of` | inspection | no | text |
 | `is_a` | inspection | no | yes/no |
@@ -1613,7 +1702,7 @@ The full model — the two tiers, the `caught` map shape, `fail` with a map — 
 | `run` (`system.run`) | system | (shell) | text / nothing |
 | `color` | output | no | text |
 
-That's all 77 (counting `run`, reached as `system.run`).
+That's all 84 (counting `run`, reached as `system.run`).
 
 ---
 

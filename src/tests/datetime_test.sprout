@@ -1,0 +1,41 @@
+~ Date & time: time / time_parts / time_make / time_format and days/hours/minutes.
+~ A *_test.sprout file (gated via `sprout test`). Assertions avoid the live clock.
+
+test "duration helpers are exact seconds":
+    expect days(7) == 604800
+    expect hours(2) == 7200
+    expect minutes(30) == 1800
+
+test "build, format, and decompose a moment (local round-trip)":
+    make m = time_make(2026, 6, 19, 14, 30, 0)
+    expect time_format(m) == "2026-06-19 14:30:00"
+    make p = time_parts(m)
+    expect p["year"] == 2026
+    expect p["month"] == 6
+    expect p["day"] == 19
+    expect p["hour"] == 14
+    expect p["minute"] == 30
+    expect p["second"] == 0
+    expect p["weekday"] == "Friday"
+
+test "out-of-range parts normalize (month 13 -> next January)":
+    make np = time_parts(time_make(2026, 13, 1))
+    expect np["year"] == 2027
+    expect np["month"] == 1
+
+test "arithmetic with durations":
+    make noon = time_make(2026, 6, 19, 12, 0, 0)
+    expect time_parts(noon + days(7))["day"] == 26
+    expect round((time_make(2026, 12, 25) - time_make(2026, 6, 19)) / days(1)) == 189
+
+test "the live clock is a positive number":
+    expect time() > 0
+    expect kind_of(time()) == "number"
+
+test "bad input":
+    expect error:
+        show time_make(2026)
+    expect error:
+        show time_parts("today")
+    expect error:
+        show time(5)

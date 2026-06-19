@@ -1,0 +1,22 @@
+~ Real date & time. A moment is a number (seconds since 1970, the Unix epoch),
+~ so you can do ordinary maths on it — add days, subtract two dates, compare.
+
+~ Build a specific date and read it back.
+make launch = time_make(2026, 6, 19, 9, 0, 0)
+show "Launch is at", time_format(launch)
+show "...which is a", time_parts(launch)["weekday"]
+
+~ Count down to a future date from right now.
+make newyear = time_make(2027, 1, 1)
+show "Days until 2027:", round((newyear - time()) / days(1))
+
+~ Add durations to make office hours.
+make open = time_make(2026, 6, 19, 9, 0, 0)
+make close = open + hours(8)
+show "Open ", time_format(open)
+show "Close", time_format(close)
+show "A", (close - open) / hours(1), "hour day"
+
+~ Pull apart the current moment.
+make p = time_parts(time())
+show "The current year is", p["year"]

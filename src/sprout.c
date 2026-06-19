@@ -1400,6 +1400,7 @@ static const char *const BUILTIN_NAMES[] = {
   "matches","find","find_all",
   "upper","lower","trim","replace","split","join","starts_with","ends_with",
   "ask","now","today","wait","read","write","append","exists","remember","recall","forget",
+  "time","time_parts","time_make","time_format","days","hours","minutes",
   "get","json","explore","color",
 };
 static const int NBUILTIN_NAMES = (int)(sizeof BUILTIN_NAMES / sizeof BUILTIN_NAMES[0]);
@@ -2228,6 +2229,41 @@ static Value call_builtin(Expr *call, Env *env) {
     if (name[0]=='n') strftime(buf,sizeof buf,"%Y-%m-%d %H:%M:%S",lt); else strftime(buf,sizeof buf,"%Y-%m-%d",lt);
     return vstr_take(dup_str(buf));
   }
+  if (!strcmp(name,"time")) {   /* the current moment as a number: seconds since 1970 (the Unix epoch) */
+    if (n!=0) fail(call->line,"time takes no inputs, like time().");
+    return vnum((double)time(NULL));
+  }
+  if (!strcmp(name,"days"))    { if (n!=1||a[0].type!=V_NUM) fail(call->line,"days needs a number, like days(7).");    return vnum(a[0].num*86400.0); }
+  if (!strcmp(name,"hours"))   { if (n!=1||a[0].type!=V_NUM) fail(call->line,"hours needs a number, like hours(3).");  return vnum(a[0].num*3600.0); }
+  if (!strcmp(name,"minutes")) { if (n!=1||a[0].type!=V_NUM) fail(call->line,"minutes needs a number, like minutes(30)."); return vnum(a[0].num*60.0); }
+  if (!strcmp(name,"time_parts")) {   /* break a timestamp into a map of named parts */
+    if (n!=1||a[0].type!=V_NUM) fail(call->line,"time_parts needs a timestamp (a number from time()), like time_parts(time()).");
+    time_t tt=(time_t)a[0].num; struct tm*lt=localtime(&tt);
+    if (!lt) fail_kind(call->line,"math","that timestamp is out of range.");
+    static const char*const wd[]={"Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"};
+    SMap*m=map_new();
+    map_set(m,"year",vnum(lt->tm_year+1900)); map_set(m,"month",vnum(lt->tm_mon+1)); map_set(m,"day",vnum(lt->tm_mday));
+    map_set(m,"hour",vnum(lt->tm_hour)); map_set(m,"minute",vnum(lt->tm_min)); map_set(m,"second",vnum(lt->tm_sec));
+    map_set(m,"weekday",vstr(wd[lt->tm_wday%7]));
+    return vmap(m);
+  }
+  if (!strcmp(name,"time_make")) {   /* build a timestamp from year, month, day [, hour, minute, second] */
+    if (n<3||n>6) fail(call->line,"time_make needs year, month, day (and optionally hour, minute, second).");
+    for (int i=0;i<n;i++) if (a[i].type!=V_NUM) fail(call->line,"time_make needs numbers, like time_make(2026, 12, 25).");
+    struct tm t; memset(&t,0,sizeof t);
+    t.tm_year=(int)a[0].num-1900; t.tm_mon=(int)a[1].num-1; t.tm_mday=(int)a[2].num;
+    t.tm_hour=n>3?(int)a[3].num:0; t.tm_min=n>4?(int)a[4].num:0; t.tm_sec=n>5?(int)a[5].num:0; t.tm_isdst=-1;
+    time_t tt=mktime(&t);
+    if (tt==(time_t)-1) fail_kind(call->line,"math","that date can't be made (check the numbers).");
+    return vnum((double)tt);
+  }
+  if (!strcmp(name,"time_format")) {   /* a timestamp as readable text: YYYY-MM-DD HH:MM:SS */
+    if (n!=1||a[0].type!=V_NUM) fail(call->line,"time_format needs a timestamp (a number from time()), like time_format(time()).");
+    time_t tt=(time_t)a[0].num; struct tm*lt=localtime(&tt);
+    if (!lt) fail_kind(call->line,"math","that timestamp is out of range.");
+    char buf[64]; strftime(buf,sizeof buf,"%Y-%m-%d %H:%M:%S",lt);
+    return vstr_take(dup_str(buf));
+  }
   if (!strcmp(name,"wait")) {
     if (n!=1||a[0].type!=V_NUM) fail(call->line,"wait needs a number of seconds.");
     if (a[0].num>0) {
@@ -2983,7 +3019,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.1.11"
+#define SPROUT_VERSION "0.1.12"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);
