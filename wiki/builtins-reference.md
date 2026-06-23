@@ -1,6 +1,6 @@
 # Builtins reference (complete)
 
-Every one of Sprout's **89 built-in functions**, with a signature, what it does,
+Every one of Sprout's **98 built-in functions**, with a signature, what it does,
 whether it changes its input or returns a new value, a tiny example you can run
 right now, its real output, and the error it raises on bad input. This is the
 long one — bookmark it.
@@ -20,22 +20,22 @@ errors follow, see [Errors & error handling](errors.md).
 ## Contents
 
 - [How builtins behave (the three patterns)](#how-builtins-behave-the-three-patterns)
-- [Numbers & math](#numbers--math) — `abs` `ceil` `floor` `round` `sqrt` `pow` `min` `max` `sum` `sin` `cos` `tan` `exp` `log` `pi`
+- [Numbers & math](#numbers--math) — `abs` `ceil` `floor` `round` `sqrt` `pow` `min` `max` `clamp` `sign` `sum` `sin` `cos` `tan` `exp` `log` `pi`
 - [Random & time](#random--time) — `random` `seed` `now` `today` `wait` `time` `days` `hours` `minutes` `time_parts` `time_make` `time_format`
-- [Conversion & inspection](#conversion--inspection) — `number` `kind_of` `is_a` `json`
-- [Text](#text) — `upper` `lower` `title` `trim` `replace` `split` `join` `words` `lines` `contains` `starts_with` `ends_with` `index_of` `count` `slice` `length`
-- [Text patterns (regex)](#text-patterns-regex) — `matches` `find` `find_all`
+- [Conversion & inspection](#conversion--inspection) — `number` `is_number` `kind_of` `is_a` `json`
+- [Text](#text) — `upper` `lower` `title` `trim` `replace` `split` `join` `words` `lines` `contains` `starts_with` `ends_with` `index_of` `count` `slice` `length` `pad_start` `pad_end` `code` `char`
+- [Text patterns (regex)](#text-patterns-regex) — `matches` `find` `find_all` `captures`
 - [Lists](#lists) — `add` `remove` `insert` `first` `last` `length` `sort` `sort_by` `reverse` `unique` `zip` `flatten` `range` `slice` `map` `filter` `reduce` `group_by` `min_by` `max_by` `partition` `chunk` `copy` `contains` `index_of` `count` `sum`
 - [Maps](#maps) — `keys` `values` `contains` `remove` `length` `copy`
 - [Input](#input) — `ask`
 - [Files](#files) — `read` `write` `append` `exists`
 - [Web](#web) — `get` `explore`
 - [System](#system) — `system.run`
-- [Environment & arguments](#environment--arguments) — `args` `env`
+- [Environment & arguments](#environment--arguments) — `args` `env` `exit`
 - [Persistence](#persistence) — `remember` `recall` `forget`
 - [Output & colour](#output--colour) — `color` (and `show`)
 - [The error a builtin raises](#the-error-a-builtin-raises)
-- [Quick index of all 89](#quick-index-of-all-89)
+- [Quick index of all 98](#quick-index-of-all-98)
 
 ---
 
@@ -94,29 +94,30 @@ show abs(7)
 
 Bad input: `abs("x")` → `abs needs a number.`
 
-### `ceil(n)` / `floor(n)` / `round(n)` → number
+### `ceil(n)` / `floor(n)` / `round(n [, places])` → number
 
 Round **up** (`ceil`), **down** (`floor`), or to the **nearest** whole number
-(`round`). `round` uses "add a half then floor", so a trailing `.5` always rounds
-**toward positive infinity** (`2.5` → `3`, but `-2.5` → `-2`). **Return** a new number.
+(`round`). `round` rounds a half **away from zero** (`2.5` → `3`, `-2.5` → `-3`).
+Give `round` a second argument to round to that many **decimal places**
+(`round(3.14159, 2)` → `3.14`). **Return** a new number.
 
 ```sprout
 show ceil(2.1)
 show floor(2.9)
 show round(2.5)
 show round(-2.5)
-show round(2.4)
+show round(3.14159, 2)
 ```
 
 ```text
 3
 2
 3
--2
-2
+-3
+3.14
 ```
 
-Bad input: `round needs a number.` (same shape for `ceil` / `floor`).
+Bad input: `round needs a number, and optionally how many decimal places, like round(3.14159, 2).` (`ceil` / `floor` say `... needs a number.`)
 
 ### `sqrt(n)` → number
 
@@ -137,7 +138,9 @@ Bad input: `sqrt("x")` → `sqrt needs a number.` · `sqrt(-4)` → `sqrt can't 
 ### `pow(base, exponent)` → number
 
 `base` raised to `exponent`. **Returns** a new number. (There is no `**` operator —
-use `pow`.)
+use `pow`.) Like `sqrt` and division, `pow` guards its domain: a result that
+isn't a finite number (a negative base to a fractional power, a zero base to a
+negative power, or an overflow) raises a clean `math` error rather than `nan`/`inf`.
 
 ```sprout
 show pow(2, 10)
@@ -149,7 +152,8 @@ show pow(9, 0.5)
 3
 ```
 
-Bad input: `pow needs two numbers, like pow(2, 10).`
+Bad input: `pow needs two numbers, like pow(2, 10).` · out of domain/overflow:
+`pow can't compute that ...` (kind `math`).
 
 ### `min(...)` / `max(...)` → number
 
@@ -256,6 +260,43 @@ show round(pi() * 100) / 100
 ```
 
 Bad input: `pi takes no inputs, like pi().`
+
+### `clamp(x, low, high)` → number
+
+Keep `x` inside the range `low..high`: returns `low` if `x` is below it, `high` if
+above, otherwise `x` unchanged. **Returns** a new number.
+
+```sprout
+show clamp(15, 0, 10)
+show clamp(-3, 0, 10)
+show clamp(5, 0, 10)
+```
+
+```text
+10
+0
+5
+```
+
+Bad input: `clamp needs three numbers: clamp(x, low, high).`
+
+### `sign(x)` → number
+
+The sign of `x`: `-1` if negative, `1` if positive, `0` if zero. **Returns** a new number.
+
+```sprout
+show sign(-7)
+show sign(0)
+show sign(42)
+```
+
+```text
+-1
+0
+1
+```
+
+Bad input: `sign needs a number.`
 
 ---
 
@@ -451,6 +492,25 @@ nothing
 
 The `or else` idiom is the standard way to supply a default — see
 [operators](operators.md). Bad input: only the wrong **count** errors (`number needs one input.`); a non-number value just returns `nothing`.
+
+### `is_number(text)` → yes/no
+
+`yes` if `number(text)` would succeed, `no` otherwise — a check that doesn't
+convert. Handy for validating input before you use it.
+
+```sprout
+show is_number("3.14")
+show is_number("-5")
+show is_number("12abc")
+```
+
+```text
+yes
+yes
+no
+```
+
+Bad input: `is_number needs one input.`
 
 ### `kind_of(x)` → text
 
@@ -757,6 +817,58 @@ show length("")
 0
 ```
 
+### `pad_start(text, width [, fill])` / `pad_end(text, width [, fill])` → text
+
+Pad `text` to at least `width` characters by adding a fill (a space by default) on
+the **start** (right-align) or the **end** (left-align). Text already that wide is
+returned unchanged. **Return** a new string.
+
+```sprout
+show pad_start("7", 3, "0")
+show pad_end("hi", 5) + "|"
+```
+
+```text
+007
+hi   |
+```
+
+Bad input: `pad_start/pad_end need text, a width, and an optional fill: pad_start("7", 3, "0").` · the width must be a whole number from 0 to 100000000.
+
+### `code(char)` → number
+
+The byte value of the **first** character of the text (`"A"` → `65`). **Returns** a
+new number — the inverse of `char`.
+
+```sprout
+show code("A")
+show code("hello")
+```
+
+```text
+65
+104
+```
+
+Bad input: `code needs one piece of text, like code("A").` · empty text errors (kind `value`).
+
+### `char(number)` → text
+
+A one-character string from a byte value **1–255** (`65` → `"A"`). **Returns** a new
+string — the inverse of `code`. (Zero is rejected: Sprout text can't hold a NUL byte.)
+
+```sprout
+show char(65)
+show char(97)
+```
+
+```text
+A
+a
+```
+
+Bad input: `char needs a number from 1 to 255 (Sprout text can't hold a zero byte).`
+
 ---
 
 ## Text patterns (regex)
@@ -811,6 +923,25 @@ show find_all("cat hat bat", "[a-z]at")
 Bad input (all three): the text and pattern must both be text — e.g.
 `find needs text and a pattern, like find(s, "[0-9]+").`
 
+### `captures(text, pattern)` → list or nothing
+
+The first match as a list: element `0` is the whole match, then one element per
+**capture group** `( … )` in order (a group that didn't take part is `nothing`).
+**`nothing`** if the pattern doesn't match. This is how you pull fields out of text.
+
+```sprout
+make c = captures("2026-06-23", "([0-9]+)-([0-9]+)-([0-9]+)")
+show c[1], "/", c[2], "/", c[3]
+show captures("nope", "([0-9]+)")
+```
+
+```text
+2026 / 06 / 23
+nothing
+```
+
+Bad input: `captures needs text and a pattern, like captures(s, "([0-9]+)-([0-9]+)").`
+
 ### Pattern syntax
 
 | Write | Matches |
@@ -825,9 +956,10 @@ Bad input (all three): the text and pattern must both be text — e.g.
 | `\\.` `\\\\` | a literal `.`, `\`, and so on |
 | `x*` `x+` `x?` | zero-or-more / one-or-more / optional (greedy) |
 | `x{3}` `x{2,}` `x{2,5}` | exactly / at least / between *n* and *m* times |
+| `( … )` | a **capture group** (read it back with `captures`); also groups for a quantifier, e.g. `(ab)+` |
+| `a|b` | **alternation** — match `a` or `b` (lowest precedence, so `ab|cd` is `(ab)|(cd)`) |
 
 A built-in step limit means even a pathological pattern returns quickly instead of hanging.
-**Not yet supported:** groups `( … )` and alternation `a|b` — a planned follow-up.
 
 ---
 
@@ -1529,6 +1661,20 @@ when env("DEBUG") != nothing:
 
 Bad input: `env needs a name, and an optional default: env("HOME") or env("PORT", "8080").`
 
+### `exit([code])` → never returns
+
+Ends the program immediately with an exit code (`0` by default) — handy for a CLI
+tool that wants to stop with success or failure.
+
+```sprout
+when not exists("config.txt"):
+    show "no config found"
+    exit(1)
+show "config is here"
+```
+
+Bad input: `exit takes an optional exit code, like exit(0) or exit(1).`
+
 ---
 
 ## Persistence
@@ -1690,7 +1836,7 @@ The full model — the two tiers, the `caught` map shape, `fail` with a map — 
 
 ---
 
-## Quick index of all 89
+## Quick index of all 98
 
 | Builtin | Group | Mutates? | Returns |
 | --- | --- | --- | --- |
@@ -1706,8 +1852,11 @@ The full model — the two tiers, the `caught` map shape, `fail` with a map — 
 | `pi` | numbers | no | number |
 | `args` | environment | no | list |
 | `env` | environment | no | text / nothing |
+| `exit` | environment | (ends program) | never |
 | `min` | numbers | no | number |
 | `max` | numbers | no | number |
+| `clamp` | numbers | no | number |
+| `sign` | numbers | no | number |
 | `sum` | numbers/lists | no | number |
 | `random` | random | no | number |
 | `seed` | random | (rng state) | nothing |
@@ -1720,6 +1869,7 @@ The full model — the two tiers, the `caught` map shape, `fail` with a map — 
 | `time_make` | time | no | number |
 | `time_format` | time | no | text |
 | `number` | conversion | no | number / nothing |
+| `is_number` | conversion | no | yes/no |
 | `kind_of` | inspection | no | text |
 | `is_a` | inspection | no | yes/no |
 | `json` | conversion | no | any |
@@ -1739,9 +1889,13 @@ The full model — the two tiers, the `caught` map shape, `fail` with a map — 
 | `count` | text/list | no | number |
 | `slice` | text/list | no | text / list |
 | `length` | text/list/map | no | number |
+| `pad_start` / `pad_end` | text | no | text |
+| `code` | text | no | number |
+| `char` | text | no | text |
 | `matches` | regex | no | yes/no |
 | `find` | regex | no | text / nothing |
 | `find_all` | regex | no | list |
+| `captures` | regex | no | list / nothing |
 | `add` | lists | **yes** | nothing |
 | `insert` | lists | **yes** | nothing |
 | `remove` | lists/maps | **yes** | removed item |
@@ -1777,7 +1931,7 @@ The full model — the two tiers, the `caught` map shape, `fail` with a map — 
 | `run` (`system.run`) | system | (shell) | text / nothing |
 | `color` | output | no | text |
 
-That's all 89 (counting `run`, reached as `system.run`).
+That's all 98 (counting `run`, reached as `system.run`).
 
 ---
 

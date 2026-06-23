@@ -151,6 +151,26 @@ show d.describe()               ~ "Rex says woof"
   calls `self.sound()`, which runs **Dog's** version — so `describe()` says "woof", not "...".
 - One parent per type (single inheritance); chains are fine (`type Puppy from Dog:`).
 
+### `super` — calling the parent's version
+
+Inside a method, `super.method(args)` calls the **parent type's** version of that method,
+with the same object. It's how an override *extends* rather than replaces the parent — and it
+resolves from the type the method is written in, so it walks up exactly one level (chained
+`super` works through `Puppy → Dog → Animal`).
+
+```sprout
+type Animal:
+    make name = "?"
+    task speak(self):
+        give self.name + " makes a sound"
+
+type Dog from Animal:
+    task speak(self):
+        give super.speak() + " (woof)"
+
+show Dog("Rex").speak()    ~ "Rex makes a sound (woof)"
+```
+
 ### `is_a` — checking the type
 
 `is_a(value, "TypeName")` is true if the value is that type **or any ancestor** (like Java's
@@ -213,4 +233,5 @@ Define any of these methods and the matching operator calls it:
   `self` reads clearly.
 - Types are defined at the **top level** of a file (like tasks), not inside a task or block.
 - **Interfaces and type annotations aren't here yet** — they're the next steps on the
-  [roadmap](roadmap.md). There's no `super` call to a parent's overridden method yet, either.
+  [roadmap](roadmap.md). (Single inheritance, virtual dispatch, `super`, and operator
+  overloading are all here.)
