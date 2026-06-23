@@ -170,8 +170,18 @@ static void map_set(SMap *m, const char *k, Value x) {
 
 static char *num_to_str(double n) {
   char buf[64];
-  if (isfinite(n) && n == (double)(long long)n && fabs(n) < 1e15) snprintf(buf, sizeof buf, "%lld", (long long)n);
-  else snprintf(buf, sizeof buf, "%g", n);
+  if (!isfinite(n)) return dup_str(n != n ? "nan" : (n < 0 ? "-inf" : "inf"));
+  double a = fabs(n);
+  /* whole numbers print with ALL their digits (never 1.2e+19 style) up to 1e21 — matching
+     how Java/JavaScript show integers; %g's old 6-sig-fig scientific form looked broken. */
+  if (n == floor(n) && a < 1e21) {
+    if (a < 9007199254740992.0) snprintf(buf, sizeof buf, "%lld", (long long)n);   /* exact-integer range (2^53), fast path */
+    else snprintf(buf, sizeof buf, "%.0f", n);                                     /* still integral, just beyond 2^53 */
+  } else {
+    /* a fraction (or an astronomically large value): the shortest decimal that reparses to
+       the same double, so `show 0.1 + 0.2` tells the truth instead of rounding to "0.3". */
+    for (int prec = 15; prec <= 17; prec++) { snprintf(buf, sizeof buf, "%.*g", prec, n); if (strtod(buf, NULL) == n) break; }
+  }
   return dup_str(buf);
 }
 /* a tiny growing-string helper for stringify */
@@ -1108,7 +1118,7 @@ static void env_assign(Env *e, const char *name, Value v, int line) {
 
 /* tasks: top-level functions, hoisted so call order doesn't matter */
 struct TaskDef { char *name; char **params; int nparams; Stmt **body; int nbody; int line;
-                 int is_public; int fileid; Env *home; Env *file_env; };   /* home = closure/scope base; file_env = where `public make` lands. TaskDef typedef is forward-declared up by Value */
+                 int is_public; int fileid; Env *home; Env *file_env; char *owner_type; };   /* home = closure/scope base; file_env = where `public make` lands; owner_type = the type a method is defined on (NULL for plain tasks/lambdas, so `super` knows the parent). TaskDef typedef is forward-declared up by Value */
 static const char *taskdef_name(TaskDef *t) { return (t && t->name) ? t->name : "?"; }
 static TaskDef *tasks = NULL; static int ntasks = 0, captasks = 0;
 /* bare calls only see tasks of the CURRENT file; cross-file goes through a module namespace */
@@ -1128,7 +1138,7 @@ static void task_register(Stmt *s, int fileid, Env *home) {
   if (ntasks >= captasks) { captasks = captasks ? captasks * 2 : 8; tasks = (TaskDef *)realloc(tasks, captasks * sizeof(TaskDef)); }
   TaskDef *t = &tasks[ntasks++];
   t->name = s->name; t->params = s->params; t->nparams = s->nparams; t->body = s->body; t->nbody = s->nbody; t->line = s->line;
-  t->is_public = s->is_public; t->fileid = fileid; t->home = home; t->file_env = home;
+  t->is_public = s->is_public; t->fileid = fileid; t->home = home; t->file_env = home; t->owner_type = NULL;
 }
 
 /* Parse an anonymous task literal (lambda):  task(a, b): expr   or   task(a):\n<indented block>.
@@ -1369,6 +1379,7 @@ static Value call_task_v(TaskDef *t, Value *argv, int argc, int line) {
   task_arity_check(t, argc, line);
   Env *frame = env_new(t->home);
   for (int i = 0; i < argc; i++) env_define(frame, t->params[i], argv[i]);
+  if (t->owner_type) env_define(frame, "__class__", vstr(t->owner_type));   /* so `super` inside a method finds the defining type's parent */
   return run_task(t, frame, line);
 }
 static Value call_task(Expr *call, Env *env) {
@@ -1400,9 +1411,10 @@ static const char *const BUILTIN_NAMES[] = {
   "range","length","add","keys","contains","first","last",
   "remove","insert","sort","sort_by","reverse","index_of","values","copy","kind_of","is_a","map","filter","reduce","group_by","min_by","max_by","partition","chunk",
   "sum","count","unique","zip","flatten","slice","words","lines","title","seed",
-  "abs","round","floor","ceil","sqrt","pow","min","max","random","number",
+  "abs","round","floor","ceil","sqrt","pow","min","max","random","number","is_number",
   "sin","cos","tan","log","exp","pi","args","env",
-  "matches","find","find_all",
+  "code","char",
+  "matches","find","find_all","captures",
   "upper","lower","trim","replace","split","join","starts_with","ends_with",
   "ask","now","today","wait","read","write","append","exists","remember","recall","forget",
   "time","time_parts","time_make","time_format","days","hours","minutes",
@@ -1756,7 +1768,8 @@ static int builtin_blocked(const char *name) {
    pathological pattern can never hang. Byte-oriented: '.' and classes match one byte,
    which is exactly right for ASCII patterns. */
 #define RE_BUDGET 3000000L
-typedef struct { int kind; unsigned char c; unsigned char set[32]; int neg; } REAtom;  /* kind: 0=char 1=any 2=class */
+#define RE_MAXGROUP 9
+typedef struct { int s[RE_MAXGROUP+1], e[RE_MAXGROUP+1]; } RECaps;   /* match spans; [0] = whole match, [1..] = capture groups */
 
 static void re_set_add(unsigned char *set, unsigned char ch) { set[ch >> 3] |= (unsigned char)(1u << (ch & 7)); }
 static int  re_set_has(const unsigned char *set, unsigned char ch) { return (set[ch >> 3] >> (ch & 7)) & 1; }
@@ -1777,71 +1790,190 @@ static int re_shorthand(unsigned char e, unsigned char *set) {
 static unsigned char re_escape_char(unsigned char e) {
   switch (e) { case 'n': return '\n'; case 't': return '\t'; case 'r': return '\r'; case 'f': return '\f'; case 'v': return '\v'; default: return e; }
 }
-/* parse one atom at pat[pi]; fill `a`; return the index just AFTER the atom. */
-static int re_parse_atom(const char *pat, int pi, REAtom *a) {
-  memset(a, 0, sizeof *a);
-  unsigned char c = (unsigned char)pat[pi];
-  if (c == '.') { a->kind = 1; return pi + 1; }
-  if (c == '\\' && pat[pi+1]) {
-    unsigned char e = (unsigned char)pat[pi+1];
-    if (re_shorthand(e, a->set)) { a->kind = 2; return pi + 2; }
-    a->kind = 0; a->c = re_escape_char(e); return pi + 2;
+/* The pattern compiles to a small tree. Each char of the pattern makes at most a few nodes,
+   so a pool sized to a multiple of the pattern length never reallocates (keeping child
+   pointers stable). Groups are numbered 1..9 by opening '('; a 10th+ group is non-capturing. */
+typedef enum { RN_LIT, RN_ANY, RN_CLASS, RN_BOL, RN_EOL, RN_SEQ, RN_ALT, RN_GROUP, RN_REP } RNType;
+typedef struct RENode {
+  RNType t;
+  unsigned char c;                  /* RN_LIT */
+  unsigned char set[32]; int neg;   /* RN_CLASS */
+  struct RENode **kids; int nkids;  /* RN_SEQ / RN_ALT */
+  struct RENode *child;             /* RN_GROUP / RN_REP */
+  int group, mn, mx;                /* RN_GROUP capture #; RN_REP repeat bounds */
+} RENode;
+typedef struct { RENode *nodes; int n, cap; } REProg;
+static RENode *rn_alloc(REProg *g, RNType t) { RENode *n = &g->nodes[g->n++]; memset(n, 0, sizeof *n); n->t = t; return n; }
+
+typedef struct { const char *p; int i; REProg *g; int ngroup; int ok; } REParse;
+static RENode *re_parse_alt(REParse *s);
+
+static RENode *re_parse_atom(REParse *s) {
+  const char *p = s->p; int i = s->i; unsigned char c = (unsigned char)p[i]; RENode *n;
+  if (c == '(') {
+    s->i = i + 1;
+    int grp = (s->ngroup < RE_MAXGROUP) ? ++s->ngroup : 0;          /* a 10th+ group is non-capturing */
+    RENode *child = re_parse_alt(s);
+    if (p[s->i] == ')') s->i++; else s->ok = 0;
+    n = rn_alloc(s->g, RN_GROUP); n->group = grp; n->child = child; return n;
+  }
+  if (c == '.') { s->i = i + 1; return rn_alloc(s->g, RN_ANY); }
+  if (c == '^') { s->i = i + 1; return rn_alloc(s->g, RN_BOL); }
+  if (c == '$') { s->i = i + 1; return rn_alloc(s->g, RN_EOL); }
+  if (c == '\\' && p[i + 1]) {
+    unsigned char e = (unsigned char)p[i + 1];
+    n = rn_alloc(s->g, RN_CLASS);
+    if (re_shorthand(e, n->set)) { s->i = i + 2; return n; }
+    n->t = RN_LIT; n->c = re_escape_char(e); s->i = i + 2; return n;   /* an escaped literal */
   }
   if (c == '[') {
-    a->kind = 2; int i = pi + 1;
-    if (pat[i] == '^') { a->neg = 1; i++; }
-    if (pat[i] == ']') { re_set_add(a->set, ']'); i++; }            /* a leading ] is a literal */
-    while (pat[i] && pat[i] != ']') {
-      if (pat[i] == '\\' && pat[i+1]) { unsigned char e=(unsigned char)pat[i+1]; if (re_shorthand(e, a->set)) i+=2; else { re_set_add(a->set, re_escape_char(e)); i+=2; } continue; }
-      if (pat[i+1] == '-' && pat[i+2] && pat[i+2] != ']') { re_set_range(a->set,(unsigned char)pat[i],(unsigned char)pat[i+2]); i+=3; continue; }
-      re_set_add(a->set, (unsigned char)pat[i]); i++;
+    n = rn_alloc(s->g, RN_CLASS); int j = i + 1;
+    if (p[j] == '^') { n->neg = 1; j++; }
+    if (p[j] == ']') { re_set_add(n->set, ']'); j++; }                /* a leading ] is a literal */
+    while (p[j] && p[j] != ']') {
+      if (p[j] == '\\' && p[j + 1]) { unsigned char e = (unsigned char)p[j + 1]; if (re_shorthand(e, n->set)) j += 2; else { re_set_add(n->set, re_escape_char(e)); j += 2; } continue; }
+      if (p[j + 1] == '-' && p[j + 2] && p[j + 2] != ']') { re_set_range(n->set, (unsigned char)p[j], (unsigned char)p[j + 2]); j += 3; continue; }
+      re_set_add(n->set, (unsigned char)p[j]); j++;
     }
-    if (pat[i] == ']') i++;
-    return i;
+    if (p[j] == ']') j++;
+    s->i = j; return n;
   }
-  a->kind = 0; a->c = c; return pi + 1;
+  s->i = i + 1; n = rn_alloc(s->g, RN_LIT); n->c = c; return n;
 }
-static int re_atom_match(const REAtom *a, unsigned char ch) {
-  int r = (a->kind == 1) ? (ch != '\n') : (a->kind == 2) ? re_set_has(a->set, ch) : (ch == a->c);
-  if (a->kind == 2 && a->neg) r = !r;
-  return r;
-}
-/* match pat[pi..] against text[ti..tlen); return the end index on success, or -1. */
-static int re_here(const char *pat, int pi, const char *text, int ti, int tlen, long *budget) {
-  if (--*budget < 0) return -1;
-  unsigned char pc = (unsigned char)pat[pi];
-  if (pc == 0) return ti;
-  if (pc == '^') return (ti == 0) ? re_here(pat, pi+1, text, ti, tlen, budget) : -1;
-  if (pc == '$' && pat[pi+1] == 0) return (ti == tlen) ? ti : -1;
-  REAtom a; int api = re_parse_atom(pat, pi, &a);
-  int mn = 1, mx = 1, after = api;
-  unsigned char q = (unsigned char)pat[api];
-  if      (q == '*') { mn = 0; mx = 1<<30; after = api+1; }
-  else if (q == '+') { mn = 1; mx = 1<<30; after = api+1; }
-  else if (q == '?') { mn = 0; mx = 1;     after = api+1; }
+static RENode *re_parse_quant(REParse *s) {
+  RENode *atom = re_parse_atom(s);
+  const char *p = s->p; int i = s->i; unsigned char q = (unsigned char)p[i];
+  int mn = -1, mx = -1, kind = 0;
+  if      (q == '*') { mn = 0; mx = 1 << 30; kind = 1; }
+  else if (q == '+') { mn = 1; mx = 1 << 30; kind = 1; }
+  else if (q == '?') { mn = 0; mx = 1;       kind = 1; }
   else if (q == '{') {
-    int j = api+1, lo = 0, nd = 0;
-    while (pat[j] >= '0' && pat[j] <= '9') { lo = lo*10 + (pat[j]-'0'); j++; nd++; }
+    int j = i + 1, lo = 0, nd = 0;
+    while (p[j] >= '0' && p[j] <= '9') { lo = lo * 10 + (p[j] - '0'); j++; nd++; }
     int hi = lo;
-    if (nd && pat[j] == ',') { j++; if (pat[j] >= '0' && pat[j] <= '9') { hi = 0; while (pat[j]>='0'&&pat[j]<='9'){ hi=hi*10+(pat[j]-'0'); j++; } } else hi = 1<<30; }
-    if (nd && pat[j] == '}') { mn = lo; mx = hi; after = j+1; }     /* else: not a quantifier; '{' is a literal next */
+    if (nd && p[j] == ',') { j++; if (p[j] >= '0' && p[j] <= '9') { hi = 0; while (p[j] >= '0' && p[j] <= '9') { hi = hi * 10 + (p[j] - '0'); j++; } } else hi = 1 << 30; }
+    if (nd && p[j] == '}') { mn = lo; mx = hi; s->i = j + 1; kind = 2; }
   }
-  int cur = ti, count = 0;
-  while (count < mx && cur < tlen && re_atom_match(&a, (unsigned char)text[cur])) { cur++; count++; }
-  while (count >= mn) {
-    int r = re_here(pat, after, text, cur, tlen, budget);
-    if (r >= 0) return r;
-    if (count == mn) break;
-    count--; cur--;
+  if (kind == 1) s->i = i + 1;
+  if (kind) { RENode *r = rn_alloc(s->g, RN_REP); r->child = atom; r->mn = mn; r->mx = mx; return r; }
+  return atom;
+}
+static RENode *re_parse_seq(REParse *s) {
+  RENode *seq = rn_alloc(s->g, RN_SEQ);
+  RENode **kids = NULL; int n = 0, cap = 0;
+  while (s->p[s->i] && s->p[s->i] != '|' && s->p[s->i] != ')') {
+    RENode *item = re_parse_quant(s);
+    if (n >= cap) { cap = cap ? cap * 2 : 8; kids = (RENode **)realloc(kids, cap * sizeof(RENode *)); }
+    kids[n++] = item;
+    if (!s->ok) break;
+  }
+  seq->kids = kids; seq->nkids = n; return seq;
+}
+static RENode *re_parse_alt(REParse *s) {
+  RENode *first = re_parse_seq(s);
+  if (s->p[s->i] != '|') return first;
+  RENode *alt = rn_alloc(s->g, RN_ALT);
+  RENode **kids = NULL; int n = 0, cap = 8; kids = (RENode **)realloc(kids, cap * sizeof(RENode *)); kids[n++] = first;
+  while (s->p[s->i] == '|') {
+    s->i++;
+    RENode *seq = re_parse_seq(s);
+    if (n >= cap) { cap *= 2; kids = (RENode **)realloc(kids, cap * sizeof(RENode *)); }
+    kids[n++] = seq;
+  }
+  alt->kids = kids; alt->nkids = n; return alt;
+}
+static RENode *re_compile(const char *pat, REProg *prog, int *ngroups) {
+  int patlen = (int)strlen(pat);
+  prog->cap = patlen * 6 + 32; prog->n = 0;
+  prog->nodes = (RENode *)malloc((size_t)prog->cap * sizeof(RENode));
+  REParse s; s.p = pat; s.i = 0; s.g = prog; s.ngroup = 0; s.ok = 1;
+  RENode *root = re_parse_alt(&s);
+  *ngroups = s.ngroup;
+  return root;
+}
+static void re_free(REProg *prog) {
+  for (int i = 0; i < prog->n; i++) if (prog->nodes[i].kids) free(prog->nodes[i].kids);
+  free(prog->nodes);
+}
+/* ---- continuation-passing matcher: walks the node tree, threading "what's left to match"
+   as a small stack of RECont frames (so groups + alternation work). A step budget bounds
+   backtracking; a zero-width repeat can't loop forever (the progress guard in re_rep). ---- */
+typedef struct { const char *text; int tlen; RECaps *caps; long budget; } RECtx;
+typedef struct RECont {
+  int kind;                          /* 1 close-group, 2 repeat-continue, 3 seq-rest, 4 require-end */
+  int group;                         /* kind 1 */
+  RENode *rchild; int rcount, rmn, rmx, rfrom;   /* kind 2 */
+  RENode **skids; int sidx, snkids;  /* kind 3 */
+  struct RECont *next;
+} RECont;
+static int re_run(RENode *n, RECont *k, RECtx *cx, int ti);
+static int re_rep(RENode *child, int mn, int mx, int count, int progress, RECont *k, RECtx *cx, int ti);
+static int re_seq(RENode **kids, int idx, int nkids, RECont *k, RECtx *cx, int ti);
+
+static int re_cont(RECont *k, RECtx *cx, int ti) {     /* run whatever still has to match after the current node */
+  if (--cx->budget < 0) return -1;
+  if (!k) return ti;                                   /* nothing left: the whole pattern matched, ending here */
+  switch (k->kind) {
+    case 1: { int save = cx->caps->e[k->group]; cx->caps->e[k->group] = ti; int r = re_cont(k->next, cx, ti); if (r < 0) cx->caps->e[k->group] = save; return r; }
+    case 2: return re_rep(k->rchild, k->rmn, k->rmx, k->rcount, ti != k->rfrom, k->next, cx, ti);
+    case 3: return re_seq(k->skids, k->sidx, k->snkids, k->next, cx, ti);
+    case 4: return (ti == cx->tlen) ? re_cont(k->next, cx, ti) : -1;
   }
   return -1;
 }
-/* search for the leftmost match at start >= from; on success set *mb,*me and return 1. */
-static int re_search(const char *pat, const char *text, int from, int tlen, int *mb, int *me) {
+static int re_seq(RENode **kids, int idx, int nkids, RECont *k, RECtx *cx, int ti) {
+  if (idx >= nkids) return re_cont(k, cx, ti);
+  RECont cont; memset(&cont, 0, sizeof cont); cont.kind = 3; cont.skids = kids; cont.sidx = idx + 1; cont.snkids = nkids; cont.next = k;
+  return re_run(kids[idx], &cont, cx, ti);
+}
+static int re_rep(RENode *child, int mn, int mx, int count, int progress, RECont *k, RECtx *cx, int ti) {
+  if (--cx->budget < 0) return -1;
+  if (count < mx && (count < mn || progress)) {        /* greedy: try one more, but never loop on a zero-width match */
+    RECont cont; memset(&cont, 0, sizeof cont); cont.kind = 2; cont.rchild = child; cont.rcount = count + 1; cont.rmn = mn; cont.rmx = mx; cont.rfrom = ti; cont.next = k;
+    int r = re_run(child, &cont, cx, ti);
+    if (r >= 0) return r;
+  }
+  if (count >= mn) return re_cont(k, cx, ti);          /* enough repetitions: hand off to the continuation */
+  return -1;
+}
+static int re_run(RENode *n, RECont *k, RECtx *cx, int ti) {
+  if (--cx->budget < 0) return -1;
+  switch (n->t) {
+    case RN_LIT:   return (ti < cx->tlen && (unsigned char)cx->text[ti] == n->c) ? re_cont(k, cx, ti + 1) : -1;
+    case RN_ANY:   return (ti < cx->tlen && cx->text[ti] != '\n') ? re_cont(k, cx, ti + 1) : -1;
+    case RN_CLASS: { if (ti >= cx->tlen) return -1; int m = re_set_has(n->set, (unsigned char)cx->text[ti]); if (n->neg) m = !m; return m ? re_cont(k, cx, ti + 1) : -1; }
+    case RN_BOL:   return (ti == 0) ? re_cont(k, cx, ti) : -1;
+    case RN_EOL:   return (ti == cx->tlen) ? re_cont(k, cx, ti) : -1;
+    case RN_SEQ:   return re_seq(n->kids, 0, n->nkids, k, cx, ti);
+    case RN_ALT:   for (int i = 0; i < n->nkids; i++) { int r = re_run(n->kids[i], k, cx, ti); if (r >= 0) return r; } return -1;
+    case RN_GROUP: {
+      if (!n->group) return re_run(n->child, k, cx, ti);
+      int ss = cx->caps->s[n->group], se = cx->caps->e[n->group];
+      cx->caps->s[n->group] = ti;
+      RECont close; memset(&close, 0, sizeof close); close.kind = 1; close.group = n->group; close.next = k;
+      int r = re_run(n->child, &close, cx, ti);
+      if (r < 0) { cx->caps->s[n->group] = ss; cx->caps->e[n->group] = se; }   /* undo a failed capture */
+      return r;
+    }
+    case RN_REP:   return re_rep(n->child, n->mn, n->mx, 0, 1, k, cx, ti);
+  }
+  return -1;
+}
+static void re_caps_reset(RECaps *c) { for (int g = 0; g <= RE_MAXGROUP; g++) { c->s[g] = c->e[g] = -1; } }
+/* does the WHOLE text match the pattern? (for `matches`) */
+static int re_full(RENode *root, const char *text, int tlen, RECaps *caps) {
+  RECtx cx; cx.text = text; cx.tlen = tlen; cx.caps = caps; cx.budget = RE_BUDGET;
+  re_caps_reset(caps);
+  RECont endk; memset(&endk, 0, sizeof endk); endk.kind = 4; endk.next = NULL;
+  return re_run(root, &endk, &cx, 0) >= 0;
+}
+/* leftmost match at start >= from; on success fills caps (group 0 = whole match) and returns 1. */
+static int re_search(RENode *root, const char *text, int from, int tlen, RECaps *caps) {
   for (int start = from; start <= tlen; start++) {
-    long budget = RE_BUDGET;
-    int r = re_here(pat, 0, text, start, tlen, &budget);
-    if (r >= 0) { *mb = start; *me = r; return 1; }
+    RECtx cx; cx.text = text; cx.tlen = tlen; cx.caps = caps; cx.budget = RE_BUDGET;
+    re_caps_reset(caps);
+    int r = re_run(root, NULL, &cx, start);
+    if (r >= 0) { caps->s[0] = start; caps->e[0] = r; return 1; }
   }
   return 0;
 }
@@ -2182,29 +2314,53 @@ static Value call_builtin(Expr *call, Env *env) {
   if (!strcmp(name, "matches")) {   /* does the WHOLE text match the regex pattern? */
     if (n!=2 || a[0].type!=V_STR || a[1].type!=V_STR) fail(call->line,"matches needs text and a pattern, like matches(name, \"[a-z]+\").");
     const char *s = a[0].str?a[0].str:"", *p = a[1].str?a[1].str:"";
-    int tlen = (int)strlen(s); long budget = RE_BUDGET;
-    int r = re_here(p, 0, s, 0, tlen, &budget);
-    return vbool(r == tlen);
+    REProg prog; int ng; RENode *root = re_compile(p, &prog, &ng); RECaps caps;
+    int ok = re_full(root, s, (int)strlen(s), &caps);
+    re_free(&prog);
+    return vbool(ok);
   }
   if (!strcmp(name, "find")) {      /* the first substring matching the pattern, or nothing */
     if (n!=2 || a[0].type!=V_STR || a[1].type!=V_STR) fail(call->line,"find needs text and a pattern, like find(s, \"[0-9]+\").");
     const char *s = a[0].str?a[0].str:"", *p = a[1].str?a[1].str:"";
-    int tlen = (int)strlen(s), mb, me;
-    if (!re_search(p, s, 0, tlen, &mb, &me)) return vnone();
-    char *buf = (char*)malloc((size_t)(me-mb)+1); memcpy(buf, s+mb, (size_t)(me-mb)); buf[me-mb]=0;
-    return vstr_take(buf);
+    REProg prog; int ng; RENode *root = re_compile(p, &prog, &ng); RECaps caps;
+    Value rv = vnone();
+    if (re_search(root, s, 0, (int)strlen(s), &caps)) {
+      int mb=caps.s[0], me=caps.e[0];
+      char *buf = (char*)malloc((size_t)(me-mb)+1); memcpy(buf, s+mb, (size_t)(me-mb)); buf[me-mb]=0;
+      rv = vstr_take(buf);
+    }
+    re_free(&prog);
+    return rv;
   }
   if (!strcmp(name, "find_all")) {  /* every non-overlapping match, as a list of text */
     if (n!=2 || a[0].type!=V_STR || a[1].type!=V_STR) fail(call->line,"find_all needs text and a pattern, like find_all(s, \"[0-9]+\").");
     const char *s = a[0].str?a[0].str:"", *p = a[1].str?a[1].str:"";
-    int tlen = (int)strlen(s); SList *l = list_new();
-    int pos = 0, mb, me;
-    while (pos <= tlen && re_search(p, s, pos, tlen, &mb, &me)) {
+    REProg prog; int ng; RENode *root = re_compile(p, &prog, &ng); RECaps caps;
+    int tlen = (int)strlen(s); SList *l = list_new(); int pos = 0;
+    while (pos <= tlen && re_search(root, s, pos, tlen, &caps)) {
+      int mb=caps.s[0], me=caps.e[0];
       char *buf = (char*)malloc((size_t)(me-mb)+1); memcpy(buf, s+mb, (size_t)(me-mb)); buf[me-mb]=0;
       list_push(l, vstr_take(buf));
       pos = (me > mb) ? me : mb + 1;
     }
+    re_free(&prog);
     return vlist(l);
+  }
+  if (!strcmp(name, "captures")) {  /* first match as [whole, group1, group2, ...]; a group that didn't match is nothing */
+    if (n!=2 || a[0].type!=V_STR || a[1].type!=V_STR) fail(call->line,"captures needs text and a pattern, like captures(s, \"([0-9]+)-([0-9]+)\").");
+    const char *s = a[0].str?a[0].str:"", *p = a[1].str?a[1].str:"";
+    REProg prog; int ng; RENode *root = re_compile(p, &prog, &ng); RECaps caps;
+    Value rv = vnone();
+    if (re_search(root, s, 0, (int)strlen(s), &caps)) {
+      SList *l = list_new();
+      for (int g=0; g<=ng; g++) {
+        if (caps.s[g] >= 0 && caps.e[g] >= caps.s[g]) { int len=caps.e[g]-caps.s[g]; char *buf=(char*)malloc((size_t)len+1); memcpy(buf, s+caps.s[g], (size_t)len); buf[len]=0; list_push(l, vstr_take(buf)); }
+        else list_push(l, vnone());
+      }
+      rv = vlist(l);
+    }
+    re_free(&prog);
+    return rv;
   }
   if (!strcmp(name, "min") || !strcmp(name, "max")) {
     if (n<1) fail(call->line,"min/max need at least one number.");
@@ -2231,6 +2387,30 @@ static Value call_builtin(Expr *call, Env *env) {
       if(end!=p && *end==0 && isfinite(d)) return vnum(d);
     }
     return vnone();
+  }
+  if (!strcmp(name,"is_number")) {                  /* yes if number() would parse this as a number */
+    if (n!=1) fail(call->line,"is_number needs one input.");
+    if (a[0].type==V_NUM) return vbool(1);
+    if (a[0].type!=V_STR) return vbool(0);
+    const char*p=a[0].str?a[0].str:"";
+    while(*p==' '||*p=='\t'||*p=='\n'||*p=='\r')p++;
+    if(*p!='+'&&*p!='-'&&*p!='.'&&!(*p>='0'&&*p<='9')) return vbool(0);
+    if(p[0]=='0'&&(p[1]=='x'||p[1]=='X')) return vbool(0);
+    char*end; double d=strtod(p,&end);
+    while(*end==' '||*end=='\t'||*end=='\n'||*end=='\r')end++;
+    return vbool(end!=p && *end==0 && isfinite(d));
+  }
+  if (!strcmp(name,"code")) {                        /* code("A") -> 65 — the first character's byte value */
+    if (n!=1||a[0].type!=V_STR) fail(call->line,"code needs one piece of text, like code(\"A\").");
+    const char*s=a[0].str?a[0].str:"";
+    if(!s[0]) fail_kind(call->line,"value","code needs at least one character, but the text is empty.");
+    return vnum((double)(unsigned char)s[0]);
+  }
+  if (!strcmp(name,"char")) {                        /* char(65) -> "A" — a one-character string from a byte value */
+    if (n!=1||a[0].type!=V_NUM) fail(call->line,"char needs one number, like char(65).");
+    int code=(int)a[0].num;
+    if(code<0||code>255) fail_kind(call->line,"value","char needs a number from 0 to 255.");
+    char buf[2]={(char)code,0}; return vstr_take(dup_str(buf));
   }
   /* ---- text ---- */
   if (!strcmp(name,"upper")||!strcmp(name,"lower")) {
@@ -2413,9 +2593,36 @@ static Value call_builtin(Expr *call, Env *env) {
 /* +, -, *, /, % on two values (shared by binary expressions and compound 'set x += ...') */
 static Value apply_arith(TokType op, Value l, Value r, int line) {
   if (op == T_PLUS) {
+    if (l.type == V_LIST && r.type == V_LIST) {        /* list concatenation: [1, 2] + [3, 4] -> [1, 2, 3, 4] */
+      SList *out = list_new();
+      for (int i = 0; l.list && i < l.list->n; i++) list_push(out, l.list->items[i]);
+      for (int i = 0; r.list && i < r.list->n; i++) list_push(out, r.list->items[i]);
+      return vlist(out);
+    }
+    if (l.type == V_MAP && r.type == V_MAP && !l.map->classname && !r.map->classname) {   /* map merge: right side wins on shared keys */
+      SMap *out = map_new();
+      for (int i = 0; l.map && i < l.map->n; i++) map_set(out, l.map->keys[i], l.map->vals[i]);
+      for (int i = 0; r.map && i < r.map->n; i++) map_set(out, r.map->keys[i], r.map->vals[i]);
+      return vmap(out);
+    }
     if (l.type == V_STR || r.type == V_STR) { char *a = stringify(l), *b = stringify(r); char *out = (char *)malloc(strlen(a) + strlen(b) + 1); strcpy(out, a); strcat(out, b); Value rv = vstr_take(out); free(a); free(b); return rv; }
     if (l.type == V_NUM && r.type == V_NUM) return vnum(l.num + r.num);
     { char buf[256]; snprintf(buf, sizeof buf, "I can't add %s and a different kind of value.", type_name(l)); fail_kind(line, "type", buf); }
+  }
+  if (op == T_STAR && (l.type == V_STR || r.type == V_STR)) {        /* text * n  ->  repeated text:  "=" * 40 */
+    Value s = (l.type == V_STR) ? l : r, k = (l.type == V_STR) ? r : l;
+    if (k.type != V_NUM || k.num < 0) fail_kind(line, "type", "to repeat text, multiply it by a whole number, like \"ab\" * 3.");
+    int times = (int)k.num; const char *src = s.str ? s.str : ""; size_t sl = strlen(src);
+    char *out = (char *)malloc(sl * (size_t)times + 1);
+    for (int i = 0; i < times; i++) memcpy(out + i * sl, src, sl);
+    out[sl * (size_t)times] = 0; return vstr_take(out);
+  }
+  if (op == T_STAR && (l.type == V_LIST || r.type == V_LIST)) {      /* list * n  ->  repeated list:  [0] * 10 */
+    Value ls = (l.type == V_LIST) ? l : r, k = (l.type == V_LIST) ? r : l;
+    if (k.type != V_NUM || k.num < 0) fail_kind(line, "type", "to repeat a list, multiply it by a whole number, like [0] * 3.");
+    int times = (int)k.num; SList *out = list_new();
+    for (int i = 0; i < times; i++) for (int j = 0; ls.list && j < ls.list->n; j++) list_push(out, ls.list->items[j]);
+    return vlist(out);
   }
   if (l.type != V_NUM || r.type != V_NUM) fail_kind(line, "type", "math needs two numbers.");
   if (op == T_MINUS) return vnum(l.num - r.num);
@@ -2515,7 +2722,7 @@ static void type_register(Stmt *s, int fileid, Env *home) {
     Stmt *m = s->body[i];
     t->methods[i].name = m->name; t->methods[i].params = m->params; t->methods[i].nparams = m->nparams;
     t->methods[i].body = m->body; t->methods[i].nbody = m->nbody; t->methods[i].line = m->line;
-    t->methods[i].is_public = 0; t->methods[i].fileid = fileid; t->methods[i].home = home; t->methods[i].file_env = home;
+    t->methods[i].is_public = 0; t->methods[i].fileid = fileid; t->methods[i].home = home; t->methods[i].file_env = home; t->methods[i].owner_type = t->name;
   }
 }
 /* total number of fields, including those inherited from ancestors. */
@@ -2569,7 +2776,31 @@ static void register_top(Stmt *s, int fileid, Env *home) {
   else if (s->kind == S_TYPE) type_register(s, fileid, home);
 }
 
+/* super.method(args): call the PARENT type's version of `method`, with `self` unchanged.
+   `super` is resolved from the type the running method is defined on (bound as __class__),
+   not from self's runtime type — so it walks up one level instead of looping forever. */
+static Value eval_super_call(Expr *e, Env *env) {
+  Value *selfv = env_find(env, "self");
+  if (!selfv || selfv->type != V_MAP || !selfv->map || !selfv->map->classname)
+    fail_hard(e->line, "name", "'super' can only be used inside a method (there's no object here).");
+  Value *clsv = env_find(env, "__class__");
+  if (!clsv || clsv->type != V_STR) fail(e->line, "'super' is only available inside a type's method.");
+  TypeReg *cur = type_find(clsv->str);
+  if (!cur || !cur->parent) { char m[200]; snprintf(m, sizeof m, "'%s' has no parent type, so there's no super.%s(...) to call.", clsv->str, e->name); fail(e->line, m); }
+  TypeReg *pt = type_find(cur->parent);
+  if (!pt) { char m[200]; snprintf(m, sizeof m, "super refers to unknown parent type '%s'.", cur->parent); fail(e->line, m); }
+  TaskDef *md = type_method(pt, e->name);
+  if (!md) { char m[220]; snprintf(m, sizeof m, "no parent method '%s' to call with super (looking up from '%s').", e->name, cur->parent); fail(e->line, m); }
+  Value *argv = (Value *)malloc((size_t)(e->nargs + 1) * sizeof(Value));
+  argv[0] = *selfv;
+  for (int i = 0; i < e->nargs; i++) argv[i + 1] = eval(e->args[i], env);
+  Value r = call_task_v(md, argv, e->nargs + 1, e->line);
+  free(argv);
+  return r;
+}
+
 static Value call_module(Expr *e, Env *env) {
+  if (!strcmp(e->module, "super")) return eval_super_call(e, env);
   /* if `module` is actually a variable holding an object, this is a method call: obj.method(...) */
   { Value *ov = env_find(env, e->module); if (ov && ov->type == V_MAP && ov->map && ov->map->classname) return type_method_call(*ov, e->name, e->args, e->nargs, env, e->line); }
   if (!has_use(cur_fileid, e->module)) {
@@ -3067,7 +3298,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.1.16"
+#define SPROUT_VERSION "0.1.17"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);

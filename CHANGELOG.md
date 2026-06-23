@@ -5,6 +5,27 @@ All notable changes to **Sprout**. The format follows
 `sprout version`. Binaries for each release are on the
 [Releases](https://github.com/fizzexual/Sprout/releases) page.
 
+## [0.1.17] — Capability hardening (the "9/10" pass)
+
+A dogfooding pass that built real programs across every axis, then closed the gaps it found.
+
+### Added
+- **`super`** — a method can call the parent type's version: `give super.area() + extra`. Resolves
+  from the type the method is defined on, so it walks up exactly one level (chained `super` works).
+- **Regex alternation and capture groups** — `cat|dog`, `gr(a|e)y`, `(ab)+`, and a new
+  **`captures(text, pattern)`** that returns `[whole, group1, group2, …]` for extraction. The
+  matcher is now a continuation-passing tree walker; the step budget still bounds backtracking.
+- **`code(char)` / `char(number)`** — convert between a character and its byte value (`code("A")` →
+  65, `char(65)` → `"A"`).
+- **`is_number(text)`** — yes/no without converting (pairs with the existing `number(...) or else …`).
+- **List concatenation and repetition with `+` / `*`** — `[1, 2] + [3, 4]`, `[0] * 5`, and
+  `"=" * 40`; maps merge with `+` (right side wins on shared keys).
+
+### Changed
+- **Whole numbers print in full** instead of scientific notation (`100000000000000000000`, not
+  `1e+20`), and fractions show the shortest decimal that round-trips — so `0.1 + 0.2` tells the
+  truth (`0.30000000000000004`), matching Java/JavaScript. (Numbers are still IEEE-754 doubles.)
+
 ## [0.1.16] — Package manager
 
 ### Added
@@ -91,6 +112,7 @@ All notable changes to **Sprout**. The format follows
   mark-sweep garbage collector, built-in testing (`test` / `expect`), and persistence
   (`remember` / `recall`).
 
+[0.1.17]: https://github.com/fizzexual/Sprout/releases/tag/v0.1.17
 [0.1.16]: https://github.com/fizzexual/Sprout/releases/tag/v0.1.16
 [0.1.15]: https://github.com/fizzexual/Sprout/releases/tag/v0.1.15
 [0.1.14]: https://github.com/fizzexual/Sprout/releases/tag/v0.1.14
