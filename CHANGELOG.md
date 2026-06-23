@@ -5,6 +5,43 @@ All notable changes to **Sprout**. The format follows
 `sprout version`. Binaries for each release are on the
 [Releases](https://github.com/fizzexual/Sprout/releases) page.
 
+## [0.1.18] — Bug hunt + ergonomics
+
+A multi-agent adversarial bug hunt found and verified 17 issues; this release fixes the impactful
+ones (every crash, the one hang, the data-loss, and the wrong-result/consistency bugs) and adds a
+batch of stdlib ergonomics.
+
+### Fixed
+- **Two crashes are now clean errors.** Deeply nested source (blocks, brackets, or a huge `+`
+  chain) raised a stack overflow; the parser and evaluator now bound recursion and report "this is
+  nested too deeply." Repeating text/a list by a count ≥ 2³¹ (`"x" * 2147483648`) segfaulted via a
+  32-bit overflow; counts are now validated.
+- **A regex hang is gone.** `find`/`find_all`/`captures` re-armed the step budget at every search
+  position, so a pathological pattern could run for minutes; the budget is now shared across the
+  whole search (it's bounded like `matches` always was).
+- **`stop`/`skip` no longer leak out of a called task.** A `stop`/`skip` inside a lambda used to
+  break/continue the *caller's* loop; loop control is now saved and restored across a call.
+- **`remember` of a deeply nested value no longer wipes the store.** An off-by-one between the JSON
+  writer's and reader's depth caps made the file fail to re-parse, dropping every key; the reader
+  now allows for it, and a corrupt store is backed up to `sprout.data.json.bak` instead of lost.
+- **`round` is correct.** `round(0.49999999999999994)` returned 1 (a `floor(x+0.5)` double-rounding
+  bug) — now 0; `round(x, places)` returned `nan` for huge place counts — now a no-op.
+- **`pow` guards its domain** like `sqrt`/division do: `pow(-4, 0.5)` and `pow(0, -2)` now raise a
+  clean, catchable `math` error instead of silently producing `nan`/`inf`.
+- **`char(0)` is rejected** (Sprout text can't hold a zero byte) instead of producing an
+  unrepresentable string that broke `length`/`code`.
+- **Map keys that aren't bare words now print quoted** (`{"[1]": …}`), so a stringified key from
+  `group_by` no longer masquerades as a list.
+- **`sprout add`** rejects a source/name containing spaces up front (the manifest is
+  space-separated, so such a package could never be restored by `sprout install`).
+
+### Added
+- `1_000_000` — underscores as digit separators in number literals.
+- `round(x, places)` — round to a number of decimal places.
+- `clamp(x, low, high)` and `sign(x)`.
+- `pad_start` / `pad_end` — pad text to a width with an optional fill character.
+- `exit([code])` — end the program with an exit code.
+
 ## [0.1.17] — Capability hardening (the "9/10" pass)
 
 A dogfooding pass that built real programs across every axis, then closed the gaps it found.
@@ -112,6 +149,7 @@ A dogfooding pass that built real programs across every axis, then closed the ga
   mark-sweep garbage collector, built-in testing (`test` / `expect`), and persistence
   (`remember` / `recall`).
 
+[0.1.18]: https://github.com/fizzexual/Sprout/releases/tag/v0.1.18
 [0.1.17]: https://github.com/fizzexual/Sprout/releases/tag/v0.1.17
 [0.1.16]: https://github.com/fizzexual/Sprout/releases/tag/v0.1.16
 [0.1.15]: https://github.com/fizzexual/Sprout/releases/tag/v0.1.15

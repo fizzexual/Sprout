@@ -6,7 +6,7 @@
 ;   build-setup.cmd        (runs ISCC -> dist\SproutSetup.exe)
 ; Build the interpreter first:  cd ..\src && build.cmd
 
-#define AppVer "0.1.17"
+#define AppVer "0.1.18"
 
 [Setup]
 AppId={{B7E3F1A2-9C4D-4E8B-A1F6-3D5C7E9A0B12}

@@ -1,0 +1,49 @@
+~ v0.1.17 capability hardening: number display, list/map operators, char codes, stdlib batteries
+
+test "number underscores":
+    expect 1_000_000 == 1000000
+    expect 1_000 + 1 == 1001
+
+test "round with optional decimals":
+    expect round(3.14159, 2) == 3.14
+    expect round(2.5) == 3
+    expect round(1234.5678, -2) == 1200
+
+test "clamp and sign":
+    expect clamp(15, 0, 10) == 10
+    expect clamp(-3, 0, 10) == 0
+    expect clamp(5, 0, 10) == 5
+    expect sign(-7) == -1
+    expect sign(0) == 0
+    expect sign(42) == 1
+
+test "text padding":
+    expect pad_start("7", 3, "0") == "007"
+    expect pad_end("hi", 5) == "hi   "
+    expect pad_start("already wide", 3) == "already wide"
+
+test "list concatenation and repetition":
+    make c = [1, 2] + [3, 4]
+    expect length(c) == 4
+    expect c[0] == 1
+    expect c[3] == 4
+    make z = [0] * 3
+    expect length(z) == 3
+    expect z[2] == 0
+
+test "map merge with right side winning":
+    make m = {a: 1, b: 2} + {b: 9, c: 3}
+    expect m["a"] == 1
+    expect m["b"] == 9
+    expect m["c"] == 3
+
+test "text repetition":
+    expect ("=" * 5) == "====="
+
+test "char codes and is_number":
+    expect code("A") == 65
+    expect char(65) == "A"
+    expect char(97) == "a"
+    expect is_number("3.14") == yes
+    expect is_number("12abc") == no
+    expect is_number("-5") == yes

@@ -1,0 +1,20 @@
+~ super: a method calls the parent type's version, including chained super
+
+type Animal:
+    make name = "?"
+    task speak(self):
+        give self.name + " makes a sound"
+
+type Dog from Animal:
+    task speak(self):
+        give super.speak() + " (woof)"
+
+type Puppy from Dog:
+    task speak(self):
+        give super.speak() + " (yip)"
+
+test "single super calls the parent method":
+    expect Dog("Rex").speak() == "Rex makes a sound (woof)"
+
+test "chained super walks up one level at a time":
+    expect Puppy("Bit").speak() == "Bit makes a sound (woof) (yip)"

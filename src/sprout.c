@@ -205,6 +205,15 @@ static TaskDef *type_op_method(Value v, const char *name) {
   return t ? type_method(t, name) : NULL;
 }
 static char *stringify_inner(Value v);
+/* a map key prints bare only if it reads back as one word (letters/digits/_ , not starting with a
+   digit); anything else (spaces, brackets, a stringified list/number) is quoted so the display
+   doesn't lie about the key being text — e.g. group_by with a list key shows {"[1]": ...}. */
+static int key_is_bare(const char *k) {
+  if (!k || !k[0]) return 0;
+  if (!isalpha((unsigned char)k[0]) && k[0] != '_') return 0;
+  for (const char *p = k; *p; p++) if (!isalnum((unsigned char)*p) && *p != '_') return 0;
+  return 1;
+}
 static char *stringify(Value v) {
   if (++g_str_depth > 300) { g_str_depth--; return dup_str("..."); }   /* guard self-referential values */
   char *r = stringify_inner(v);
@@ -230,7 +239,12 @@ static char *stringify_inner(Value v) {
       SMap *m = v.map; size_t cap = 0, len = 0; char *out = NULL;
       if (m && m->classname) { sb_add(&out, &cap, &len, m->classname); sb_add(&out, &cap, &len, " "); }
       sb_add(&out, &cap, &len, "{");
-      for (int i = 0; m && i < m->n; i++) { if (i) sb_add(&out, &cap, &len, ", "); sb_add(&out, &cap, &len, m->keys[i]); sb_add(&out, &cap, &len, ": "); char *p = stringify(m->vals[i]); sb_add(&out, &cap, &len, p); }
+      for (int i = 0; m && i < m->n; i++) {
+        if (i) sb_add(&out, &cap, &len, ", ");
+        if (key_is_bare(m->keys[i])) sb_add(&out, &cap, &len, m->keys[i]);
+        else { sb_add(&out, &cap, &len, "\""); sb_add(&out, &cap, &len, m->keys[i]); sb_add(&out, &cap, &len, "\""); }
+        sb_add(&out, &cap, &len, ": "); char *p = stringify(m->vals[i]); sb_add(&out, &cap, &len, p);
+      }
       sb_add(&out, &cap, &len, "}"); return out;
     }
     case V_TASK: { char buf[128]; snprintf(buf, sizeof buf, "task %s", taskdef_name(v.task)); return dup_str(buf); }
@@ -360,6 +374,15 @@ static Token *toks = NULL; static int ntok = 0, captok = 0;
 /* depth of open ( ) [ ] { }. While > 0, the tokenizer suppresses NEWLINE/INDENT/DEDENT so a
    list, map, or call can span several lines (Python-style implicit line joining). */
 static int g_bracket_depth = 0;
+static char *gc_stack_bottom = NULL;        /* captured in main(): the outermost end of the stack */
+/* true once recursion has eaten most of the 64 MB stack — lets the parser and evaluator fail
+   cleanly ("nested too deeply") instead of overflowing the C stack and segfaulting. */
+static int stack_too_deep(void) {
+  char probe;
+  if (!gc_stack_bottom) return 0;
+  long long used = (long long)((char *)gc_stack_bottom - &probe);
+  return used > 48LL * 1024 * 1024;
+}
 static void push_tok(TokType type, char *text, double num, int line) {
   if (ntok >= captok) { captok = captok ? captok * 2 : 128; toks = (Token *)realloc(toks, captok * sizeof(Token)); }
   Token t; t.type = type; t.text = text; t.num = num; t.line = line; toks[ntok++] = t;
@@ -392,7 +415,11 @@ static void scan_token(const char *src, int *ip, int len, int line) {
   if (c == 'f' && i + 1 < len && src[i + 1] == '"') { scan_fstring(src, ip, len, line); return; }
   if (isdigit((unsigned char)c) || (c == '.' && i + 1 < len && isdigit((unsigned char)src[i + 1]))) {
     int s = i, dot = 0;                              /* at most one '.' in the mantissa (1.2.3 isn't one number) */
-    while (i < len && (isdigit((unsigned char)src[i]) || (src[i] == '.' && !dot))) { if (src[i] == '.') dot = 1; i++; }
+    while (i < len && (isdigit((unsigned char)src[i]) || (src[i] == '.' && !dot) ||
+           (src[i] == '_' && i > s && isdigit((unsigned char)src[i-1]) && i+1 < len && isdigit((unsigned char)src[i+1])))) {   /* 1_000_000 readability separators */
+      if (src[i] == '.') dot = 1;
+      i++;
+    }
     /* scientific notation: an 'e'/'E' that is actually followed by an exponent (1e3, 2.5e-4).
        Only consume the 'e' when a digit follows (optionally after a +/-), so a name like
        `e` after a number isn't swallowed. */
@@ -401,7 +428,9 @@ static void scan_token(const char *src, int *ip, int len, int line) {
       if (j < len && (src[j] == '+' || src[j] == '-')) j++;
       if (j < len && isdigit((unsigned char)src[j])) { i = j + 1; while (i < len && isdigit((unsigned char)src[i])) i++; }
     }
-    char *t = (char *)malloc(i - s + 1); memcpy(t, src + s, i - s); t[i - s] = 0;
+    char *t = (char *)malloc(i - s + 1); int tb = 0;
+    for (int k = s; k < i; k++) if (src[k] != '_') t[tb++] = src[k];   /* drop the separators before parsing */
+    t[tb] = 0;
     push_tok(T_NUM, t, atof(t), line); *ip = i; return;
   }
   if (c == '"') {
@@ -519,7 +548,7 @@ static void tokenize(const char *src, int len) {
     }
     /* indentation changes — but NOT while inside ( ) [ ] { }, where leading space is just padding */
     if (g_bracket_depth == 0) {
-      if (spaces > indents[top]) { indents[++top] = spaces; push_tok(T_INDENT, NULL, 0, line); }
+      if (spaces > indents[top]) { if (top >= 254) fail(line, "this is nested too deeply (too many indentation levels)."); indents[++top] = spaces; push_tok(T_INDENT, NULL, 0, line); }
       while (spaces < indents[top]) { top--; push_tok(T_DEDENT, NULL, 0, line); }
       if (spaces != indents[top]) fail(line, "the indentation doesn't line up with the block.");
     }
@@ -770,6 +799,7 @@ static Expr *compare(void) {
 static Expr *and_expr(void)   { static const TokType o[] = { T_AND }; return binary_level(compare, o, 1, 1); }
 /* the `or` level, hand-written so `or else` (nothing-coalescing) is distinct from logical `or` */
 static Expr *expression(void) {
+  if (stack_too_deep()) fail(peek().line, "this is nested too deeply.");
   Expr *left = and_expr();
   while (check(T_OR)) {
     int line = peek().line; advance();
@@ -1248,7 +1278,6 @@ static int g_test_failed = 0;          /* did the current test fail? */
    At a safe point (the top of each statement) we mark everything reachable from a few
    precise global roots PLUS anything the C stack/registers point at, then free the rest.
    Over-approximating the roots means we never free a live object. */
-static char *gc_stack_bottom = NULL;        /* captured in main(): the outermost end of the stack */
 static void **gc_set = NULL; static size_t gc_setcap = 0;   /* live-object pointer set, rebuilt per collection */
 static GCObj *gc_lookup(void *p) {          /* is p a live collectible object? -> its header, else NULL */
   if (!p || gc_setcap == 0) return NULL;
@@ -1354,13 +1383,14 @@ static Value run_task(TaskDef *t, Env *frame, int line) {
     printf(")" C_RESET "\n\n");
   }
   int saved_ret = returning; Value saved_rv = return_value;
+  int saved_loopctl = g_loopctl;                               /* a stop/skip inside the body must not leak into a CALLER's loop */
   int saved_fid = cur_fileid; cur_fileid = t->fileid;          /* inside the body, see THIS task's file */
   Env *saved_fe = cur_file_env; cur_file_env = t->file_env;    /* ...and a `public make` lands in the FILE env (not a lambda's capture frame) */
-  returning = 0;
+  returning = 0; g_loopctl = 0;
   exec_block(t->body, t->nbody, frame);
   Value result = returning ? return_value : vnone();
   if (g_learn) { char *rs = stringify(result); printf("  " C_DIM "%s gave back %s" C_RESET "\n\n", t->name, rs); free(rs); }
-  returning = saved_ret; return_value = saved_rv;
+  returning = saved_ret; return_value = saved_rv; g_loopctl = saved_loopctl;
   cur_fileid = saved_fid; cur_file_env = saved_fe;
   call_depth--;
   return result;
@@ -1411,9 +1441,9 @@ static const char *const BUILTIN_NAMES[] = {
   "range","length","add","keys","contains","first","last",
   "remove","insert","sort","sort_by","reverse","index_of","values","copy","kind_of","is_a","map","filter","reduce","group_by","min_by","max_by","partition","chunk",
   "sum","count","unique","zip","flatten","slice","words","lines","title","seed",
-  "abs","round","floor","ceil","sqrt","pow","min","max","random","number","is_number",
-  "sin","cos","tan","log","exp","pi","args","env",
-  "code","char",
+  "abs","round","floor","ceil","sqrt","pow","min","max","random","number","is_number","clamp","sign",
+  "sin","cos","tan","log","exp","pi","args","env","exit",
+  "code","char","pad_start","pad_end",
   "matches","find","find_all","captures",
   "upper","lower","trim","replace","split","join","starts_with","ends_with",
   "ask","now","today","wait","read","write","append","exists","remember","recall","forget",
@@ -1555,7 +1585,7 @@ static Value jstring(JParse *j) {
   buf[b]=0; return vstr_take(buf);
 }
 static Value jvalue(JParse *j) {
-  if (++j->depth > 200) { j->ok = 0; j->depth--; return vnone(); }   /* guard the C stack against deeply nested JSON */
+  if (++j->depth > 256) { j->ok = 0; j->depth--; return vnone(); }   /* guard the C stack; cap sits ABOVE the writer's (200 + the store-map wrap + a truncation null) so written output always re-parses */
   Value r = jvalue_inner(j);
   j->depth--;
   return r;
@@ -1660,8 +1690,12 @@ static char *value_to_json(Value v) { char *o = NULL; size_t c = 0, l = 0; g_jso
 static SMap *store_load(void) {
   char *txt = read_whole_file(SPROUT_STORE);
   if (!txt) return map_new();
-  Value v = parse_json(txt); free(txt);
-  return (v.type == V_MAP && v.map) ? v.map : map_new();   /* missing/corrupt -> fresh, empty store */
+  Value v = parse_json(txt);
+  if (v.type == V_MAP && v.map) { free(txt); return v.map; }
+  /* the file exists but won't parse: keep a backup before starting fresh, so we never silently lose data */
+  if (txt[0]) { FILE *b = fopen(SPROUT_STORE ".bak", "wb"); if (b) { fwrite(txt, 1, strlen(txt), b); fclose(b); } }
+  free(txt);
+  return map_new();
 }
 static int store_save(SMap *m) {
   char *json = value_to_json(vmap(m));
@@ -1969,11 +2003,12 @@ static int re_full(RENode *root, const char *text, int tlen, RECaps *caps) {
 }
 /* leftmost match at start >= from; on success fills caps (group 0 = whole match) and returns 1. */
 static int re_search(RENode *root, const char *text, int from, int tlen, RECaps *caps) {
+  RECtx cx; cx.text = text; cx.tlen = tlen; cx.caps = caps; cx.budget = RE_BUDGET;   /* ONE budget across all start positions, so find()/find_all() can't hang on a pathological pattern */
   for (int start = from; start <= tlen; start++) {
-    RECtx cx; cx.text = text; cx.tlen = tlen; cx.caps = caps; cx.budget = RE_BUDGET;
     re_caps_reset(caps);
     int r = re_run(root, NULL, &cx, start);
     if (r >= 0) { caps->s[0] = start; caps->e[0] = r; return 1; }
+    if (cx.budget < 0) break;                                                        /* exhausted: give up rather than re-arm the budget at every start */
   }
   return 0;
 }
@@ -2253,6 +2288,16 @@ static Value call_builtin(Expr *call, Env *env) {
     fail(call->line, "slice works on a list or text.");
   }
   /* ---- text batteries ---- */
+  if (!strcmp(name, "pad_start") || !strcmp(name, "pad_end")) {   /* pad text to a width with a fill (default space) */
+    if (n<2 || n>3 || a[0].type!=V_STR || a[1].type!=V_NUM || (n==3 && a[2].type!=V_STR)) fail(call->line, "pad_start/pad_end need text, a width, and an optional fill: pad_start(\"7\", 3, \"0\").");
+    const char *s = a[0].str?a[0].str:""; int slen = (int)strlen(s); int width = (int)a[1].num;
+    const char *fill = (n==3 && a[2].str && a[2].str[0]) ? a[2].str : " "; int flen = (int)strlen(fill);
+    if (width <= slen) return vstr(s);
+    int padn = width - slen; char *out = (char*)malloc((size_t)width + 1); int b = 0; int atStart = (name[4]=='s');
+    if (atStart) { for (int k=0;k<padn;k++) out[b++]=fill[k%flen]; memcpy(out+b,s,(size_t)slen); b+=slen; }
+    else { memcpy(out,s,(size_t)slen); b=slen; for (int k=0;k<padn;k++) out[b++]=fill[k%flen]; }
+    out[b]=0; return vstr_take(out);
+  }
   if (!strcmp(name, "words")) {
     if (n != 1 || a[0].type != V_STR) fail(call->line, "words needs text.");
     const char *p = a[0].str ? a[0].str : ""; SList *out = list_new();
@@ -2284,12 +2329,25 @@ static Value call_builtin(Expr *call, Env *env) {
     srand((unsigned)a[0].num);
     return vnone();
   }
-  if (!strcmp(name, "pow")) { if (n != 2 || a[0].type != V_NUM || a[1].type != V_NUM) fail(call->line, "pow needs two numbers, like pow(2, 10)."); return vnum(pow(a[0].num, a[1].num)); }
+  if (!strcmp(name, "pow")) {
+    if (n != 2 || a[0].type != V_NUM || a[1].type != V_NUM) fail(call->line, "pow needs two numbers, like pow(2, 10).");
+    double r = pow(a[0].num, a[1].num);
+    if (!isfinite(r)) fail_kind(call->line, "math", "pow can't compute that (a negative base with a fractional power, a zero base with a negative power, or a result too large to hold).");
+    return vnum(r);
+  }
   if (!strcmp(name, "starts_with")) { if (n != 2 || a[0].type != V_STR || a[1].type != V_STR) fail(call->line, "starts_with needs two pieces of text."); const char *h = a[0].str ? a[0].str : "", *p = a[1].str ? a[1].str : ""; return vbool(strncmp(h, p, strlen(p)) == 0); }
   if (!strcmp(name, "ends_with"))   { if (n != 2 || a[0].type != V_STR || a[1].type != V_STR) fail(call->line, "ends_with needs two pieces of text.");   const char *h = a[0].str ? a[0].str : "", *p = a[1].str ? a[1].str : ""; size_t hl = strlen(h), pl = strlen(p); return vbool(pl <= hl && strcmp(h + hl - pl, p) == 0); }
   /* ---- numbers ---- */
   if (!strcmp(name, "abs"))   { if (n!=1||a[0].type!=V_NUM) fail(call->line,"abs needs a number.");   return vnum(fabs(a[0].num)); }
-  if (!strcmp(name, "round")) { if (n!=1||a[0].type!=V_NUM) fail(call->line,"round needs a number."); return vnum(floor(a[0].num+0.5)); }
+  if (!strcmp(name, "round")) {
+    if (n<1||n>2||a[0].type!=V_NUM||(n==2&&a[1].type!=V_NUM)) fail(call->line,"round needs a number, and optionally how many decimal places, like round(3.14159, 2).");
+    if (n==1) return vnum(round(a[0].num));                       /* round half away from zero (no floor(x+0.5) double-rounding) */
+    double m = pow(10.0, (int)a[1].num);
+    double r = round(a[0].num * m) / m;
+    return vnum(isfinite(r) ? r : a[0].num);                      /* absurd precision (m overflows/underflows) -> a no-op, never nan */
+  }
+  if (!strcmp(name, "clamp")) { if(n!=3||a[0].type!=V_NUM||a[1].type!=V_NUM||a[2].type!=V_NUM) fail(call->line,"clamp needs three numbers: clamp(x, low, high)."); double x=a[0].num,lo=a[1].num,hi=a[2].num; return vnum(x<lo?lo:(x>hi?hi:x)); }
+  if (!strcmp(name, "sign"))  { if(n!=1||a[0].type!=V_NUM) fail(call->line,"sign needs a number."); double x=a[0].num; return vnum(x>0?1:(x<0?-1:0)); }
   if (!strcmp(name, "floor")) { if (n!=1||a[0].type!=V_NUM) fail(call->line,"floor needs a number."); return vnum(floor(a[0].num)); }
   if (!strcmp(name, "ceil"))  { if (n!=1||a[0].type!=V_NUM) fail(call->line,"ceil needs a number.");  return vnum(ceil(a[0].num)); }
   if (!strcmp(name, "sqrt"))  { if (n!=1||a[0].type!=V_NUM) fail(call->line,"sqrt needs a number."); if (a[0].num<0) fail_kind(call->line,"math","sqrt can't take a negative number."); return vnum(sqrt(a[0].num)); }
@@ -2305,6 +2363,7 @@ static Value call_builtin(Expr *call, Env *env) {
   }
   if (!strcmp(name, "pi"))    { if (n!=0) fail(call->line,"pi takes no inputs, like pi()."); return vnum(3.14159265358979323846); }
   if (!strcmp(name, "args"))  { if (n!=0) fail(call->line,"args takes no inputs, like args()."); SList *l=list_new(); for (int i=0;i<g_prog_nargs;i++) list_push(l, vstr(g_prog_args[i])); return vlist(l); }
+  if (!strcmp(name, "exit"))  { if (n>1||(n==1&&a[0].type!=V_NUM)) fail(call->line,"exit takes an optional exit code, like exit(0) or exit(1)."); exit(n==1 ? (int)a[0].num : 0); }
   if (!strcmp(name, "env"))   {   /* read an environment variable; off in --sandbox (may hold secrets) */
     if (n<1 || n>2 || a[0].type!=V_STR) fail(call->line,"env needs a name, and an optional default: env(\"HOME\") or env(\"PORT\", \"8080\").");
     const char *v = getenv(a[0].str ? a[0].str : "");
@@ -2409,7 +2468,7 @@ static Value call_builtin(Expr *call, Env *env) {
   if (!strcmp(name,"char")) {                        /* char(65) -> "A" — a one-character string from a byte value */
     if (n!=1||a[0].type!=V_NUM) fail(call->line,"char needs one number, like char(65).");
     int code=(int)a[0].num;
-    if(code<0||code>255) fail_kind(call->line,"value","char needs a number from 0 to 255.");
+    if(code<1||code>255) fail_kind(call->line,"value","char needs a number from 1 to 255 (Sprout text can't hold a zero byte).");
     char buf[2]={(char)code,0}; return vstr_take(dup_str(buf));
   }
   /* ---- text ---- */
@@ -2611,17 +2670,18 @@ static Value apply_arith(TokType op, Value l, Value r, int line) {
   }
   if (op == T_STAR && (l.type == V_STR || r.type == V_STR)) {        /* text * n  ->  repeated text:  "=" * 40 */
     Value s = (l.type == V_STR) ? l : r, k = (l.type == V_STR) ? r : l;
-    if (k.type != V_NUM || k.num < 0) fail_kind(line, "type", "to repeat text, multiply it by a whole number, like \"ab\" * 3.");
-    int times = (int)k.num; const char *src = s.str ? s.str : ""; size_t sl = strlen(src);
-    char *out = (char *)malloc(sl * (size_t)times + 1);
-    for (int i = 0; i < times; i++) memcpy(out + i * sl, src, sl);
-    out[sl * (size_t)times] = 0; return vstr_take(out);
+    if (k.type != V_NUM || k.num < 0 || k.num != floor(k.num) || k.num > 1e8) fail_kind(line, "type", "to repeat text, multiply it by a whole number from 0 to 100000000, like \"ab\" * 3.");
+    size_t times = (size_t)k.num; const char *src = s.str ? s.str : ""; size_t sl = strlen(src);
+    char *out = (char *)malloc(sl * times + 1);
+    if (!out) fail(line, "that repeated text is too large to build.");
+    for (size_t i = 0; i < times; i++) memcpy(out + i * sl, src, sl);
+    out[sl * times] = 0; return vstr_take(out);
   }
   if (op == T_STAR && (l.type == V_LIST || r.type == V_LIST)) {      /* list * n  ->  repeated list:  [0] * 10 */
     Value ls = (l.type == V_LIST) ? l : r, k = (l.type == V_LIST) ? r : l;
-    if (k.type != V_NUM || k.num < 0) fail_kind(line, "type", "to repeat a list, multiply it by a whole number, like [0] * 3.");
-    int times = (int)k.num; SList *out = list_new();
-    for (int i = 0; i < times; i++) for (int j = 0; ls.list && j < ls.list->n; j++) list_push(out, ls.list->items[j]);
+    if (k.type != V_NUM || k.num < 0 || k.num != floor(k.num) || k.num > 1e8) fail_kind(line, "type", "to repeat a list, multiply it by a whole number from 0 to 100000000, like [0] * 3.");
+    long long times = (long long)k.num; SList *out = list_new();
+    for (long long i = 0; i < times; i++) for (int j = 0; ls.list && j < ls.list->n; j++) list_push(out, ls.list->items[j]);
     return vlist(out);
   }
   if (l.type != V_NUM || r.type != V_NUM) fail_kind(line, "type", "math needs two numbers.");
@@ -2816,6 +2876,7 @@ static Value call_module(Expr *e, Env *env) {
 }
 
 static Value eval(Expr *e, Env *env) {
+  if (stack_too_deep()) fail(e->line, "this is nested too deeply.");
   switch (e->kind) {
     case E_NUM:  return vnum(e->num);
     case E_STR:  return vstr(e->str);
@@ -3298,7 +3359,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.1.17"
+#define SPROUT_VERSION "0.1.18"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);
@@ -4180,6 +4241,10 @@ static int cmd_add(int argc, char **argv) {
   char name[256];
   if (argc >= 4) snprintf(name, sizeof name, "%s", argv[3]); else pkg_name_of(source, name, sizeof name);
   if (!name[0]) { fprintf(stderr, "  I couldn't work out a package name — pass one:  sprout add %s <name>\n", source); return 1; }
+  /* the manifest is one whitespace-separated line per package, so a name/source with a space
+     could be added but never restored by `sprout install`. Reject it up front with a clear message. */
+  for (const char *q = source; *q; q++) if (*q==' '||*q=='\t') { fprintf(stderr, "  A package source can't contain spaces (the manifest is space-separated): %s\n", source); return 1; }
+  for (const char *q = name; *q; q++) if (*q==' '||*q=='\t') { fprintf(stderr, "  A package name can't contain spaces: %s\n", name); return 1; }
   if (pkg_install_one(name, source) != 0) return 1;
   pkg_manifest_set(name, source);
   printf("\n  " C_GREEN C_BOLD "Added" C_RESET " package " C_CYAN "%s" C_RESET " — use it with:  " C_CYAN "use %s" C_RESET "\n\n", name, name);
