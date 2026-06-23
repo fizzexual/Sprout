@@ -26,7 +26,7 @@ jobs:
 
       - name: Build (Windows, MinGW)
         if: runner.os == 'Windows'
-        run: gcc -O2 -Wall -o src/sprout.exe src/sprout.c -lm -lurlmon
+        run: gcc -O2 -Wall -s -Wl,--stack,67108864 -o src/sprout.exe src/sprout.c -lm -lurlmon
 
       - name: Version smoke test
         run: |

@@ -5,6 +5,34 @@ All notable changes to **Sprout**. The format follows
 `sprout version`. Binaries for each release are on the
 [Releases](https://github.com/fizzexual/Sprout/releases) page.
 
+## [0.1.20] — Usability hardening
+
+A multi-agent "is it usage-ready?" pass (a beginner, an intermediate dev, distribution, error
+quality, docs-vs-reality) drove this round of polish.
+
+### Added
+- **`format(number, places)`** — a number as text with exactly that many decimal places
+  (`format(159.6, 2)` → `"159.60"`), for money and aligned columns.
+- `pad_start` / `pad_end` now accept a number (or any value) and show it the way `show` would, so
+  you don't have to wrap it in `f"{...}"`.
+
+### Changed — friendlier errors
+- **Misspelled keywords now suggest the right one**: `shoe "hi"` → *Did you mean 'show'?*
+  (likewise `maek`, `repaet`, …). `x = 5` → *use 'make' to create a variable*. `#` → *Sprout
+  comments start with ~*.
+- **Method-call syntax on a value redirects to the function**: `xs.length()` → *xs is a list —
+  write length(xs)*. A misspelled method suggests the right one (`d.barkk()` → *Did you mean
+  'bark'?*), and calling a non-task value explains why.
+
+### Fixed
+- `sprout bundle -o name` now produces `name.exe` on Windows (so it launches by name).
+- `sprout format` accepts `--write`/`--check` in any position, and **no longer mis-indents a
+  top-level comment** to the previous block's depth.
+- `sprout remove <name>` reports an error (instead of false success) when the package isn't
+  installed.
+- The **deep-recursion guard now sizes itself to the real stack**, so a properly clean "nested too
+  deeply" error appears on the default Linux/macOS stack too — not only the large Windows build.
+
 ## [0.1.19] — No reachable infinity or nan
 
 A follow-up verification pass (a second agent fleet) found the siblings of the v0.1.18 fixes.
@@ -161,6 +189,7 @@ A dogfooding pass that built real programs across every axis, then closed the ga
   mark-sweep garbage collector, built-in testing (`test` / `expect`), and persistence
   (`remember` / `recall`).
 
+[0.1.20]: https://github.com/fizzexual/Sprout/releases/tag/v0.1.20
 [0.1.19]: https://github.com/fizzexual/Sprout/releases/tag/v0.1.19
 [0.1.18]: https://github.com/fizzexual/Sprout/releases/tag/v0.1.18
 [0.1.17]: https://github.com/fizzexual/Sprout/releases/tag/v0.1.17

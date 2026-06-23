@@ -40,6 +40,16 @@ test "map merge with right side winning":
 test "text repetition":
     expect ("=" * 5) == "====="
 
+test "format — fixed decimal places":
+    expect format(159.6, 2) == "159.60"
+    expect format(180, 2) == "180.00"
+    expect format(3.14159, 2) == "3.14"
+    expect format(5, 0) == "5"
+
+test "pad accepts a number":
+    expect pad_end(42, 6) == "42    "
+    expect pad_start(7, 3, "0") == "007"
+
 test "char codes and is_number":
     expect code("A") == 65
     expect char(65) == "A"

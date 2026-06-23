@@ -35,6 +35,7 @@
 #include <dirent.h>     /* opendir() to test if a folder is empty */
 #include <limits.h>     /* PATH_MAX for realpath() */
 #include <unistd.h>     /* getpid() for the POSIX http_get temp file */
+#include <sys/resource.h>  /* getrlimit() — size the deep-recursion guard to the real stack */
 #endif
 #ifdef __APPLE__
 #include <mach-o/dyld.h>   /* _NSGetExecutablePath, for `sprout bundle` */
@@ -375,13 +376,14 @@ static Token *toks = NULL; static int ntok = 0, captok = 0;
    list, map, or call can span several lines (Python-style implicit line joining). */
 static int g_bracket_depth = 0;
 static char *gc_stack_bottom = NULL;        /* captured in main(): the outermost end of the stack */
-/* true once recursion has eaten most of the 64 MB stack — lets the parser and evaluator fail
-   cleanly ("nested too deeply") instead of overflowing the C stack and segfaulting. */
+static size_t g_stack_budget = 6u * 1024 * 1024;   /* refined in main() to ~75% of the REAL stack (so the guard works on an 8 MB default stack, not just the 64 MB Windows build) */
+/* true once recursion has eaten most of the stack — lets the parser and evaluator fail cleanly
+   ("nested too deeply") instead of overflowing the C stack and segfaulting. */
 static int stack_too_deep(void) {
   char probe;
   if (!gc_stack_bottom) return 0;
   long long used = (long long)((char *)gc_stack_bottom - &probe);
-  return used > 48LL * 1024 * 1024;
+  return used > (long long)g_stack_budget;
 }
 static void push_tok(TokType type, char *text, double num, int line) {
   if (ntok >= captok) { captok = captok ? captok * 2 : 128; toks = (Token *)realloc(toks, captok * sizeof(Token)); }
@@ -473,6 +475,7 @@ static void scan_token(const char *src, int *ip, int len, int line) {
     case '<': if (i + 1 < len && src[i + 1] == '=') { push_tok(T_LE, NULL, 0, line); i += 2; } else { push_tok(T_LT, NULL, 0, line); i++; } break;
     case '>': if (i + 1 < len && src[i + 1] == '=') { push_tok(T_GE, NULL, 0, line); i += 2; } else { push_tok(T_GT, NULL, 0, line); i++; } break;
     case '|': if (i + 1 < len && src[i + 1] == '>') { push_tok(T_PIPE, NULL, 0, line); i += 2; } else fail(line, "I didn't expect a '|' here (use 'or' for logical or, or '|>' for the pipe)."); break;
+    case '#': fail(line, "Sprout comments start with ~, not #.");
     default: { char m[64]; snprintf(m, sizeof m, "I don't understand the character '%c'.", c); fail(line, m); }
   }
   *ip = i;
@@ -837,6 +840,15 @@ static Stmt **block(int *count) {
   *count = n; return list;
 }
 
+static int edit_distance(const char *a, const char *b);   /* forward decl — defined in the runtime section */
+/* the closest statement-starting keyword to a misspelled word, or NULL if nothing is close */
+static const char *suggest_keyword(const char *w) {
+  static const char *kw[] = { "make","set","show","when","orwhen","otherwise","repeat","task","type",
+                              "give","match","for","use","try","fail","test","expect","learn","public","private","stop","skip" };
+  const char *best = NULL; int bestd = 3;
+  for (size_t i = 0; i < sizeof kw / sizeof kw[0]; i++) { int d = edit_distance(w, kw[i]); if (d < bestd) { bestd = d; best = kw[i]; } }
+  return best;
+}
 static Stmt *statement(void) {
   Token t = peek();
   int is_public = 0;
@@ -1099,7 +1111,20 @@ static Stmt *statement(void) {
       advance(); return new_stmt(S_SKIP, t.line);
     }
     default:
-      if (check(T_IDENT)) { Stmt *s = new_stmt(S_EXPR, t.line); s->expr = expression(); return s; }
+      if (check(T_IDENT)) {
+        TokType nxt = toks[pos + 1].type;
+        if (nxt == T_EQ) {   /* `x = 5` — forgot make/set */
+          char m[200]; snprintf(m, sizeof m, "to create a variable use 'make', to change one use 'set' — like:  make %s = ...", t.text);
+          fail(t.line, m);
+        }
+        /* a misspelled keyword followed by a value reads like a broken expression — suggest the keyword */
+        if (nxt == T_STR || nxt == T_NUM || nxt == T_IDENT || nxt == T_YES || nxt == T_NO || nxt == T_NOTHING) {
+          const char *kw = suggest_keyword(t.text);
+          if (kw) { char m[200]; snprintf(m, sizeof m, "I didn't expect '%s' at the start of a line. Did you mean '%s'?", t.text, kw); fail(t.line, m); }
+        }
+        Stmt *s = new_stmt(S_EXPR, t.line); s->expr = expression(); return s;
+      }
+      if (t.text) { char m[160]; snprintf(m, sizeof m, "I didn't expect '%s' at the start of a line.", t.text); fail(t.line, m); }
       fail(t.line, "I didn't expect this at the start of a line.");
   }
   return NULL;
@@ -1443,7 +1468,7 @@ static const char *const BUILTIN_NAMES[] = {
   "range","length","add","keys","contains","first","last",
   "remove","insert","sort","sort_by","reverse","index_of","values","copy","kind_of","is_a","map","filter","reduce","group_by","min_by","max_by","partition","chunk",
   "sum","count","unique","zip","flatten","slice","words","lines","title","seed",
-  "abs","round","floor","ceil","sqrt","pow","min","max","random","number","is_number","clamp","sign",
+  "abs","round","floor","ceil","sqrt","pow","min","max","random","number","is_number","clamp","sign","format",
   "sin","cos","tan","log","exp","pi","args","env","exit",
   "code","char","pad_start","pad_end",
   "matches","find","find_all","captures",
@@ -1453,6 +1478,10 @@ static const char *const BUILTIN_NAMES[] = {
   "get","json","explore","color",
 };
 static const int NBUILTIN_NAMES = (int)(sizeof BUILTIN_NAMES / sizeof BUILTIN_NAMES[0]);
+static int is_builtin_name(const char *name) {
+  for (int i = 0; i < NBUILTIN_NAMES; i++) if (!strcmp(BUILTIN_NAMES[i], name)) return 1;
+  return 0;
+}
 
 /* the closest known name to `name` within a small edit distance, or NULL if nothing is close */
 static const char *suggest_name(const char *name, Env *env, int include_vars) {
@@ -2291,15 +2320,16 @@ static Value call_builtin(Expr *call, Env *env) {
   }
   /* ---- text batteries ---- */
   if (!strcmp(name, "pad_start") || !strcmp(name, "pad_end")) {   /* pad text to a width with a fill (default space) */
-    if (n<2 || n>3 || a[0].type!=V_STR || a[1].type!=V_NUM || (n==3 && a[2].type!=V_STR)) fail(call->line, "pad_start/pad_end need text, a width, and an optional fill: pad_start(\"7\", 3, \"0\").");
+    if (n<2 || n>3 || a[1].type!=V_NUM || (n==3 && a[2].type!=V_STR)) fail(call->line, "pad_start/pad_end need text (or a number), a width, and an optional fill: pad_start(\"7\", 3, \"0\").");
     if (a[1].num < 0 || a[1].num != floor(a[1].num) || a[1].num > 1e8) fail_kind(call->line, "value", "pad width must be a whole number from 0 to 100000000.");
-    const char *s = a[0].str?a[0].str:""; int slen = (int)strlen(s); int width = (int)a[1].num;
+    char *owned = (a[0].type == V_STR) ? NULL : stringify(a[0]);   /* a number/list/etc. is shown the same way `show`/`+` would */
+    const char *s = owned ? owned : (a[0].str?a[0].str:""); int slen = (int)strlen(s); int width = (int)a[1].num;
     const char *fill = (n==3 && a[2].str && a[2].str[0]) ? a[2].str : " "; int flen = (int)strlen(fill);
-    if (width <= slen) return vstr(s);
+    if (width <= slen) { Value rv = vstr(s); free(owned); return rv; }
     int padn = width - slen; char *out = (char*)malloc((size_t)width + 1); int b = 0; int atStart = (name[4]=='s');
     if (atStart) { for (int k=0;k<padn;k++) out[b++]=fill[k%flen]; memcpy(out+b,s,(size_t)slen); b+=slen; }
     else { memcpy(out,s,(size_t)slen); b=slen; for (int k=0;k<padn;k++) out[b++]=fill[k%flen]; }
-    out[b]=0; return vstr_take(out);
+    out[b]=0; Value rv = vstr_take(out); free(owned); return rv;
   }
   if (!strcmp(name, "words")) {
     if (n != 1 || a[0].type != V_STR) fail(call->line, "words needs text.");
@@ -2351,6 +2381,12 @@ static Value call_builtin(Expr *call, Env *env) {
   }
   if (!strcmp(name, "clamp")) { if(n!=3||a[0].type!=V_NUM||a[1].type!=V_NUM||a[2].type!=V_NUM) fail(call->line,"clamp needs three numbers: clamp(x, low, high)."); double x=a[0].num,lo=a[1].num,hi=a[2].num; return vnum(x<lo?lo:(x>hi?hi:x)); }
   if (!strcmp(name, "sign"))  { if(n!=1||a[0].type!=V_NUM) fail(call->line,"sign needs a number."); double x=a[0].num; return vnum(x>0?1:(x<0?-1:0)); }
+  if (!strcmp(name, "format")) {   /* a number as text with EXACTLY N decimal places: format(159.6, 2) -> "159.60" (for money/columns) */
+    if (n!=2 || a[0].type!=V_NUM || a[1].type!=V_NUM) fail(call->line,"format needs a number and how many decimal places, like format(3.14159, 2).");
+    if (a[1].num < 0 || a[1].num != floor(a[1].num) || a[1].num > 30) fail_kind(call->line,"value","format's decimal places must be a whole number from 0 to 30.");
+    char buf[400]; snprintf(buf, sizeof buf, "%.*f", (int)a[1].num, a[0].num);
+    return vstr_take(dup_str(buf));
+  }
   if (!strcmp(name, "floor")) { if (n!=1||a[0].type!=V_NUM) fail(call->line,"floor needs a number."); return vnum(floor(a[0].num)); }
   if (!strcmp(name, "ceil"))  { if (n!=1||a[0].type!=V_NUM) fail(call->line,"ceil needs a number.");  return vnum(ceil(a[0].num)); }
   if (!strcmp(name, "sqrt"))  { if (n!=1||a[0].type!=V_NUM) fail(call->line,"sqrt needs a number."); if (a[0].num<0) fail_kind(call->line,"math","sqrt can't take a negative number."); return vnum(sqrt(a[0].num)); }
@@ -2831,7 +2867,15 @@ static Value type_method_call(Value recv, const char *name, Expr **args, int nar
   TypeReg *t = type_find(recv.map->classname);
   if (!t) failf(line, "I don't know the type '%s'.", recv.map->classname);
   TaskDef *md = type_method(t, name);
-  if (!md) { char m[200]; snprintf(m, sizeof m, "a %s has no method called '%s'.", t->name, name); fail(line, m); }
+  if (!md) {
+    const char *best = NULL; int bestd = 3;
+    for (TypeReg *c = t; c; c = c->parent ? type_find(c->parent) : NULL)
+      for (int i = 0; i < c->nmethods; i++) { int d = edit_distance(name, c->methods[i].name); if (d < bestd) { bestd = d; best = c->methods[i].name; } }
+    char m[220];
+    if (best) snprintf(m, sizeof m, "a %s has no method called '%s'. Did you mean '%s'?", t->name, name, best);
+    else snprintf(m, sizeof m, "a %s has no method called '%s'.", t->name, name);
+    fail(line, m);
+  }
   Value *argv = (Value *)malloc((size_t)(nargs + 1) * sizeof(Value));
   argv[0] = recv;
   for (int i = 0; i < nargs; i++) argv[i + 1] = eval(args[i], env);
@@ -2870,8 +2914,17 @@ static Value eval_super_call(Expr *e, Env *env) {
 
 static Value call_module(Expr *e, Env *env) {
   if (!strcmp(e->module, "super")) return eval_super_call(e, env);
-  /* if `module` is actually a variable holding an object, this is a method call: obj.method(...) */
-  { Value *ov = env_find(env, e->module); if (ov && ov->type == V_MAP && ov->map && ov->map->classname) return type_method_call(*ov, e->name, e->args, e->nargs, env, e->line); }
+  /* if `module` is actually a variable holding a value, `.name(...)` is method-call syntax */
+  { Value *ov = env_find(env, e->module);
+    if (ov) {
+      if (ov->type == V_MAP && ov->map && ov->map->classname) return type_method_call(*ov, e->name, e->args, e->nargs, env, e->line);   /* an object: real method call */
+      /* a plain value (list/text/number/map): Sprout uses functions, not methods — redirect */
+      char m[256];
+      if (is_builtin_name(e->name)) snprintf(m, sizeof m, "%s is %s, not an object — write %s(%s) instead of %s.%s().", e->module, type_name(*ov), e->name, e->module, e->module, e->name);
+      else snprintf(m, sizeof m, "%s is %s, not a module or object, so there's no '%s.%s' to call.", e->module, type_name(*ov), e->module, e->name);
+      fail_hard(e->line, "name", m);
+    }
+  }
   if (!has_use(cur_fileid, e->module)) {
     char m[256]; snprintf(m, sizeof m, "to call %s.%s, add 'use %s' at the top of this file.", e->module, e->name, e->module);
     fail_hard(e->line, "name", m);
@@ -2966,7 +3019,10 @@ static Value eval(Expr *e, Env *env) {
     case E_CALL:   if (e->module) return call_module(e, env);
                    { Value *fv = env_find(env, e->name); if (fv && fv->type == V_TASK) return call_task_def(fv->task, e, env); }  /* call a task held in a variable */
                    { TypeReg *ty = type_find(e->name); if (ty) return type_instantiate(ty, e, env); }  /* TypeName(args) -> a new object */
-                   return task_find(e->name) ? call_task(e, env) : call_builtin(e, env);
+                   if (task_find(e->name)) return call_task(e, env);
+                   if (is_builtin_name(e->name)) return call_builtin(e, env);   /* a builtin (even if a variable shadows the name) */
+                   { Value *fv = env_find(env, e->name); if (fv) { char m[200]; snprintf(m, sizeof m, "'%s' is %s, not a task, so it can't be called with ( ).", e->name, type_name(*fv)); fail_hard(e->line, "type", m); } }
+                   return call_builtin(e, env);   /* unknown name -> the friendly "did you mean" error */
     case E_METHODCALL: { Value recv = eval(e->target, env); return type_method_call(recv, e->name, e->args, e->nargs, env, e->line); }
     case E_MEMBER: {
       /* obj.field — when `module` is actually a variable holding an object, read its field */
@@ -3368,7 +3424,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.1.19"
+#define SPROUT_VERSION "0.1.20"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);
@@ -4094,6 +4150,11 @@ static int cmd_bundle(int argc, char **argv) {
 #endif
     out = outbuf;
   }
+#ifdef _WIN32
+  else if (strlen(out) < 4 || strcmp(out + strlen(out) - 4, ".exe") != 0) {   /* a Windows exe must end in .exe to launch by name */
+    snprintf(outbuf, sizeof outbuf, "%s.exe", out); out = outbuf;
+  }
+#endif
   char *self = self_exe_path();
   if (!self) { fprintf(stderr, "  I couldn't find my own program file to copy.\n"); return 1; }
   long ilen; unsigned char *interp = read_bytes(self, &ilen); free(self);
@@ -4153,11 +4214,16 @@ static char *format_source(const char *src) {
     }
     if (clen == 0) { if (++blanks <= 1) out[len++] = '\n'; continue; }   /* collapse blank runs to one */
     blanks = 0;
-    if (*c != '~') {                          /* a comment line doesn't open/close a block level */
+    int depth;
+    if (*c != '~') {                          /* a real statement opens/closes the block level */
       while (sp > 0 && iw < stack[sp]) sp--;
       if (iw > stack[sp] && sp < 255) stack[++sp] = iw;
+      depth = sp;
+    } else {                                  /* a comment keeps the block level, but indents to ITS OWN column */
+      depth = sp;
+      while (depth > 0 && iw < stack[depth]) depth--;
     }
-    for (int i = 0; i < sp * 4; i++) out[len++] = ' ';
+    for (int i = 0; i < depth * 4; i++) out[len++] = ' ';
     memcpy(out + len, c, (size_t)clen); len += (size_t)clen;
     out[len++] = '\n';
     bracket += fmt_bracket_delta(c, ce);
@@ -4169,8 +4235,13 @@ static char *format_source(const char *src) {
 static int cmd_format(int argc, char **argv) {
   console_setup();
   if (argc < 3) { fprintf(stderr, "\n  Usage:  sprout format <file.sprout> [--write] [--check]\n\n"); return 1; }
-  const char *file = argv[2]; int dowrite = 0, docheck = 0;
-  for (int i = 3; i < argc; i++) { if (!strcmp(argv[i], "--write") || !strcmp(argv[i], "-w")) dowrite = 1; else if (!strcmp(argv[i], "--check")) docheck = 1; }
+  const char *file = NULL; int dowrite = 0, docheck = 0;
+  for (int i = 2; i < argc; i++) {   /* flags work in any position; the first non-flag is the file */
+    if (!strcmp(argv[i], "--write") || !strcmp(argv[i], "-w")) dowrite = 1;
+    else if (!strcmp(argv[i], "--check")) docheck = 1;
+    else if (!file) file = argv[i];
+  }
+  if (!file) { fprintf(stderr, "\n  Usage:  sprout format <file.sprout> [--write] [--check]\n\n"); return 1; }
   int slen; char *src = read_file(file, &slen);
   char *fmt = format_source(src);
   int changed = (strcmp(src, fmt) != 0);
@@ -4281,19 +4352,39 @@ static int cmd_remove(int argc, char **argv) {
   console_setup();
   if (argc < 3) { fprintf(stderr, "\n  Usage:  sprout remove <name>\n\n"); return 1; }
   const char *name = argv[2];
-  char path[1024]; snprintf(path, sizeof path, "%s/%s.sprout", PKG_DIR, name); remove(path);
+  char path[1024]; snprintf(path, sizeof path, "%s/%s.sprout", PKG_DIR, name);
+  int had_file = path_exists(path), in_manifest = 0;
   char *old = read_whole_file(PKG_MANIFEST);
   if (old) {
     FILE *f = fopen(PKG_MANIFEST, "wb");
-    if (f) { for (char *line = strtok(old, "\n"); line; line = strtok(NULL, "\n")) { char ln[256] = ""; sscanf(line, "%255s", ln); if (strcmp(ln, name) != 0) fprintf(f, "%s\n", line); } fclose(f); }
+    if (f) { for (char *line = strtok(old, "\n"); line; line = strtok(NULL, "\n")) { char ln[256] = ""; sscanf(line, "%255s", ln); if (strcmp(ln, name) == 0) in_manifest = 1; else fprintf(f, "%s\n", line); } fclose(f); }
     free(old);
   }
+  if (!had_file && !in_manifest) { fprintf(stderr, "  No package called '%s' is installed.\n", name); return 1; }
+  if (had_file) remove(path);
   printf("  Removed package %s\n", name);
   return 0;
 }
 
+/* size the deep-recursion guard to ~75% of THIS process's real stack, so it fails cleanly on
+   any stack (the 8 MB POSIX default as well as the 64 MB Windows build) instead of segfaulting. */
+static void detect_stack_budget(void) {
+#ifdef _WIN32
+  MEMORY_BASIC_INFORMATION mbi; char probe = 0;   /* the stack is one reserved region; its base is the low end */
+  if (gc_stack_bottom && VirtualQuery(&probe, &mbi, sizeof mbi)) {
+    char *base = (char *)mbi.AllocationBase;
+    if ((char *)gc_stack_bottom > base) g_stack_budget = (size_t)(((char *)gc_stack_bottom - base) / 4 * 3);
+  }
+#else
+  struct rlimit rl;
+  if (getrlimit(RLIMIT_STACK, &rl) == 0 && rl.rlim_cur != RLIM_INFINITY && rl.rlim_cur > (2u << 20))
+    g_stack_budget = (size_t)(rl.rlim_cur / 4 * 3);
+#endif
+}
+
 int main(int argc, char **argv) {
   char gc_bottom_marker; gc_stack_bottom = &gc_bottom_marker;   /* the outermost stack address the GC scans up to */
+  detect_stack_budget();                                        /* size the deep-recursion guard to the real stack */
   gc_stress = getenv("SPROUT_GC_STRESS") != NULL;               /* aggressive collection for testing */
   /* --sandbox anywhere on the command line (or SPROUT_SANDBOX in the environment) hardens
      this run for untrusted code; strip the flag so the normal positional args still line up. */
