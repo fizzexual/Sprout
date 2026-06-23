@@ -431,7 +431,9 @@ static void scan_token(const char *src, int *ip, int len, int line) {
     char *t = (char *)malloc(i - s + 1); int tb = 0;
     for (int k = s; k < i; k++) if (src[k] != '_') t[tb++] = src[k];   /* drop the separators before parsing */
     t[tb] = 0;
-    push_tok(T_NUM, t, atof(t), line); *ip = i; return;
+    double nv = atof(t);
+    if (!isfinite(nv)) fail(line, "that number is too large to represent.");
+    push_tok(T_NUM, t, nv, line); *ip = i; return;
   }
   if (c == '"') {
     i++; char *buf = (char *)malloc(len - i + 1); int b = 0;
@@ -2290,6 +2292,7 @@ static Value call_builtin(Expr *call, Env *env) {
   /* ---- text batteries ---- */
   if (!strcmp(name, "pad_start") || !strcmp(name, "pad_end")) {   /* pad text to a width with a fill (default space) */
     if (n<2 || n>3 || a[0].type!=V_STR || a[1].type!=V_NUM || (n==3 && a[2].type!=V_STR)) fail(call->line, "pad_start/pad_end need text, a width, and an optional fill: pad_start(\"7\", 3, \"0\").");
+    if (a[1].num < 0 || a[1].num != floor(a[1].num) || a[1].num > 1e8) fail_kind(call->line, "value", "pad width must be a whole number from 0 to 100000000.");
     const char *s = a[0].str?a[0].str:""; int slen = (int)strlen(s); int width = (int)a[1].num;
     const char *fill = (n==3 && a[2].str && a[2].str[0]) ? a[2].str : " "; int flen = (int)strlen(fill);
     if (width <= slen) return vstr(s);
@@ -2354,7 +2357,7 @@ static Value call_builtin(Expr *call, Env *env) {
   if (!strcmp(name, "sin"))   { if (n!=1||a[0].type!=V_NUM) fail(call->line,"sin needs a number (an angle in radians).");  return vnum(sin(a[0].num)); }
   if (!strcmp(name, "cos"))   { if (n!=1||a[0].type!=V_NUM) fail(call->line,"cos needs a number (an angle in radians).");  return vnum(cos(a[0].num)); }
   if (!strcmp(name, "tan"))   { if (n!=1||a[0].type!=V_NUM) fail(call->line,"tan needs a number (an angle in radians).");  return vnum(tan(a[0].num)); }
-  if (!strcmp(name, "exp"))   { if (n!=1||a[0].type!=V_NUM) fail(call->line,"exp needs a number."); return vnum(exp(a[0].num)); }
+  if (!strcmp(name, "exp"))   { if (n!=1||a[0].type!=V_NUM) fail(call->line,"exp needs a number."); double r=exp(a[0].num); if(!isfinite(r)) fail_kind(call->line,"math","exp overflowed — that result is too big to hold."); return vnum(r); }
   if (!strcmp(name, "log"))   {   /* natural log; log(x, base) for any base */
     if ((n!=1 && n!=2) || a[0].type!=V_NUM || (n==2 && a[1].type!=V_NUM)) fail(call->line,"log needs a number, and an optional base: log(x) or log(x, base).");
     if (a[0].num <= 0) fail_kind(call->line,"math","log needs a positive number.");
@@ -2649,6 +2652,12 @@ static Value call_builtin(Expr *call, Env *env) {
   return vnone();
 }
 
+/* every arithmetic result passes through here, so a number is never silently inf/nan (Sprout's
+   invariant): an overflow/non-finite outcome becomes a clean, catchable math error instead. */
+static double check_finite(double d, int line) {
+  if (!isfinite(d)) fail_kind(line, "math", "that number is too big to hold (it overflowed).");
+  return d;
+}
 /* +, -, *, /, % on two values (shared by binary expressions and compound 'set x += ...') */
 static Value apply_arith(TokType op, Value l, Value r, int line) {
   if (op == T_PLUS) {
@@ -2665,7 +2674,7 @@ static Value apply_arith(TokType op, Value l, Value r, int line) {
       return vmap(out);
     }
     if (l.type == V_STR || r.type == V_STR) { char *a = stringify(l), *b = stringify(r); char *out = (char *)malloc(strlen(a) + strlen(b) + 1); strcpy(out, a); strcat(out, b); Value rv = vstr_take(out); free(a); free(b); return rv; }
-    if (l.type == V_NUM && r.type == V_NUM) return vnum(l.num + r.num);
+    if (l.type == V_NUM && r.type == V_NUM) return vnum(check_finite(l.num + r.num, line));
     { char buf[256]; snprintf(buf, sizeof buf, "I can't add %s and a different kind of value.", type_name(l)); fail_kind(line, "type", buf); }
   }
   if (op == T_STAR && (l.type == V_STR || r.type == V_STR)) {        /* text * n  ->  repeated text:  "=" * 40 */
@@ -2685,10 +2694,10 @@ static Value apply_arith(TokType op, Value l, Value r, int line) {
     return vlist(out);
   }
   if (l.type != V_NUM || r.type != V_NUM) fail_kind(line, "type", "math needs two numbers.");
-  if (op == T_MINUS) return vnum(l.num - r.num);
-  if (op == T_STAR)  return vnum(l.num * r.num);
+  if (op == T_MINUS) return vnum(check_finite(l.num - r.num, line));
+  if (op == T_STAR)  return vnum(check_finite(l.num * r.num, line));
   if (r.num == 0) fail_kind(line, "math", op == T_SLASH ? "you tried to divide by zero." : "you tried to take a remainder with zero.");
-  return vnum(op == T_SLASH ? l.num / r.num : fmod(l.num, r.num));
+  return vnum(check_finite(op == T_SLASH ? l.num / r.num : fmod(l.num, r.num), line));
 }
 
 static Value eval_binary(Expr *e, Env *env) {
@@ -3359,7 +3368,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.1.18"
+#define SPROUT_VERSION "0.1.19"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);

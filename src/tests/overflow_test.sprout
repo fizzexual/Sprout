@@ -1,0 +1,28 @@
+~ no reachable infinity or nan: overflow / out-of-range / huge pad are clean errors (v0.1.19)
+
+test "arithmetic overflow is a math error":
+    expect error "math":
+        show 1e308 * 10
+    expect error "math":
+        show 1e308 + 1e308
+
+test "exp overflow is a math error":
+    expect error "math":
+        show exp(1000)
+
+test "pow guards its domain":
+    expect error "math":
+        show pow(-4, 0.5)
+    expect error "math":
+        show pow(0, -2)
+
+test "normal large-but-finite math still works":
+    expect 1e300 * 2 > 1e300
+    expect pow(2, 100) > 0
+    expect sqrt(2) > 1.4
+    expect 999_999 * 999_999 == 999998000001
+
+test "pad width is bounded":
+    expect error:
+        show pad_start("x", 3000000000)
+    expect pad_start("7", 3, "0") == "007"

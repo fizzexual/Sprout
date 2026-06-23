@@ -5,6 +5,18 @@ All notable changes to **Sprout**. The format follows
 `sprout version`. Binaries for each release are on the
 [Releases](https://github.com/fizzexual/Sprout/releases) page.
 
+## [0.1.19] — No reachable infinity or nan
+
+A follow-up verification pass (a second agent fleet) found the siblings of the v0.1.18 fixes.
+
+### Fixed
+- **Arithmetic overflow is a clean error, not a silent `inf`.** `1e308 * 10`, `exp(1000)`, and an
+  out-of-range literal like `1e999` produced reachable `inf`/`nan`. `+ - * /`, `exp`, and number
+  literals now all check finiteness — completing what the `pow` / `sqrt` / divide-by-zero guards
+  already did — so a Sprout number is never silently infinite or nan.
+- **`pad_start` / `pad_end` validate the width** (a whole number from 0 to 100,000,000) instead of
+  overflowing a 32-bit cast and silently dropping the padding (the same class as the repeat-count fix).
+
 ## [0.1.18] — Bug hunt + ergonomics
 
 A multi-agent adversarial bug hunt found and verified 17 issues; this release fixes the impactful
@@ -149,6 +161,7 @@ A dogfooding pass that built real programs across every axis, then closed the ga
   mark-sweep garbage collector, built-in testing (`test` / `expect`), and persistence
   (`remember` / `recall`).
 
+[0.1.19]: https://github.com/fizzexual/Sprout/releases/tag/v0.1.19
 [0.1.18]: https://github.com/fizzexual/Sprout/releases/tag/v0.1.18
 [0.1.17]: https://github.com/fizzexual/Sprout/releases/tag/v0.1.17
 [0.1.16]: https://github.com/fizzexual/Sprout/releases/tag/v0.1.16
