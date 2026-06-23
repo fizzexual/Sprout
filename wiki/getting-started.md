@@ -30,12 +30,15 @@ winget install --id BrechtSanders.WinLibs.POSIX.UCRT
 git clone https://github.com/fizzexual/Sprout.git
 cd Sprout/src
 build.cmd          # Windows
-# or, any OS:
-gcc -O2 -Wall -s -o sprout.exe sprout.c -lm
+# or build by hand:
+gcc -O2 -Wall -s -Wl,--stack,67108864 -o sprout.exe sprout.c -lm -lurlmon   # Windows
+cc  -O2 -Wall -o sprout sprout.c -lm                                         # macOS / Linux
 ```
 
-This produces a **~34 KB** `sprout` executable that links only against the
-operating system's own libraries.
+This produces a **~175 KB** `sprout` executable that links only against the
+operating system's own libraries. (On Windows the `-lurlmon` library powers the
+network builtins, and the larger stack lets the interpreter report "nested too
+deeply" cleanly instead of crashing on pathologically deep input.)
 
 ## 3. Write your first program
 

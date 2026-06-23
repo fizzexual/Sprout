@@ -516,7 +516,7 @@ slug is hello-there-world
 ## Where to go next
 
 - [Operators](operators.md) — `+`, comparisons, `|>`, `or else`, ranges
-- [Builtins](builtins-reference.md) — the full reference for all 98 built-ins
+- [Builtins](builtins-reference.md) — the full reference for all 99 built-ins
 - [Lists & maps](syntax-basics.md) — the collections text often turns into
 - [Tasks & lambdas](tasks-and-lambdas.md) — wrap text logic in reusable tasks
 - [Pattern matching](pattern-matching.md) — `match` on text and structure

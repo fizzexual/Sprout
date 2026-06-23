@@ -115,6 +115,28 @@ for each letter in "hi":
 
 ---
 
+## Input & handy builtins
+
+```sprout
+make name = ask("What's your name? ")     ~ ask() reads a line of TEXT
+make age = number(ask("Your age? "))      ~ wrap it in number() to do maths
+show f"Hi {name}, next year you'll be {age + 1}"
+```
+
+A few builtins you'll reach for early (the [full list](builtins-reference.md) has all 99):
+
+```sprout
+range(5)                ~ 0 1 2 3 4    ·  range(1, 4) -> 1 2 3
+split("a,b,c", ",")     ~ ["a","b","c"] ·  join(xs, "-")
+random(1, 6)            ~ a dice roll   ·  round(x, 2)  ·  format(x, 2) -> "1.50"
+upper / lower / trim / length / sort / reverse / sum / contains
+```
+
+Handy operators: `[1, 2] + [3, 4]` joins lists · `[0] * 3` repeats · `"="* 20` repeats text ·
+`1_000_000` reads clearly · `a or else b` uses `b` when `a` is `nothing`.
+
+---
+
 ## Tasks
 
 A task is your own named action. `give` hands a value back to whoever called it.

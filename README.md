@@ -104,7 +104,7 @@ v0.1.0**. Here's everything it runs:
 - **Lists** `[1, 2, 3]` and **maps** `{name: "Sam"}` — indexing, `set xs[i] = …`, `range`, **`a to b` ranges**, **list comprehensions** (`[n*2 for each n in xs when n > 0]`), and `for each` (`for each item in xs`, or `for each key, value in m`)
 - **`learn on`** — Sprout narrates each step as it runs: values, **which `when` branch ran, every loop turn, and each task call + what it gave back** (plus **friendly errors** that say *"did you mean…?"*)
 - **Built-in testing** — `test "name": expect …`, plus **`expect error "kind":`** to assert that a block fails; run with `sprout test`
-- **Toolbox:** `length` `add` `remove` `insert` `keys` `values` `contains` `first` `last` `index_of` `sort` `sort_by` `reverse` `copy` `kind_of` `is_a` `map` `filter` `reduce` `group_by` `min_by` `max_by` `partition` `chunk` `sum` `count` `unique` `zip` `flatten` `slice` `range` · `sqrt` `pow` `abs` `round` `floor` `ceil` `min` `max` `clamp` `sign` `random` `seed` `number` `is_number` `sin` `cos` `tan` `log` `exp` `pi` · `upper` `lower` `trim` `replace` `split` `join` `starts_with` `ends_with` `words` `lines` `title` `pad_start` `pad_end` `code` `char` `matches` `find` `find_all` `captures` · `now` `today` `time` `days` `hours` `minutes` `time_parts` `time_make` `time_format` `wait` · `ask` `args` `env` `exit` · `color` (terminal colour)
+- **Toolbox:** `length` `add` `remove` `insert` `keys` `values` `contains` `first` `last` `index_of` `sort` `sort_by` `reverse` `copy` `kind_of` `is_a` `map` `filter` `reduce` `group_by` `min_by` `max_by` `partition` `chunk` `sum` `count` `unique` `zip` `flatten` `slice` `range` · `sqrt` `pow` `abs` `round` `floor` `ceil` `min` `max` `clamp` `sign` `format` `random` `seed` `number` `is_number` `sin` `cos` `tan` `log` `exp` `pi` · `upper` `lower` `trim` `replace` `split` `join` `starts_with` `ends_with` `words` `lines` `title` `pad_start` `pad_end` `code` `char` `matches` `find` `find_all` `captures` · `now` `today` `time` `days` `hours` `minutes` `time_parts` `time_make` `time_format` `wait` · `ask` `args` `env` `exit` · `color` (terminal colour)
 - **Superpowers — built in, no libraries:**
   - 🌐 `get(url)` — fetch any web page or API
   - 🧩 `json(text)` — parse JSON straight into native lists & maps
@@ -222,7 +222,7 @@ test "greeting":
   1 passed
 ```
 
-The result is a **~86 KB** native executable that links only against the operating
+The result is a **~175 KB** native executable that links only against the operating
 system's own libraries. Drop it anywhere and it runs.
 
 ## Language reference (the precise rules)
@@ -708,7 +708,7 @@ one differently, [tell me](https://github.com/fizzexual/Sprout/issues).
 | Decision | Why I chose it | What it costs |
 | --- | --- | --- |
 | **Tree-walking interpreter** (no bytecode/JIT) | Tiny, simple, the whole thing reads as one C file you can trust | Slower than a bytecode VM — I built it for learning and real scripts, not tight numeric hot loops |
-| **All C, zero deps** (links only OS libs) | One ~86 KB exe, nothing to install, no supply chain | I reimplement everything (JSON, HTTP) by hand; C memory discipline is on me |
+| **All C, zero deps** (links only OS libs) | One ~175 KB exe, nothing to install, no supply chain | I reimplement everything (JSON, HTTP) by hand; C memory discipline is on me |
 | **Conservative mark-sweep GC** *(v0.1.0; strings v0.1.3)* | Long-running programs stay bounded — lists, maps, environments, closures, **and strings** all collected; cycles collected; it can never free a live value | Some overhead on allocation/call-heavy paths |
 | **Doubles only, no integer type** | One number type means a beginner never has to pick one before `make x = 5` | Precision/overflow at the extremes (past `1e+21`); no bigint |
 | **Maps are the only record** | One way to group data, not two — fewer concepts before you're productive | No structs/methods/shape-checking |
@@ -764,7 +764,7 @@ source.sprout → lexer → parser → AST → tree-walking interpreter → outp
 ```
 
 The whole language is **one C file** (`src/sprout.c`, ~2k lines), compiled to a
-~86 KB native exe. Your `.sprout` program is **interpreted** (the AST is walked) —
+~175 KB native exe. Your `.sprout` program is **interpreted** (the AST is walked) —
 only the interpreter itself is compiled to machine code.
 
 - **Lexer** — hand-written; turns indentation into `INDENT`/`DEDENT` tokens

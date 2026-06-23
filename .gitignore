@@ -33,3 +33,8 @@ botanica/build/
 /*.sprout
 src/test_*.sprout
 
+# Installed packages — `sprout add` downloads here; commit sprout.packages, not this folder.
+sprout_packages/
+# Scratch module experiments.
+test_modules/
+

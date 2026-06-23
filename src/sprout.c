@@ -3662,12 +3662,10 @@ static const TplFile TPL_APP[] = {
     "    ~ private helper - called bare (same file); greeter.greet is from another module\n"
     "    give f\"  200 OK  ->  {greeter.greet(user)}\"\n" },
   { "tests/test.sprout",
-    "~ A tiny test. Run it on its own with:  sprout run tests/test.sprout\n"
+    "~ A test. Run the whole suite with:  sprout test\n"
     "use greeter\n\n"
-    "when contains(greeter.greet(\"x\"), \"Hello\"):\n"
-    "    show color(\"green\", \"PASS: greet() says hello\")\n"
-    "otherwise:\n"
-    "    show color(\"red\", \"FAIL: greet() is broken\")\n" },
+    "test \"greet says hello\":\n"
+    "    expect contains(greeter.greet(\"world\"), \"Hello\")\n" },
   { "README.md",
     "# MyApp\n\nA multi-file Sprout project.\n\n"
     "## Run it\n\n    sprout build\n\n"

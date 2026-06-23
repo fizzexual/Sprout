@@ -26,7 +26,7 @@ find-anything index of every keyword, operator, builtin, and command.
 - [Errors](errors.md) — `try` / `caught` / `fail`
 
 **Reference**
-- [Builtins reference](builtins-reference.md) — all 98 builtins
+- [Builtins reference](builtins-reference.md) — all 99 builtins
 - [Grammar & decided edge cases](grammar-and-edge-cases.md) — EBNF, indentation, reserved words
 - [Glossary](glossary.md)
 

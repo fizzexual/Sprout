@@ -1,6 +1,6 @@
 # Builtins reference (complete)
 
-Every one of Sprout's **98 built-in functions**, with a signature, what it does,
+Every one of Sprout's **99 built-in functions**, with a signature, what it does,
 whether it changes its input or returns a new value, a tiny example you can run
 right now, its real output, and the error it raises on bad input. This is the
 long one — bookmark it.
@@ -35,7 +35,7 @@ errors follow, see [Errors & error handling](errors.md).
 - [Persistence](#persistence) — `remember` `recall` `forget`
 - [Output & colour](#output--colour) — `color` (and `show`)
 - [The error a builtin raises](#the-error-a-builtin-raises)
-- [Quick index of all 98](#quick-index-of-all-98)
+- [Quick index of all 99](#quick-index-of-all-99)
 
 ---
 
@@ -297,6 +297,26 @@ show sign(42)
 ```
 
 Bad input: `sign needs a number.`
+
+### `format(number, places)` → text
+
+A number as text with **exactly** that many decimal places — for money and aligned
+columns, where `round` would drop trailing zeros. **Returns** a new string.
+
+```sprout
+show format(159.6, 2)
+show format(180, 2)
+show "$" + format(1 / 3, 2)
+```
+
+```text
+159.60
+180.00
+$0.33
+```
+
+Bad input: `format needs a number and how many decimal places, like format(3.14159, 2).`
+(places must be a whole number from 0 to 30.)
 
 ---
 
@@ -960,6 +980,11 @@ Bad input: `captures needs text and a pattern, like captures(s, "([0-9]+)-([0-9]
 | `a|b` | **alternation** — match `a` or `b` (lowest precedence, so `ab|cd` is `(ab)|(cd)`) |
 
 A built-in step limit means even a pathological pattern returns quickly instead of hanging.
+
+> **Double your backslashes.** In a Sprout string, `"\d"` collapses to just `d` (an unknown
+> escape drops its backslash), so the shorthands need a **double** backslash: write `"\\d+"`,
+> `"\\w"`, `"\\s"` (like Java/JavaScript). Character classes need none — `"[0-9]+"` is the same as
+> `"\\d+"` and is often clearer.
 
 ---
 
@@ -1836,7 +1861,7 @@ The full model — the two tiers, the `caught` map shape, `fail` with a map — 
 
 ---
 
-## Quick index of all 98
+## Quick index of all 99
 
 | Builtin | Group | Mutates? | Returns |
 | --- | --- | --- | --- |
@@ -1857,6 +1882,7 @@ The full model — the two tiers, the `caught` map shape, `fail` with a map — 
 | `max` | numbers | no | number |
 | `clamp` | numbers | no | number |
 | `sign` | numbers | no | number |
+| `format` | numbers | no | text |
 | `sum` | numbers/lists | no | number |
 | `random` | random | no | number |
 | `seed` | random | (rng state) | nothing |
@@ -1931,7 +1957,7 @@ The full model — the two tiers, the `caught` map shape, `fail` with a map — 
 | `run` (`system.run`) | system | (shell) | text / nothing |
 | `color` | output | no | text |
 
-That's all 98 (counting `run`, reached as `system.run`).
+That's all 99 (counting `run`, reached as `system.run`).
 
 ---
 
