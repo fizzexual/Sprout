@@ -284,6 +284,124 @@ try:
     show 1 / 0
 caught e:
     show "caught a", e["kind"], "error:", e["message"]`],
+
+  ["numbers.sprout",
+`~ Numbers: one type, but it prints cleanly and formats nicely
+show "big:", 1_000_000 * 1_000_000
+show "pi:", round(pi() * 100) / 100
+show "money:", format(19.5, 2), format(1234.567, 2)
+show "clamp / sign:", clamp(120, 0, 100), sign(-7)
+show "powers:", pow(2, 10), sqrt(144)
+show "0.1 + 0.2 =", 0.1 + 0.2`],
+
+  ["text.sprout",
+`~ The text toolbox
+make s = "the quick brown fox"
+show upper(s)
+show title(s)
+show "words:", words(s)
+show "swap:", replace(s, "quick", "lazy")
+show "joined:", join(["a", "b", "c"], "-")
+show "padded:", "[" + pad_start("7", 4, "0") + "]"
+show "line:", "*" * 12`],
+
+  ["operators.sprout",
+`~ Operator overloading: your own types act like built-in values
+type Money:
+    make cents = 0
+    task plus(self, other):
+        give Money(self.cents + other.cents)
+    task text(self):
+        give "$" + format(self.cents / 100, 2)
+
+make a = Money(1250)
+make b = Money(99)
+show "a =", a
+show "a + b =", a + b
+show "sum of three:", Money(500) + Money(500) + Money(99)`],
+
+  ["collections.sprout",
+`~ Higher-order tools, comprehensions, and the pipe
+make nums = [5, 2, 8, 1, 9, 3, 7, 4, 6]
+show "sorted:", sort(copy(nums))
+show "evens:", [n for each n in nums when n % 2 == 0]
+show "squares:", map(nums, task(n): n * n)
+show "sum of odds:", nums |> filter(task(n): n % 2 == 1) |> sum
+show "biggest:", max_by(nums, task(n): n)
+make parts = partition(nums, task(n): n > 5)
+show "big / small:", parts[0], "/", parts[1]`],
+
+  ["wordcount.sprout",
+`~ Word frequencies, then the top 3
+make text = "the cat sat on the mat the cat ran"
+make counts = {}
+for each w in words(text):
+    when counts[w] == nothing:
+        set counts[w] = 0
+    set counts[w] = counts[w] + 1
+make pairs = []
+for each w, n in counts:
+    add(pairs, [n, w])
+make top = reverse(sort_by(pairs, task(p): p[0]))
+show "total words:", length(words(text))
+for each p in slice(top, 0, 3):
+    show "  " + p[1] + ":", p[0]`],
+
+  ["algorithms.sprout",
+`~ Classic algorithms, from scratch
+task gcd(a, b):
+    repeat while b != 0:
+        make t = b
+        set b = a % b
+        set a = t
+    give a
+
+task is_prime(n):
+    when n < 2:
+        give no
+    make i = 2
+    repeat while i * i <= n:
+        when n % i == 0:
+            give no
+        set i = i + 1
+    give yes
+
+show "gcd(48, 36) =", gcd(48, 36)
+show "primes under 30:", [n for each n in range(2, 30) when is_prime(n)]`],
+
+  ["bank.sprout",
+`~ A little stateful object model with inheritance
+type Account:
+    make owner = "?"
+    make balance = 0
+    task deposit(self, amount):
+        set self.balance = self.balance + amount
+    task describe(self):
+        give self.owner + ": $" + format(self.balance, 2)
+
+type Savings from Account:
+    make rate = 0.1
+    task add_interest(self):
+        set self.balance = self.balance + self.balance * self.rate
+
+make acc = Savings("Ada", 100, 0.1)
+acc.deposit(50)
+acc.add_interest()
+show acc.describe()`],
+
+  ["functions.sprout",
+`~ Tasks are first-class values
+task apply_all(fns, x):
+    make r = x
+    for each f in fns:
+        set r = f(r)
+    give r
+make steps = [task(n): n + 1, task(n): n * 2, task(n): n * n]
+show "3 -> +1 -> *2 -> square =", apply_all(steps, 3)
+
+make double = task(x): x * 2
+show "double(21) =", double(21)
+show "map with a stored task:", map([1, 2, 3], double)`],
 ];
 
 const KW = new Set(['make','set','show','when','orwhen','otherwise','for','each','in','repeat','while','task','give','type','from','match','is','try','caught','fail','use','and','or','not','stop','skip','public','private','to','learn','test','expect','self']);
