@@ -12,14 +12,12 @@
 *.sh text eol=lf
 
 # ==============================================================================
-# GitHub Linguist Override (The Sprout Flex)
+# GitHub Linguist Override — show the Languages bar as C
 # ==============================================================================
-
-# Register .sprout as a distinct language and make it detectable.
-*.sprout linguist-language=Sprout
-*.sprout linguist-detectable=true
-
-# The interpreter is written in C, but we vendor it so the repo's language bar
-# highlights Sprout itself rather than its implementation language.
-src/**/*.c linguist-vendored
-src/**/*.h linguist-vendored
+# Sprout's interpreter is written in C. The playground (HTML/JS), its server (Python),
+# the build & installer scripts (Shell / Batchfile / Inno Setup), the .sprout examples, and
+# the docs are all tooling around it. Count ONLY the C, so the Languages bar shows what the
+# interpreter is implemented in (vendor everything, then un-vendor the C source).
+* linguist-vendored
+*.c linguist-vendored=false
+*.h linguist-vendored=false
