@@ -96,9 +96,23 @@
   .codewrap pre{position:absolute;inset:0;padding-top:8px;color:var(--ink);pointer-events:none;overflow:visible}
   .codewrap textarea{position:relative;width:100%;height:100%;color:transparent;caret-color:#cdd1d8;
     resize:none;outline:none;overflow:hidden}
-  .codewrap textarea::selection{background:#214283}
+  .codewrap textarea::selection{background:rgba(60,116,200,.40)}
+  .codewrap textarea::-moz-selection{background:rgba(60,116,200,.40)}
   .c-kw{color:var(--kw)} .c-str{color:var(--str)} .c-num{color:var(--num)}
   .c-com{color:var(--com);font-style:italic} .c-fn{color:var(--fn)} .c-lit{color:var(--kw)}
+
+  /* autocomplete popup (VS Code style) */
+  .acpop{position:absolute;z-index:50;min-width:240px;max-width:460px;max-height:228px;overflow-y:auto;
+    background:#2b2d30;border:1px solid #43454a;border-radius:7px;box-shadow:0 10px 28px rgba(0,0,0,.55);
+    padding:4px;display:none}
+  .acpop.on{display:block}
+  .acrow{display:flex;align-items:center;gap:8px;padding:4px 8px;border-radius:5px;color:var(--ink);
+    cursor:pointer;white-space:nowrap;font-family:var(--mono);font-size:13px}
+  .acrow.sel{background:var(--sel)}
+  .ackind{width:16px;height:16px;border-radius:3px;display:grid;place-items:center;font:700 10px var(--mono);
+    color:#10180f;flex:none}
+  .ackind.kw{background:var(--kw)} .ackind.fn{background:var(--fn)} .ackind.lit{background:var(--kw)} .ackind.vr{background:#57aaf7}
+  .aclabel{color:var(--ink)} .acdetail{color:var(--dim);font-size:12px;margin-left:auto;padding-left:18px}
 
   /* ---- run console ---- */
   .runpane{background:var(--bg);border-top:1px solid var(--divider);display:flex;flex-direction:column;min-height:0}
@@ -171,6 +185,7 @@
             <textarea id="code" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off"></textarea>
           </div>
         </div>
+        <div class="acpop" id="acpop"></div>
       </div>
       <div class="runpane" id="runpane">
         <div class="rh"><span class="dot"><svg class="ico" viewBox="0 0 16 16" width="12" height="12" style="fill:currentColor;stroke:none"><path d="M4 3l9 5-9 5z"/></svg></span>Run:&nbsp;<b id="runName">hello.sprout</b><span class="grow"></span><button class="iconbtn x" id="runClose" title="Hide"><svg class="ico" viewBox="0 0 16 16" width="12" height="12"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>
@@ -309,14 +324,81 @@ function updateCaret(){
 }
 function sync(){ hl.innerHTML = highlight(code.value); renderGutter(); }
 function onEdit(){ sync(); }
-code.addEventListener('input', ()=>{ updateCaret(); onEdit(); });
-code.addEventListener('keyup', updateCaret);
-code.addEventListener('click', updateCaret);
-code.addEventListener('scroll', ()=>{ hl.parentElement.scrollTop=code.scrollTop; hl.parentElement.scrollLeft=code.scrollLeft; });
+
+/* ---------- autocomplete (VS Code style) ---------- */
+const pop = $('acpop');
+const SIG = {range:'range(n) / range(a, b)',length:'length(x)',map:'map(list, task)',filter:'filter(list, task)',
+  reduce:'reduce(list, task, start)',group_by:'group_by(list, key)',min_by:'min_by(list, key)',max_by:'max_by(list, key)',
+  partition:'partition(list, test)',chunk:'chunk(list, size)',sum:'sum(list)',count:'count(coll, x)',unique:'unique(list)',
+  zip:'zip(a, b)',flatten:'flatten(list)',slice:'slice(x, start, end)',sort:'sort(list)',sort_by:'sort_by(list, key)',
+  reverse:'reverse(list)',add:'add(list, value)',remove:'remove(coll, key)',insert:'insert(list, i, value)',index_of:'index_of(x, item)',
+  keys:'keys(map)',values:'values(map)',contains:'contains(coll, x)',first:'first(list)',last:'last(list)',copy:'copy(x)',
+  round:'round(x [, places])',format:'format(n, places)',floor:'floor(n)',ceil:'ceil(n)',abs:'abs(n)',sqrt:'sqrt(n)',
+  pow:'pow(base, exp)',min:'min(...)',max:'max(...)',clamp:'clamp(x, lo, hi)',sign:'sign(n)',random:'random() / random(a, b)',
+  number:'number(text)',is_number:'is_number(text)',kind_of:'kind_of(x)',is_a:'is_a(obj, "Type")',upper:'upper(t)',lower:'lower(t)',
+  trim:'trim(t)',title:'title(t)',replace:'replace(t, a, b)',split:'split(text, sep)',join:'join(list, sep)',words:'words(t)',
+  lines:'lines(t)',starts_with:'starts_with(t, p)',ends_with:'ends_with(t, s)',pad_start:'pad_start(text, width [, fill])',
+  pad_end:'pad_end(text, width [, fill])',code:'code(char)',char:'char(n)',matches:'matches(text, pattern)',find:'find(text, pattern)',
+  find_all:'find_all(text, pattern)',captures:'captures(text, pattern)',ask:'ask(prompt)',args:'args()',env:'env(name [, default])',exit:'exit([code])'};
+const STATIC_AC = [
+  ...[...KW].map(l=>({label:l,kind:'kw',detail:'keyword'})),
+  ...[...LIT].map(l=>({label:l,kind:'lit',detail:'value'})),
+  ...[...FN].map(l=>({label:l,kind:'fn',detail:SIG[l]||'builtin'})),
+];
+const GLYPH = {kw:'K',fn:'ƒ',lit:'V',vr:'v'};
+let _cw=0;
+function charW(){ if(_cw)return _cw; const s=document.createElement('span');
+  s.style.cssText='position:absolute;visibility:hidden;white-space:pre;font-family:var(--mono);font-size:13.5px';
+  s.textContent='0'.repeat(20); document.body.appendChild(s); _cw=s.getBoundingClientRect().width/20; s.remove(); return _cw; }
+function dynAC(){ const ws=code.value.match(/[A-Za-z_]\w*/g)||[], seen=new Set(), out=[];
+  for(const w of ws){ if(seen.has(w)){continue;} seen.add(w); if(w.length<2||KW.has(w)||LIT.has(w)||FN.has(w))continue; out.push({label:w,kind:'vr',detail:'in this file'}); } return out; }
+function curWord(){ const v=code.value,p=code.selectionStart; let s=p; while(s>0&&/\w/.test(v[s-1]))s--; return {word:v.slice(s,p),start:s,end:p}; }
+let acItems=[], acSel=0;
+function hideAC(){ pop.classList.remove('on'); acItems=[]; }
+function renderAC(){
+  pop.innerHTML = acItems.map((c,i)=>`<div class="acrow${i===acSel?' sel':''}" data-i="${i}"><span class="ackind ${c.kind}">${GLYPH[c.kind]}</span><span class="aclabel">${esc(c.label)}</span><span class="acdetail">${esc(c.detail)}</span></div>`).join('');
+  pop.querySelectorAll('.acrow').forEach(r=>r.addEventListener('mousedown',e=>{ e.preventDefault(); acSel=+r.dataset.i; acceptAC(); }));
+  const sr=pop.querySelector('.acrow.sel'); if(sr) sr.scrollIntoView({block:'nearest'});
+}
+function positionAC(){
+  const {start}=curWord(), before=code.value.slice(0,start), ls=before.split('\n');
+  const line=ls.length-1, col=ls[ls.length-1].length, gw=gutter.getBoundingClientRect().width;
+  const x=Math.max(4, gw+16+col*charW()-code.scrollLeft), y=8+(line+1)*20-code.scrollTop;
+  const wrapH=pop.parentElement.getBoundingClientRect().height, popH=Math.min(228, acItems.length*23+8);
+  pop.style.left=x+'px'; pop.style.top=((y+popH>wrapH)? Math.max(4,y-20-popH) : y)+'px';
+}
+function updateAC(){
+  const {word}=curWord(); if(word.length<1){ hideAC(); return; }
+  const wl=word.toLowerCase();
+  acItems=STATIC_AC.concat(dynAC()).filter(c=>c.label.toLowerCase().startsWith(wl)&&c.label!==word)
+    .sort((a,b)=>a.label.length-b.label.length||a.label.localeCompare(b.label)).slice(0,30);
+  if(!acItems.length){ hideAC(); return; }
+  acSel=0; renderAC(); positionAC(); pop.classList.add('on');
+}
+function acceptAC(){
+  const c=acItems[acSel]; if(!c){ hideAC(); return; }
+  const {start,end}=curWord(), v=code.value;
+  code.value=v.slice(0,start)+c.label+v.slice(end);
+  code.selectionStart=code.selectionEnd=start+c.label.length;
+  hideAC(); updateCaret(); sync(); code.focus();
+}
+
+code.addEventListener('input', ()=>{ updateCaret(); onEdit(); updateAC(); });
+code.addEventListener('keyup', e=>{ if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)) hideAC(); updateCaret(); });
+code.addEventListener('click', ()=>{ hideAC(); updateCaret(); });
+code.addEventListener('blur', ()=>setTimeout(hideAC,150));
+code.addEventListener('scroll', ()=>{ hl.parentElement.scrollTop=code.scrollTop; hl.parentElement.scrollLeft=code.scrollLeft; if(pop.classList.contains('on')) positionAC(); });
 code.addEventListener('keydown', e=>{
+  if(pop.classList.contains('on')){
+    if(e.key==='ArrowDown'){ e.preventDefault(); acSel=(acSel+1)%acItems.length; renderAC(); return; }
+    if(e.key==='ArrowUp'){ e.preventDefault(); acSel=(acSel-1+acItems.length)%acItems.length; renderAC(); return; }
+    if(e.key==='Enter'||e.key==='Tab'){ e.preventDefault(); acceptAC(); return; }
+    if(e.key==='Escape'){ e.preventDefault(); hideAC(); return; }
+  }
+  if(e.ctrlKey&&e.key===' '){ e.preventDefault(); updateAC(); return; }   // Ctrl+Space to trigger
   if(e.key==='Tab'){ e.preventDefault(); const s=code.selectionStart,en=code.selectionEnd;
-    code.value=code.value.slice(0,s)+'    '+code.value.slice(en); code.selectionStart=code.selectionEnd=s+4; updateCaret(); onEdit(); }
-  if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){ e.preventDefault(); run(); }
+    code.value=code.value.slice(0,s)+'    '+code.value.slice(en); code.selectionStart=code.selectionEnd=s+4; updateCaret(); onEdit(); return; }
+  if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){ e.preventDefault(); run(); return; }
 });
 
 // file tree
