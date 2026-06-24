@@ -44,6 +44,8 @@ jobs:
           ls -la site
 
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true          # force the Pages source to GitHub Actions (don't fall back to the README via Jekyll)
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

@@ -15,6 +15,7 @@ Plain-English code, helpful errors, and zero dependencies. No Node, no VM, no ru
 </p>
 
 <p align="center">
+  <b><a href="https://fizzexual.github.io/Sprout/">▶ Try it in your browser</a></b> ·
   <a href="https://github.com/fizzexual/Sprout/releases">Download</a> ·
   <a href="wiki/getting-started.md">Get started</a> ·
   <a href="wiki/cheatsheet.md">Cheat sheet</a> ·
@@ -22,6 +23,8 @@ Plain-English code, helpful errors, and zero dependencies. No Node, no VM, no ru
   <a href="wiki_navigator.md">Full wiki</a> ·
   <a href="wiki/architecture.md">How it works</a>
 </p>
+
+<p align="center"><i>An in-browser IDE for Sprout — edit and run code live, no install — runs entirely client-side via WebAssembly.</i></p>
 
 ---
 
