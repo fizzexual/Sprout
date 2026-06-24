@@ -3,114 +3,205 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Sprout 🌱 — try it in your browser</title>
-<meta name="description" content="Sprout is a small, friendly, from-scratch programming language written in one file of C. Try it live — it runs entirely in your browser via WebAssembly." />
+<title>Sprout — playground</title>
+<meta name="description" content="An in-browser IDE for Sprout, a small from-scratch language. Edit and run Sprout code live via WebAssembly." />
 <style>
   :root{
-    --bg:#0f1411; --panel:#161d18; --panel2:#1d262044; --ink:#e7efe8; --dim:#8aa394;
-    --green:#5fd38a; --green2:#39b06a; --line:#28332c; --accent:#7ee0a3; --warn:#ffb454;
-    --mono:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;
-    --sans:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+    --bg:#1e1f22; --panel:#2b2d30; --panel-hi:#393b40; --editor:#1e1f22; --line:#1e1f22;
+    --border:#1e1f22; --divider:#393b40; --ink:#bcbec4; --dim:#868a91; --dimmer:#5a5d63;
+    --sel:#2e436e; --hover:#34373b; --green:#5fb865; --green2:#3f9a4a; --blue:#3573f0;
+    --kw:#cf8e6d; --str:#6aab73; --num:#2aacb8; --com:#7a7e85; --fn:#c9a26d; --warn:#f2c55c;
+    --mono:'JetBrains Mono','SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;
+    --sans:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    --gutter:52px; --activity:44px; --project:248px;
   }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.5}
-  a{color:var(--accent);text-decoration:none} a:hover{text-decoration:underline}
-  header{padding:28px 22px 10px;max-width:1100px;margin:0 auto}
-  .logo{font-size:30px;font-weight:800;letter-spacing:-.5px}
-  .logo .leaf{filter:drop-shadow(0 0 8px #5fd38a55)}
-  .tag{color:var(--dim);margin-top:4px;font-size:15px}
-  nav{margin-top:14px;display:flex;gap:18px;flex-wrap:wrap;font-size:14px}
-  nav a{color:var(--dim)} nav a:hover{color:var(--accent)}
-  main{max-width:1100px;margin:0 auto;padding:14px 22px 40px}
-  .pad{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
-  .bar{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--panel2);flex-wrap:wrap}
-  .bar .label{color:var(--dim);font-size:13px;margin-right:auto}
-  button{font-family:var(--sans);font-size:14px;font-weight:600;border:0;border-radius:8px;padding:8px 16px;cursor:pointer}
-  .run{background:var(--green2);color:#06140c} .run:hover{background:var(--green)}
-  .run:disabled{opacity:.55;cursor:default}
-  select{background:#0d1310;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-family:var(--sans);font-size:13px}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
-  @media(max-width:820px){.grid{grid-template-columns:1fr}}
-  textarea{width:100%;height:420px;resize:vertical;border:0;background:#0c110e;color:var(--ink);
-    font-family:var(--mono);font-size:14px;line-height:1.55;padding:14px;outline:none;tab-size:4}
-  pre.out{margin:0;height:420px;overflow:auto;padding:14px;font-family:var(--mono);font-size:14px;
-    line-height:1.55;color:var(--ink);white-space:pre-wrap;word-break:break-word}
-  pre.out .muted{color:var(--dim)} pre.out .err{color:var(--warn)}
-  .about{margin-top:28px;color:var(--dim);font-size:15px;max-width:780px}
-  .about h2{color:var(--ink);font-size:18px;margin:22px 0 6px}
-  .about code{font-family:var(--mono);background:#0d1310;border:1px solid var(--line);border-radius:5px;padding:1px 6px;color:var(--accent)}
-  .chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-  .chip{font-size:12px;color:var(--dim);background:#0d1310;border:1px solid var(--line);border-radius:999px;padding:4px 11px}
-  footer{color:var(--dim);font-size:13px;text-align:center;padding:24px}
-  .status{font-size:12px;color:var(--dim)}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--ink);
+    font-family:var(--sans);font-size:13px}
+  .ide{display:grid;grid-template-rows:30px 40px 1fr 24px;height:100vh}
+  svg{display:block} .ico{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.5}
+  .ico.fill{fill:currentColor;stroke:none}
+  button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;display:inline-flex;
+    align-items:center;gap:6px;border-radius:6px;padding:5px 7px}
+  button:hover{background:var(--hover)}
+
+  /* ---- title bar ---- */
+  .titlebar{display:flex;align-items:center;justify-content:center;position:relative;
+    background:var(--panel);border-bottom:1px solid var(--bg);color:var(--dim);font-size:12.5px;user-select:none}
+  .titlebar b{color:var(--ink);font-weight:500}
+  .titlebar .close{position:absolute;right:8px;top:50%;transform:translateY(-50%);color:var(--dim);
+    width:24px;height:24px;border-radius:6px;display:grid;place-items:center}
+  .titlebar .close:hover{background:#c0392b;color:#fff}
+
+  /* ---- toolbar ---- */
+  .toolbar{display:flex;align-items:center;gap:4px;padding:0 8px;background:var(--panel);
+    border-bottom:1px solid var(--bg);user-select:none}
+  .toolbar .spacer{flex:1}
+  .widget{display:inline-flex;align-items:center;gap:7px;padding:5px 8px;border-radius:7px;color:var(--ink)}
+  .widget:hover{background:var(--hover)} .widget .chev{color:var(--dim)}
+  .proj-badge{width:18px;height:18px;border-radius:5px;background:linear-gradient(135deg,#5fb865,#2f8f53);
+    display:grid;place-items:center;font-size:12px}
+  .runbtn{color:var(--green)} .runbtn:hover{background:rgba(95,184,101,.16)}
+  .runbtn .ico{stroke:none;fill:var(--green)}
+  .iconbtn{color:var(--dim);padding:6px;border-radius:7px} .iconbtn:hover{color:var(--ink)}
+  .chip{font-size:11px;color:var(--dim);padding:3px 9px;border:1px solid var(--divider);border-radius:7px}
+
+  /* ---- main row ---- */
+  .main{display:grid;grid-template-columns:var(--activity) var(--project) 1fr;min-height:0}
+  .activity{background:var(--panel);border-right:1px solid var(--bg);display:flex;
+    flex-direction:column;align-items:center;padding:8px 0;gap:4px}
+  .activity .a{width:30px;height:30px;border-radius:7px;display:grid;place-items:center;color:var(--dim);position:relative}
+  .activity .a:hover{background:var(--hover);color:var(--ink)}
+  .activity .a.on{color:var(--ink)} .activity .a.on::before{content:"";position:absolute;left:-8px;
+    top:6px;bottom:6px;width:2px;border-radius:2px;background:var(--ink)}
+  .activity .grow{flex:1}
+
+  /* ---- project panel ---- */
+  .project{background:var(--panel);border-right:1px solid var(--bg);display:flex;flex-direction:column;min-height:0}
+  .ph{display:flex;align-items:center;gap:6px;padding:9px 12px;color:var(--ink);font-weight:600;
+    font-size:12px}
+  .ph .chev{color:var(--dim)} .ph .grow{flex:1}
+  .tree{overflow:auto;padding:2px 4px 10px;flex:1;user-select:none}
+  .row{display:flex;align-items:center;gap:5px;padding:3px 6px;border-radius:6px;color:var(--ink);
+    cursor:pointer;white-space:nowrap;font-size:13px}
+  .row:hover{background:var(--hover)} .row.sel{background:var(--sel)}
+  .row .tw{width:14px;color:var(--dim);display:inline-flex;justify-content:center}
+  .row .leaf{font:600 10px var(--mono);width:16px;height:16px;border-radius:4px;display:grid;
+    place-items:center;color:#0d160f;background:#5fb865;flex:none}
+  .row .leaf.doc{background:#5b6168;color:#dfe2e6}
+
+  /* ---- editor column ---- */
+  .ecol{display:grid;grid-template-rows:35px 1fr 0fr;min-width:0;min-height:0;background:var(--editor)}
+  .ecol.show-run{grid-template-rows:35px 1fr 190px}
+  .tabs{display:flex;align-items:stretch;background:var(--panel);border-bottom:1px solid var(--bg)}
+  .tab{display:flex;align-items:center;gap:8px;padding:0 12px;font-size:13px;color:var(--dim);
+    background:var(--panel);border-right:1px solid var(--bg);cursor:default}
+  .tab.on{color:var(--ink);background:var(--editor);box-shadow:inset 0 -2px 0 var(--blue)}
+  .tab .x{color:var(--dimmer);border-radius:4px;width:18px;height:18px;display:grid;place-items:center}
+  .tab .x:hover{background:var(--hover);color:var(--ink)}
+  .editwrap{position:relative;min-height:0;overflow:hidden}
+  .insp{position:absolute;top:6px;right:18px;z-index:5;display:flex;align-items:center;gap:4px;
+    color:var(--dim);font-size:11px;background:rgba(43,45,48,.7);border-radius:7px;padding:2px 6px}
+  .insp .w{color:var(--warn)}
+  .editor{position:absolute;inset:0;display:flex;font-family:var(--mono);font-size:13.5px;line-height:20px;overflow:auto}
+  .gutter{flex:none;width:var(--gutter);padding:8px 0;text-align:right;color:var(--dimmer);
+    user-select:none;position:relative}
+  .gutter .ln{padding-right:10px} .gutter .ln.cur{color:var(--dim)}
+  .gutter .play{position:absolute;left:6px;top:8px;width:18px;height:20px;display:grid;place-items:center;
+    color:var(--green);cursor:pointer;border-radius:4px}
+  .gutter .play:hover{background:rgba(95,184,101,.16)}
+  .codewrap{position:relative;flex:1;padding:8px 0}
+  .codewrap pre,.codewrap textarea{margin:0;padding:0 16px;font:inherit;line-height:20px;
+    white-space:pre;tab-size:4;border:0;background:transparent}
+  .codewrap pre{position:absolute;inset:0;padding-top:8px;color:var(--ink);pointer-events:none;overflow:visible}
+  .codewrap textarea{position:relative;width:100%;height:100%;color:transparent;caret-color:#cdd1d8;
+    resize:none;outline:none;overflow:hidden}
+  .codewrap textarea::selection{background:#214283}
+  .c-kw{color:var(--kw)} .c-str{color:var(--str)} .c-num{color:var(--num)}
+  .c-com{color:var(--com);font-style:italic} .c-fn{color:var(--fn)} .c-lit{color:var(--kw)}
+
+  /* ---- run console ---- */
+  .runpane{background:var(--bg);border-top:1px solid var(--divider);display:flex;flex-direction:column;min-height:0}
+  .rh{display:flex;align-items:center;gap:8px;padding:5px 10px;color:var(--dim);font-size:12px;
+    border-bottom:1px solid var(--divider)}
+  .rh .dot{color:var(--green)} .rh b{color:var(--ink);font-weight:500} .rh .grow{flex:1}
+  .rh .x:hover{color:var(--ink)}
+  .console{flex:1;overflow:auto;padding:8px 12px;font-family:var(--mono);font-size:13px;line-height:1.55;
+    white-space:pre-wrap;word-break:break-word;color:#cdd1d8}
+  .console .muted{color:var(--dim)} .console .err{color:#f2755c} .console .ok{color:var(--green)}
+
+  /* ---- status bar ---- */
+  .status{display:flex;align-items:center;gap:14px;padding:0 12px;background:var(--panel);
+    border-top:1px solid var(--bg);color:var(--dim);font-size:12px;user-select:none}
+  .status .crumbs{flex:1;display:flex;align-items:center;gap:5px;overflow:hidden}
+  .status .crumbs span{color:var(--dim)} .status .crumbs b{color:var(--ink);font-weight:400}
+  .status .sep{color:var(--dimmer)} .status .s{white-space:nowrap}
+  .status .s:hover{color:var(--ink);cursor:default}
 </style>
 </head>
 <body>
-<header>
-  <div class="logo"><span class="leaf">🌱</span> Sprout</div>
-  <div class="tag">A small, friendly, <b>from-scratch</b> programming language — one file of C, <b>zero dependencies</b>. Running right here in your browser via WebAssembly.</div>
-  <nav>
-    <a href="https://github.com/fizzexual/Sprout">GitHub</a>
-    <a href="https://github.com/fizzexual/Sprout/tree/main/wiki">Docs</a>
-    <a href="https://github.com/fizzexual/Sprout/blob/main/wiki/cheatsheet.md">Cheat sheet</a>
-    <a href="https://github.com/fizzexual/Sprout/releases">Download</a>
-    <a href="https://github.com/fizzexual/Sprout/blob/main/CHANGELOG.md">Changelog</a>
-  </nav>
-</header>
+<div class="ide">
 
-<main>
-  <div class="grid">
-    <div class="pad">
-      <div class="bar">
-        <span class="label">program.sprout</span>
-        <select id="examples" aria-label="Load an example"></select>
-        <button class="run" id="run" disabled>▶ Run</button>
+  <!-- title bar -->
+  <div class="titlebar"><span>Sprout&nbsp;–&nbsp;<b id="title">hello.sprout</b>&nbsp;[playground]</span>
+    <a class="close" href="https://github.com/fizzexual/Sprout" title="Sprout on GitHub"><svg class="ico" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></a>
+  </div>
+
+  <!-- toolbar -->
+  <div class="toolbar">
+    <button class="iconbtn" title="Menu"><svg class="ico" viewBox="0 0 16 16"><path d="M2 4h12M2 8h12M2 12h12"/></svg></button>
+    <button class="widget"><span class="proj-badge">🌱</span>Sprout<svg class="ico chev" viewBox="0 0 16 16" width="12" height="12"><path d="M4 6l4 4 4-4"/></svg></button>
+    <button class="widget"><svg class="ico" viewBox="0 0 16 16" width="14" height="14"><path d="M5 3v7M5 10a2 2 0 100 0M11 6a2 2 0 100 0M11 6c0 3-6 1-6 4"/></svg>main<svg class="ico chev" viewBox="0 0 16 16" width="12" height="12"><path d="M4 6l4 4 4-4"/></svg></button>
+    <div class="spacer"></div>
+    <button class="widget"><span style="color:var(--dim)">Current File</span><svg class="ico chev" viewBox="0 0 16 16" width="12" height="12"><path d="M4 6l4 4 4-4"/></svg></button>
+    <button class="runbtn" id="runTop" title="Run (Ctrl+Enter)"><svg class="ico" viewBox="0 0 16 16"><path d="M4 3l9 5-9 5z"/></svg></button>
+    <button class="iconbtn" title="Debug"><svg class="ico" viewBox="0 0 16 16"><path d="M5 6a3 3 0 016 0v3a3 3 0 01-6 0zM2 7h3M11 7h3M2 11h3M11 11h3M8 3v1"/></svg></button>
+    <button class="iconbtn"><svg class="ico fill" viewBox="0 0 16 16" width="4" height="16"><circle cx="2" cy="3" r="1.4"/><circle cx="2" cy="8" r="1.4"/><circle cx="2" cy="13" r="1.4"/></svg></button>
+    <button class="iconbtn" title="Search"><svg class="ico" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="M11 11l3 3"/></svg></button>
+    <button class="iconbtn" title="Settings"><svg class="ico" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.3"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.5 3.5l1.4 1.4M11.1 11.1l1.4 1.4M3.5 12.5l1.4-1.4M11.1 4.9l1.4-1.4"/></svg></button>
+  </div>
+
+  <!-- main -->
+  <div class="main">
+    <div class="activity">
+      <div class="a on" title="Project"><svg class="ico" viewBox="0 0 16 16"><path d="M2 4a1 1 0 011-1h3l1.5 1.5H13a1 1 0 011 1V12a1 1 0 01-1 1H3a1 1 0 01-1-1z"/></svg></div>
+      <div class="a" title="Commit"><svg class="ico" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.5"/><path d="M2 8h3.5M10.5 8H14"/></svg></div>
+      <div class="a" title="Structure"><svg class="ico" viewBox="0 0 16 16"><path d="M3 3h4v4H3zM9 9h4v4H9zM5 7v4h4"/></svg></div>
+      <div class="a" title="More"><svg class="ico fill" viewBox="0 0 16 16"><circle cx="3" cy="8" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="13" cy="8" r="1.4"/></svg></div>
+      <div class="grow"></div>
+      <div class="a" title="Terminal"><svg class="ico" viewBox="0 0 16 16"><path d="M3 4l3 3-3 3M8 11h5"/></svg></div>
+      <div class="a" title="Problems"><svg class="ico" viewBox="0 0 16 16"><path d="M8 2l6 11H2zM8 7v3M8 11.5v.5"/></svg></div>
+    </div>
+
+    <div class="project">
+      <div class="ph"><span>Project</span><svg class="ico chev" viewBox="0 0 16 16" width="12" height="12"><path d="M4 6l4 4 4-4"/></svg><span class="grow"></span></div>
+      <div class="tree" id="tree"></div>
+    </div>
+
+    <div class="ecol" id="ecol">
+      <div class="tabs">
+        <div class="tab on"><span class="leaf" style="width:14px;height:14px;font-size:9px">S</span><span id="tabName">hello.sprout</span><span class="x" id="tabX"><svg class="ico" viewBox="0 0 16 16" width="11" height="11"><path d="M4 4l8 8M12 4l-8 8"/></svg></span></div>
       </div>
-      <textarea id="code" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
-    </div>
-    <div class="pad">
-      <div class="bar"><span class="label">output</span><span class="status" id="status">loading WebAssembly…</span></div>
-      <pre class="out" id="out"><span class="muted">Press Run to execute the program on the left.</span></pre>
+      <div class="editwrap">
+        <div class="insp"><span class="w">●</span><span id="inspText">ready</span></div>
+        <div class="editor" id="editor">
+          <div class="gutter" id="gutter"><div class="play" id="runGutter" title="Run this file"><svg class="ico" viewBox="0 0 16 16" width="13" height="13" style="fill:currentColor;stroke:none"><path d="M4 3l9 5-9 5z"/></svg></div></div>
+          <div class="codewrap">
+            <pre aria-hidden="true"><code id="hl"></code></pre>
+            <textarea id="code" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off"></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="runpane" id="runpane">
+        <div class="rh"><span class="dot"><svg class="ico" viewBox="0 0 16 16" width="12" height="12" style="fill:currentColor;stroke:none"><path d="M4 3l9 5-9 5z"/></svg></span>Run:&nbsp;<b id="runName">hello.sprout</b><span class="grow"></span><button class="iconbtn x" id="runClose" title="Hide"><svg class="ico" viewBox="0 0 16 16" width="12" height="12"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>
+        <div class="console" id="console"></div>
+      </div>
     </div>
   </div>
 
-  <div class="about">
-    <h2>What is Sprout?</h2>
-    Sprout is a general-purpose language built entirely from scratch in a single C file — its own
-    lexer, parser, tree-walking interpreter, and garbage collector, with no Node, no LLVM, nothing.
-    It aims to be the <b>kindest language to learn with</b> while still being able to build real
-    software: types &amp; inheritance, first-class functions &amp; closures, pattern matching,
-    regular expressions, a standard library, persistence, modules, a package manager, and a code
-    formatter — all in ~100&nbsp;KB.
-    <div class="chips">
-      <span class="chip">~ comments</span><span class="chip">make / set / show</span>
-      <span class="chip">when · for each · repeat</span><span class="chip">task + closures</span>
-      <span class="chip">type + super</span><span class="chip">match</span>
-      <span class="chip">try / caught</span><span class="chip">map · filter · group_by</span>
-      <span class="chip">regex + captures</span><span class="chip">98 builtins</span>
-    </div>
-    <h2>Good to know</h2>
-    The playground runs <b>sandboxed</b>: file, network, and shell builtins are off, and every Run
-    starts with a clean slate. Errors are friendly and tell you the line. For the full language,
-    read the <a href="https://github.com/fizzexual/Sprout/blob/main/wiki/cheatsheet.md">cheat sheet</a>
-    or grab a native binary from <a href="https://github.com/fizzexual/Sprout/releases">Releases</a>.
+  <!-- status bar -->
+  <div class="status">
+    <div class="crumbs"><span>Sprout</span><span class="sep">›</span><span>examples</span><span class="sep">›</span><b id="crumbFile">hello.sprout</b></div>
+    <span class="s" id="lncol">1:1</span>
+    <span class="s">LF</span>
+    <span class="s">UTF-8</span>
+    <span class="s">4 spaces</span>
+    <span class="s" id="wasmState" style="color:var(--dimmer)">WASM…</span>
   </div>
-</main>
-
-<footer>Sprout is open source (MIT). Built from scratch in C • <a href="https://github.com/fizzexual/Sprout">github.com/fizzexual/Sprout</a></footer>
+</div>
 
 <script>
 const EXAMPLES = [
-  ["Hello, Sprout",
-`~ Welcome to Sprout! Press Run.
+  ["hello.sprout",
+`~ Welcome to the Sprout playground!
+~ Press the green play (or Ctrl+Enter) to run.
 make name = "world"
 show "Hello, " + name + "!"
 show "2 + 2 =", 2 + 2
 show f"Sprout is {3 * 14}% fun"`],
 
-  ["FizzBuzz",
-`~ control flow: when / orwhen / otherwise + a loop
-for each i in range(1, 21):
+  ["fizzbuzz.sprout",
+`for each i in range(1, 21):
     when i % 15 == 0:
         show "FizzBuzz"
     orwhen i % 3 == 0:
@@ -120,7 +211,7 @@ for each i in range(1, 21):
     otherwise:
         show i`],
 
-  ["Types, inheritance & super",
+  ["types.sprout",
 `type Animal:
     make name = "?"
     task speak(self):
@@ -131,11 +222,10 @@ type Dog from Animal:
         give super.speak() + " (woof)"
 
 show Dog("Rex").speak()
-show "is a Dog? ", is_a(Dog("Rex"), "Animal")`],
+show "is a Dog an Animal? ", is_a(Dog("Rex"), "Animal")`],
 
-  ["Data pipeline",
-`~ collections + first-class tasks: the heart of Sprout
-make sales = [
+  ["pipeline.sprout",
+`make sales = [
     {who: "Ada", amt: 120}, {who: "Lin", amt: 80},
     {who: "Ada", amt: 200}, {who: "Lin", amt: 300},
 ]
@@ -144,13 +234,13 @@ make by = group_by(sales, task(s): s["who"])
 for each who, rows in by:
     show who, "->", sum(map(rows, task(r): r["amt"]))`],
 
-  ["Regex with capture groups",
+  ["regex.sprout",
 `make log = "2026-06-24  GET /home  200"
 make c = captures(log, "([0-9]+)-([0-9]+)-([0-9]+)")
 show "year:", c[1], " month:", c[2], " day:", c[3]
 show "numbers:", find_all(log, "[0-9]+")`],
 
-  ["Recursion & closures",
+  ["closures.sprout",
 `task fib(n):
     when n < 2:
         give n
@@ -163,7 +253,7 @@ task adder(x):
 make add10 = adder(10)
 show "add10(5) =", add10(5)`],
 
-  ["Error handling & match",
+  ["errors.sprout",
 `task classify(v):
     match v:
         is [a, b]:
@@ -181,54 +271,103 @@ caught e:
     show "caught a", e["kind"], "error:", e["message"]`],
 ];
 
-const codeEl = document.getElementById('code');
-const outEl = document.getElementById('out');
-const runBtn = document.getElementById('run');
-const statusEl = document.getElementById('status');
-const selEl = document.getElementById('examples');
+const KW = new Set(['make','set','show','when','orwhen','otherwise','for','each','in','repeat','while','task','give','type','from','match','is','try','caught','fail','use','and','or','not','stop','skip','public','private','to','learn','test','expect','self']);
+const LIT = new Set(['yes','no','nothing']);
+const FN = new Set(['range','length','add','remove','insert','sort','sort_by','reverse','index_of','map','filter','reduce','group_by','min_by','max_by','partition','chunk','sum','count','unique','zip','flatten','slice','keys','values','contains','first','last','copy','kind_of','is_a','round','format','floor','ceil','abs','sqrt','pow','min','max','clamp','sign','random','seed','number','is_number','sin','cos','tan','log','exp','pi','upper','lower','trim','replace','split','join','starts_with','ends_with','words','lines','title','pad_start','pad_end','code','char','matches','find','find_all','captures','ask','args','env','exit','now','today','time']);
 
-EXAMPLES.forEach((ex, i) => {
-  const o = document.createElement('option'); o.value = i; o.textContent = ex[0]; selEl.appendChild(o);
-});
-selEl.onchange = () => { codeEl.value = EXAMPLES[selEl.value][1]; };
-codeEl.value = EXAMPLES[0][1];
+const $ = id => document.getElementById(id);
+const code = $('code'), hl = $('hl'), gutter = $('gutter'), runGutter = $('runGutter');
+const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
-// allow Tab in the editor + Ctrl/Cmd+Enter to run
-codeEl.addEventListener('keydown', e => {
-  if (e.key === 'Tab') { e.preventDefault(); const s=codeEl.selectionStart,en=codeEl.selectionEnd;
-    codeEl.value = codeEl.value.slice(0,s) + '    ' + codeEl.value.slice(en); codeEl.selectionStart=codeEl.selectionEnd=s+4; }
-  if ((e.ctrlKey||e.metaKey) && e.key === 'Enter') { e.preventDefault(); run(); }
-});
-
-const stripAnsi = s => s.replace(/\x1b\[[0-9;]*m/g, '');
-
-let ready = false;
-// sprout.js (the Emscripten glue, built in CI) exposes the global factory `createSprout`.
-function whenLoaded() {
-  if (typeof createSprout === 'function') { ready = true; runBtn.disabled = false; statusEl.textContent = 'ready'; }
-  else setTimeout(whenLoaded, 120);
-}
-whenLoaded();
-
-async function run() {
-  if (!ready) return;
-  runBtn.disabled = true; statusEl.textContent = 'running…';
-  outEl.textContent = '';
-  let buf = '';
-  const push = s => { buf += s + '\n'; };
-  try {
-    const Module = await createSprout({ print: push, printErr: push, noInitialRun: true });
-    Module.FS.writeFile('/program.sprout', codeEl.value);
-    try { Module.callMain(['/program.sprout', '--sandbox']); }
-    catch (e) { if (!(e && (e.name === 'ExitStatus' || e.status !== undefined))) push('[runtime error] ' + e); }
-  } catch (e) {
-    push('[could not start the interpreter] ' + e);
+function highlight(src){
+  const re=/(~[^\n]*)|(f?"(?:[^"\\]|\\.)*")|(\b\d[\d_]*(?:\.\d+)?\b)|([A-Za-z_]\w*)/g;
+  let out='', last=0, m;
+  while((m=re.exec(src))){
+    out += esc(src.slice(last,m.index));
+    const t=m[0]; let cls=null;
+    if(m[1])cls='c-com'; else if(m[2])cls='c-str'; else if(m[3])cls='c-num';
+    else if(m[4]){ if(KW.has(t))cls='c-kw'; else if(LIT.has(t))cls='c-lit'; else if(FN.has(t))cls='c-fn'; }
+    out += cls ? `<span class="${cls}">${esc(t)}</span>` : esc(t);
+    last = m.index + t.length;
   }
-  const text = stripAnsi(buf).replace(/\n+$/,'');
-  outEl.textContent = text.length ? text : '(no output)';
-  runBtn.disabled = false; statusEl.textContent = 'ready';
+  out += esc(src.slice(last));
+  return out + '\n';
 }
-runBtn.onclick = run;
+
+let curLine = 1;
+function renderGutter(){
+  const lines = code.value.split('\n').length;
+  let html = '<div class="play" id="runGutter" title="Run this file"><svg viewBox="0 0 16 16" width="13" height="13" style="fill:currentColor;stroke:none"><path d="M4 3l9 5-9 5z"/></svg></div>';
+  for(let i=1;i<=lines;i++) html += `<div class="ln${i===curLine?' cur':''}">${i}</div>`;
+  gutter.innerHTML = html;
+  $('runGutter').onclick = run;
+}
+function updateCaret(){
+  const before = code.value.slice(0, code.selectionStart);
+  const ln = before.split('\n'); curLine = ln.length;
+  $('lncol').textContent = ln.length + ':' + (ln[ln.length-1].length + 1);
+}
+function sync(){ hl.innerHTML = highlight(code.value); renderGutter(); }
+function onEdit(){ sync(); }
+code.addEventListener('input', ()=>{ updateCaret(); onEdit(); });
+code.addEventListener('keyup', updateCaret);
+code.addEventListener('click', updateCaret);
+code.addEventListener('scroll', ()=>{ hl.parentElement.scrollTop=code.scrollTop; hl.parentElement.scrollLeft=code.scrollLeft; });
+code.addEventListener('keydown', e=>{
+  if(e.key==='Tab'){ e.preventDefault(); const s=code.selectionStart,en=code.selectionEnd;
+    code.value=code.value.slice(0,s)+'    '+code.value.slice(en); code.selectionStart=code.selectionEnd=s+4; updateCaret(); onEdit(); }
+  if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){ e.preventDefault(); run(); }
+});
+
+// file tree
+function buildTree(){
+  const t=$('tree');
+  let html='<div class="row"><span class="tw">▾</span><span class="leaf">S</span>&nbsp;Sprout playground</div>';
+  html+='<div class="row" style="padding-left:22px"><span class="tw">▾</span><svg class="ico" viewBox="0 0 16 16" width="14" height="14" style="color:var(--fn)"><path d="M2 4a1 1 0 011-1h3l1.5 1.5H13a1 1 0 011 1V12a1 1 0 01-1 1H3a1 1 0 01-1-1z"/></svg>&nbsp;examples</div>';
+  EXAMPLES.forEach((ex,i)=>{ html+=`<div class="row file${i===0?' sel':''}" data-i="${i}" style="padding-left:40px"><span class="tw"></span><span class="leaf">S</span>&nbsp;${ex[0]}</div>`; });
+  html+='<div class="row" style="padding-left:22px"><span class="tw"></span><span class="leaf doc">M</span>&nbsp;README.md</div>';
+  t.innerHTML=html;
+  t.querySelectorAll('.file').forEach(r=> r.onclick=()=>loadExample(+r.dataset.i, r));
+}
+function loadExample(i, rowEl){
+  const [name,src]=EXAMPLES[i];
+  code.value=src; updateCaret(); sync();
+  $('tabName').textContent=name; $('title').textContent=name; $('crumbFile').textContent=name; $('runName').textContent=name;
+  document.querySelectorAll('.row.sel').forEach(r=>r.classList.remove('sel'));
+  if(rowEl) rowEl.classList.add('sel');
+  code.focus();
+}
+
+// ---- run via WASM ----
+const stripAnsi = s => s.replace(/\x1b\[[0-9;]*m/g,'');
+let ready=false, tries=0;
+(function wait(){ if(typeof createSprout==='function'){ready=true;$('wasmState').textContent='WASM ready';$('inspText').textContent='ready';}
+  else if(tries++<40) setTimeout(wait,150);
+  else { $('wasmState').textContent='WASM unavailable'; $('inspText').textContent='offline'; } })();
+
+async function run(){
+  $('ecol').classList.add('show-run');
+  const con=$('console');
+  if(!ready){ con.innerHTML='<span class="muted">the WebAssembly interpreter is still loading…</span>'; return; }
+  $('inspText').textContent='running…'; con.innerHTML='<span class="muted">running '+$('tabName').textContent+'…</span>';
+  let buf='';
+  const push=s=>{ buf+=s+'\n'; };
+  try{
+    const M=await createSprout({print:push,printErr:push,noInitialRun:true});
+    M.FS.writeFile('/program.sprout', code.value);
+    try{ M.callMain(['/program.sprout','--sandbox']); }
+    catch(e){ if(!(e&&(e.name==='ExitStatus'||e.status!==undefined))) push('[runtime error] '+e); }
+  }catch(e){ push('[could not start the interpreter] '+e); }
+  const text=stripAnsi(buf).replace(/\n+$/,'');
+  con.textContent = text.length ? text : '(no output)';
+  con.innerHTML += '\n<span class="ok">\nProcess finished.</span>';
+  $('inspText').textContent='ready';
+}
+$('runTop').onclick=run; runGutter.onclick=run;
+$('runClose').onclick=()=>$('ecol').classList.remove('show-run');
+$('tabX').onclick=()=>{};
+
+buildTree(); loadExample(0, document.querySelector('.row.file')); code.focus();
 </script>
 <script src="sprout.js"></script>
 </body>
