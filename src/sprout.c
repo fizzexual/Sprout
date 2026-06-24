@@ -1515,6 +1515,9 @@ static char *read_whole_file(const char *path) {
 
 /* run a shell command and capture its output */
 static char *run_command(const char *cmd) {
+#ifdef __EMSCRIPTEN__
+  (void)cmd; return NULL;                 /* no subprocesses in the browser build */
+#else
 #ifdef _WIN32
   FILE *p = _popen(cmd, "r");
 #else
@@ -1533,11 +1536,14 @@ static char *run_command(const char *cmd) {
   pclose(p);
 #endif
   return buf;
+#endif
 }
 
 /* fetch a URL's body (downloads to a temp file, reads it back) */
 static char *http_get(const char *url) {
-#ifdef _WIN32
+#ifdef __EMSCRIPTEN__
+  (void)url; return NULL;                 /* no network in the browser build (the playground runs sandboxed anyway) */
+#elif defined(_WIN32)
   char tmp[MAX_PATH]; GetTempPathA(MAX_PATH, tmp);
   char file[MAX_PATH + 48]; snprintf(file, sizeof file, "%ssprout_get_%lu.tmp", tmp, (unsigned long)GetCurrentProcessId());
   if (URLDownloadToFileA(NULL, url, file, 0, NULL) != S_OK) { DeleteFileA(file); return NULL; }
@@ -3161,7 +3167,9 @@ static void learn_loop(Env *be, const char *n1, const char *n2) {
 static void exec(Stmt *s, Env *env) {
   /* a safe point: between statements every live value is a root. Inline the common
      no-collect case (just a load + compare) so non-allocating loops pay almost nothing. */
+#ifndef __EMSCRIPTEN__   /* the conservative stack scan can't see roots held in WASM locals; leak instead (playground programs are short, each run is a fresh instance) */
   if (gc_stack_bottom && (gc_bytes > gc_threshold || gc_stress)) gc_collect();
+#endif
   switch (s->kind) {
     case S_MAKE: {
       Value v = eval(s->expr, env);

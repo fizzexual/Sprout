@@ -1,0 +1,59 @@
+name: Playground (GitHub Pages)
+
+# Compiles the Sprout interpreter (src/sprout.c) to WebAssembly with Emscripten and publishes the
+# in-browser playground (playground/web/) to GitHub Pages. Everything runs client-side; Pages only
+# serves static files.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/sprout.c'
+      - 'playground/web/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+
+      - name: Compile Sprout to WebAssembly
+        run: |
+          mkdir -p site
+          cp -r playground/web/* site/
+          emcc src/sprout.c -O2 -o site/sprout.js \
+            -sMODULARIZE=1 -sEXPORT_NAME=createSprout \
+            -sINVOKE_RUN=0 -sEXIT_RUNTIME=1 \
+            -sEXPORTED_RUNTIME_METHODS=callMain,FS \
+            -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=4mb \
+            -sSUPPORT_LONGJMP=1 -lm
+          ls -la site
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
