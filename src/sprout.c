@@ -392,7 +392,7 @@ static void arg_error(int line, const char *fn, int pos, const char *expected, V
   char msg[512];
   if (hint && *hint) snprintf(msg, sizeof msg, "%s expected its %s input to be %s, but got %s.\n\n  Try:  %s", fn, nth_word(pos), expected, desc, hint);
   else               snprintf(msg, sizeof msg, "%s expected its %s input to be %s, but got %s.", fn, nth_word(pos), expected, desc);
-  fail_kind(line, "type", msg);
+  fail_kind(line, "error", msg);   /* a built-in called the wrong way is the generic 'error' kind (operators/[ ] use 'type') */
 }
 /* "<fn> takes <usage>, but you gave <got> input(s)." */
 static void arity_error(int line, const char *fn, const char *usage, int got) {
@@ -405,6 +405,9 @@ static char    *want_str (int line, const char *fn, int pos, Value v, const char
 static SList   *want_list(int line, const char *fn, int pos, Value v, const char *hint) { if (v.type != V_LIST) arg_error(line, fn, pos, "a list", v, hint);   return v.list; }
 static SMap    *want_map (int line, const char *fn, int pos, Value v, const char *hint) { if (v.type != V_MAP)  arg_error(line, fn, pos, "a map", v, hint);    return v.map; }
 static TaskDef *want_task(int line, const char *fn, int pos, Value v, const char *hint) { if (v.type != V_TASK) arg_error(line, fn, pos, "a task", v, hint);   return v.task; }
+/* the very common "exactly one <type>" builtin guard, with detailed arity + value messages */
+static void want_one_num(int line, const char *fn, int n, Value *a, const char *hint) { if (n != 1) arity_error(line, fn, "one number", n); if (a[0].type != V_NUM) arg_error(line, fn, 1, "a number", a[0], hint); }
+static void want_one_str(int line, const char *fn, int n, Value *a, const char *hint) { if (n != 1) arity_error(line, fn, "one piece of text", n); if (a[0].type != V_STR) arg_error(line, fn, 1, "some text", a[0], hint); }
 
 /* -------------------------------------------------------------------- lexer */
 typedef enum {
@@ -2408,7 +2411,7 @@ static Value call_builtin(Expr *call, Env *env) {
       }
       return vstr_take(out ? out : dup_str(""));
     }
-    fail(call->line, "slice works on a list or text.");
+    arg_error(call->line, "slice", 1, "a list or text", a[0], "slice(items, 1, 3)");
   }
   /* ---- text batteries ---- */
   if (!strcmp(name, "pad_start") || !strcmp(name, "pad_end")) {   /* pad text to a width with a fill (default space) */
@@ -2424,7 +2427,7 @@ static Value call_builtin(Expr *call, Env *env) {
     out[b]=0; Value rv = vstr_take(out); free(owned); return rv;
   }
   if (!strcmp(name, "words")) {
-    if (n != 1 || a[0].type != V_STR) fail(call->line, "words needs text.");
+    want_one_str(call->line, "words", n, a, "words(sentence)");
     const char *p = a[0].str ? a[0].str : ""; SList *out = list_new();
     while (*p) {
       while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
@@ -2435,7 +2438,7 @@ static Value call_builtin(Expr *call, Env *env) {
     return vlist(out);
   }
   if (!strcmp(name, "lines")) {     /* split on newlines; a trailing newline does not add an empty line; "" -> [] */
-    if (n != 1 || a[0].type != V_STR) fail(call->line, "lines needs text.");
+    want_one_str(call->line, "lines", n, a, "lines(text)");
     const char *p = a[0].str ? a[0].str : ""; SList *out = list_new();
     if (*p) { const char *st = p; for (;;) {
         if (*p == '\n' || *p == 0) { int ln = (int)(p - st); if (ln > 0 && st[ln - 1] == '\r') ln--; char *w = (char *)malloc(ln + 1); memcpy(w, st, ln); w[ln] = 0; list_push(out, vstr_take(w)); if (!*p) break; p++; st = p; if (!*p) break; }
@@ -2444,65 +2447,76 @@ static Value call_builtin(Expr *call, Env *env) {
     return vlist(out);
   }
   if (!strcmp(name, "title")) {     /* Title Case: first letter of each word upper, rest lower (ASCII, like upper/lower) */
-    if (n != 1 || a[0].type != V_STR) fail(call->line, "title needs text.");
+    want_one_str(call->line, "title", n, a, "title(name)");
     const char *p = a[0].str ? a[0].str : ""; size_t ln = strlen(p); char *out = (char *)malloc(ln + 1); int at_start = 1;
     for (size_t i = 0; i < ln; i++) { char c = p[i]; if (c == ' ' || c == '\t' || c == '\n' || c == '\r') { out[i] = c; at_start = 1; } else { out[i] = at_start ? (char)toupper((unsigned char)c) : (char)tolower((unsigned char)c); at_start = 0; } }
     out[ln] = 0; return vstr_take(out);
   }
   if (!strcmp(name, "seed")) {      /* make random() reproducible */
-    if (n != 1 || a[0].type != V_NUM) fail(call->line, "seed needs a number, like seed(42).");
+    want_one_num(call->line, "seed", n, a, "seed(42)");
     srand((unsigned)a[0].num);
     return vnone();
   }
   if (!strcmp(name, "pow")) {
-    if (n != 2 || a[0].type != V_NUM || a[1].type != V_NUM) fail(call->line, "pow needs two numbers, like pow(2, 10).");
+    if (n != 2) arity_error(call->line, "pow", "two numbers, like pow(2, 10)", n);
+    want_num(call->line, "pow", 1, a[0], "pow(2, 10)");
+    want_num(call->line, "pow", 2, a[1], "pow(2, 10)");
     double r = pow(a[0].num, a[1].num);
     if (!isfinite(r)) fail_kind(call->line, "math", "pow can't compute that (a negative base with a fractional power, a zero base with a negative power, or a result too large to hold).");
     return vnum(r);
   }
-  if (!strcmp(name, "starts_with")) { if (n != 2 || a[0].type != V_STR || a[1].type != V_STR) fail(call->line, "starts_with needs two pieces of text."); const char *h = a[0].str ? a[0].str : "", *p = a[1].str ? a[1].str : ""; return vbool(strncmp(h, p, strlen(p)) == 0); }
-  if (!strcmp(name, "ends_with"))   { if (n != 2 || a[0].type != V_STR || a[1].type != V_STR) fail(call->line, "ends_with needs two pieces of text.");   const char *h = a[0].str ? a[0].str : "", *p = a[1].str ? a[1].str : ""; size_t hl = strlen(h), pl = strlen(p); return vbool(pl <= hl && strcmp(h + hl - pl, p) == 0); }
+  if (!strcmp(name, "starts_with")) { if (n != 2) arity_error(call->line, "starts_with", "two pieces of text, like starts_with(name, \"Dr\")", n); want_str(call->line, "starts_with", 1, a[0], "starts_with(name, \"Dr\")"); want_str(call->line, "starts_with", 2, a[1], "starts_with(name, \"Dr\")"); const char *h = a[0].str ? a[0].str : "", *p = a[1].str ? a[1].str : ""; return vbool(strncmp(h, p, strlen(p)) == 0); }
+  if (!strcmp(name, "ends_with"))   { if (n != 2) arity_error(call->line, "ends_with", "two pieces of text, like ends_with(file, \".txt\")", n); want_str(call->line, "ends_with", 1, a[0], "ends_with(file, \".txt\")"); want_str(call->line, "ends_with", 2, a[1], "ends_with(file, \".txt\")");   const char *h = a[0].str ? a[0].str : "", *p = a[1].str ? a[1].str : ""; size_t hl = strlen(h), pl = strlen(p); return vbool(pl <= hl && strcmp(h + hl - pl, p) == 0); }
   /* ---- numbers ---- */
-  if (!strcmp(name, "abs"))   { if (n!=1||a[0].type!=V_NUM) fail(call->line,"abs needs a number.");   return vnum(fabs(a[0].num)); }
+  if (!strcmp(name, "abs"))   { want_one_num(call->line,"abs",n,a,"abs(x)");   return vnum(fabs(a[0].num)); }
   if (!strcmp(name, "round")) {
-    if (n<1||n>2||a[0].type!=V_NUM||(n==2&&a[1].type!=V_NUM)) fail(call->line,"round needs a number, and optionally how many decimal places, like round(3.14159, 2).");
+    if (n<1||n>2) arity_error(call->line,"round","a number and optionally decimal places, like round(3.14159, 2)",n);
+    want_num(call->line,"round",1,a[0],"round(3.14159, 2)");
+    if (n==2) want_num(call->line,"round",2,a[1],"round(3.14159, 2)");
     if (n==1) return vnum(round(a[0].num));                       /* round half away from zero (no floor(x+0.5) double-rounding) */
     double m = pow(10.0, (int)a[1].num);
     double r = round(a[0].num * m) / m;
     return vnum(isfinite(r) ? r : a[0].num);                      /* absurd precision (m overflows/underflows) -> a no-op, never nan */
   }
-  if (!strcmp(name, "clamp")) { if(n!=3||a[0].type!=V_NUM||a[1].type!=V_NUM||a[2].type!=V_NUM) fail(call->line,"clamp needs three numbers: clamp(x, low, high)."); double x=a[0].num,lo=a[1].num,hi=a[2].num; return vnum(x<lo?lo:(x>hi?hi:x)); }
-  if (!strcmp(name, "sign"))  { if(n!=1||a[0].type!=V_NUM) fail(call->line,"sign needs a number."); double x=a[0].num; return vnum(x>0?1:(x<0?-1:0)); }
+  if (!strcmp(name, "clamp")) { if(n!=3) arity_error(call->line,"clamp","three numbers: clamp(x, low, high)",n); want_num(call->line,"clamp",1,a[0],"clamp(x, 0, 100)"); want_num(call->line,"clamp",2,a[1],"clamp(x, 0, 100)"); want_num(call->line,"clamp",3,a[2],"clamp(x, 0, 100)"); double x=a[0].num,lo=a[1].num,hi=a[2].num; return vnum(x<lo?lo:(x>hi?hi:x)); }
+  if (!strcmp(name, "sign"))  { want_one_num(call->line,"sign",n,a,"sign(x)"); double x=a[0].num; return vnum(x>0?1:(x<0?-1:0)); }
   if (!strcmp(name, "format")) {   /* a number as text with EXACTLY N decimal places: format(159.6, 2) -> "159.60" (for money/columns) */
-    if (n!=2 || a[0].type!=V_NUM || a[1].type!=V_NUM) fail(call->line,"format needs a number and how many decimal places, like format(3.14159, 2).");
+    if (n!=2) arity_error(call->line,"format","a number and decimal places, like format(3.14159, 2)",n);
+    want_num(call->line,"format",1,a[0],"format(3.14159, 2)");
+    want_num(call->line,"format",2,a[1],"format(3.14159, 2)");
     if (a[1].num < 0 || a[1].num != floor(a[1].num) || a[1].num > 30) fail_kind(call->line,"value","format's decimal places must be a whole number from 0 to 30.");
     char buf[400]; snprintf(buf, sizeof buf, "%.*f", (int)a[1].num, a[0].num);
     return vstr_take(dup_str(buf));
   }
-  if (!strcmp(name, "floor")) { if (n!=1||a[0].type!=V_NUM) fail(call->line,"floor needs a number."); return vnum(floor(a[0].num)); }
-  if (!strcmp(name, "ceil"))  { if (n!=1||a[0].type!=V_NUM) fail(call->line,"ceil needs a number.");  return vnum(ceil(a[0].num)); }
-  if (!strcmp(name, "sqrt"))  { if (n!=1||a[0].type!=V_NUM) fail(call->line,"sqrt needs a number."); if (a[0].num<0) fail_kind(call->line,"math","sqrt can't take a negative number."); return vnum(sqrt(a[0].num)); }
-  if (!strcmp(name, "sin"))   { if (n!=1||a[0].type!=V_NUM) fail(call->line,"sin needs a number (an angle in radians).");  return vnum(sin(a[0].num)); }
-  if (!strcmp(name, "cos"))   { if (n!=1||a[0].type!=V_NUM) fail(call->line,"cos needs a number (an angle in radians).");  return vnum(cos(a[0].num)); }
-  if (!strcmp(name, "tan"))   { if (n!=1||a[0].type!=V_NUM) fail(call->line,"tan needs a number (an angle in radians).");  return vnum(tan(a[0].num)); }
-  if (!strcmp(name, "exp"))   { if (n!=1||a[0].type!=V_NUM) fail(call->line,"exp needs a number."); double r=exp(a[0].num); if(!isfinite(r)) fail_kind(call->line,"math","exp overflowed — that result is too big to hold."); return vnum(r); }
+  if (!strcmp(name, "floor")) { want_one_num(call->line,"floor",n,a,"floor(x)"); return vnum(floor(a[0].num)); }
+  if (!strcmp(name, "ceil"))  { want_one_num(call->line,"ceil",n,a,"ceil(x)");  return vnum(ceil(a[0].num)); }
+  if (!strcmp(name, "sqrt"))  { want_one_num(call->line,"sqrt",n,a,"sqrt(x)"); if (a[0].num<0) fail_kind(call->line,"math","sqrt can't take a negative number."); return vnum(sqrt(a[0].num)); }
+  if (!strcmp(name, "sin"))   { want_one_num(call->line,"sin",n,a,"sin(radians)");  return vnum(sin(a[0].num)); }
+  if (!strcmp(name, "cos"))   { want_one_num(call->line,"cos",n,a,"cos(radians)");  return vnum(cos(a[0].num)); }
+  if (!strcmp(name, "tan"))   { want_one_num(call->line,"tan",n,a,"tan(radians)");  return vnum(tan(a[0].num)); }
+  if (!strcmp(name, "exp"))   { want_one_num(call->line,"exp",n,a,"exp(x)"); double r=exp(a[0].num); if(!isfinite(r)) fail_kind(call->line,"math","exp overflowed — that result is too big to hold."); return vnum(r); }
   if (!strcmp(name, "log"))   {   /* natural log; log(x, base) for any base */
-    if ((n!=1 && n!=2) || a[0].type!=V_NUM || (n==2 && a[1].type!=V_NUM)) fail(call->line,"log needs a number, and an optional base: log(x) or log(x, base).");
+    if (n!=1 && n!=2) arity_error(call->line,"log","a number and an optional base: log(x) or log(x, base)",n);
+    want_num(call->line,"log",1,a[0],"log(x)  or  log(x, base)");
+    if (n==2) want_num(call->line,"log",2,a[1],"log(x, base)");
     if (a[0].num <= 0) fail_kind(call->line,"math","log needs a positive number.");
     if (n==2) { if (a[1].num<=0 || a[1].num==1) fail_kind(call->line,"math","a logarithm base must be positive and not 1."); return vnum(log(a[0].num)/log(a[1].num)); }
     return vnum(log(a[0].num));
   }
-  if (!strcmp(name, "pi"))    { if (n!=0) fail(call->line,"pi takes no inputs, like pi()."); return vnum(3.14159265358979323846); }
-  if (!strcmp(name, "args"))  { if (n!=0) fail(call->line,"args takes no inputs, like args()."); SList *l=list_new(); for (int i=0;i<g_prog_nargs;i++) list_push(l, vstr(g_prog_args[i])); return vlist(l); }
-  if (!strcmp(name, "exit"))  { if (n>1||(n==1&&a[0].type!=V_NUM)) fail(call->line,"exit takes an optional exit code, like exit(0) or exit(1)."); exit(n==1 ? (int)a[0].num : 0); }
+  if (!strcmp(name, "pi"))    { if (n!=0) arity_error(call->line,"pi","no inputs, like pi()",n); return vnum(3.14159265358979323846); }
+  if (!strcmp(name, "args"))  { if (n!=0) arity_error(call->line,"args","no inputs, like args()",n); SList *l=list_new(); for (int i=0;i<g_prog_nargs;i++) list_push(l, vstr(g_prog_args[i])); return vlist(l); }
+  if (!strcmp(name, "exit"))  { if (n>1) arity_error(call->line,"exit","an optional exit code, like exit(0) or exit(1)",n); if (n==1) want_num(call->line,"exit",1,a[0],"exit(0)"); exit(n==1 ? (int)a[0].num : 0); }
   if (!strcmp(name, "env"))   {   /* read an environment variable; off in --sandbox (may hold secrets) */
-    if (n<1 || n>2 || a[0].type!=V_STR) fail(call->line,"env needs a name, and an optional default: env(\"HOME\") or env(\"PORT\", \"8080\").");
+    if (n<1 || n>2) arity_error(call->line,"env","a name and an optional default: env(\"HOME\") or env(\"PORT\", \"8080\")",n);
+    want_str(call->line,"env",1,a[0],"env(\"HOME\")");
     const char *v = getenv(a[0].str ? a[0].str : "");
     if (v) return vstr(v);
     return n==2 ? a[1] : vnone();
   }
   if (!strcmp(name, "matches")) {   /* does the WHOLE text match the regex pattern? */
-    if (n!=2 || a[0].type!=V_STR || a[1].type!=V_STR) fail(call->line,"matches needs text and a pattern, like matches(name, \"[a-z]+\").");
+    if (n!=2) arity_error(call->line,"matches","text and a pattern, like matches(name, \"[a-z]+\")",n);
+    want_str(call->line,"matches",1,a[0],"matches(name, \"[a-z]+\")");
+    want_str(call->line,"matches",2,a[1],"matches(name, \"[a-z]+\")");
     const char *s = a[0].str?a[0].str:"", *p = a[1].str?a[1].str:"";
     REProg prog; int ng; RENode *root = re_compile(p, &prog, &ng); RECaps caps;
     int ok = re_full(root, s, (int)strlen(s), &caps);
@@ -2510,7 +2524,9 @@ static Value call_builtin(Expr *call, Env *env) {
     return vbool(ok);
   }
   if (!strcmp(name, "find")) {      /* the first substring matching the pattern, or nothing */
-    if (n!=2 || a[0].type!=V_STR || a[1].type!=V_STR) fail(call->line,"find needs text and a pattern, like find(s, \"[0-9]+\").");
+    if (n!=2) arity_error(call->line,"find","text and a pattern, like find(s, \"[0-9]+\")",n);
+    want_str(call->line,"find",1,a[0],"find(s, \"[0-9]+\")");
+    want_str(call->line,"find",2,a[1],"find(s, \"[0-9]+\")");
     const char *s = a[0].str?a[0].str:"", *p = a[1].str?a[1].str:"";
     REProg prog; int ng; RENode *root = re_compile(p, &prog, &ng); RECaps caps;
     Value rv = vnone();
@@ -2523,7 +2539,9 @@ static Value call_builtin(Expr *call, Env *env) {
     return rv;
   }
   if (!strcmp(name, "find_all")) {  /* every non-overlapping match, as a list of text */
-    if (n!=2 || a[0].type!=V_STR || a[1].type!=V_STR) fail(call->line,"find_all needs text and a pattern, like find_all(s, \"[0-9]+\").");
+    if (n!=2) arity_error(call->line,"find_all","text and a pattern, like find_all(s, \"[0-9]+\")",n);
+    want_str(call->line,"find_all",1,a[0],"find_all(s, \"[0-9]+\")");
+    want_str(call->line,"find_all",2,a[1],"find_all(s, \"[0-9]+\")");
     const char *s = a[0].str?a[0].str:"", *p = a[1].str?a[1].str:"";
     REProg prog; int ng; RENode *root = re_compile(p, &prog, &ng); RECaps caps;
     int tlen = (int)strlen(s); SList *l = list_new(); int pos = 0;
@@ -2537,7 +2555,9 @@ static Value call_builtin(Expr *call, Env *env) {
     return vlist(l);
   }
   if (!strcmp(name, "captures")) {  /* first match as [whole, group1, group2, ...]; a group that didn't match is nothing */
-    if (n!=2 || a[0].type!=V_STR || a[1].type!=V_STR) fail(call->line,"captures needs text and a pattern, like captures(s, \"([0-9]+)-([0-9]+)\").");
+    if (n!=2) arity_error(call->line,"captures","text and a pattern, like captures(s, \"([0-9]+)-([0-9]+)\")",n);
+    want_str(call->line,"captures",1,a[0],"captures(s, \"(\\\\d+)\")");
+    want_str(call->line,"captures",2,a[1],"captures(s, \"(\\\\d+)\")");
     const char *s = a[0].str?a[0].str:"", *p = a[1].str?a[1].str:"";
     REProg prog; int ng; RENode *root = re_compile(p, &prog, &ng); RECaps caps;
     Value rv = vnone();
@@ -2565,7 +2585,7 @@ static Value call_builtin(Expr *call, Env *env) {
     fail(call->line,"random() gives 0..1; random(n) or random(a,b) give whole numbers.");
   }
   if (!strcmp(name, "number")) {
-    if (n!=1) fail(call->line,"number needs one input.");
+    if (n!=1) arity_error(call->line,"number","one input, like number(\"42\")",n);
     if (a[0].type==V_NUM) return a[0];
     if (a[0].type==V_STR) {
       const char*p=a[0].str?a[0].str:"";
@@ -2579,7 +2599,7 @@ static Value call_builtin(Expr *call, Env *env) {
     return vnone();
   }
   if (!strcmp(name,"is_number")) {                  /* yes if number() would parse this as a number */
-    if (n!=1) fail(call->line,"is_number needs one input.");
+    if (n!=1) arity_error(call->line,"is_number","one input, like is_number(\"42\")",n);
     if (a[0].type==V_NUM) return vbool(1);
     if (a[0].type!=V_STR) return vbool(0);
     const char*p=a[0].str?a[0].str:"";
@@ -2591,13 +2611,13 @@ static Value call_builtin(Expr *call, Env *env) {
     return vbool(end!=p && *end==0 && isfinite(d));
   }
   if (!strcmp(name,"code")) {                        /* code("A") -> 65 — the first character's byte value */
-    if (n!=1||a[0].type!=V_STR) fail(call->line,"code needs one piece of text, like code(\"A\").");
+    want_one_str(call->line,"code",n,a,"code(\"A\")");
     const char*s=a[0].str?a[0].str:"";
     if(!s[0]) fail_kind(call->line,"value","code needs at least one character, but the text is empty.");
     return vnum((double)(unsigned char)s[0]);
   }
   if (!strcmp(name,"char")) {                        /* char(65) -> "A" — a one-character string from a byte value */
-    if (n!=1||a[0].type!=V_NUM) fail(call->line,"char needs one number, like char(65).");
+    want_one_num(call->line,"char",n,a,"char(65)");
     int code=(int)a[0].num;
     if(code<1||code>255) fail_kind(call->line,"value","char needs a number from 1 to 255 (Sprout text can't hold a zero byte).");
     char buf[2]={(char)code,0}; return vstr_take(dup_str(buf));
@@ -2610,17 +2630,22 @@ static Value call_builtin(Expr *call, Env *env) {
     return vstr_take(s);
   }
   if (!strcmp(name,"trim")) {
-    if (n!=1||a[0].type!=V_STR) fail(call->line,"trim needs text.");
+    want_one_str(call->line,"trim",n,a,"trim(text)");
     const char*p=a[0].str?a[0].str:""; while(*p==' '||*p=='\t'||*p=='\n'||*p=='\r')p++;
     int e=(int)strlen(p); while(e>0&&(p[e-1]==' '||p[e-1]=='\t'||p[e-1]=='\n'||p[e-1]=='\r'))e--;
     char*s=(char*)malloc(e+1); memcpy(s,p,e); s[e]=0; return vstr_take(s);
   }
   if (!strcmp(name,"replace")) {
-    if (n!=3||a[0].type!=V_STR||a[1].type!=V_STR||a[2].type!=V_STR) fail(call->line,"replace needs three pieces of text: replace(text, find, with).");
+    if (n!=3) arity_error(call->line,"replace","three pieces of text: replace(text, find, with)",n);
+    want_str(call->line,"replace",1,a[0],"replace(text, \"a\", \"b\")");
+    want_str(call->line,"replace",2,a[1],"replace(text, \"a\", \"b\")");
+    want_str(call->line,"replace",3,a[2],"replace(text, \"a\", \"b\")");
     return vstr_take(str_replace_all(a[0].str?a[0].str:"", a[1].str?a[1].str:"", a[2].str?a[2].str:""));
   }
   if (!strcmp(name,"split")) {
-    if (n!=2||a[0].type!=V_STR||a[1].type!=V_STR) fail(call->line,"split needs text and a separator.");
+    if (n!=2) arity_error(call->line,"split","text and a separator, like split(csv, \",\")",n);
+    want_str(call->line,"split",1,a[0],"split(csv, \",\")");
+    want_str(call->line,"split",2,a[1],"split(csv, \",\")");
     const char*s=a[0].str?a[0].str:""; const char*sep=a[1].str?a[1].str:""; SList*l=list_new();
     if (!*sep) { for(int i=0;s[i];){int cl=utf8_clen((unsigned char)s[i]);char ch[5];int k=0;for(;k<cl&&s[i+k];k++)ch[k]=s[i+k];ch[k]=0;list_push(l,vstr_take(dup_str(ch)));i+=k?k:1;} return vlist(l); }
     size_t sl=strlen(sep); const char*start=s;
@@ -2628,7 +2653,8 @@ static Value call_builtin(Expr *call, Env *env) {
     return vlist(l);
   }
   if (!strcmp(name,"join")) {
-    if (n!=2||a[0].type!=V_LIST) fail(call->line,"join needs a list and a separator.");
+    if (n!=2) arity_error(call->line,"join","a list and a separator, like join(items, \", \")",n);
+    want_list(call->line,"join",1,a[0],"join(items, \", \")");
     const char*sep=(a[1].type==V_STR&&a[1].str)?a[1].str:""; size_t cap=0,len=0; char*out=NULL;
     for(int i=0;a[0].list&&i<a[0].list->n;i++){ if(i) sb_add(&out,&cap,&len,sep); char*t=stringify(a[0].list->items[i]); sb_add(&out,&cap,&len,t); }
     if(!out) out=dup_str("");
