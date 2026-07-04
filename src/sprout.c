@@ -380,14 +380,7 @@ static void val_describe(Value v, char *buf, size_t cap) {  /* a short, human pr
     default:     snprintf(buf, cap, "a value"); break;
   }
 }
-static const char *val_typename(Value v) {  /* just the type, for the 'expected' side or two-operand messages */
-  switch (v.type) {
-    case V_NUM: return "a number"; case V_STR: return "some text"; case V_BOOL: return "a yes/no";
-    case V_NONE: return "nothing"; case V_LIST: return "a list";
-    case V_MAP: return (v.map && v.map->classname) ? "an object" : "a map";
-    case V_TASK: return "a task"; default: return "a value";
-  }
-}
+/* (type_name() near the top of the file already renders a value's type for messages) */
 static const char *nth_word(int n) {
   switch (n) { case 1: return "1st"; case 2: return "2nd"; case 3: return "3rd"; case 4: return "4th";
     case 5: return "5th"; case 6: return "6th"; case 7: return "7th"; case 8: return "8th"; }
@@ -2259,48 +2252,58 @@ static Value call_builtin(Expr *call, Env *env) {
       long long ci = 0; for (const char *p = h; p < at; ) { p += utf8_clen((unsigned char)*p); ci++; }   /* byte -> char index */
       return vnum((double)ci);
     }
-    fail(call->line, "index_of works on a list, or on text + text.");
+    arg_error(call->line, "index_of", 1, "a list, or text (with text)", a[0], "index_of(items, x)  or  index_of(\"hello\", \"ll\")");
   }
   if (!strcmp(name, "values")) {
-    if (n != 1 || a[0].type != V_MAP) fail(call->line, "values needs a map.");
+    if (n != 1) arity_error(call->line, "values", "one map, like values(person)", n);
+    want_map(call->line, "values", 1, a[0], "values(person)");
     SList *l = list_new();
     for (int i = 0; a[0].map && i < a[0].map->n; i++) list_push(l, a[0].map->vals[i]);
     return vlist(l);
   }
-  if (!strcmp(name, "copy")) { if (n != 1) fail(call->line, "copy needs one value, like copy(myList)."); return deep_copy(a[0]); }
+  if (!strcmp(name, "copy")) { if (n != 1) arity_error(call->line, "copy", "one value, like copy(items)", n); return deep_copy(a[0]); }
   if (!strcmp(name, "kind_of")) {   /* a simple, switchable type tag for beginners: when kind_of(x) == "number": ... */
-    if (n != 1) fail(call->line, "kind_of needs one value, like kind_of(x).");
+    if (n != 1) arity_error(call->line, "kind_of", "one value, like kind_of(x)", n);
     const char *k = "nothing";
     switch (a[0].type) { case V_NUM: k="number"; break; case V_STR: k="text"; break; case V_BOOL: k="yes-no"; break; case V_LIST: k="list"; break; case V_MAP: k=(a[0].map && a[0].map->classname) ? a[0].map->classname : "map"; break; case V_TASK: k="task"; break; default: k="nothing"; }
     return vstr_take(dup_str(k));
   }
   if (!strcmp(name, "is_a")) {   /* is this object that type, or a descendant of it? (like Java's instanceof) */
-    if (n != 2 || a[1].type != V_STR) fail(call->line, "is_a needs a value and a type name, like is_a(d, \"Animal\").");
+    if (n != 2) arity_error(call->line, "is_a", "a value and a type name, like is_a(d, \"Animal\")", n);
+    want_str(call->line, "is_a", 2, a[1], "is_a(d, \"Animal\")");
     if (a[0].type != V_MAP || !a[0].map || !a[0].map->classname) return vbool(0);
     TypeReg *t = type_find(a[0].map->classname);
     return vbool(t && type_is_a(t, a[1].str ? a[1].str : ""));
   }
   /* ---- higher-order: run a task over a list (the "easy data" trio + each) ---- */
   if (!strcmp(name, "map")) {
-    if (n != 2 || a[0].type != V_LIST || a[1].type != V_TASK) fail(call->line, "map needs a list and a task, like map(names, shout).");
+    if (n != 2) arity_error(call->line, "map", "a list and a task, like map(names, shout)", n);
+    want_list(call->line, "map", 1, a[0], "map(names, shout)");
+    want_task(call->line, "map", 2, a[1], "map(names, shout)");
     SList *out = list_new(); int len = a[0].list ? a[0].list->n : 0;   /* snapshot length: a mutating task can't extend the loop */
     for (int i = 0; i < len; i++) { Value arg = a[0].list->items[i]; list_push(out, call_task_v(a[1].task, &arg, 1, call->line)); }
     return vlist(out);
   }
   if (!strcmp(name, "filter")) {
-    if (n != 2 || a[0].type != V_LIST || a[1].type != V_TASK) fail(call->line, "filter needs a list and a task that gives yes/no, like filter(nums, is_even).");
+    if (n != 2) arity_error(call->line, "filter", "a list and a task that gives yes/no, like filter(nums, is_even)", n);
+    want_list(call->line, "filter", 1, a[0], "filter(nums, is_even)");
+    want_task(call->line, "filter", 2, a[1], "filter(nums, is_even)");
     SList *out = list_new(); int len = a[0].list ? a[0].list->n : 0;
     for (int i = 0; i < len; i++) { Value item = a[0].list->items[i]; if (is_truthy(call_task_v(a[1].task, &item, 1, call->line))) list_push(out, item); }
     return vlist(out);
   }
   if (!strcmp(name, "reduce")) {
-    if (n != 3 || a[0].type != V_LIST || a[1].type != V_TASK) fail(call->line, "reduce needs a list, a task taking (total, item), and a starting value, like reduce(nums, add_up, 0).");
+    if (n != 3) arity_error(call->line, "reduce", "a list, a task taking (total, item), and a start value, like reduce(nums, add_up, 0)", n);
+    want_list(call->line, "reduce", 1, a[0], "reduce(nums, add_up, 0)");
+    want_task(call->line, "reduce", 2, a[1], "reduce(nums, add_up, 0)");
     Value acc = a[2]; int len = a[0].list ? a[0].list->n : 0;
     for (int i = 0; i < len; i++) { Value two[2] = { acc, a[0].list->items[i] }; acc = call_task_v(a[1].task, two, 2, call->line); }
     return acc;
   }
   if (!strcmp(name, "group_by")) {   /* group items into a map; the task gives each item's key (used as text) */
-    if (n != 2 || a[0].type != V_LIST || a[1].type != V_TASK) fail(call->line, "group_by needs a list and a task that gives each item's key, like group_by(people, get_city).");
+    if (n != 2) arity_error(call->line, "group_by", "a list and a task that gives each item's key, like group_by(people, get_city)", n);
+    want_list(call->line, "group_by", 1, a[0], "group_by(people, get_city)");
+    want_task(call->line, "group_by", 2, a[1], "group_by(people, get_city)");
     SMap *m = map_new(); int len = a[0].list ? a[0].list->n : 0;
     for (int i = 0; i < len; i++) {
       Value item = a[0].list->items[i];
@@ -2314,7 +2317,9 @@ static Value call_builtin(Expr *call, Env *env) {
   }
   if (!strcmp(name, "min_by") || !strcmp(name, "max_by")) {   /* the item whose key (from the task) is smallest / largest */
     int wantmax = (name[1] == 'a');
-    if (n != 2 || a[0].type != V_LIST || a[1].type != V_TASK) fail(call->line, "min_by/max_by need a list and a task that gives a number or text key, like min_by(people, get_age).");
+    if (n != 2) arity_error(call->line, name, "a list and a task that gives a key, like min_by(people, get_age)", n);
+    want_list(call->line, name, 1, a[0], "min_by(people, get_age)");
+    want_task(call->line, name, 2, a[1], "min_by(people, get_age)");
     int len = a[0].list ? a[0].list->n : 0;
     if (len == 0) return vnone();
     Value best = a[0].list->items[0], bk = call_task_v(a[1].task, &best, 1, call->line);
@@ -2328,54 +2333,66 @@ static Value call_builtin(Expr *call, Env *env) {
     return best;
   }
   if (!strcmp(name, "partition")) {   /* split a list into [matches, rest] by a yes/no task */
-    if (n != 2 || a[0].type != V_LIST || a[1].type != V_TASK) fail(call->line, "partition needs a list and a task that gives yes/no, like partition(nums, is_even).");
+    if (n != 2) arity_error(call->line, "partition", "a list and a task that gives yes/no, like partition(nums, is_even)", n);
+    want_list(call->line, "partition", 1, a[0], "partition(nums, is_even)");
+    want_task(call->line, "partition", 2, a[1], "partition(nums, is_even)");
     SList *yes = list_new(), *no = list_new(); int len = a[0].list ? a[0].list->n : 0;
     for (int i = 0; i < len; i++) { Value item = a[0].list->items[i]; if (is_truthy(call_task_v(a[1].task, &item, 1, call->line))) list_push(yes, item); else list_push(no, item); }
     SList *pair = list_new(); list_push(pair, vlist(yes)); list_push(pair, vlist(no));
     return vlist(pair);
   }
   if (!strcmp(name, "chunk")) {   /* split a list into pieces of at most `size` items */
-    if (n != 2 || a[0].type != V_LIST || a[1].type != V_NUM) fail(call->line, "chunk needs a list and a size, like chunk(items, 3).");
+    if (n != 2) arity_error(call->line, "chunk", "a list and a size, like chunk(items, 3)", n);
+    want_list(call->line, "chunk", 1, a[0], "chunk(items, 3)");
+    want_num(call->line, "chunk", 2, a[1], "chunk(items, 3)");
     int size = (int)a[1].num;
-    if (size < 1) fail(call->line, "chunk needs a size of at least 1.");
+    if (size < 1) { char m[120]; snprintf(m, sizeof m, "chunk's size must be at least 1, but you gave %d.", size); fail(call->line, m); }
     SList *out = list_new(); int len = a[0].list ? a[0].list->n : 0; SList *cur = NULL;
     for (int i = 0; i < len; i++) { if (i % size == 0) { cur = list_new(); list_push(out, vlist(cur)); } list_push(cur, a[0].list->items[i]); }
     return vlist(out);
   }
   /* ---- collection batteries ---- */
   if (!strcmp(name, "sum")) {
-    if (n != 1 || a[0].type != V_LIST) fail(call->line, "sum needs a list of numbers, like sum([1, 2, 3]).");
+    if (n != 1) arity_error(call->line, "sum", "one list of numbers, like sum([1, 2, 3])", n);
+    want_list(call->line, "sum", 1, a[0], "sum([1, 2, 3])");
     double s = 0;
-    for (int i = 0; a[0].list && i < a[0].list->n; i++) { if (a[0].list->items[i].type != V_NUM) fail_kind(call->line, "type", "sum needs every item to be a number."); s += a[0].list->items[i].num; }
+    for (int i = 0; a[0].list && i < a[0].list->n; i++) { if (a[0].list->items[i].type != V_NUM) { char m[160], d[96]; val_describe(a[0].list->items[i], d, sizeof d); snprintf(m, sizeof m, "sum needs every item to be a number, but item %d is %s.", i + 1, d); fail_kind(call->line, "type", m); } s += a[0].list->items[i].num; }
     return vnum(s);
   }
   if (!strcmp(name, "count")) {
-    if (n != 2) fail(call->line, "count needs a list + a value, or text + a piece of text.");
+    if (n != 2) arity_error(call->line, "count", "a list + a value, or text + a piece of text", n);
     if (a[0].type == V_LIST) { int c = 0; for (int i = 0; a[0].list && i < a[0].list->n; i++) if (values_equal(a[0].list->items[i], a[1])) c++; return vnum(c); }
     if (a[0].type == V_STR && a[1].type == V_STR) { const char *h = a[0].str ? a[0].str : "", *ndl = a[1].str ? a[1].str : ""; if (!*ndl) return vnum(0); int c = 0; const char *p = h; while ((p = strstr(p, ndl))) { c++; p += strlen(ndl); } return vnum(c); }
-    fail(call->line, "count works on a list (+ a value) or text (+ text).");
+    arg_error(call->line, "count", 1, "a list, or text (with text)", a[0], "count(items, x)  or  count(\"banana\", \"a\")");
   }
   if (!strcmp(name, "unique")) {
-    if (n != 1 || a[0].type != V_LIST) fail(call->line, "unique needs a list.");
+    if (n != 1) arity_error(call->line, "unique", "one list, like unique(items)", n);
+    want_list(call->line, "unique", 1, a[0], "unique(items)");
     SList *out = list_new();
     for (int i = 0; a[0].list && i < a[0].list->n; i++) { int dup = 0; for (int j = 0; j < out->n; j++) if (values_equal(out->items[j], a[0].list->items[i])) { dup = 1; break; } if (!dup) list_push(out, a[0].list->items[i]); }
     return vlist(out);
   }
   if (!strcmp(name, "zip")) {
-    if (n != 2 || a[0].type != V_LIST || a[1].type != V_LIST) fail(call->line, "zip needs two lists, like zip(names, scores).");
+    if (n != 2) arity_error(call->line, "zip", "two lists, like zip(names, scores)", n);
+    want_list(call->line, "zip", 1, a[0], "zip(names, scores)");
+    want_list(call->line, "zip", 2, a[1], "zip(names, scores)");
     SList *out = list_new(); int la = a[0].list ? a[0].list->n : 0, lb = a[1].list ? a[1].list->n : 0, m = la < lb ? la : lb;
     for (int i = 0; i < m; i++) { SList *pair = list_new(); list_push(pair, a[0].list->items[i]); list_push(pair, a[1].list->items[i]); list_push(out, vlist(pair)); }
     return vlist(out);
   }
   if (!strcmp(name, "flatten")) {   /* one level deep */
-    if (n != 1 || a[0].type != V_LIST) fail(call->line, "flatten needs a list.");
+    if (n != 1) arity_error(call->line, "flatten", "one list, like flatten(nested)", n);
+    want_list(call->line, "flatten", 1, a[0], "flatten(nested)");
     SList *out = list_new();
     for (int i = 0; a[0].list && i < a[0].list->n; i++) { Value it = a[0].list->items[i]; if (it.type == V_LIST) { for (int j = 0; it.list && j < it.list->n; j++) list_push(out, it.list->items[j]); } else list_push(out, it); }
     return vlist(out);
   }
   if (!strcmp(name, "slice")) {     /* start inclusive, end exclusive (like other languages); clamped */
-    if (n != 3 || a[1].type != V_NUM || a[2].type != V_NUM) fail(call->line, "slice needs a list-or-text and two whole-number positions, like slice(xs, 1, 3).");
-    if (a[1].num != (double)(long long)a[1].num || a[2].num != (double)(long long)a[2].num) fail(call->line, "slice positions must be whole numbers.");
+    if (n != 3) arity_error(call->line, "slice", "a list-or-text and two positions, like slice(xs, 1, 3)", n);
+    want_num(call->line, "slice", 2, a[1], "slice(xs, 1, 3)");
+    want_num(call->line, "slice", 3, a[2], "slice(xs, 1, 3)");
+    if (a[1].num != (double)(long long)a[1].num) arg_error(call->line, "slice", 2, "a whole number", a[1], "slice(xs, 1, 3)");
+    if (a[2].num != (double)(long long)a[2].num) arg_error(call->line, "slice", 3, "a whole number", a[2], "slice(xs, 1, 3)");
     long long s = (long long)a[1].num, e = (long long)a[2].num; if (s < 0) s = 0; if (e < 0) e = 0;
     if (a[0].type == V_LIST) {
       int len = a[0].list ? a[0].list->n : 0; if (e > len) e = len; SList *out = list_new();
@@ -2786,7 +2803,7 @@ static Value apply_arith(TokType op, Value l, Value r, int line) {
     }
     if (l.type == V_STR || r.type == V_STR) { char *a = stringify(l), *b = stringify(r); char *out = (char *)malloc(strlen(a) + strlen(b) + 1); strcpy(out, a); strcat(out, b); Value rv = vstr_take(out); free(a); free(b); return rv; }
     if (l.type == V_NUM && r.type == V_NUM) return vnum(check_finite(l.num + r.num, line));
-    { char buf[256]; snprintf(buf, sizeof buf, "I can't add %s and a different kind of value.", type_name(l)); fail_kind(line, "type", buf); }
+    { char buf[256]; snprintf(buf, sizeof buf, "I can't add %s and %s.\n\n  '+' adds two numbers or joins text \xE2\x80\x94 convert one first, e.g.  number(x)  or  \"\" + x.", type_name(l), type_name(r)); fail_kind(line, "type", buf); }
   }
   if (op == T_STAR && (l.type == V_STR || r.type == V_STR)) {        /* text * n  ->  repeated text:  "=" * 40 */
     Value s = (l.type == V_STR) ? l : r, k = (l.type == V_STR) ? r : l;
@@ -2804,7 +2821,7 @@ static Value apply_arith(TokType op, Value l, Value r, int line) {
     for (long long i = 0; i < times; i++) for (int j = 0; ls.list && j < ls.list->n; j++) list_push(out, ls.list->items[j]);
     return vlist(out);
   }
-  if (l.type != V_NUM || r.type != V_NUM) fail_kind(line, "type", "math needs two numbers.");
+  if (l.type != V_NUM || r.type != V_NUM) { const char *ow = (op==T_MINUS)?"subtract":(op==T_STAR)?"multiply":(op==T_SLASH)?"divide":"take the remainder of"; char buf[256]; snprintf(buf, sizeof buf, "I can't %s %s and %s \xE2\x80\x94 that needs two numbers.", ow, type_name(l), type_name(r)); fail_kind(line, "type", buf); }
   if (op == T_MINUS) return vnum(check_finite(l.num - r.num, line));
   if (op == T_STAR)  return vnum(check_finite(l.num * r.num, line));
   if (r.num == 0) fail_kind(line, "math", op == T_SLASH ? "you tried to divide by zero." : "you tried to take a remainder with zero.");
@@ -2831,7 +2848,7 @@ static Value eval_binary(Expr *e, Env *env) {
       }
       else if (l.type == V_NUM && r.type == V_NUM) cmp = (l.num < r.num) ? -1 : (l.num > r.num) ? 1 : 0;
       else if (l.type == V_STR && r.type == V_STR) cmp = strcmp(l.str, r.str);
-      else { fail_kind(e->line, "type", "I can only compare two numbers or two pieces of text (or a type that has a compare method)."); return vnone(); }
+      else { char buf[256]; snprintf(buf, sizeof buf, "I can't compare %s with %s \xE2\x80\x94 I compare two numbers or two pieces of text (or a type with a compare method).", type_name(l), type_name(r)); fail_kind(e->line, "type", buf); return vnone(); }
       if (e->op == T_LT) return vbool(cmp < 0);
       if (e->op == T_LE) return vbool(cmp <= 0);
       if (e->op == T_GT) return vbool(cmp > 0);
@@ -3029,7 +3046,7 @@ static Value eval(Expr *e, Env *env) {
     }
     case E_RANGE: {                                    /* a to b — an inclusive list of whole numbers */
       Value a = eval(e->left, env), b = eval(e->right, env);
-      if (a.type != V_NUM || b.type != V_NUM) fail_kind(e->line, "type", "a range (a to b) needs two numbers.");
+      if (a.type != V_NUM || b.type != V_NUM) { char buf[220]; snprintf(buf, sizeof buf, "a range (a to b) needs two numbers, but got %s and %s.", type_name(a), type_name(b)); fail_kind(e->line, "type", buf); }
       if (a.num != (double)(long long)a.num || b.num != (double)(long long)b.num) fail_kind(e->line, "type", "a range (a to b) needs whole numbers.");
       long long lo = (long long)a.num, hi = (long long)b.num;
       if (hi - lo >= 100000000LL) fail(e->line, "that range is too big.");   /* inclusive: caps at 100M elements, matching range() */
@@ -3115,20 +3132,20 @@ static Value eval(Expr *e, Env *env) {
     case E_INDEX: {
       Value c = eval(e->target, env), ix = eval(e->index, env);
       if (c.type == V_LIST) {
-        if (ix.type != V_NUM) fail_kind(e->line, "type", "a list position must be a number.");
-        if (ix.num != (double)(long long)ix.num) fail_kind(e->line, "type", "a list position must be a whole number.");
+        if (ix.type != V_NUM) { char m[160], d[96]; val_describe(ix, d, sizeof d); snprintf(m, sizeof m, "a list position must be a number, but you used %s.", d); fail_kind(e->line, "type", m); }
+        if (ix.num != (double)(long long)ix.num) { char m[160]; snprintf(m, sizeof m, "a list position must be a whole number, but you used %g.", ix.num); fail_kind(e->line, "type", m); }
         long long i = (long long)ix.num;
-        if (!c.list || i < 0 || i >= c.list->n) fail_kind(e->line, "index", "that position doesn't exist in the list (positions start at 0; for the end use last(...)).");
+        if (!c.list || i < 0 || i >= c.list->n) { int len = c.list ? c.list->n : 0; char m[220]; if (len == 0) snprintf(m, sizeof m, "you asked for position %lld, but this list is empty.", i); else snprintf(m, sizeof m, "position %lld doesn't exist \xE2\x80\x94 this list has %d item%s (valid positions are 0 to %d; for the last item use last(...)).", i, len, len == 1 ? "" : "s", len - 1); fail_kind(e->line, "index", m); }
         return c.list->items[i];
       }
       if (c.type == V_MAP) {
-        if (ix.type != V_STR) fail_kind(e->line, "type", "a map key must be text.");
+        if (ix.type != V_STR) { char m[160], d[96]; val_describe(ix, d, sizeof d); snprintf(m, sizeof m, "a map key must be text, but you used %s.", d); fail_kind(e->line, "type", m); }
         int i = c.map ? map_index(c.map, ix.str) : -1;
         return i >= 0 ? c.map->vals[i] : vnone();
       }
       if (c.type == V_STR) {                              /* text[i] -> the i-th character (UTF-8 aware) */
-        if (ix.type != V_NUM) fail_kind(e->line, "type", "a text position must be a number.");
-        if (ix.num != (double)(long long)ix.num) fail_kind(e->line, "type", "a text position must be a whole number.");
+        if (ix.type != V_NUM) { char m[160], d[96]; val_describe(ix, d, sizeof d); snprintf(m, sizeof m, "a text position must be a number, but you used %s.", d); fail_kind(e->line, "type", m); }
+        if (ix.num != (double)(long long)ix.num) { char m[160]; snprintf(m, sizeof m, "a text position must be a whole number, but you used %g.", ix.num); fail_kind(e->line, "type", m); }
         long long want = (long long)ix.num;
         const char *p = c.str ? c.str : "";
         long long idx = 0;
@@ -3139,7 +3156,7 @@ static Value eval(Expr *e, Env *env) {
           if (idx == want) return vstr_take(dup_str(ch));
           idx++; i += k ? k : 1;
         }
-        fail_kind(e->line, "index", "that position doesn't exist in the text.");
+        { char m[200]; if (idx == 0) snprintf(m, sizeof m, "you asked for position %lld, but this text is empty.", want); else snprintf(m, sizeof m, "position %lld doesn't exist in this text \xE2\x80\x94 it has %lld character%s (valid positions are 0 to %lld).", want, idx, idx == 1 ? "" : "s", idx - 1); fail_kind(e->line, "index", m); }
       }
       if (c.type == V_NONE) fail_kind(e->line, "type", "you tried to look inside 'nothing' with [ ] - there's nothing there to index.");
       fail_kind(e->line, "type", "I can only look inside a list, a map, or text with [ ].");
