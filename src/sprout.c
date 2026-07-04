@@ -1551,6 +1551,18 @@ static const char *suggest_name(const char *name, Env *env, int include_vars) {
      private) — suggesting the identical word back is unhelpful, so skip it. */
   return (best && bestd >= 1 && bestd <= thr) ? best : NULL;
 }
+/* the closest existing map key to a missing one, for a 'did you mean' on a typo'd lookup.
+   Returns NULL unless a key is within a small edit distance, so a genuinely-absent optional
+   key still just reads as nothing (same threshold rule as suggest_name). */
+static const char *nearest_map_key(SMap *m, const char *key) {
+  if (!m || !key || !*key) return NULL;
+  const char *best = NULL; int bestd = 1000;
+  for (int i = 0; i < m->n; i++) { int d = edit_distance(key, m->keys[i]); if (d < bestd) { bestd = d; best = m->keys[i]; } }
+  int L = (int)strlen(key), thr = L <= 3 ? 1 : 2;
+  if (!best || bestd < 1 || bestd > thr) return NULL;
+  int pre = 0; while (key[pre] && best[pre] && key[pre] == best[pre]) pre++;   /* shared leading chars */
+  return pre >= 2 ? best : NULL;   /* a real typo keeps a common prefix (cost/cost2); avoids x/y, next/text */
+}
 
 /* built-in functions — called like tasks: name(args). */
 /* ---- helpers for the "superpower" builtins: files, shell, web, json, text ---- */
@@ -3173,7 +3185,9 @@ static Value eval(Expr *e, Env *env) {
       if (c.type == V_MAP) {
         if (ix.type != V_STR) { char m[160], d[96]; val_describe(ix, d, sizeof d); snprintf(m, sizeof m, "a map key must be text, but you used %s.", d); fail_kind(e->line, "type", m); }
         int i = c.map ? map_index(c.map, ix.str) : -1;
-        return i >= 0 ? c.map->vals[i] : vnone();
+        if (i >= 0) return c.map->vals[i];
+        { const char *sug = nearest_map_key(c.map, ix.str); if (sug) { char km[220]; snprintf(km, sizeof km, "this map has no key \"%s\" \xE2\x80\x94 did you mean \"%s\"?", ix.str ? ix.str : "", sug); fail_kind(e->line, "key", km); } }
+        return vnone();   /* a genuinely-absent key reads as nothing (optional lookups) */
       }
       if (c.type == V_STR) {                              /* text[i] -> the i-th character (UTF-8 aware) */
         if (ix.type != V_NUM) { char m[160], d[96]; val_describe(ix, d, sizeof d); snprintf(m, sizeof m, "a text position must be a number, but you used %s.", d); fail_kind(e->line, "type", m); }
@@ -3487,7 +3501,7 @@ static void exec(Stmt *s, Env *env) {
         if (!c.map) fail(s->line, "this map isn't ready to set into.");
         if (s->setop) {
           int mi = map_index(c.map, ix.str);
-          if (mi < 0) failf(s->line, "I can't update '%s' with that because the map has no such key yet.", ix.str);
+          if (mi < 0) { const char *sug = nearest_map_key(c.map, ix.str); char km[240]; if (sug) snprintf(km, sizeof km, "can't update \"%s\" \xE2\x80\x94 this map has no such key (did you mean \"%s\"?).", ix.str ? ix.str : "", sug); else snprintf(km, sizeof km, "can't update \"%s\" \xE2\x80\x94 this map has no such key yet.", ix.str ? ix.str : ""); fail_kind(s->line, "key", km); }
           val = apply_arith(s->setop, c.map->vals[mi], val, s->line);
         }
         map_set(c.map, ix.str, val);
