@@ -2415,7 +2415,9 @@ static Value call_builtin(Expr *call, Env *env) {
   }
   /* ---- text batteries ---- */
   if (!strcmp(name, "pad_start") || !strcmp(name, "pad_end")) {   /* pad text to a width with a fill (default space) */
-    if (n<2 || n>3 || a[1].type!=V_NUM || (n==3 && a[2].type!=V_STR)) fail(call->line, "pad_start/pad_end need text (or a number), a width, and an optional fill: pad_start(\"7\", 3, \"0\").");
+    if (n<2 || n>3) arity_error(call->line, name, "text, a width, and an optional fill: pad_start(\"7\", 3, \"0\")", n);
+    want_num(call->line, name, 2, a[1], "pad_start(\"7\", 3, \"0\")");
+    if (n==3) want_str(call->line, name, 3, a[2], "pad_start(\"7\", 3, \"0\")");
     if (a[1].num < 0 || a[1].num != floor(a[1].num) || a[1].num > 1e8) fail_kind(call->line, "value", "pad width must be a whole number from 0 to 100000000.");
     char *owned = (a[0].type == V_STR) ? NULL : stringify(a[0]);   /* a number/list/etc. is shown the same way `show`/`+` would */
     const char *s = owned ? owned : (a[0].str?a[0].str:""); int slen = (int)strlen(s); int width = (int)a[1].num;
@@ -2573,9 +2575,9 @@ static Value call_builtin(Expr *call, Env *env) {
     return rv;
   }
   if (!strcmp(name, "min") || !strcmp(name, "max")) {
-    if (n<1) fail(call->line,"min/max need at least one number.");
+    if (n<1) arity_error(call->line, name, "at least one number, like min(3, 7) or min([3, 7])", n);
     double best=0; int set=0; int wantMin = (name[1]=='i');
-    for (int i=0;i<n;i++){ if(a[i].type!=V_NUM) fail_kind(call->line,"type","min/max work on numbers."); if(!set||(wantMin?a[i].num<best:a[i].num>best)){best=a[i].num;set=1;} }
+    for (int i=0;i<n;i++){ if(a[i].type!=V_NUM){ char m[160], d[96]; val_describe(a[i], d, sizeof d); snprintf(m, sizeof m, "%s works on numbers, but input %d is %s.", name, i+1, d); fail_kind(call->line,"type",m); } if(!set||(wantMin?a[i].num<best:a[i].num>best)){best=a[i].num;set=1;} }
     return vnum(best);
   }
   if (!strcmp(name, "random")) {
@@ -2624,7 +2626,7 @@ static Value call_builtin(Expr *call, Env *env) {
   }
   /* ---- text ---- */
   if (!strcmp(name,"upper")||!strcmp(name,"lower")) {
-    if (n!=1||a[0].type!=V_STR) fail(call->line,"upper/lower need text.");
+    want_one_str(call->line, name, n, a, "upper(text)");
     char *s=dup_str(a[0].str?a[0].str:""); int up=(name[0]=='u');
     for (char*p=s;*p;p++) *p = up ? (char)toupper((unsigned char)*p) : (char)tolower((unsigned char)*p);
     return vstr_take(s);
@@ -2674,14 +2676,14 @@ static Value call_builtin(Expr *call, Env *env) {
     return vstr_take(dup_str(buf));
   }
   if (!strcmp(name,"time")) {   /* the current moment as a number: seconds since 1970 (the Unix epoch) */
-    if (n!=0) fail(call->line,"time takes no inputs, like time().");
+    if (n!=0) arity_error(call->line,"time","no inputs, like time()",n);
     return vnum((double)time(NULL));
   }
-  if (!strcmp(name,"days"))    { if (n!=1||a[0].type!=V_NUM) fail(call->line,"days needs a number, like days(7).");    return vnum(a[0].num*86400.0); }
-  if (!strcmp(name,"hours"))   { if (n!=1||a[0].type!=V_NUM) fail(call->line,"hours needs a number, like hours(3).");  return vnum(a[0].num*3600.0); }
-  if (!strcmp(name,"minutes")) { if (n!=1||a[0].type!=V_NUM) fail(call->line,"minutes needs a number, like minutes(30)."); return vnum(a[0].num*60.0); }
+  if (!strcmp(name,"days"))    { want_one_num(call->line,"days",n,a,"days(7)");    return vnum(a[0].num*86400.0); }
+  if (!strcmp(name,"hours"))   { want_one_num(call->line,"hours",n,a,"hours(3)");  return vnum(a[0].num*3600.0); }
+  if (!strcmp(name,"minutes")) { want_one_num(call->line,"minutes",n,a,"minutes(30)"); return vnum(a[0].num*60.0); }
   if (!strcmp(name,"time_parts")) {   /* break a timestamp into a map of named parts */
-    if (n!=1||a[0].type!=V_NUM) fail(call->line,"time_parts needs a timestamp (a number from time()), like time_parts(time()).");
+    want_one_num(call->line,"time_parts",n,a,"time_parts(time())");
     time_t tt=(time_t)a[0].num; struct tm*lt=localtime(&tt);
     if (!lt) fail_kind(call->line,"math","that timestamp is out of range.");
     static const char*const wd[]={"Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"};
@@ -2692,8 +2694,8 @@ static Value call_builtin(Expr *call, Env *env) {
     return vmap(m);
   }
   if (!strcmp(name,"time_make")) {   /* build a timestamp from year, month, day [, hour, minute, second] */
-    if (n<3||n>6) fail(call->line,"time_make needs year, month, day (and optionally hour, minute, second).");
-    for (int i=0;i<n;i++) if (a[i].type!=V_NUM) fail(call->line,"time_make needs numbers, like time_make(2026, 12, 25).");
+    if (n<3||n>6) arity_error(call->line,"time_make","year, month, day (and optionally hour, minute, second)",n);
+    for (int i=0;i<n;i++) if (a[i].type!=V_NUM) arg_error(call->line,"time_make",i+1,"a number",a[i],"time_make(2026, 12, 25)");
     struct tm t; memset(&t,0,sizeof t);
     t.tm_year=(int)a[0].num-1900; t.tm_mon=(int)a[1].num-1; t.tm_mday=(int)a[2].num;
     t.tm_hour=n>3?(int)a[3].num:0; t.tm_min=n>4?(int)a[4].num:0; t.tm_sec=n>5?(int)a[5].num:0; t.tm_isdst=-1;
@@ -2702,14 +2704,14 @@ static Value call_builtin(Expr *call, Env *env) {
     return vnum((double)tt);
   }
   if (!strcmp(name,"time_format")) {   /* a timestamp as readable text: YYYY-MM-DD HH:MM:SS */
-    if (n!=1||a[0].type!=V_NUM) fail(call->line,"time_format needs a timestamp (a number from time()), like time_format(time()).");
+    want_one_num(call->line,"time_format",n,a,"time_format(time())");
     time_t tt=(time_t)a[0].num; struct tm*lt=localtime(&tt);
     if (!lt) fail_kind(call->line,"math","that timestamp is out of range.");
     char buf[64]; strftime(buf,sizeof buf,"%Y-%m-%d %H:%M:%S",lt);
     return vstr_take(dup_str(buf));
   }
   if (!strcmp(name,"wait")) {
-    if (n!=1||a[0].type!=V_NUM) fail(call->line,"wait needs a number of seconds.");
+    want_one_num(call->line,"wait",n,a,"wait(2)");
     if (a[0].num>0) {
 #ifdef _WIN32
       Sleep((DWORD)(a[0].num*1000));
@@ -2721,34 +2723,36 @@ static Value call_builtin(Expr *call, Env *env) {
   }
   /* ---- files ---- */
   if (!strcmp(name,"read")) {
-    if (n!=1||a[0].type!=V_STR) fail(call->line,"read needs a file name.");
+    want_one_str(call->line,"read",n,a,"read(\"notes.txt\")");
     char*c=read_whole_file(a[0].str?a[0].str:""); return c ? vstr_take(c) : vnone();
   }
   if (!strcmp(name,"write")||!strcmp(name,"append")) {
-    if (n!=2||a[0].type!=V_STR) fail(call->line,"write/append need a file name and some text.");
+    if (n!=2) arity_error(call->line, name, "a file name and some text, like write(\"f.txt\", \"hi\")", n);
+    want_str(call->line, name, 1, a[0], "write(\"f.txt\", \"hi\")");
     FILE*f=fopen(a[0].str?a[0].str:"", name[0]=='a'?"ab":"wb"); if(!f) fail_kind(call->line,"io","I couldn't open that file to write.");
     char*t=stringify(a[1]); fwrite(t,1,strlen(t),f); fclose(f); return vnone();
   }
   if (!strcmp(name,"exists")) {
-    if (n!=1||a[0].type!=V_STR) fail(call->line,"exists needs a file name.");
+    want_one_str(call->line,"exists",n,a,"exists(\"notes.txt\")");
     FILE*f=fopen(a[0].str?a[0].str:"","rb"); if(f){fclose(f);return vbool(1);} return vbool(0);
   }
   /* ---- persistence: remember/recall/forget across runs (a key/value store in sprout.data.json) ---- */
   if (!strcmp(name,"remember")) {
-    if (n != 2 || a[0].type != V_STR) fail(call->line, "remember needs a name (text) and a value, like remember(\"score\", 10).");
+    if (n != 2) arity_error(call->line, "remember", "a name (text) and a value, like remember(\"score\", 10)", n);
+    want_str(call->line, "remember", 1, a[0], "remember(\"score\", 10)");
     SMap *m = store_load();
     map_set(m, a[0].str ? a[0].str : "", a[1]);
     if (!store_save(m)) fail_kind(call->line, "io", "I couldn't save to the data file (sprout.data.json).");
     return vnone();
   }
   if (!strcmp(name,"recall")) {
-    if (n != 1 || a[0].type != V_STR) fail(call->line, "recall needs a name (text), like recall(\"score\").");
+    want_one_str(call->line,"recall",n,a,"recall(\"score\")");
     SMap *m = store_load();
     int i = map_index(m, a[0].str ? a[0].str : "");
     return i >= 0 ? deep_copy(m->vals[i]) : vnone();   /* missing -> nothing; deep_copy so the result is independent of the store */
   }
   if (!strcmp(name,"forget")) {
-    if (n != 1 || a[0].type != V_STR) fail(call->line, "forget needs a name (text), like forget(\"score\").");
+    want_one_str(call->line, "forget", n, a, "forget(\"score\")");
     SMap *m = store_load();
     int i = map_index(m, a[0].str ? a[0].str : "");
     if (i < 0) return vbool(0);                   /* nothing to forget */
@@ -2761,18 +2765,18 @@ static Value call_builtin(Expr *call, Env *env) {
   }
   /* ---- the superpowers: web, json, shell ---- */
   if (!strcmp(name,"get")) {
-    if (n!=1||a[0].type!=V_STR) fail(call->line,"get needs a web address, like get(\"https://...\").");
+    want_one_str(call->line, "get", n, a, "get(\"https://...\")");
     char*body=http_get(a[0].str?a[0].str:""); return body ? vstr_take(body) : vnone();
   }
   if (!strcmp(name,"json")) {
-    if (n!=1||a[0].type!=V_STR) fail(call->line,"json needs some text to read.");
+    want_one_str(call->line, "json", n, a, "json(text)");
     return parse_json(a[0].str?a[0].str:"");
   }
   /* `run` moved into the system module: use system  ->  system.run("...") */
   if (!strcmp(name,"run")) fail(call->line, "run now lives in the system module.\n\n  Put 'use system' at the top, then call:  system.run(\"echo hi\")");
   /* ---- discovery + color ---- */
   if (!strcmp(name,"explore")) {
-    if (n!=1) fail(call->line,"explore needs one thing, like explore(json(get(url))).");
+    if (n!=1) arity_error(call->line, "explore", "one thing, like explore(json(get(url)))", n);
     Value v = a[0];
     if (v.type == V_STR) { Value parsed = parse_json(v.str?v.str:""); if (parsed.type==V_MAP || parsed.type==V_LIST) v = parsed; }
     SList *out = list_new();
@@ -2780,7 +2784,9 @@ static Value call_builtin(Expr *call, Env *env) {
     return vlist(out);
   }
   if (!strcmp(name,"color")) {
-    if (n!=2 || a[0].type!=V_STR || a[1].type!=V_STR) fail(call->line,"color needs a color name and text, like color(\"red\", \"hi\").");
+    if (n!=2) arity_error(call->line, "color", "a color name and text, like color(\"red\", \"hi\")", n);
+    want_str(call->line, "color", 1, a[0], "color(\"red\", \"hi\")");
+    want_str(call->line, "color", 2, a[1], "color(\"red\", \"hi\")");
     const char *cn=a[0].str?a[0].str:""; const char *code=NULL;
     if      (!strcmp(cn,"red"))    code="31";
     else if (!strcmp(cn,"green"))  code="32";
@@ -3470,14 +3476,14 @@ static void exec(Stmt *s, Env *env) {
       Value c = eval(s->target, env);                  /* the list/map to set into (a reference) */
       Value ix = eval(s->index, env), val = eval(s->expr, env);
       if (c.type == V_LIST) {
-        if (ix.type != V_NUM) fail_kind(s->line, "type", "a list position must be a number.");
-        if (ix.num != (double)(long long)ix.num) fail_kind(s->line, "type", "a list position must be a whole number.");
+        if (ix.type != V_NUM) { char m[160], d[96]; val_describe(ix, d, sizeof d); snprintf(m, sizeof m, "a list position must be a number, but you used %s.", d); fail_kind(s->line, "type", m); }
+        if (ix.num != (double)(long long)ix.num) { char m[160]; snprintf(m, sizeof m, "a list position must be a whole number, but you used %g.", ix.num); fail_kind(s->line, "type", m); }
         long long i = (long long)ix.num;
-        if (!c.list || i < 0 || i >= c.list->n) fail_kind(s->line, "index", "that position doesn't exist in the list.");
+        if (!c.list || i < 0 || i >= c.list->n) { int len = c.list ? c.list->n : 0; char m[220]; if (len == 0) snprintf(m, sizeof m, "you tried to set position %lld, but this list is empty.", i); else snprintf(m, sizeof m, "position %lld doesn't exist \xE2\x80\x94 this list has %d item%s (valid positions are 0 to %d).", i, len, len == 1 ? "" : "s", len - 1); fail_kind(s->line, "index", m); }
         if (s->setop) val = apply_arith(s->setop, c.list->items[i], val, s->line);   /* xs[i] += e */
         c.list->items[i] = val;
       } else if (c.type == V_MAP) {
-        if (ix.type != V_STR) fail_kind(s->line, "type", "a map key must be text.");
+        if (ix.type != V_STR) { char m[160], d[96]; val_describe(ix, d, sizeof d); snprintf(m, sizeof m, "a map key must be text, but you used %s.", d); fail_kind(s->line, "type", m); }
         if (!c.map) fail(s->line, "this map isn't ready to set into.");
         if (s->setop) {
           int mi = map_index(c.map, ix.str);
@@ -3485,7 +3491,7 @@ static void exec(Stmt *s, Env *env) {
           val = apply_arith(s->setop, c.map->vals[mi], val, s->line);
         }
         map_set(c.map, ix.str, val);
-      } else fail_kind(s->line, "type", "I can only set inside a list or a map with [ ].");
+      } else { char m[160]; snprintf(m, sizeof m, "I can only set inside a list or a map with [ ], but this is %s.", type_name(c)); fail_kind(s->line, "type", m); }
       break;
     }
     case S_STOP: g_loopctl = 2; break;   /* end the loop now */
