@@ -2359,7 +2359,7 @@ static Value call_builtin(Expr *call, Env *env) {
     if (n != 1) arity_error(call->line, "sum", "one list of numbers, like sum([1, 2, 3])", n);
     want_list(call->line, "sum", 1, a[0], "sum([1, 2, 3])");
     double s = 0;
-    for (int i = 0; a[0].list && i < a[0].list->n; i++) { if (a[0].list->items[i].type != V_NUM) { char m[160], d[96]; val_describe(a[0].list->items[i], d, sizeof d); snprintf(m, sizeof m, "sum needs every item to be a number, but item %d is %s.", i + 1, d); fail_kind(call->line, "type", m); } s += a[0].list->items[i].num; }
+    for (int i = 0; a[0].list && i < a[0].list->n; i++) { if (a[0].list->items[i].type != V_NUM) { char m[240], d[96]; val_describe(a[0].list->items[i], d, sizeof d); if (a[0].list->items[i].type == V_NONE) snprintf(m, sizeof m, "sum needs every item to be a number, but item %d is nothing \xE2\x80\x94 a 'nothing' here usually means a map key that doesn't exist (a typo?) or a value that was never set.", i + 1); else snprintf(m, sizeof m, "sum needs every item to be a number, but item %d is %s.", i + 1, d); fail_kind(call->line, "type", m); } s += a[0].list->items[i].num; }
     return vnum(s);
   }
   if (!strcmp(name, "count")) {
@@ -2835,7 +2835,7 @@ static Value apply_arith(TokType op, Value l, Value r, int line) {
     }
     if (l.type == V_STR || r.type == V_STR) { char *a = stringify(l), *b = stringify(r); char *out = (char *)malloc(strlen(a) + strlen(b) + 1); strcpy(out, a); strcat(out, b); Value rv = vstr_take(out); free(a); free(b); return rv; }
     if (l.type == V_NUM && r.type == V_NUM) return vnum(check_finite(l.num + r.num, line));
-    { char buf[256]; snprintf(buf, sizeof buf, "I can't add %s and %s.\n\n  '+' adds two numbers or joins text \xE2\x80\x94 convert one first, e.g.  number(x)  or  \"\" + x.", type_name(l), type_name(r)); fail_kind(line, "type", buf); }
+    { char buf[320]; const char *nn = (l.type==V_NONE||r.type==V_NONE) ? "\n\n  A 'nothing' here usually means a map key that doesn't exist (a typo?) or a value that was never set." : "\n\n  '+' adds two numbers or joins text \xE2\x80\x94 convert one first, e.g.  number(x)  or  \"\" + x."; snprintf(buf, sizeof buf, "I can't add %s and %s.%s", type_name(l), type_name(r), nn); fail_kind(line, "type", buf); }
   }
   if (op == T_STAR && (l.type == V_STR || r.type == V_STR)) {        /* text * n  ->  repeated text:  "=" * 40 */
     Value s = (l.type == V_STR) ? l : r, k = (l.type == V_STR) ? r : l;
@@ -2853,7 +2853,7 @@ static Value apply_arith(TokType op, Value l, Value r, int line) {
     for (long long i = 0; i < times; i++) for (int j = 0; ls.list && j < ls.list->n; j++) list_push(out, ls.list->items[j]);
     return vlist(out);
   }
-  if (l.type != V_NUM || r.type != V_NUM) { const char *ow = (op==T_MINUS)?"subtract":(op==T_STAR)?"multiply":(op==T_SLASH)?"divide":"take the remainder of"; char buf[256]; snprintf(buf, sizeof buf, "I can't %s %s and %s \xE2\x80\x94 that needs two numbers.", ow, type_name(l), type_name(r)); fail_kind(line, "type", buf); }
+  if (l.type != V_NUM || r.type != V_NUM) { const char *ow = (op==T_MINUS)?"subtract":(op==T_STAR)?"multiply":(op==T_SLASH)?"divide":"take the remainder of"; const char *nn = (l.type==V_NONE||r.type==V_NONE) ? "  A 'nothing' here usually means a missing map key (a typo?) or an unset value." : ""; char buf[300]; snprintf(buf, sizeof buf, "I can't %s %s and %s \xE2\x80\x94 that needs two numbers.%s", ow, type_name(l), type_name(r), nn); fail_kind(line, "type", buf); }
   if (op == T_MINUS) return vnum(check_finite(l.num - r.num, line));
   if (op == T_STAR)  return vnum(check_finite(l.num * r.num, line));
   if (r.num == 0) fail_kind(line, "math", op == T_SLASH ? "you tried to divide by zero." : "you tried to take a remainder with zero.");
