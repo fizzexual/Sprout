@@ -919,6 +919,16 @@ static Stmt *statement(void) {
   switch (t.type) {
     case T_MAKE: {
       advance(); Token name = expect(T_IDENT, "I expected a name here.");
+      if (check(T_COMMA)) {    /* make a, b = pair  — unpack a list into several names */
+        char **names = (char **)malloc(4 * sizeof(char *)); int n = 0, cap = 4; names[n++] = name.text;
+        while (match(T_COMMA)) {
+          Token nm = expect(T_IDENT, "I expected another name here, like  make a, b = pair.");
+          if (n >= cap) { cap *= 2; names = (char **)realloc(names, cap * sizeof(char *)); }
+          names[n++] = nm.text;
+        }
+        expect(T_EQ, "I expected '=' after the names (make a, b = pair).");
+        Stmt *s = new_stmt(S_MAKE, t.line); s->params = names; s->nparams = n; s->expr = expression(); s->is_public = is_public; return s;
+      }
       if (check(T_LBRACK)) {   /* make m["k"] = ... : a beginner reaching for set */
         char m[256]; snprintf(m, sizeof m, "to put a value into '%s', use 'set' (like  set %s[\"key\"] = value) - 'make' is only for brand-new names.", name.text, name.text);
         fail(t.line, m);
@@ -3356,6 +3366,19 @@ static void exec(Stmt *s, Env *env) {
     case S_MAKE: {
       Value v = eval(s->expr, env);
       Env *target = s->is_public ? cur_file_env : env;     /* public vars live in the file env */
+      if (s->nparams > 0) {                                /* make a, b = pair — unpack a list into names */
+        if (v.type != V_LIST) { char d[96], m[220]; val_describe(v, d, sizeof d); snprintf(m, sizeof m, "to unpack into %d names, the right side must be a list, but it's %s.", s->nparams, d); fail_kind(s->line, "type", m); }
+        int have = v.list ? v.list->n : 0;
+        if (have != s->nparams) { char m[220]; snprintf(m, sizeof m, "this unpacks %d name%s, but the list has %d item%s \xE2\x80\x94 they must match.", s->nparams, s->nparams == 1 ? "" : "s", have, have == 1 ? "" : "s"); fail_kind(s->line, "error", m); }
+        for (int i = 0; i < s->nparams; i++) {
+          if (!g_repl_active && env_local(target, s->params[i])) failf(s->line, "'%s' already exists here - use 'set' to change it (make is only for new names).", s->params[i]);
+          env_define(target, s->params[i], v.list->items[i]);
+          if (s->is_public) mark_public_var(cur_fileid, s->params[i]);
+          if (g_learn) { char *t = stringify(v.list->items[i]); printf("  " C_DIM "Created variable" C_RESET " %s = %s\n", s->params[i], t); free(t); }
+        }
+        if (g_learn) printf("\n");
+        break;
+      }
       /* re-running a `public make` (loop / a task called twice) just updates the file-level slot;
          the live REPL also lets you re-`make` a name. Otherwise a duplicate in THIS scope is an error. */
       int relaxed = g_repl_active || (s->is_public && is_public_var(cur_fileid, s->name));
