@@ -433,7 +433,7 @@ typedef enum {
   T_TRY, T_CAUGHT, T_FAIL, T_STOP, T_SKIP,
   T_AND, T_OR, T_NOT, T_YES, T_NO, T_NOTHING,
   T_PLUS, T_MINUS, T_STAR, T_SLASH, T_PERCENT, T_DOT,
-  T_PLUSEQ, T_MINUSEQ, T_STAREQ, T_SLASHEQ, T_PERCENTEQ,
+  T_PLUSEQ, T_MINUSEQ, T_STAREQ, T_SLASHEQ, T_PERCENTEQ, T_ARROW,
   T_EQ, T_EQEQ, T_BANGEQ, T_LT, T_LE, T_GT, T_GE, T_PIPE,
   T_LPAREN, T_RPAREN, T_LBRACK, T_RBRACK, T_LBRACE, T_RBRACE, T_COMMA, T_COLON,
   T_NEWLINE, T_INDENT, T_DEDENT, T_EOF
@@ -527,7 +527,7 @@ static void scan_token(const char *src, int *ip, int len, int line) {
   }
   switch (c) {
     case '+': if (i + 1 < len && src[i + 1] == '=') { push_tok(T_PLUSEQ,    NULL, 0, line); i += 2; } else { push_tok(T_PLUS,    NULL, 0, line); i++; } break;
-    case '-': if (i + 1 < len && src[i + 1] == '=') { push_tok(T_MINUSEQ,   NULL, 0, line); i += 2; } else { push_tok(T_MINUS,   NULL, 0, line); i++; } break;
+    case '-': if (i + 1 < len && src[i + 1] == '=') { push_tok(T_MINUSEQ,   NULL, 0, line); i += 2; } else if (i + 1 < len && src[i + 1] == '>') { push_tok(T_ARROW, NULL, 0, line); i += 2; } else { push_tok(T_MINUS,   NULL, 0, line); i++; } break;
     case '*': if (i + 1 < len && src[i + 1] == '=') { push_tok(T_STAREQ,    NULL, 0, line); i += 2; } else { push_tok(T_STAR,    NULL, 0, line); i++; } break;
     case '/': if (i + 1 < len && src[i + 1] == '=') { push_tok(T_SLASHEQ,   NULL, 0, line); i += 2; } else { push_tok(T_SLASH,   NULL, 0, line); i++; } break;
     case '%': if (i + 1 < len && src[i + 1] == '=') { push_tok(T_PERCENTEQ, NULL, 0, line); i += 2; } else { push_tok(T_PERCENT, NULL, 0, line); i++; } break;
@@ -668,7 +668,7 @@ struct Stmt {
   Branch *branches; int nbranches; Stmt **otherwise; int notherwise; /* when */
   MatchArm *arms; int narms;             /* match */
   Expr *count; Stmt **body; int nbody;   /* repeat / task / for-each body */
-  char **params; int nparams; Expr **pdefaults; char **ptypes; char *type_ann;   /* task: params, default exprs, per-param : type; type_ann = a make's declared type */
+  char **params; int nparams; Expr **pdefaults; char **ptypes; char *type_ann; char *rettype;   /* task: params, default exprs, per-param : type, -> return type; type_ann = a make's declared type */
   Expr *target, *index;                   /* S_INDEXSET: target[index] = expr */
   TokType setop;                          /* S_SET/S_INDEXSET: 0 = plain '=', else +=,-=,*=,/=,%= */
   int is_public;                          /* make/task: shared across the whole project? */
@@ -1128,7 +1128,8 @@ static Stmt *statement(void) {
         } while (match(T_COMMA));
       }
       expect(T_RPAREN, "I expected ')' to close the inputs.");
-      Stmt *s = new_stmt(S_TASK, t.line); s->name = name.text; s->params = params; s->nparams = n; s->pdefaults = pdefs; s->ptypes = ptypes;
+      char *rettype = match(T_ARROW) ? expect(T_IDENT, "I expected a return type after '->', like  task total() -> number:").text : NULL;
+      Stmt *s = new_stmt(S_TASK, t.line); s->name = name.text; s->params = params; s->nparams = n; s->pdefaults = pdefs; s->ptypes = ptypes; s->rettype = rettype;
       s->is_public = is_public;
       int save_in_task = g_in_task; g_in_task = 1;   /* 'give' is allowed inside this body */
       s->body = block(&s->nbody);
@@ -1262,7 +1263,7 @@ static void env_assign(Env *e, const char *name, Value v, int line) {
 }
 
 /* tasks: top-level functions, hoisted so call order doesn't matter */
-struct TaskDef { char *name; char **params; int nparams; Expr **defaults; char **ptypes; Stmt **body; int nbody; int line;
+struct TaskDef { char *name; char **params; int nparams; Expr **defaults; char **ptypes; char *rettype; Stmt **body; int nbody; int line;
                  int is_public; int fileid; Env *home; Env *file_env; char *owner_type; };   /* home = closure/scope base; file_env = where `public make` lands; owner_type = the type a method is defined on (NULL for plain tasks/lambdas, so `super` knows the parent). TaskDef typedef is forward-declared up by Value */
 static const char *taskdef_name(TaskDef *t) { return (t && t->name) ? t->name : "?"; }
 static TaskDef *tasks = NULL; static int ntasks = 0, captasks = 0;
@@ -1282,7 +1283,7 @@ static void task_register(Stmt *s, int fileid, Env *home) {
       failf(s->line, "there are two tasks named '%s' in this file.", s->name);
   if (ntasks >= captasks) { captasks = captasks ? captasks * 2 : 8; tasks = (TaskDef *)realloc(tasks, captasks * sizeof(TaskDef)); }
   TaskDef *t = &tasks[ntasks++];
-  t->name = s->name; t->params = s->params; t->nparams = s->nparams; t->defaults = s->pdefaults; t->ptypes = s->ptypes; t->body = s->body; t->nbody = s->nbody; t->line = s->line;
+  t->name = s->name; t->params = s->params; t->nparams = s->nparams; t->defaults = s->pdefaults; t->ptypes = s->ptypes; t->rettype = s->rettype; t->body = s->body; t->nbody = s->nbody; t->line = s->line;
   t->is_public = s->is_public; t->fileid = fileid; t->home = home; t->file_env = home; t->owner_type = NULL;
 }
 
@@ -1306,6 +1307,7 @@ static Expr *parse_anon_task(int line) {
     } while (match(T_COMMA));
   }
   expect(T_RPAREN, "I expected ')' to close the inputs.");
+  char *rettype = match(T_ARROW) ? expect(T_IDENT, "I expected a return type after '->', like  task(x) -> number: ...").text : NULL;
   expect(T_COLON, "I expected ':' before the task's body.");
   Stmt **body = NULL; int nbody = 0;
   int save_in_task = g_in_task; g_in_task = 1;        /* `give` is allowed inside the body */
@@ -1338,7 +1340,7 @@ static Expr *parse_anon_task(int line) {
   }
   g_in_task = save_in_task;
   TaskDef *td = (TaskDef *)calloc(1, sizeof(TaskDef));
-  td->name = "anonymous task"; td->params = params; td->nparams = np; td->defaults = pdefs; td->ptypes = ptypes;
+  td->name = "anonymous task"; td->params = params; td->nparams = np; td->defaults = pdefs; td->ptypes = ptypes; td->rettype = rettype;
   td->body = body; td->nbody = nbody; td->line = line;
   Expr *e = new_expr(E_LAMBDA, line); e->lambda = td;
   return e;
@@ -1509,6 +1511,7 @@ static Value run_task(TaskDef *t, Env *frame, int line) {
   returning = 0; g_loopctl = 0;
   exec_block(t->body, t->nbody, frame);
   Value result = returning ? return_value : vnone();
+  if (t->rettype) check_type(result, t->rettype, line, "the result");   /* task f() -> number: the returned value must match */
   if (g_learn) { char *rs = stringify(result); printf("  " C_DIM "%s gave back %s" C_RESET "\n\n", t->name, rs); free(rs); }
   returning = saved_ret; return_value = saved_rv; g_loopctl = saved_loopctl;
   cur_fileid = saved_fid; cur_file_env = saved_fe;

@@ -1,0 +1,23 @@
+~ Return-type annotations: task f(...) -> type: — the returned value is checked at runtime
+~ against the declared type (same type names as make/param annotations). A *_test.sprout file.
+
+task double(n: number) -> number:
+    give n * 2
+
+task label(x) -> text:
+    give x
+
+task wrong() -> number:
+    give "nope"
+
+test "a matching return passes":
+    expect double(21) == 42
+    expect label("hi") == "hi"
+
+test "a wrong return is caught":
+    expect error "type":
+        show wrong()
+
+test "lambda return types work too":
+    make sq = task(x) -> number: x * x
+    expect sq(6) == 36
