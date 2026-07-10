@@ -3186,9 +3186,9 @@ static Value eval(Expr *e, Env *env) {
       if (c.type == V_LIST) {
         if (ix.type != V_NUM) { char m[160], d[96]; val_describe(ix, d, sizeof d); snprintf(m, sizeof m, "a list position must be a number, but you used %s.", d); fail_kind(e->line, "type", m); }
         if (ix.num != (double)(long long)ix.num) { char m[160]; snprintf(m, sizeof m, "a list position must be a whole number, but you used %g.", ix.num); fail_kind(e->line, "type", m); }
-        long long i = (long long)ix.num;
-        if (!c.list || i < 0 || i >= c.list->n) { int len = c.list ? c.list->n : 0; char m[220]; if (len == 0) snprintf(m, sizeof m, "you asked for position %lld, but this list is empty.", i); else snprintf(m, sizeof m, "position %lld doesn't exist \xE2\x80\x94 this list has %d item%s (valid positions are 0 to %d; for the last item use last(...)).", i, len, len == 1 ? "" : "s", len - 1); fail_kind(e->line, "index", m); }
-        return c.list->items[i];
+        int len = c.list ? c.list->n : 0; long long i = (long long)ix.num, at = i < 0 ? i + len : i;   /* xs[-1] is the last item */
+        if (!c.list || at < 0 || at >= len) { char m[220]; if (len == 0) snprintf(m, sizeof m, "you asked for position %lld, but this list is empty.", i); else snprintf(m, sizeof m, "position %lld doesn't exist \xE2\x80\x94 this list has %d item%s (use 0 to %d, or -1 to -%d from the end).", i, len, len == 1 ? "" : "s", len - 1, len); fail_kind(e->line, "index", m); }
+        return c.list->items[at];
       }
       if (c.type == V_MAP) {
         if (ix.type != V_STR) { char m[160], d[96]; val_describe(ix, d, sizeof d); snprintf(m, sizeof m, "a map key must be text, but you used %s.", d); fail_kind(e->line, "type", m); }
@@ -3202,6 +3202,7 @@ static Value eval(Expr *e, Env *env) {
         if (ix.num != (double)(long long)ix.num) { char m[160]; snprintf(m, sizeof m, "a text position must be a whole number, but you used %g.", ix.num); fail_kind(e->line, "type", m); }
         long long want = (long long)ix.num;
         const char *p = c.str ? c.str : "";
+        if (want < 0) { long long n = 0; for (int j = 0; p[j]; j += utf8_clen((unsigned char)p[j])) n++; want += n; }   /* "hi"[-1] is the last char */
         long long idx = 0;
         for (int i = 0; p[i]; ) {
           int cl = utf8_clen((unsigned char)p[i]); int k = 0; char ch[5];
@@ -3500,10 +3501,10 @@ static void exec(Stmt *s, Env *env) {
       if (c.type == V_LIST) {
         if (ix.type != V_NUM) { char m[160], d[96]; val_describe(ix, d, sizeof d); snprintf(m, sizeof m, "a list position must be a number, but you used %s.", d); fail_kind(s->line, "type", m); }
         if (ix.num != (double)(long long)ix.num) { char m[160]; snprintf(m, sizeof m, "a list position must be a whole number, but you used %g.", ix.num); fail_kind(s->line, "type", m); }
-        long long i = (long long)ix.num;
-        if (!c.list || i < 0 || i >= c.list->n) { int len = c.list ? c.list->n : 0; char m[220]; if (len == 0) snprintf(m, sizeof m, "you tried to set position %lld, but this list is empty.", i); else snprintf(m, sizeof m, "position %lld doesn't exist \xE2\x80\x94 this list has %d item%s (valid positions are 0 to %d).", i, len, len == 1 ? "" : "s", len - 1); fail_kind(s->line, "index", m); }
-        if (s->setop) val = apply_arith(s->setop, c.list->items[i], val, s->line);   /* xs[i] += e */
-        c.list->items[i] = val;
+        int len = c.list ? c.list->n : 0; long long i = (long long)ix.num, at = i < 0 ? i + len : i;   /* set xs[-1] = ... targets the last item */
+        if (!c.list || at < 0 || at >= len) { char m[220]; if (len == 0) snprintf(m, sizeof m, "you tried to set position %lld, but this list is empty.", i); else snprintf(m, sizeof m, "position %lld doesn't exist \xE2\x80\x94 this list has %d item%s (use 0 to %d, or -1 to -%d from the end).", i, len, len == 1 ? "" : "s", len - 1, len); fail_kind(s->line, "index", m); }
+        if (s->setop) val = apply_arith(s->setop, c.list->items[at], val, s->line);   /* xs[i] += e */
+        c.list->items[at] = val;
       } else if (c.type == V_MAP) {
         if (ix.type != V_STR) { char m[160], d[96]; val_describe(ix, d, sizeof d); snprintf(m, sizeof m, "a map key must be text, but you used %s.", d); fail_kind(s->line, "type", m); }
         if (!c.map) fail(s->line, "this map isn't ready to set into.");
