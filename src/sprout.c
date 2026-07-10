@@ -653,7 +653,7 @@ struct Stmt {
   Branch *branches; int nbranches; Stmt **otherwise; int notherwise; /* when */
   MatchArm *arms; int narms;             /* match */
   Expr *count; Stmt **body; int nbody;   /* repeat / task / for-each body */
-  char **params; int nparams;            /* task */
+  char **params; int nparams; Expr **pdefaults;   /* task: params + optional per-param default exprs (NULL = required) */
   Expr *target, *index;                   /* S_INDEXSET: target[index] = expr */
   TokType setop;                          /* S_SET/S_INDEXSET: 0 = plain '=', else +=,-=,*=,/=,%= */
   int is_public;                          /* make/task: shared across the whole project? */
@@ -1086,16 +1086,19 @@ static Stmt *statement(void) {
       if (g_block_depth > 0) fail(t.line, "a task must be defined at the top level (the far-left margin), not inside another block.");
       advance(); Token name = expect(T_IDENT, "I expected the task's name here.");
       expect(T_LPAREN, "I expected '(' after the task name.");
-      char **params = NULL; int n = 0, cap = 0;
+      char **params = NULL; Expr **pdefs = NULL; int n = 0, cap = 0, seen_default = 0;
       if (!check(T_RPAREN)) {
         do {
           Token p = expect(T_IDENT, "I expected an input name here.");
-          if (n >= cap) { cap = cap ? cap * 2 : 4; params = (char **)realloc(params, cap * sizeof(char *)); }
-          params[n++] = p.text;
+          if (n >= cap) { cap = cap ? cap * 2 : 4; params = (char **)realloc(params, cap * sizeof(char *)); pdefs = (Expr **)realloc(pdefs, cap * sizeof(Expr *)); }
+          params[n] = p.text;
+          if (match(T_EQ)) { pdefs[n] = expression(); seen_default = 1; }         /* task greet(name = "world"): */
+          else { if (seen_default) fail(p.line, "an input with no default can't come after one that has a default \xE2\x80\x94 put the defaults last."); pdefs[n] = NULL; }
+          n++;
         } while (match(T_COMMA));
       }
       expect(T_RPAREN, "I expected ')' to close the inputs.");
-      Stmt *s = new_stmt(S_TASK, t.line); s->name = name.text; s->params = params; s->nparams = n;
+      Stmt *s = new_stmt(S_TASK, t.line); s->name = name.text; s->params = params; s->nparams = n; s->pdefaults = pdefs;
       s->is_public = is_public;
       int save_in_task = g_in_task; g_in_task = 1;   /* 'give' is allowed inside this body */
       s->body = block(&s->nbody);
@@ -1229,7 +1232,7 @@ static void env_assign(Env *e, const char *name, Value v, int line) {
 }
 
 /* tasks: top-level functions, hoisted so call order doesn't matter */
-struct TaskDef { char *name; char **params; int nparams; Stmt **body; int nbody; int line;
+struct TaskDef { char *name; char **params; int nparams; Expr **defaults; Stmt **body; int nbody; int line;
                  int is_public; int fileid; Env *home; Env *file_env; char *owner_type; };   /* home = closure/scope base; file_env = where `public make` lands; owner_type = the type a method is defined on (NULL for plain tasks/lambdas, so `super` knows the parent). TaskDef typedef is forward-declared up by Value */
 static const char *taskdef_name(TaskDef *t) { return (t && t->name) ? t->name : "?"; }
 static TaskDef *tasks = NULL; static int ntasks = 0, captasks = 0;
@@ -1249,7 +1252,7 @@ static void task_register(Stmt *s, int fileid, Env *home) {
       failf(s->line, "there are two tasks named '%s' in this file.", s->name);
   if (ntasks >= captasks) { captasks = captasks ? captasks * 2 : 8; tasks = (TaskDef *)realloc(tasks, captasks * sizeof(TaskDef)); }
   TaskDef *t = &tasks[ntasks++];
-  t->name = s->name; t->params = s->params; t->nparams = s->nparams; t->body = s->body; t->nbody = s->nbody; t->line = s->line;
+  t->name = s->name; t->params = s->params; t->nparams = s->nparams; t->defaults = s->pdefaults; t->body = s->body; t->nbody = s->nbody; t->line = s->line;
   t->is_public = s->is_public; t->fileid = fileid; t->home = home; t->file_env = home; t->owner_type = NULL;
 }
 
@@ -1260,12 +1263,15 @@ static void task_register(Stmt *s, int fileid, Env *home) {
    `home`/`fileid` are filled in at eval time, capturing wherever the literal runs. */
 static Expr *parse_anon_task(int line) {
   expect(T_LPAREN, "I expected '(' after 'task' for an anonymous task, like task(x): x * 2.");
-  char **params = NULL; int np = 0, cap = 0;
+  char **params = NULL; Expr **pdefs = NULL; int np = 0, cap = 0, seen_default = 0;
   if (!check(T_RPAREN)) {
     do {
       Token p = expect(T_IDENT, "I expected an input name here.");
-      if (np >= cap) { cap = cap ? cap * 2 : 4; params = (char **)realloc(params, cap * sizeof(char *)); }
-      params[np++] = p.text;
+      if (np >= cap) { cap = cap ? cap * 2 : 4; params = (char **)realloc(params, cap * sizeof(char *)); pdefs = (Expr **)realloc(pdefs, cap * sizeof(Expr *)); }
+      params[np] = p.text;
+      if (match(T_EQ)) { pdefs[np] = expression(); seen_default = 1; }
+      else { if (seen_default) fail(p.line, "an input with no default can't come after one that has a default \xE2\x80\x94 put the defaults last."); pdefs[np] = NULL; }
+      np++;
     } while (match(T_COMMA));
   }
   expect(T_RPAREN, "I expected ')' to close the inputs.");
@@ -1301,7 +1307,7 @@ static Expr *parse_anon_task(int line) {
   }
   g_in_task = save_in_task;
   TaskDef *td = (TaskDef *)calloc(1, sizeof(TaskDef));
-  td->name = "anonymous task"; td->params = params; td->nparams = np;
+  td->name = "anonymous task"; td->params = params; td->nparams = np; td->defaults = pdefs;
   td->body = body; td->nbody = nbody; td->line = line;
   Expr *e = new_expr(E_LAMBDA, line); e->lambda = td;
   return e;
@@ -1478,12 +1484,18 @@ static Value run_task(TaskDef *t, Env *frame, int line) {
   return result;
 }
 static void task_arity_check(TaskDef *t, int got, int line) {
-  if (got != t->nparams) { char m[160]; snprintf(m, sizeof m, "the task '%s' wants %d input%s, but got %d.", t->name, t->nparams, t->nparams == 1 ? "" : "s", got); fail(line, m); }
+  int req = t->nparams;
+  if (t->defaults) while (req > 0 && t->defaults[req - 1]) req--;   /* trailing params with a default are optional */
+  if (got < req || got > t->nparams) { char m[200];
+    if (req == t->nparams) snprintf(m, sizeof m, "the task '%s' wants %d input%s, but got %d.", t->name, t->nparams, t->nparams == 1 ? "" : "s", got);
+    else snprintf(m, sizeof m, "the task '%s' wants %d to %d inputs, but got %d.", t->name, req, t->nparams, got);
+    fail(line, m); }
 }
 static Value call_task_def(TaskDef *t, Expr *call, Env *env) {
   task_arity_check(t, call->nargs, call->line);
   Env *frame = env_new(t->home);      /* a task sees its OWN file (privates + publics) + its locals */
-  for (int i = 0; i < t->nparams; i++) env_define(frame, t->params[i], eval(call->args[i], env));
+  for (int i = 0; i < call->nargs; i++) env_define(frame, t->params[i], eval(call->args[i], env));
+  for (int i = call->nargs; i < t->nparams; i++) env_define(frame, t->params[i], eval(t->defaults[i], frame));   /* fill trailing defaults */
   return run_task(t, frame, call->line);
 }
 /* call a task VALUE with already-evaluated args (used by map/filter/reduce/each) */
@@ -1491,6 +1503,7 @@ static Value call_task_v(TaskDef *t, Value *argv, int argc, int line) {
   task_arity_check(t, argc, line);
   Env *frame = env_new(t->home);
   for (int i = 0; i < argc; i++) env_define(frame, t->params[i], argv[i]);
+  for (int i = argc; i < t->nparams; i++) env_define(frame, t->params[i], eval(t->defaults[i], frame));   /* fill trailing defaults */
   if (t->owner_type) env_define(frame, "__class__", vstr(t->owner_type));   /* so `super` inside a method finds the defining type's parent */
   return run_task(t, frame, line);
 }
