@@ -1,8 +1,8 @@
 {
   "name": "sprout-language",
   "displayName": "Sprout",
-  "description": "Language support for Sprout and its styling language Bloom: syntax highlighting, snippets, and run commands.",
-  "version": "0.2.0",
+  "description": "Language support for Sprout: syntax highlighting, snippets, run commands, live error checking (via `sprout check`), and autocomplete.",
+  "version": "0.3.0",
   "publisher": "fizzexual",
   "license": "MIT",
   "icon": "icon.png",
