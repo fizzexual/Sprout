@@ -4740,10 +4740,15 @@ int main(int argc, char **argv) {
 
   const char *file = arg;
   int prog_argstart = 2;                /* `sprout file.sprout ARGS...`  -> args start at argv[2] */
+  int check_only = 0;                   /* `sprout check file`: parse + load, don't run (editor diagnostics / a fast lint) */
   if (!strcmp(arg, "run")) {
     if (argc < 3) return cmd_build();   /* `sprout run` with no file builds the project here */
     file = argv[2];
     prog_argstart = 3;                  /* `sprout run file.sprout ARGS...` -> args start at argv[3] */
+  }
+  if (!strcmp(arg, "check")) {          /* parse + load a file WITHOUT running it — catches syntax + load errors */
+    if (argc < 3) { fprintf(stderr, "  check needs a file:  sprout check file.sprout\n"); return 1; }
+    file = argv[2]; check_only = 1;
   }
   g_prog_args = argv + prog_argstart;   /* what args() returns to the program */
   g_prog_nargs = argc > prog_argstart ? argc - prog_argstart : 0;
@@ -4762,6 +4767,7 @@ int main(int argc, char **argv) {
   int ncount; Stmt **program = parse_program(&ncount);
   { char *base = module_basename(file); modns_register(base, cur_fileid, cur_file_env); free(base); }  /* same as `sprout build` */
   for (int i = 0; i < ncount; i++) register_top(program[i], cur_fileid, cur_file_env);
+  if (check_only) { printf("ok: %s — no syntax or load errors.\n", file); err_jmp = NULL; g_top_jmp = NULL; return 0; }
   exec_block(program, ncount, cur_file_env);
   err_jmp = NULL; g_top_jmp = NULL;
   return test_report();   /* if the file had tests, report + set the exit code */
