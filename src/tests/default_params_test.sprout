@@ -1,22 +1,29 @@
 ~ Default parameters: task greet(name = "world"): ...  — a trailing input may have a
 ~ default value, filled in when the caller omits it. Defaults may reference earlier
 ~ params. Works on named tasks and lambdas. A *_test.sprout file (gated by `sprout test`).
+~ (Named tasks live at the top level; the tests below call them.)
+
+task greet(name = "world"):
+    give "Hi, " + name
+
+task power(base, exp = 2):
+    give pow(base, exp)
+
+task box(w, h = w):
+    give w * h
+
+task g(a, b = 1):
+    give a + b
 
 test "named-task defaults":
-    task greet(name = "world"):
-        give "Hi, " + name
     expect greet() == "Hi, world"
     expect greet("Ada") == "Hi, Ada"
 
 test "some required, some default":
-    task power(base, exp = 2):
-        give pow(base, exp)
     expect power(5) == 25
     expect power(2, 10) == 1024
 
 test "a default can reference an earlier input":
-    task box(w, h = w):
-        give w * h
     expect box(4) == 16
     expect box(4, 3) == 12
 
@@ -26,8 +33,6 @@ test "lambda defaults":
     expect add(5, 1) == 6
 
 test "arity is still enforced around the defaults":
-    task g(a, b = 1):
-        give a + b
     expect error:
         show g()
     expect error:
