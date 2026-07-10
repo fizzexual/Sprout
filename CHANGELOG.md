@@ -5,6 +5,32 @@ All notable changes to **Sprout**. The format follows
 `sprout version`. Binaries for each release are on the
 [Releases](https://github.com/fizzexual/Sprout/releases) page.
 
+## [0.1.21] — Everyday ergonomics
+
+Small quality-of-life syntax that removes the papercuts beginners hit daily, plus a thorough
+diagnostics pass so every error names the exact value that broke.
+
+### Added
+- **Negative indexing** — `xs[-1]` is the last item and `text[-1]` the last character, on read
+  and on `set xs[-1] = …`. Out-of-range errors teach it (*use 0 to N, or -1 to -M from the end*).
+- **Default parameters** — `task greet(name = "world"):` fills in an omitted trailing input, and
+  a default may reference an earlier one (`task box(w, h = w):`). Works on lambdas too; arity is
+  still enforced (*wants 1 to 3 inputs*).
+- **Slice sugar** — `xs[1:3]`, `xs[:2]`, `xs[3:]`, `xs[-2:]`, `xs[:]` take a sub-range (end
+  exclusive) of a list or text — UTF-8 aware, negative bounds count from the end.
+- **Destructuring** — `make a, b = pair` unpacks a list into several names at once
+  (`make lo, hi = sort(xs)[0:2]`); the count must match the list length.
+
+### Changed — detailed, value-aware errors
+- Every built-in, operator, and index error now names the exact input, its real type + value,
+  and a fix — e.g. `add expected its 1st input to be a list, but got a number (5)`, or
+  `position 5 doesn't exist — this list has 2 items (use 0 to 1, or -1 to -2 from the end)`.
+- **Typo'd map keys are caught**: `o["cost"]` on a map that has `"cost2"` reports *"I was looking
+  for the key "cost", but found "cost2" in this map: {…}. Did you mean "cost2"?"* — while a
+  genuinely-absent optional key still reads as `nothing`.
+- A `nothing` in a number context now explains itself (usually a missing/misspelled map key or a
+  value that was never set), so the cause is obvious instead of surfacing far away.
+
 ## [0.1.20] — Usability hardening
 
 A multi-agent "is it usage-ready?" pass (a beginner, an intermediate dev, distribution, error
