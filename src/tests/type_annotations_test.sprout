@@ -1,0 +1,34 @@
+~ Optional type annotations: make x: number = 5, and task f(a: number, b: text). Checked at
+~ runtime where written, dynamic everywhere else. Builtin types: number, text, list, map,
+~ boolean, task, nothing, any — plus any user type (matched by is-a). A *_test.sprout file.
+
+type Dog:
+    make sound = "woof"
+
+task greet(name: text):
+    give "Hi, " + name
+
+task speak(d: Dog):
+    give d.sound
+
+test "annotations that hold pass straight through":
+    make x: number = 5
+    expect x == 5
+    expect greet("Ada") == "Hi, Ada"
+    expect speak(Dog()) == "woof"
+
+test "a wrong make value is caught":
+    expect error "type":
+        make bad: number = "oops"
+
+test "a wrong argument is caught":
+    expect error "type":
+        show greet(42)
+
+test "a user-type mismatch is caught":
+    expect error "type":
+        show speak("notadog")
+
+test "an unknown type name is caught":
+    expect error "type":
+        make z: Numbr = 1

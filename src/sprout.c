@@ -199,6 +199,7 @@ static TypeReg *type_find(const char *name);
 static int type_is_a(TypeReg *t, const char *name);
 static TaskDef *type_method(TypeReg *t, const char *name);
 static Value call_task_v(TaskDef *t, Value *argv, int argc, int line);
+static void check_type(Value v, const char *tn, int line, const char *what);   /* optional type annotations */
 /* if v is an object whose type defines method `name`, return that method, else NULL */
 static TaskDef *type_op_method(Value v, const char *name) {
   if (v.type != V_MAP || !v.map || !v.map->classname) return NULL;
@@ -667,7 +668,7 @@ struct Stmt {
   Branch *branches; int nbranches; Stmt **otherwise; int notherwise; /* when */
   MatchArm *arms; int narms;             /* match */
   Expr *count; Stmt **body; int nbody;   /* repeat / task / for-each body */
-  char **params; int nparams; Expr **pdefaults;   /* task: params + optional per-param default exprs (NULL = required) */
+  char **params; int nparams; Expr **pdefaults; char **ptypes; char *type_ann;   /* task: params, default exprs, per-param : type; type_ann = a make's declared type */
   Expr *target, *index;                   /* S_INDEXSET: target[index] = expr */
   TokType setop;                          /* S_SET/S_INDEXSET: 0 = plain '=', else +=,-=,*=,/=,%= */
   int is_public;                          /* make/task: shared across the whole project? */
@@ -943,12 +944,13 @@ static Stmt *statement(void) {
         expect(T_EQ, "I expected '=' after the names (make a, b = pair).");
         Stmt *s = new_stmt(S_MAKE, t.line); s->params = names; s->nparams = n; s->expr = expression(); s->is_public = is_public; return s;
       }
+      char *type_ann = match(T_COLON) ? expect(T_IDENT, "I expected a type after ':', like  make x: number = 5.").text : NULL;
       if (check(T_LBRACK)) {   /* make m["k"] = ... : a beginner reaching for set */
         char m[256]; snprintf(m, sizeof m, "to put a value into '%s', use 'set' (like  set %s[\"key\"] = value) - 'make' is only for brand-new names.", name.text, name.text);
         fail(t.line, m);
       }
       expect(T_EQ, "I expected '=' here.");
-      Stmt *s = new_stmt(S_MAKE, t.line); s->name = name.text; s->expr = expression(); s->is_public = is_public; return s;
+      Stmt *s = new_stmt(S_MAKE, t.line); s->name = name.text; s->type_ann = type_ann; s->expr = expression(); s->is_public = is_public; return s;
     }
     case T_SET: {
       advance();
@@ -1113,19 +1115,20 @@ static Stmt *statement(void) {
       if (g_block_depth > 0) fail(t.line, "a task must be defined at the top level (the far-left margin), not inside another block.");
       advance(); Token name = expect(T_IDENT, "I expected the task's name here.");
       expect(T_LPAREN, "I expected '(' after the task name.");
-      char **params = NULL; Expr **pdefs = NULL; int n = 0, cap = 0, seen_default = 0;
+      char **params = NULL; Expr **pdefs = NULL; char **ptypes = NULL; int n = 0, cap = 0, seen_default = 0;
       if (!check(T_RPAREN)) {
         do {
           Token p = expect(T_IDENT, "I expected an input name here.");
-          if (n >= cap) { cap = cap ? cap * 2 : 4; params = (char **)realloc(params, cap * sizeof(char *)); pdefs = (Expr **)realloc(pdefs, cap * sizeof(Expr *)); }
+          if (n >= cap) { cap = cap ? cap * 2 : 4; params = (char **)realloc(params, cap * sizeof(char *)); pdefs = (Expr **)realloc(pdefs, cap * sizeof(Expr *)); ptypes = (char **)realloc(ptypes, cap * sizeof(char *)); }
           params[n] = p.text;
+          ptypes[n] = match(T_COLON) ? expect(T_IDENT, "I expected a type after ':', like  a: number.").text : NULL;   /* task f(a: number): */
           if (match(T_EQ)) { pdefs[n] = expression(); seen_default = 1; }         /* task greet(name = "world"): */
           else { if (seen_default) fail(p.line, "an input with no default can't come after one that has a default \xE2\x80\x94 put the defaults last."); pdefs[n] = NULL; }
           n++;
         } while (match(T_COMMA));
       }
       expect(T_RPAREN, "I expected ')' to close the inputs.");
-      Stmt *s = new_stmt(S_TASK, t.line); s->name = name.text; s->params = params; s->nparams = n; s->pdefaults = pdefs;
+      Stmt *s = new_stmt(S_TASK, t.line); s->name = name.text; s->params = params; s->nparams = n; s->pdefaults = pdefs; s->ptypes = ptypes;
       s->is_public = is_public;
       int save_in_task = g_in_task; g_in_task = 1;   /* 'give' is allowed inside this body */
       s->body = block(&s->nbody);
@@ -1259,7 +1262,7 @@ static void env_assign(Env *e, const char *name, Value v, int line) {
 }
 
 /* tasks: top-level functions, hoisted so call order doesn't matter */
-struct TaskDef { char *name; char **params; int nparams; Expr **defaults; Stmt **body; int nbody; int line;
+struct TaskDef { char *name; char **params; int nparams; Expr **defaults; char **ptypes; Stmt **body; int nbody; int line;
                  int is_public; int fileid; Env *home; Env *file_env; char *owner_type; };   /* home = closure/scope base; file_env = where `public make` lands; owner_type = the type a method is defined on (NULL for plain tasks/lambdas, so `super` knows the parent). TaskDef typedef is forward-declared up by Value */
 static const char *taskdef_name(TaskDef *t) { return (t && t->name) ? t->name : "?"; }
 static TaskDef *tasks = NULL; static int ntasks = 0, captasks = 0;
@@ -1279,7 +1282,7 @@ static void task_register(Stmt *s, int fileid, Env *home) {
       failf(s->line, "there are two tasks named '%s' in this file.", s->name);
   if (ntasks >= captasks) { captasks = captasks ? captasks * 2 : 8; tasks = (TaskDef *)realloc(tasks, captasks * sizeof(TaskDef)); }
   TaskDef *t = &tasks[ntasks++];
-  t->name = s->name; t->params = s->params; t->nparams = s->nparams; t->defaults = s->pdefaults; t->body = s->body; t->nbody = s->nbody; t->line = s->line;
+  t->name = s->name; t->params = s->params; t->nparams = s->nparams; t->defaults = s->pdefaults; t->ptypes = s->ptypes; t->body = s->body; t->nbody = s->nbody; t->line = s->line;
   t->is_public = s->is_public; t->fileid = fileid; t->home = home; t->file_env = home; t->owner_type = NULL;
 }
 
@@ -1290,12 +1293,13 @@ static void task_register(Stmt *s, int fileid, Env *home) {
    `home`/`fileid` are filled in at eval time, capturing wherever the literal runs. */
 static Expr *parse_anon_task(int line) {
   expect(T_LPAREN, "I expected '(' after 'task' for an anonymous task, like task(x): x * 2.");
-  char **params = NULL; Expr **pdefs = NULL; int np = 0, cap = 0, seen_default = 0;
+  char **params = NULL; Expr **pdefs = NULL; char **ptypes = NULL; int np = 0, cap = 0, seen_default = 0;
   if (!check(T_RPAREN)) {
     do {
       Token p = expect(T_IDENT, "I expected an input name here.");
-      if (np >= cap) { cap = cap ? cap * 2 : 4; params = (char **)realloc(params, cap * sizeof(char *)); pdefs = (Expr **)realloc(pdefs, cap * sizeof(Expr *)); }
+      if (np >= cap) { cap = cap ? cap * 2 : 4; params = (char **)realloc(params, cap * sizeof(char *)); pdefs = (Expr **)realloc(pdefs, cap * sizeof(Expr *)); ptypes = (char **)realloc(ptypes, cap * sizeof(char *)); }
       params[np] = p.text;
+      ptypes[np] = match(T_COLON) ? expect(T_IDENT, "I expected a type after ':', like  a: number.").text : NULL;
       if (match(T_EQ)) { pdefs[np] = expression(); seen_default = 1; }
       else { if (seen_default) fail(p.line, "an input with no default can't come after one that has a default \xE2\x80\x94 put the defaults last."); pdefs[np] = NULL; }
       np++;
@@ -1334,7 +1338,7 @@ static Expr *parse_anon_task(int line) {
   }
   g_in_task = save_in_task;
   TaskDef *td = (TaskDef *)calloc(1, sizeof(TaskDef));
-  td->name = "anonymous task"; td->params = params; td->nparams = np; td->defaults = pdefs;
+  td->name = "anonymous task"; td->params = params; td->nparams = np; td->defaults = pdefs; td->ptypes = ptypes;
   td->body = body; td->nbody = nbody; td->line = line;
   Expr *e = new_expr(E_LAMBDA, line); e->lambda = td;
   return e;
@@ -1522,16 +1526,16 @@ static void task_arity_check(TaskDef *t, int got, int line) {
 static Value call_task_def(TaskDef *t, Expr *call, Env *env) {
   task_arity_check(t, call->nargs, call->line);
   Env *frame = env_new(t->home);      /* a task sees its OWN file (privates + publics) + its locals */
-  for (int i = 0; i < call->nargs; i++) env_define(frame, t->params[i], eval(call->args[i], env));
-  for (int i = call->nargs; i < t->nparams; i++) env_define(frame, t->params[i], eval(t->defaults[i], frame));   /* fill trailing defaults */
+  for (int i = 0; i < call->nargs; i++) { Value av = eval(call->args[i], env); if (t->ptypes && t->ptypes[i]) { char w[96]; snprintf(w, sizeof w, "the input '%s'", t->params[i]); check_type(av, t->ptypes[i], call->line, w); } env_define(frame, t->params[i], av); }
+  for (int i = call->nargs; i < t->nparams; i++) { Value av = eval(t->defaults[i], frame); if (t->ptypes && t->ptypes[i]) { char w[96]; snprintf(w, sizeof w, "the input '%s'", t->params[i]); check_type(av, t->ptypes[i], call->line, w); } env_define(frame, t->params[i], av); }   /* fill trailing defaults */
   return run_task(t, frame, call->line);
 }
 /* call a task VALUE with already-evaluated args (used by map/filter/reduce/each) */
 static Value call_task_v(TaskDef *t, Value *argv, int argc, int line) {
   task_arity_check(t, argc, line);
   Env *frame = env_new(t->home);
-  for (int i = 0; i < argc; i++) env_define(frame, t->params[i], argv[i]);
-  for (int i = argc; i < t->nparams; i++) env_define(frame, t->params[i], eval(t->defaults[i], frame));   /* fill trailing defaults */
+  for (int i = 0; i < argc; i++) { if (t->ptypes && t->ptypes[i]) { char w[96]; snprintf(w, sizeof w, "the input '%s'", t->params[i]); check_type(argv[i], t->ptypes[i], line, w); } env_define(frame, t->params[i], argv[i]); }
+  for (int i = argc; i < t->nparams; i++) { Value av = eval(t->defaults[i], frame); if (t->ptypes && t->ptypes[i]) { char w[96]; snprintf(w, sizeof w, "the input '%s'", t->params[i]); check_type(av, t->ptypes[i], line, w); } env_define(frame, t->params[i], av); }   /* fill trailing defaults */
   if (t->owner_type) env_define(frame, "__class__", vstr(t->owner_type));   /* so `super` inside a method finds the defining type's parent */
   return run_task(t, frame, line);
 }
@@ -3000,6 +3004,28 @@ static int type_is_a(TypeReg *t, const char *name) {
     if (!strcmp(cur->name, name)) return 1;
   return 0;
 }
+/* optional type annotations (make x: number, task f(a: number)): verify a value matches a declared
+   type name — a built-in kind (number/text/list/map/boolean/task/nothing/any) or a user type (or a
+   descendant of it). Dynamic elsewhere; this only runs where an annotation was written. */
+static void check_type(Value v, const char *tn, int line, const char *what) {
+  if (!tn) return;
+  int builtin = 1, ok = 0;
+  if      (!strcmp(tn, "number"))  ok = v.type == V_NUM;
+  else if (!strcmp(tn, "text"))    ok = v.type == V_STR;
+  else if (!strcmp(tn, "list"))    ok = v.type == V_LIST;
+  else if (!strcmp(tn, "map"))     ok = v.type == V_MAP;
+  else if (!strcmp(tn, "boolean") || !strcmp(tn, "yesno")) ok = v.type == V_BOOL;
+  else if (!strcmp(tn, "task"))    ok = v.type == V_TASK;
+  else if (!strcmp(tn, "nothing")) ok = v.type == V_NONE;
+  else if (!strcmp(tn, "any"))     ok = 1;
+  else builtin = 0;
+  if (!builtin) {
+    if (!type_find(tn)) { char m[220]; snprintf(m, sizeof m, "there's no type called '%s' (in the annotation for %s). Types are number, text, list, map, boolean, task, nothing, or one you defined.", tn, what); fail_kind(line, "type", m); }
+    TypeReg *vt = (v.type == V_MAP && v.map && v.map->classname) ? type_find(v.map->classname) : NULL;
+    ok = vt && type_is_a(vt, tn);
+  }
+  if (!ok) { char m[280], d[96]; val_describe(v, d, sizeof d); snprintf(m, sizeof m, "%s must be a %s, but got %s.", what, tn, d); fail_kind(line, "type", m); }
+}
 /* register a `type`: record its fields, and build a TaskDef for each method. */
 static void type_register(Stmt *s, int fileid, Env *home) {
   if (type_find(s->name)) failf(s->line, "there are two types named '%s'.", s->name);
@@ -3396,6 +3422,7 @@ static void exec(Stmt *s, Env *env) {
       }
       /* re-running a `public make` (loop / a task called twice) just updates the file-level slot;
          the live REPL also lets you re-`make` a name. Otherwise a duplicate in THIS scope is an error. */
+      if (s->type_ann) { char w[96]; snprintf(w, sizeof w, "'%s'", s->name); check_type(v, s->type_ann, s->line, w); }
       int relaxed = g_repl_active || (s->is_public && is_public_var(cur_fileid, s->name));
       if (!relaxed && env_local(target, s->name))
         failf(s->line, "'%s' already exists here - use 'set' to change it (make is only for new names).", s->name);
