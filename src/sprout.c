@@ -1600,13 +1600,24 @@ static const char *suggest_name(const char *name, Env *env, int include_vars) {
    Returns NULL unless a key is within a small edit distance, so a genuinely-absent optional
    key still just reads as nothing (same threshold rule as suggest_name). */
 static const char *nearest_map_key(SMap *m, const char *key) {
-  if (!m || !key || !*key) return NULL;
-  const char *best = NULL; int bestd = 1000;
-  for (int i = 0; i < m->n; i++) { int d = edit_distance(key, m->keys[i]); if (d < bestd) { bestd = d; best = m->keys[i]; } }
+  if (!m || !key || !*key || m->n > 512) return NULL;   /* huge data-maps: optional lookups must stay O(1), skip typo search */
   int L = (int)strlen(key), thr = L <= 3 ? 1 : 2;
+  const char *best = NULL; int bestd = 1000;
+  for (int i = 0; i < m->n; i++) {
+    const char *k = m->keys[i];
+    /* a real typo keeps its first 2 chars (cost/cost2); this O(1) pre-filter avoids running the
+       O(len^2) edit_distance on EVERY key of EVERY miss — was a 12-55x slowdown on map["x"] in loops. */
+    if (k[0] != key[0] || k[1] != key[1]) continue;
+    int d = edit_distance(key, k); if (d < bestd) { bestd = d; best = k; }
+  }
   if (!best || bestd < 1 || bestd > thr) return NULL;
-  int pre = 0; while (key[pre] && best[pre] && key[pre] == best[pre]) pre++;   /* shared leading chars */
-  return pre >= 2 ? best : NULL;   /* a real typo keeps a common prefix (cost/cost2); avoids x/y, next/text */
+  /* a singular/plural pair (count/counts, item/items) is likely two distinct fields, not a typo */
+  { size_t la = strlen(key), lb = strlen(best);
+    const char *shorter = la <= lb ? key : best, *longer = la <= lb ? best : key;
+    size_t ls = la <= lb ? la : lb, ll2 = la <= lb ? lb : la;
+    if (ll2 - ls <= 2 && !strncmp(shorter, longer, ls)) { const char *suf = longer + ls; if (!strcmp(suf, "s") || !strcmp(suf, "es")) return NULL; }
+  }
+  return best;   /* best already shares a >=2 char prefix via the filter, so it's a plausible typo */
 }
 /* fail on a typo'd map key, SHOWING the offending map so the reader sees the bad key in context */
 static void fail_map_key(int line, Value mapval, const char *key, const char *sug) {
@@ -3037,6 +3048,7 @@ static void type_register(Stmt *s, int fileid, Env *home) {
   for (int i = 0; i < s->nbody; i++) {
     Stmt *m = s->body[i];
     t->methods[i].name = m->name; t->methods[i].params = m->params; t->methods[i].nparams = m->nparams;
+    t->methods[i].defaults = m->pdefaults; t->methods[i].ptypes = m->ptypes;   /* so default params + type annotations work on methods too */
     t->methods[i].body = m->body; t->methods[i].nbody = m->nbody; t->methods[i].line = m->line;
     t->methods[i].is_public = 0; t->methods[i].fileid = fileid; t->methods[i].home = home; t->methods[i].file_env = home; t->methods[i].owner_type = t->name;
   }
@@ -3267,15 +3279,15 @@ static Value eval(Expr *e, Env *env) {
       if (c.type == V_STR) {                              /* text[i] -> the i-th character (UTF-8 aware) */
         if (ix.type != V_NUM) { char m[160], d[96]; val_describe(ix, d, sizeof d); snprintf(m, sizeof m, "a text position must be a number, but you used %s.", d); fail_kind(e->line, "type", m); }
         if (ix.num != (double)(long long)ix.num) { char m[160]; snprintf(m, sizeof m, "a text position must be a whole number, but you used %g.", ix.num); fail_kind(e->line, "type", m); }
-        long long want = (long long)ix.num;
+        long long want = (long long)ix.num, seek = want;   /* keep `want` as the ORIGINAL index for error messages */
         const char *p = c.str ? c.str : "";
-        if (want < 0) { long long n = 0; for (int j = 0; p[j]; j += utf8_clen((unsigned char)p[j])) n++; want += n; }   /* "hi"[-1] is the last char */
+        if (want < 0) { long long n = 0; for (int j = 0; p[j]; j += utf8_clen((unsigned char)p[j])) n++; seek = want + n; }   /* "hi"[-1] is the last char */
         long long idx = 0;
         for (int i = 0; p[i]; ) {
           int cl = utf8_clen((unsigned char)p[i]); int k = 0; char ch[5];
           for (; k < cl && p[i + k]; k++) ch[k] = p[i + k];
           ch[k] = 0;
-          if (idx == want) return vstr_take(dup_str(ch));
+          if (idx == seek) return vstr_take(dup_str(ch));
           idx++; i += k ? k : 1;
         }
         { char m[200]; if (idx == 0) snprintf(m, sizeof m, "you asked for position %lld, but this text is empty.", want); else snprintf(m, sizeof m, "position %lld doesn't exist in this text \xE2\x80\x94 it has %lld character%s (valid positions are 0 to %lld).", want, idx, idx == 1 ? "" : "s", idx - 1); fail_kind(e->line, "index", m); }
