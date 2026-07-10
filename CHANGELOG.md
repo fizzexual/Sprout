@@ -5,6 +5,29 @@ All notable changes to **Sprout**. The format follows
 `sprout version`. Binaries for each release are on the
 [Releases](https://github.com/fizzexual/Sprout/releases) page.
 
+## [0.1.22] — Optional types & interfaces
+
+Opt-in type checking that stays out of your way until you want it — plus a review-driven
+performance fix and call-stack tracebacks.
+
+### Added
+- **Optional type annotations** — `make x: number = 5`, `task f(a: number, b: text):`, and
+  `task total() -> number:`. Checked at runtime where you write them, fully dynamic everywhere
+  else. Types are `number` / `text` / `list` / `map` / `boolean` / `task` / `nothing` / `any`, or
+  any type you defined (a `Dog` satisfies `: Animal`). A mismatch names the input and the value:
+  *the input 'name' must be a text, but got a number (42)*.
+- **Interfaces** — `interface Speaker:` lists required method names; `type Dog does Speaker:`
+  claims to implement it and is checked at load time (every required method must be on the type
+  or an ancestor). `is_a(obj, "Speaker")` is true for a type that does the interface.
+- **Call-stack tracebacks** — an uncaught error prints the chain of task calls that led to it
+  (innermost first), so a failure deep in a call chain is traceable to its source.
+
+### Fixed
+- **Performance** — a typo'd-map-key suggestion scan made `map["missing"]` in a loop 12–55×
+  slower; it's now O(1) per miss (an adversarial review caught this before release).
+- Default parameters and type annotations now also work on **methods**, not just top-level
+  tasks and lambdas.
+
 ## [0.1.21] — Everyday ergonomics
 
 Small quality-of-life syntax that removes the papercuts beginners hit daily, plus a thorough
