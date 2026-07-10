@@ -68,5 +68,20 @@ if [ -f tests/sandbox/probe.sprout ]; then
   fi
 fi
 
+# An uncaught error must print a call trace of the tasks that led there (inner <- middle <- outer).
+if [ -f tests/traceback/probe.sprout ]; then
+  out="$("$bin" run tests/traceback/probe.sprout 2>&1)"
+  if printf '%s' "$out" | grep -q "call trace" \
+     && printf '%s' "$out" | grep -q "inner" \
+     && printf '%s' "$out" | grep -q "middle" \
+     && printf '%s' "$out" | grep -q "outer"; then
+    echo "ok:   errors show a call trace"
+  else
+    echo "FAIL: an uncaught error did not print a call trace"
+    printf '%s\n' "$out"
+    fail=1
+  fi
+fi
+
 if [ "$fail" -eq 0 ]; then echo "All tests passed."; else echo "Some tests failed."; fi
 exit "$fail"

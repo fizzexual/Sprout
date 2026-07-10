@@ -1,0 +1,13 @@
+~ Probe for call-stack tracebacks. Run OUTSIDE the main test loop (it errors on purpose);
+~ run.sh runs it and checks the error prints the chain of tasks (inner <- middle <- outer).
+
+task inner(n):
+    show n / 0
+
+task middle(x):
+    give inner(x)
+
+task outer():
+    give middle(5)
+
+outer()

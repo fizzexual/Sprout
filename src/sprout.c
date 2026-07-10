@@ -321,6 +321,12 @@ static int  g_quiet_fail = 0;     /* >0 inside a 'try:' - a caught soft error is
 static char g_err_msg[512];       /* the most recent error's message  (the caught error's `message`) */
 static int  g_err_line = 0;       /* ...its line                       (the caught error's `line`)    */
 static const char *g_err_kind = "error";  /* ...its category           (the caught error's `kind`)    */
+/* the task-call stack, for tracebacks. call_depth is also the recursion guard (capped at MAX_DEPTH);
+   g_frames[d] holds the task running at depth d + the line it was called from. Restoring call_depth
+   on a caught 'try:' automatically forgets the deeper frames, so nothing extra is needed there. */
+#define MAX_CALL_FRAMES 6001
+static int call_depth = 0;
+static struct { const char *name; int line; } g_frames[MAX_CALL_FRAMES];
 static void fail_full(int line, const char *msg, const char *kind, int hard) {
   snprintf(g_err_msg, sizeof g_err_msg, "%s", msg ? msg : "something went wrong.");
   g_err_line = line;
@@ -330,6 +336,14 @@ static void fail_full(int line, const char *msg, const char *kind, int hard) {
   if (g_current_file) fprintf(stderr, " in %s", g_current_file);
   if (line > 0) fprintf(stderr, " (line %d)", line);
   fprintf(stderr, ": %s\n\n", msg);
+  if (call_depth > 0) {                                  /* the chain of task calls that led here */
+    fprintf(stderr, "  call trace (innermost first):\n");
+    int limit = 12, shown = 0, d0 = call_depth < MAX_CALL_FRAMES ? call_depth : MAX_CALL_FRAMES - 1;
+    for (int d = d0; d >= 1 && shown < limit; d--, shown++)
+      fprintf(stderr, "    %s  (called at line %d)\n", g_frames[d].name ? g_frames[d].name : "a task", g_frames[d].line);
+    if (call_depth > limit) fprintf(stderr, "    ... and %d earlier call%s\n", call_depth - limit, call_depth - limit == 1 ? "" : "s");
+    fprintf(stderr, "\n");
+  }
   sjmp_buf *target = g_top_jmp ? g_top_jmp : err_jmp;   /* uncaught or hard: stop at the nearest SYSTEM boundary */
   if (target) SJLONG(*target);
   exit(1);
@@ -1368,7 +1382,7 @@ static int is_public_var(int fileid, const char *name) {
 static int returning = 0;
 static int g_loopctl = 0;   /* 0 = none, 1 = skip (next turn), 2 = stop (end the loop) */
 static Value return_value;
-static int call_depth = 0;
+/* call_depth is declared up by the error globals (shared with the g_frames traceback stack). */
 static int repl_echo = 0;   /* in the live prompt, print the value of a bare expression */
 static int g_learn = 0;     /* `learn on`: narrate each step as the program runs */
 static int g_tpass = 0, g_tfail = 0;   /* test results so far */
@@ -1478,6 +1492,7 @@ static int block_binds_names(Stmt **list, int n) { for (int i = 0; i < n; i++) i
    caller and the Value-based one (which higher-order builtins like map/filter use). */
 static Value run_task(TaskDef *t, Env *frame, int line) {
   if (++call_depth > MAX_DEPTH) fail(line, "this went too deep — a task may be calling itself with no way to stop.");
+  g_frames[call_depth].name = t->name; g_frames[call_depth].line = line;   /* record this frame for tracebacks */
   if (g_learn) {
     printf("  " C_DIM "Calling %s(", t->name);
     for (int i = 0; i < t->nparams; i++) { if (i) printf(", "); Value *pv = env_find(frame, t->params[i]); char *ps = stringify(*pv); printf("%s", ps); free(ps); }
