@@ -1,0 +1,12 @@
+~ Probe for interface verification. Run OUTSIDE the main test loop (it fails on purpose, at
+~ registration): a type claims an interface but is missing a required method. run.sh checks
+~ that the error names the missing method.
+
+interface Greeter:
+    greet
+
+type Cat does Greeter:
+    task meow(self):
+        give "meow"
+
+show "unreachable"

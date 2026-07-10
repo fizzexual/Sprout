@@ -197,6 +197,7 @@ static int g_str_depth = 0;
 typedef struct TypeReg TypeReg;
 static TypeReg *type_find(const char *name);
 static int type_is_a(TypeReg *t, const char *name);
+static int type_does(TypeReg *t, const char *iface);   /* does the type (or an ancestor) declare `does iface`? */
 static TaskDef *type_method(TypeReg *t, const char *name);
 static Value call_task_v(TaskDef *t, Value *argv, int argc, int line);
 static void check_type(Value v, const char *tn, int line, const char *what);   /* optional type annotations */
@@ -430,7 +431,7 @@ typedef enum {
   T_MAKE, T_SET, T_SHOW, T_WHEN, T_ORWHEN, T_OTHERWISE, T_REPEAT, T_WHILE, T_TIMES,
   T_MATCH, T_IS,
   T_TASK, T_TYPE, T_GIVE, T_FOR, T_EACH, T_IN, T_TO, T_USE, T_PUBLIC, T_PRIVATE, T_LEARN, T_TEST, T_EXPECT,
-  T_TRY, T_CAUGHT, T_FAIL, T_STOP, T_SKIP,
+  T_INTERFACE, T_TRY, T_CAUGHT, T_FAIL, T_STOP, T_SKIP,
   T_AND, T_OR, T_NOT, T_YES, T_NO, T_NOTHING,
   T_PLUS, T_MINUS, T_STAR, T_SLASH, T_PERCENT, T_DOT,
   T_PLUSEQ, T_MINUSEQ, T_STAREQ, T_SLASHEQ, T_PERCENTEQ, T_ARROW,
@@ -464,7 +465,7 @@ static TokType keyword(const char *w) {
   static const struct { const char *word; TokType type; } table[] = {
     { "make", T_MAKE }, { "set", T_SET }, { "show", T_SHOW }, { "when", T_WHEN },
     { "orwhen", T_ORWHEN }, { "otherwise", T_OTHERWISE }, { "repeat", T_REPEAT },
-    { "while", T_WHILE }, { "times", T_TIMES }, { "task", T_TASK }, { "type", T_TYPE }, { "give", T_GIVE },
+    { "while", T_WHILE }, { "times", T_TIMES }, { "task", T_TASK }, { "type", T_TYPE }, { "interface", T_INTERFACE }, { "give", T_GIVE },
     { "match", T_MATCH }, { "is", T_IS },
     { "for", T_FOR }, { "each", T_EACH }, { "in", T_IN }, { "to", T_TO }, { "use", T_USE },
     { "public", T_PUBLIC }, { "private", T_PRIVATE }, { "learn", T_LEARN },
@@ -669,6 +670,7 @@ struct Stmt {
   MatchArm *arms; int narms;             /* match */
   Expr *count; Stmt **body; int nbody;   /* repeat / task / for-each body */
   char **params; int nparams; Expr **pdefaults; char **ptypes; char *type_ann; char *rettype;   /* task: params, default exprs, per-param : type, -> return type; type_ann = a make's declared type */
+  int is_interface; char **implements; int nimpl;   /* S_TYPE: interface decl flag / a type's 'does' interface list */
   Expr *target, *index;                   /* S_INDEXSET: target[index] = expr */
   TokType setop;                          /* S_SET/S_INDEXSET: 0 = plain '=', else +=,-=,*=,/=,%= */
   int is_public;                          /* make/task: shared across the whole project? */
@@ -976,11 +978,33 @@ static Stmt *statement(void) {
       fail(t.line, "you can only 'set' a name, an item inside a list or map, or an object's field.");
       return NULL;
     }
+    case T_INTERFACE: {                  /* interface Speaker:  <required method names, one per line> */
+      advance();
+      Token name = expect(T_IDENT, "I expected a name for the interface, like: interface Speaker:");
+      expect(T_COLON, "I expected ':' after the interface name.");
+      expect(T_NEWLINE, "I expected the required method names on the next lines.");
+      expect(T_INDENT, "I expected the method names to be indented.");
+      char **ms = NULL; int nm = 0, cap = 0;
+      while (!check(T_DEDENT) && !check(T_EOF)) {
+        if (match(T_NEWLINE)) continue;
+        Token mn = expect(T_IDENT, "I expected a method name here (just the name, like: speak).");
+        if (nm >= cap) { cap = cap ? cap * 2 : 4; ms = (char **)realloc(ms, cap * sizeof(char *)); }
+        ms[nm++] = mn.text;
+      }
+      expect(T_DEDENT, "I expected the interface body to finish here.");
+      Stmt *s = new_stmt(S_TYPE, name.line); s->is_interface = 1; s->name = name.text; s->params = ms; s->nparams = nm;
+      return s;
+    }
     case T_TYPE: {                       /* type Point:  <make fields...>  <task methods...> */
       advance();
       Token name = expect(T_IDENT, "I expected a name for the type, like: type Point:");
       char *parent = NULL;                 /* optional single inheritance: type Dog from Animal: */
       if (check(T_IDENT) && !strcmp(peek().text, "from")) { advance(); Token pp = expect(T_IDENT, "I expected a parent type name after 'from' (like: type Dog from Animal:)."); parent = pp.text; }
+      char **impls = NULL; int nimpl = 0;                 /* type Dog does Speaker, Comparable: */
+      if (check(T_IDENT) && !strcmp(peek().text, "does")) {
+        advance();
+        do { Token in = expect(T_IDENT, "I expected an interface name after 'does' (like: type Dog does Speaker:)."); impls = (char **)realloc(impls, (nimpl + 1) * sizeof(char *)); impls[nimpl++] = in.text; } while (match(T_COMMA));
+      }
       expect(T_COLON, "I expected ':' after the type name.");
       expect(T_NEWLINE, "I expected the type's body on the next lines.");
       expect(T_INDENT, "I expected the type's fields and tasks to be indented.");
@@ -1006,6 +1030,7 @@ static Stmt *statement(void) {
       expect(T_DEDENT, "I expected the type's body to finish here.");
       Stmt *s = new_stmt(S_TYPE, name.line);
       s->name = name.text; s->name2 = parent; s->params = fields; s->nparams = nf; s->values = defs; s->nvalues = nf; s->body = methods; s->nbody = nm;
+      s->implements = impls; s->nimpl = nimpl;
       return s;
     }
     case T_FOR: {
@@ -2354,8 +2379,8 @@ static Value call_builtin(Expr *call, Env *env) {
     if (n != 2) arity_error(call->line, "is_a", "a value and a type name, like is_a(d, \"Animal\")", n);
     want_str(call->line, "is_a", 2, a[1], "is_a(d, \"Animal\")");
     if (a[0].type != V_MAP || !a[0].map || !a[0].map->classname) return vbool(0);
-    TypeReg *t = type_find(a[0].map->classname);
-    return vbool(t && type_is_a(t, a[1].str ? a[1].str : ""));
+    TypeReg *t = type_find(a[0].map->classname); const char *want = a[1].str ? a[1].str : "";
+    return vbool(t && (type_is_a(t, want) || type_does(t, want)));   /* true for the type, an ancestor, OR an interface it does */
   }
   /* ---- higher-order: run a task over a list (the "easy data" trio + each) ---- */
   if (!strcmp(name, "map")) {
@@ -2999,7 +3024,7 @@ static Value call_system(Expr *e, Env *env) {
    `type Point:` defines a class. An instance is just a map (SMap) whose `classname` is the
    type name; its fields are the map's entries, so field get/set reuse the [ ] machinery.
    A method is a task whose first parameter is the receiver (by convention, `self`). */
-struct TypeReg { char *name; char *parent; int fileid; char **fields; Expr **defaults; int nfields; TaskDef *methods; int nmethods; };
+struct TypeReg { char *name; char *parent; int fileid; char **fields; Expr **defaults; int nfields; TaskDef *methods; int nmethods; int is_interface; char **implements; int nimpl; };
 static TypeReg *g_types = NULL; static int g_ntypes = 0, g_captypes = 0;
 
 static TypeReg *type_find(const char *name) {
@@ -3016,6 +3041,18 @@ static TaskDef *type_method(TypeReg *t, const char *name) {
 static int type_is_a(TypeReg *t, const char *name) {
   for (TypeReg *cur = t; cur; cur = cur->parent ? type_find(cur->parent) : NULL)
     if (!strcmp(cur->name, name)) return 1;
+  return 0;
+}
+static int type_has_method(TypeReg *t, const char *mname) {   /* does this type or an ancestor define method `mname`? */
+  for (TypeReg *cur = t; cur; cur = cur->parent ? type_find(cur->parent) : NULL)
+    for (int i = 0; i < cur->nmethods; i++)
+      if (cur->methods[i].name && !strcmp(cur->methods[i].name, mname)) return 1;
+  return 0;
+}
+static int type_does(TypeReg *t, const char *iface) {   /* does this type (or an ancestor) declare `does iface`? */
+  for (TypeReg *cur = t; cur; cur = cur->parent ? type_find(cur->parent) : NULL)
+    for (int i = 0; i < cur->nimpl; i++)
+      if (!strcmp(cur->implements[i], iface)) return 1;
   return 0;
 }
 /* optional type annotations (make x: number, task f(a: number)): verify a value matches a declared
@@ -3046,6 +3083,7 @@ static void type_register(Stmt *s, int fileid, Env *home) {
   if (g_ntypes >= g_captypes) { g_captypes = g_captypes ? g_captypes * 2 : 8; g_types = (TypeReg *)realloc(g_types, g_captypes * sizeof(TypeReg)); }
   TypeReg *t = &g_types[g_ntypes++];
   t->name = s->name; t->parent = s->name2; t->fileid = fileid; t->fields = s->params; t->defaults = s->values; t->nfields = s->nparams;
+  t->is_interface = s->is_interface; t->implements = s->implements; t->nimpl = s->nimpl;
   t->nmethods = s->nbody;
   t->methods = s->nbody ? (TaskDef *)calloc((size_t)s->nbody, sizeof(TaskDef)) : NULL;
   for (int i = 0; i < s->nbody; i++) {
@@ -3054,6 +3092,12 @@ static void type_register(Stmt *s, int fileid, Env *home) {
     t->methods[i].defaults = m->pdefaults; t->methods[i].ptypes = m->ptypes;   /* so default params + type annotations work on methods too */
     t->methods[i].body = m->body; t->methods[i].nbody = m->nbody; t->methods[i].line = m->line;
     t->methods[i].is_public = 0; t->methods[i].fileid = fileid; t->methods[i].home = home; t->methods[i].file_env = home; t->methods[i].owner_type = t->name;
+  }
+  for (int k = 0; k < t->nimpl; k++) {   /* verify each 'does Interface' claim (declare interfaces + parents before the type) */
+    TypeReg *iface = type_find(t->implements[k]);
+    if (!iface || !iface->is_interface) { char m[260]; snprintf(m, sizeof m, "type '%s' says it does '%s', but there's no interface called '%s' (declare the interface before the type).", t->name, t->implements[k], t->implements[k]); fail_kind(s->line, "type", m); }
+    for (int j = 0; j < iface->nfields; j++)
+      if (!type_has_method(t, iface->fields[j])) { char m[260]; snprintf(m, sizeof m, "type '%s' says it does '%s', but it's missing the method '%s'.", t->name, iface->name, iface->fields[j]); fail_kind(s->line, "type", m); }
   }
 }
 /* total number of fields, including those inherited from ancestors. */

@@ -1,0 +1,40 @@
+~ Interfaces: `interface Name:` lists required method names; `type T does Name:` claims to
+~ implement it (checked at registration — every required method must be present on the type
+~ or an ancestor). is_a(obj, "Name") is true for a type that does the interface. A *_test file.
+
+interface Speaker:
+    speak
+
+interface Named:
+    label
+
+type Dog does Speaker:
+    task speak(self):
+        give "woof"
+
+type Robot does Speaker, Named:
+    task speak(self):
+        give "beep"
+    task label(self):
+        give "R2"
+
+type Animal does Speaker:
+    task speak(self):
+        give "..."
+
+type Cat from Animal:
+    task speak(self):
+        give "meow"
+
+test "a type that does an interface satisfies is_a":
+    expect is_a(Dog(), "Speaker")
+    expect not is_a(Dog(), "Named")
+
+test "a type can do several interfaces":
+    expect is_a(Robot(), "Speaker")
+    expect is_a(Robot(), "Named")
+    expect Robot().label() == "R2"
+
+test "an interface is satisfied through an ancestor":
+    expect is_a(Cat(), "Speaker")
+    expect Cat().speak() == "meow"

@@ -83,5 +83,17 @@ if [ -f tests/traceback/probe.sprout ]; then
   fi
 fi
 
+# A type that claims an interface but is missing a required method must fail at registration.
+if [ -f tests/interface/probe.sprout ]; then
+  out="$("$bin" run tests/interface/probe.sprout 2>&1)"
+  if printf '%s' "$out" | grep -q "missing the method" && printf '%s' "$out" | grep -q "greet"; then
+    echo "ok:   interface verification catches a missing method"
+  else
+    echo "FAIL: interface verification did not catch the missing method"
+    printf '%s\n' "$out"
+    fail=1
+  fi
+fi
+
 if [ "$fail" -eq 0 ]; then echo "All tests passed."; else echo "Some tests failed."; fi
 exit "$fail"
