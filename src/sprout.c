@@ -630,7 +630,7 @@ static void tokenize(const char *src, int len) {
 }
 
 /* ---------------------------------------------------------------------- AST */
-typedef enum { E_NUM, E_STR, E_BOOL, E_NONE, E_VAR, E_UNARY, E_BINARY, E_LOGICAL, E_COALESCE, E_CALL, E_LIST, E_MAP, E_INDEX, E_MEMBER, E_LAMBDA, E_RANGE, E_COMPREHENSION, E_METHODCALL } EKind;
+typedef enum { E_NUM, E_STR, E_BOOL, E_NONE, E_VAR, E_UNARY, E_BINARY, E_LOGICAL, E_COALESCE, E_CALL, E_LIST, E_MAP, E_INDEX, E_SLICE, E_MEMBER, E_LAMBDA, E_RANGE, E_COMPREHENSION, E_METHODCALL } EKind;
 typedef struct Expr {
   EKind kind; double num; char *str; int boolean; char *name; char *module;  /* module: server.name */
   TokType op; struct Expr *left, *right, *operand; int line;
@@ -762,9 +762,12 @@ static Expr *postfix(void) {        /* primary followed by any number of [index]
     int line = peek().line;
     if (check(T_LBRACK)) {
       advance();
-      Expr *idx = expression();
+      Expr *start = NULL, *end = NULL; int is_slice = 0;
+      if (!check(T_COLON)) start = expression();                                  /* xs[i] or xs[start:...] */
+      if (match(T_COLON)) { is_slice = 1; if (!check(T_RBRACK)) end = expression(); }   /* xs[a:b], xs[a:], xs[:b], xs[:] */
       expect(T_RBRACK, "I expected a ']' to close the index.");
-      Expr *ix = new_expr(E_INDEX, line); ix->target = e; ix->index = idx; e = ix;
+      if (is_slice) { Expr *sl = new_expr(E_SLICE, line); sl->target = e; sl->index = start; sl->operand = end; e = sl; }
+      else          { Expr *ix = new_expr(E_INDEX, line); ix->target = e; ix->index = start; e = ix; }
     } else {                          /* '.' on a value: a field (e.field) or a method call (e.method(...)) */
       advance();
       Token nm = expect(T_IDENT, "I expected a name after '.' (a field or method).");
@@ -3230,6 +3233,30 @@ static Value eval(Expr *e, Env *env) {
       fail_kind(e->line, "type", "I can only look inside a list, a map, or text with [ ].");
       return vnone();
     }
+    case E_SLICE: {                                     /* xs[a:b] / xs[a:] / xs[:b] / xs[:] — a sub-range (end exclusive) */
+      Value c = eval(e->target, env);
+      int have_s = e->index != NULL, have_e = e->operand != NULL;
+      long long s = 0, en = 0;
+      if (have_s) { Value v = eval(e->index, env); if (v.type != V_NUM || v.num != (double)(long long)v.num) fail_kind(e->line, "type", "a slice start must be a whole number, like xs[1:3]."); s = (long long)v.num; }
+      if (have_e) { Value v = eval(e->operand, env); if (v.type != V_NUM || v.num != (double)(long long)v.num) fail_kind(e->line, "type", "a slice end must be a whole number, like xs[1:3]."); en = (long long)v.num; }
+      if (c.type == V_LIST) {
+        long long len = c.list ? c.list->n : 0;
+        long long a = have_s ? (s < 0 ? s + len : s) : 0, b = have_e ? (en < 0 ? en + len : en) : len;
+        if (a < 0) { a = 0; } if (b > len) { b = len; } if (b < a) { b = a; }
+        SList *out = list_new(); for (long long i = a; i < b; i++) list_push(out, c.list->items[i]); return vlist(out);
+      }
+      if (c.type == V_STR) {                            /* char-aware (UTF-8), like text[i] */
+        const char *p = c.str ? c.str : ""; long long n = 0;
+        for (int j = 0; p[j]; j += utf8_clen((unsigned char)p[j])) n++;
+        long long a = have_s ? (s < 0 ? s + n : s) : 0, b = have_e ? (en < 0 ? en + n : en) : n;
+        if (a < 0) { a = 0; } if (b > n) { b = n; } if (b < a) { b = a; }
+        size_t cap = 0, len = 0; char *out = NULL; long long idx = 0;
+        for (int j = 0; p[j]; ) { int cl = utf8_clen((unsigned char)p[j]); if (idx >= a && idx < b) { char ch[5]; int k = 0; for (; k < cl && p[j + k]; k++) ch[k] = p[j + k]; ch[k] = 0; sb_add(&out, &cap, &len, ch); } idx++; j += cl ? cl : 1; }
+        Value rv = vstr(out ? out : ""); free(out); return rv;
+      }
+      fail_kind(e->line, "type", "I can only slice a list or text with [a:b].");
+      return vnone();
+    }
   }
   return vnone();
 }
@@ -3276,6 +3303,7 @@ static void render_expr(Expr *e, int wv, Env *env, char **o, size_t *c, size_t *
     case E_MAP: sb_add(o, c, l, "{");
       for (int i = 0; i < e->nargs; i++) { if (i) sb_add(o, c, l, ", "); sb_add(o, c, l, e->keys[i]); sb_add(o, c, l, ": "); render_expr(e->args[i], wv, env, o, c, l); } sb_add(o, c, l, "}"); break;
     case E_INDEX: render_expr(e->target, wv, env, o, c, l); sb_add(o, c, l, "["); render_expr(e->index, wv, env, o, c, l); sb_add(o, c, l, "]"); break;
+    case E_SLICE: render_expr(e->target, wv, env, o, c, l); sb_add(o, c, l, "["); if (e->index) render_expr(e->index, wv, env, o, c, l); sb_add(o, c, l, ":"); if (e->operand) render_expr(e->operand, wv, env, o, c, l); sb_add(o, c, l, "]"); break;
     case E_METHODCALL: render_expr(e->target, wv, env, o, c, l); sb_add(o, c, l, "."); sb_add(o, c, l, e->name); sb_add(o, c, l, "(");
       for (int i = 0; i < e->nargs; i++) { if (i) sb_add(o, c, l, ", "); render_expr(e->args[i], wv, env, o, c, l); } sb_add(o, c, l, ")"); break;
     case E_LAMBDA: sb_add(o, c, l, "task(");
