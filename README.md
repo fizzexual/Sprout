@@ -2,7 +2,7 @@
   <img src="images/banner.png" alt="Sprout" width="100%" />
 </p>
 
-<h1 align="center">🌱 Sprout</h1>
+<h1 align="center">🌱 Sprout 🌱</h1>
 
 <p align="center"><b>A small, friendly programming language — written from scratch in C.</b><br/>
 Plain-English code, helpful errors, and zero dependencies. No Node, no VM, no runtime to install.</p>
@@ -63,6 +63,14 @@ show x + y
   Output:
       15
 ```
+
+## About
+
+Sprout is a small interpreted language for people writing their first programs: plain-English
+keywords, error messages that point at the line and suggest a fix, and a step-by-step `learn on`
+mode. The interpreter is a single dependency-free C executable, and the same code runs in the
+browser playground through WebAssembly. It is an actively developed hobby language (see
+[CHANGELOG.md](CHANGELOG.md) and [ROADMAP.md](ROADMAP.md)), not yet a stable 1.0.
 
 ## Code you can read out loud
 
