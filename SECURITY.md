@@ -5,7 +5,7 @@
 Sprout is under active development. Security fixes are applied to the latest
 release only. You can find it on the
 [Releases page](https://github.com/fizzexual/Sprout/releases/latest)
-(v0.1.15 at the time of writing).
+(v0.1.22 at the time of writing).
 
 | Version | Supported |
 | ------- | --------- |
