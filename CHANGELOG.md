@@ -5,6 +5,16 @@ All notable changes to **Sprout**. The format follows
 `sprout version`. Binaries for each release are on the
 [Releases](https://github.com/fizzexual/Sprout/releases) page.
 
+## [Unreleased]
+
+### Added
+
+- `sprout check <file>` parses and loads a program without running it. It reports syntax
+  errors and load-time errors (duplicate names, interface checks) and exits 0 when clean, 1
+  otherwise. Useful as a fast lint step in CI.
+- VS Code extension 0.3.0: live error squiggles while you type (powered by `sprout check`) and
+  autocomplete for keywords, builtins and the names defined in the file.
+
 ## [0.1.22] — Optional types & interfaces
 
 Opt-in type checking that stays out of your way until you want it — plus a review-driven
