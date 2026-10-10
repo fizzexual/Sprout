@@ -11,8 +11,8 @@
 # ---- build: compile the interpreter (same flags as CI's Linux build) ----
 FROM gcc:bookworm AS build
 WORKDIR /b
-COPY src/sprout.c .
-RUN cc -O2 -Wall -s -o /sprout sprout.c -lm   # on Linux, Sprout links only libm
+COPY src/ .
+RUN cc -O2 -Wall -s -DSPROUT_SQLITE -o /sprout sprout.c vendor/sqlite/sqlite3.c -lm -pthread -ldl
 
 # ---- runtime: minimal, non-root, no compiler ----
 FROM debian:bookworm-slim

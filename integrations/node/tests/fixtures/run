@@ -1,0 +1,17 @@
+// Fake interpreter for transport tests; Node runs this file as its entry point.
+const path = require('node:path');
+const mode = path.basename(process.argv[2], '.sprout');
+let text = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', chunk => text += chunk);
+process.stdin.on('end', () => {
+  if (mode === 'echo') process.stdout.write(JSON.stringify({ input: JSON.parse(text), args: process.argv.slice(3) }) + '\n');
+  else if (mode === 'stdout') process.stdout.write('x'.repeat(100000));
+  else if (mode === 'stderr') process.stderr.write('x'.repeat(100000));
+  else if (mode === 'wait') setInterval(() => {}, 1000);
+  else if (mode === 'malformed') process.stdout.write('{bad}\n');
+  else if (mode === 'multiple') process.stdout.write('{}\n{}\n');
+  else if (mode === 'blank') process.stdout.write('{}\n\n');
+  else if (mode === 'invalid-utf8') process.stdout.write(Buffer.from([0xff, 0x0a]));
+  else if (mode === 'exit') { process.stderr.write('rule failed'); process.exitCode = 7; }
+});

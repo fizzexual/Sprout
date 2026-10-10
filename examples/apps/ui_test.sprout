@@ -1,0 +1,29 @@
+use "lib/ui.sprout"
+
+test "escape text and attributes":
+    expect ui.escape("&<>\"'") == "&amp;&lt;&gt;&quot;&#39;"
+    expect ui.paragraph("<script>") == "<p>&lt;script&gt;</p>"
+    expect ui.button("Save", "\" unsafe") == "<button type=\"button\" id=\"&quot; unsafe\">Save</button>"
+
+test "render tables and forms":
+    make table = ui.table(["Name"], [["<Ada>"]])
+    expect contains(table, "&lt;Ada&gt;")
+    expect contains(table, "<th scope=\"col\">Name</th>")
+    expect contains(ui.form("/contact", ui.input("Email", "email", "", "email")), "method=\"get\"")
+
+test "compose a complete page":
+    make page = ui.page("<Report>", ui.columns([ui.metric("Total", 42), ui.card("Details", ui.paragraph("Safe"))]))
+    expect starts_with(page, "<!doctype html>")
+    expect contains(page, "<title>&lt;Report&gt;</title>")
+    expect contains(page, "class=\"grid\"")
+    expect contains(page, "viewport")
+
+test "reject executable URL schemes and unsupported fields":
+    expect error:
+        ui.link("Unsafe", "javascript:alert(1)")
+    expect error:
+        ui.form("data:text/html,test", "")
+    expect error:
+        ui.input("Field", "field", "", "raw-html")
+    expect error:
+        ui.heading("Heading", 7)

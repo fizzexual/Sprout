@@ -1,0 +1,10 @@
+~ Go retains HTTP/storage; Sprout owns this replaceable business rule.
+make request = json_decode(read_input())
+make quantity = request.quantity
+when quantity < 0 or quantity > 10000:
+    fail "quantity must be from 0 to 10000"
+make subtotal = decimal(request.unit_price) * quantity
+make discount = decimal("0")
+when quantity >= 10:
+    set discount = subtotal * decimal("0.10")
+show json_encode({subtotal: subtotal, discount: discount, total: subtotal - discount})

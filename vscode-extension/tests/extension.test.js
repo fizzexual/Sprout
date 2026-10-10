@@ -20,7 +20,7 @@ function harness() {
       onDidChangeActiveTextEditor: () => disposable(),
       createStatusBarItem: () => ({ ...disposable(), show() {}, hide() {} }) },
     languages: { createDiagnosticCollection: () => ({ ...disposable(), set: (uri, values) => reports.push(values), delete() {} }),
-      registerCompletionItemProvider: () => disposable() },
+      ...Object.fromEntries(['CompletionItem', 'Hover', 'SignatureHelp', 'Definition', 'Reference', 'Rename', 'DocumentFormattingEdit'].map(kind => [`register${kind}Provider`, () => disposable()])) },
     commands: { registerCommand: (id, fn) => { commands[id] = fn; return disposable(); } },
     tasks: { executeTask: async task => tasks.push(task) }, TaskScope: { Workspace: 1 },
     TaskRevealKind: { Always: 1 }, TaskPanelKind: { Shared: 1 }, StatusBarAlignment: { Left: 1 },
@@ -40,6 +40,7 @@ function harness() {
       if (name === 'vscode') return vscode;
       if (name === 'child_process') return cp;
       if (name === 'fs') return { existsSync: target => target === path.join(root, 'sprout.toml') };
+      if (name === './providers') return { providers: () => ({ staticDiagnostics: () => [] }) };
       return require(name);
     } };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8'), sandbox);

@@ -1,0 +1,40 @@
+test "identifiers above double precision remain distinct":
+    make a: integer = integer("9007199254740992")
+    make b: integer = integer("9007199254740993")
+    expect a != b
+    expect b - a == 1
+    expect b + 7 == integer("9007199254741000")
+    expect b > a
+    expect kind_of(b) == "integer"
+    expect "" + b == "9007199254740993"
+
+test "exact boundaries and overflow":
+    expect "" + integer("-9223372036854775808") == "-9223372036854775808"
+    expect error "math":
+        show integer("9223372036854775807") + 1
+    expect error "math":
+        show -integer("-9223372036854775808")
+    expect error "math":
+        show integer("9223372036854775808")
+    expect error "type":
+        show integer(9007199254740992)
+
+test "decimal arithmetic and explicit division precision":
+    make price: decimal = decimal("0.10") + decimal("0.20")
+    expect price == decimal("0.30")
+    expect "" + price == "0.3"
+    expect decimal("19.99") * 3 == decimal("59.97")
+    expect decimal("1.2") < decimal("1.21")
+    expect decimal_div(decimal("1"), decimal("3"), 6) == decimal("0.333333")
+    expect error "type":
+        show decimal("0.1") + 0.2
+
+test "exact JSON and persistence round trips":
+    make id = integer("9007199254740993")
+    expect json("9007199254740993") == id
+    expect json("9223372036854775808") == nothing
+    make encoded = json_encode({id: id, price: decimal("12.30")})
+    expect json_decode(encoded) == {id: id, price: decimal("12.30")}
+    remember("exact_roundtrip", {id: id, price: decimal("12.30")})
+    expect recall("exact_roundtrip") == {id: id, price: decimal("12.30")}
+    forget("exact_roundtrip")

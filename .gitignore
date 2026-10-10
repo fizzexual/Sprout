@@ -27,8 +27,18 @@ botanica/build/
 # Build artifacts — the interpreter exe is published to Releases, never committed.
 *.exe
 *.obj
+*.o
+*.a
+*.dll
+*.so
+*.dylib
 src/sprout
 __pycache__/
+integrations/dotnet/**/bin/
+integrations/dotnet/**/obj/
+integrations/paper/target/
+integrations/java/target/
+examples/services/contacts.sqlite*
 
 # Stray scratch / probe files. Real source lives in src/, src/tests/, modules/, etc.;
 # loose .sprout files at the repo root — and `src/test_*.sprout` probes (note: real

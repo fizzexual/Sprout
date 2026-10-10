@@ -1,0 +1,45 @@
+~ Export a self-contained, searchable, sortable order report from CSV.
+~ Run from the repository root; optional arguments are CSV path and output path.
+use "lib/ui.sprout"
+use files
+use csv
+
+make options = args()
+make input_path = "examples/apps/orders.csv"
+make output_path = "sprout-dashboard.html"
+when length(options) > 0:
+    set input_path = options[0]
+when length(options) > 1:
+    set output_path = options[1]
+
+make source = files.read(input_path)
+when not source["ok"]:
+    fail source["error"]
+make records = csv.parse(source["text"])
+when length(records) == 0:
+    fail "The report needs a CSV header row."
+make headers = records[0]
+when headers != ["Order", "Customer", "Item", "Amount", "Status"]:
+    fail "CSV headers must be Order,Customer,Item,Amount,Status."
+make rows = slice(records, 1, length(records))
+make total = decimal("0")
+make paid = 0
+for each row in rows:
+    when length(row) != 5:
+        fail "Each order row needs five columns: Order, Customer, Item, Amount, Status."
+    set total += decimal(row[3])
+    when row[4] == "Paid":
+        set paid += 1
+
+make script = files.read("examples/apps/report.js")
+when not script["ok"]:
+    fail script["error"]
+make content = ui.heading("Orders, clearly.") + ui.paragraph("Search orders, sort any column, and download the visible rows. This report works offline.")
+set content += ui.columns([ui.metric("Orders", length(rows)), ui.metric("Order value", "$" + total), ui.metric("Paid orders", paid)])
+make controls = ui.input("Search orders", "search", "", "search") + ui.button("Download filtered CSV", "download")
+set controls += "<p id=\"report-status\" role=\"status\" aria-live=\"polite\"></p>"
+set content += ui.card("Order report", controls + ui.table(headers, rows, "orders"))
+make result = files.write(output_path, ui.page("Sprout order report", content, script["text"]))
+when not result["ok"]:
+    fail result["error"]
+show "Created", output_path

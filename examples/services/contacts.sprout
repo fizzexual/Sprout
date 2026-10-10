@@ -1,0 +1,32 @@
+~ Run behind integrations/python/sprout_service.py with --allow-io.
+use sqlite
+make request = json_decode(read_input())
+make opened = sqlite.open("contacts.sqlite")
+when not opened.ok:
+    show json_encode({status: 503, body: {error: "database unavailable"}})
+otherwise:
+    make db = opened.handle
+    make schema = sqlite.execute(db, "CREATE TABLE IF NOT EXISTS contacts (id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE)")
+    when request.path != "/contacts":
+        show json_encode({status: 404, body: {error: "route not found"}})
+    orwhen request.method == "GET":
+        make result = sqlite.execute(db, "SELECT id, name, email FROM contacts ORDER BY id")
+        when result.ok:
+            show json_encode({status: 200, body: {contacts: result.rows}})
+        otherwise:
+            show json_encode({status: 503, body: {error: "query failed"}})
+    orwhen request.method == "POST":
+        make body = request.body
+        when kind_of(body) != "map" or not contains(keys(body), "name") or not contains(keys(body), "email"):
+            show json_encode({status: 400, body: {error: "name and email required"}})
+        orwhen kind_of(body.name) != "text" or kind_of(body.email) != "text" or length(body.name) > 100 or length(body.email) > 254:
+            show json_encode({status: 400, body: {error: "invalid name or email"}})
+        otherwise:
+            make saved = sqlite.execute(db, "INSERT INTO contacts(name,email) VALUES(?,?)", [body.name, body.email])
+            when saved.ok:
+                show json_encode({status: 201, body: {ok: yes}})
+            otherwise:
+                show json_encode({status: 409, body: {error: "contact could not be created"}})
+    otherwise:
+        show json_encode({status: 405, body: {error: "method not supported"}})
+    sqlite.close(db)

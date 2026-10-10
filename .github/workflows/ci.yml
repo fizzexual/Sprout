@@ -22,11 +22,11 @@ jobs:
 
       - name: Build (Linux / macOS)
         if: runner.os != 'Windows'
-        run: cc -O2 -Wall -o src/sprout src/sprout.c -lm
+        run: cc -O2 -Wall -DSPROUT_SQLITE -o src/sprout src/sprout.c src/vendor/sqlite/sqlite3.c -lm -pthread -ldl
 
       - name: Build (Windows, MinGW)
         if: runner.os == 'Windows'
-        run: gcc -O2 -Wall -s -Wl,--stack,67108864 -o src/sprout.exe src/sprout.c -lm -lurlmon
+        run: gcc -O2 -Wall -s -DSPROUT_SQLITE -Wl,--stack,67108864 -o src/sprout.exe src/sprout.c src/vendor/sqlite/sqlite3.c -lm -lurlmon
 
       - name: Version smoke test
         run: |
@@ -50,7 +50,21 @@ jobs:
           python src/tests/cli_test.py "$bin"
 
       - name: Editor and playground regression tests
-        run: node --test vscode-extension/tests/*.test.js playground/tests/*.test.js
+        run: |
+          bin="$PWD/src/sprout"; [ -f "$PWD/src/sprout.exe" ] && bin="$PWD/src/sprout.exe"
+          SPROUT_COMMAND="$bin" node --test vscode-extension/tests/*.test.js playground/tests/*.test.js integrations/node/tests/*.test.js examples/apps/*.test.js
+
+      - name: Native production foundation contracts
+        run: |
+          bin="$PWD/src/sprout"; [ -f "$PWD/src/sprout.exe" ] && bin="$PWD/src/sprout.exe"
+          python src/tests/stdlib_production_test.py "$bin"
+          python src/tests/distribution_test.py "$bin"
+          python src/tests/runtime_production_test.py "$bin"
+          python src/tests/ergonomics_test.py "$bin"
+          python src/tests/embed_test.py "$bin"
+          python tools/fuzz.py "$bin" --iterations 200 --seed 20261010 --report "$RUNNER_TEMP/fuzz.json" --artifacts "$RUNNER_TEMP/fuzz-artifacts"
+          SPROUT_COMMAND="$bin" python -m unittest discover -s integrations/python -p 'test_*.py'
+          "$bin" test examples/apps/ui_test.sprout
 
       - name: Standalone bundle round-trip
         shell: bash
@@ -103,7 +117,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build with AddressSanitizer
-        run: cc -O1 -g -fsanitize=address -fno-omit-frame-pointer -o src/sprout src/sprout.c -lm
+        run: cc -O1 -g -DSPROUT_SQLITE -fsanitize=address -fno-omit-frame-pointer -o src/sprout src/sprout.c src/vendor/sqlite/sqlite3.c -lm -pthread -ldl
 
       # Leak detection is off because parser/CLI state lives until process exit.
       # Guard collected runtime values against use-after-free, overflows, and bad frees.
@@ -122,7 +136,11 @@ jobs:
         env:
           ASAN_OPTIONS: detect_leaks=0:detect_stack_use_after_return=0:halt_on_error=1:abort_on_error=1
           SPROUT_GC_STRESS: "1"
-        run: bash src/tests/run.sh
+        run: |
+          bash src/tests/run.sh
+          python src/tests/runtime_production_test.py "$PWD/src/sprout"
+          python src/tests/ergonomics_test.py "$PWD/src/sprout"
+          python tools/fuzz.py "$PWD/src/sprout" --iterations 100 --seed 20261010 --report "$RUNNER_TEMP/fuzz-asan.json" --artifacts "$RUNNER_TEMP/fuzz-asan-artifacts"
 
   playground:
     name: playground image (Docker)

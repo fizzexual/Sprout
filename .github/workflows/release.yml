@@ -25,14 +25,21 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" = "Windows" ]; then
-            gcc -O2 -Wall -s -Wl,--stack,67108864 -o "${{ matrix.asset }}" src/sprout.c -lm -lurlmon
+            gcc -O2 -Wall -s -DSPROUT_SQLITE -Wl,--stack,67108864 -o "${{ matrix.asset }}" src/sprout.c src/vendor/sqlite/sqlite3.c -lm -lurlmon
             cp "${{ matrix.asset }}" src/sprout.exe
           else
-            cc -O2 -Wall -o "${{ matrix.asset }}" src/sprout.c -lm
+            cc -O2 -Wall -DSPROUT_SQLITE -o "${{ matrix.asset }}" src/sprout.c src/vendor/sqlite/sqlite3.c -lm -pthread -ldl
             cp "${{ matrix.asset }}" src/sprout
           fi
           "./${{ matrix.asset }}" version
           bash src/tests/run.sh          # never ship a binary that fails its tests
+          bin="$PWD/${{ matrix.asset }}"
+          python src/tests/stdlib_production_test.py "$bin"
+          python src/tests/distribution_test.py "$bin"
+          python src/tests/runtime_production_test.py "$bin"
+          python src/tests/ergonomics_test.py "$bin"
+          python src/tests/embed_test.py "$bin"
+          SPROUT_COMMAND="$bin" python -m unittest discover -s integrations/python -p 'test_*.py'
 
       - uses: actions/upload-artifact@v4
         with:

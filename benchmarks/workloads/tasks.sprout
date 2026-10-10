@@ -1,0 +1,6 @@
+task transform(n, offset = 3):
+    give (n * 7 + offset) % 97
+make total = 0
+repeat 100000 times:
+    set total = total + transform(total)
+show total

@@ -1,0 +1,83 @@
+{
+  "platform": "Windows-10-10.0.19045-SP0",
+  "python": "3.12.10",
+  "binary_sha256": "2122bf87491ede028eb3b6eb524e2757d2bb5b97e449060bd5524dcc9e1fc85f",
+  "samples": 5,
+  "warmups": 1,
+  "clock": "perf_counter wall time including process startup",
+  "date": "2026-10-10",
+  "build": {
+    "compiler": "WinLibs GCC 16.2.0",
+    "optimization": "-O2 -Wall -DSPROUT_SQLITE",
+    "link": "-Wl,--stack,67108864 -lm -lurlmon",
+    "architecture": "Windows x86_64",
+    "variant": "shipping AST runtime with bundled SQLite"
+  },
+  "interpretation": "Local wall-time baseline for this binary hash. Small timing differences and cross-build comparisons require repeated measurements; this is not a performance guarantee.",
+  "workloads": {
+    "arithmetic": {
+      "ast": {
+        "median_seconds": 0.1410555999027565,
+        "min_seconds": 0.13008130004163831,
+        "max_seconds": 0.1634487999835983,
+        "samples_seconds": [
+          0.13008130004163831,
+          0.13916619995143265,
+          0.15664990001823753,
+          0.1410555999027565,
+          0.1634487999835983
+        ]
+      },
+      "source_sha256": "d2e124bf462478199bc3e0d24d4013ec8dbda0cbaa64334738429ba1c94462f1",
+      "output_sha256": "1963ff2cdf44e414aa1e8229778eb238ed060b251629e5cab401188773fe8b65"
+    },
+    "collections": {
+      "ast": {
+        "median_seconds": 0.09846470004413277,
+        "min_seconds": 0.09766890003811568,
+        "max_seconds": 0.1056148000061512,
+        "samples_seconds": [
+          0.09846470004413277,
+          0.1056148000061512,
+          0.09777239989489317,
+          0.09854789997916669,
+          0.09766890003811568
+        ]
+      },
+      "source_sha256": "69e7c7fdc45e14d9853748f861513d9c0b224e4d73e2f785ca301f0388a13dab",
+      "output_sha256": "b2c9148c96ca04869b2a66fbb8ab8d99ca284eb3834dd237631e627490499fe3"
+    },
+    "tasks": {
+      "ast": {
+        "median_seconds": 0.09239939996041358,
+        "min_seconds": 0.0832875999622047,
+        "max_seconds": 0.0999228999717161,
+        "samples_seconds": [
+          0.08947689994238317,
+          0.09239939996041358,
+          0.0832875999622047,
+          0.09617360006086528,
+          0.0999228999717161
+        ]
+      },
+      "source_sha256": "52fa66d5129714f4355e56f1810301fbb41db458616f0c5af9741e211556934f",
+      "output_sha256": "c813bbe4a3b259c24de2bd4d52865c3de55d444aceabea93a06cda787583c1f8"
+    },
+    "text": {
+      "ast": {
+        "median_seconds": 0.03446059999987483,
+        "min_seconds": 0.03397409990429878,
+        "max_seconds": 0.036574100027792156,
+        "samples_seconds": [
+          0.036574100027792156,
+          0.03397409990429878,
+          0.03446059999987483,
+          0.034246600000187755,
+          0.03480579995084554
+        ]
+      },
+      "source_sha256": "9eb7fc5507dd98c08f6578168d3a32e66986e5cc87fff4c15b7c9998401d3ff7",
+      "output_sha256": "97b8dd0ec4acbc0ff19ec7b73286ffab2d6f1590dbb9923f0256c70a1fd5930a"
+    }
+  }
+}

@@ -1,0 +1,7 @@
+Order,Customer,Item,Amount,Status
+SO-1001,Ada,<Desk Lamp>,49.90,Paid
+SO-1002,Lin,Notebook,12.50,Paid
+SO-1003,Sam,Keyboard,89.00,Pending
+SO-1004,"Jo, Jr.",Monitor,249.99,Paid
+SO-1005,Dee,"Cable ""Pro""",18.75,Pending
+SO-1006,Ada,Mouse,39.99,Paid

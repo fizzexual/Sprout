@@ -7,6 +7,31 @@ All notable changes to **Sprout**. The format follows
 
 ## [Unreleased]
 
+### Added (0.2.0 development branch)
+
+- Explicit checked int64 and decimal values, immutable binary data, and exact JSON
+  data tags for persistence and isolated host requests.
+- Native HTTP, bounded argv subprocesses, atomic file operations, quoted CSV,
+  and pinned SQLite with parameterized statements and rollback-safe transactions.
+- Bounded process groups and checkpointed dependency workflows with explicit
+  idempotent retry/recovery contracts.
+- Verified package lockfiles, pinned GitHub sources, multi-file packages,
+  dependency checks, and deterministic checksum-protected bundles with assets.
+- Scope-aware editor completion, hover, signatures, definitions, references,
+  conservative diagnostics, safe rename, and unsaved-buffer formatting.
+- Runtime step/deadline budgets and bounded structured trace events; recorded
+  playground stepping, variables, call stacks, and breakpoint seeking.
+- Named task/constructor arguments and triple-quoted multiline text.
+- Escaped HTML app components and an offline searchable/sortable CSV report.
+- Process-isolated Node, Python and native C host SDKs; a bounded HTTP API host
+  and parameterized contacts service example.
+- Reproducible workload benchmarks, trace profiling, deterministic fuzz probes,
+  and a numeric bytecode experiment that remains outside the default runtime
+  because its measured performance gate failed.
+
+These are development features with workload-specific tests. The production
+roadmap records additional release evidence and adapter validation still needed.
+
 ### Fixed
 
 - Stored task values remain valid when an imported module grows the task registry.

@@ -1,0 +1,8 @@
+~ One pure JSON request -> one JSON response. Host validates every action.
+make event = json_decode(read_input())
+make actions = []
+when event["event"] == "join":
+    set actions = [{"type": "message", "text": "Welcome, " + event["player"]["name"] + "! Rules are powered by Sprout."}]
+when event["event"] == "mob_kill" and event["entity"] == "ZOMBIE":
+    set actions = [{"type": "message", "text": "Zombie defeated! Enjoy a snack."}, {"type": "give", "material": "BREAD", "amount": 1}]
+show json_encode({"actions": actions})

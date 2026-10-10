@@ -1,0 +1,13 @@
+name: SproutRules
+version: 0.1.0
+main: io.sprout.paper.SproutRulesPlugin
+api-version: '26.2'
+description: Bounded asynchronous Sprout rules with validated reloads.
+commands:
+  sproutrules:
+    description: Reload or inspect Sprout rules
+    usage: /sproutrules reload|status|test
+    permission: sprout.rules.admin
+permissions:
+  sprout.rules.admin:
+    default: op

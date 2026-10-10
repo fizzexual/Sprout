@@ -15,7 +15,7 @@ if errorlevel 1 (
 
 REM -Wl,--stack,N reserves a 64 MB call stack so deep (but finite) recursion
 REM works; the interpreter's own MAX_DEPTH guard catches truly endless recursion.
-gcc -O2 -Wall -s -Wl,--stack,67108864 -o sprout.exe sprout.c -lm -lurlmon
+gcc -O2 -Wall -s -DSPROUT_SQLITE -Wl,--stack,67108864 -o sprout.exe sprout.c vendor\sqlite\sqlite3.c -lm -lurlmon
 if errorlevel 1 (
   echo Build failed.
   popd

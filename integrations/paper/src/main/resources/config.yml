@@ -1,0 +1,9 @@
+# Absolute executable path is recommended. Rules always execute in the Sprout sandbox.
+sprout-command: sprout
+max-steps: 100000
+runtime-timeout-ms: 1000
+host-timeout-ms: 2000
+# Sprout cannot invoke console commands. These are the only items it can grant.
+allowed-materials:
+  - BREAD
+  - EMERALD

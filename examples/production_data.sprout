@@ -1,0 +1,36 @@
+~ A local CSV-to-SQLite report. No network or external Python dependency.
+use csv
+use files
+use sqlite
+
+make report = [["name", "score"], ["Ada", "42"], ["Lin", "35"]]
+make saved = files.write("scores.csv", csv.write(report))
+when not saved.ok:
+    fail saved.error
+
+make loaded = files.read("scores.csv")
+when not loaded.ok:
+    fail loaded.error
+make rows = csv.parse(loaded.data)
+
+make opened = sqlite.open(":memory:")
+when not opened.ok:
+    fail opened.error
+make db = opened.handle
+make setup = sqlite.execute(db, "CREATE TABLE scores (name TEXT, score INTEGER)")
+when not setup.ok:
+    fail setup.error
+
+make statements = []
+for each row in rows[1:]:
+    add(statements, {sql: "INSERT INTO scores VALUES (?, ?)", params: [row[0], number(row[1])]})
+make inserted = sqlite.transaction(db, statements)
+when not inserted.ok:
+    fail inserted.error
+make results = sqlite.execute(db, "SELECT name, score FROM scores ORDER BY score DESC")
+when not results.ok:
+    fail results.error
+show results.columns
+show results.rows
+make closed = sqlite.close(db)
+make removed = files.remove("scores.csv")

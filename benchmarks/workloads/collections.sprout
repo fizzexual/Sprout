@@ -1,0 +1,4 @@
+make items = []
+repeat 100000 times:
+    add(items, length(items))
+show sum(items)

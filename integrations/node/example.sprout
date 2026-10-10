@@ -1,0 +1,7 @@
+~ Exactly one JSON input and one JSON output line.
+make input = json_decode(read_input())
+make subtotal = decimal(input["subtotal"])
+make discount = decimal("0")
+when input["member"]:
+    set discount = subtotal * decimal("0.1")
+show json_encode({total: "" + (subtotal - discount), discount: "" + discount})

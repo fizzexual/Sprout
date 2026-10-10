@@ -1,12 +1,12 @@
 {
   "name": "sprout-language",
   "displayName": "Sprout",
-  "description": "Language support for Sprout: syntax highlighting, snippets, run commands, live error checking (via `sprout check`), and autocomplete.",
-  "version": "0.3.1",
+  "description": "Language support for Sprout: scope-aware completion, navigation, rename, task signatures, formatting, and live checking.",
+  "version": "0.4.0",
   "publisher": "fizzexual",
   "license": "MIT",
   "icon": "icon.png",
-  "engines": { "vscode": "^1.75.0" },
+  "engines": { "vscode": "^1.85.0" },
   "categories": ["Programming Languages", "Snippets"],
   "keywords": ["sprout", "bloom", "beginner", "language"],
   "repository": { "type": "git", "url": "https://github.com/fizzexual/Sprout" },
@@ -51,9 +51,17 @@
         { "command": "sprout.check", "when": "resourceLangId == sprout", "group": "z_sprout@4" }
       ]
     },
+    "configurationDefaults": {
+      "[sprout]": { "editor.defaultFormatter": "fizzexual.sprout-language" }
+    },
     "configuration": {
       "title": "Sprout",
       "properties": {
+        "sprout.staticDiagnostics": {
+          "type": "boolean",
+          "default": true,
+          "description": "Warn about duplicate lexical declarations, unbound assignment targets, and argument counts for known tasks. This conservative source index is not a full type checker."
+        },
         "sprout.command": {
           "type": "string",
           "default": "sprout",

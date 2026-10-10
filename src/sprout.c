@@ -19,6 +19,9 @@
 #include <math.h>
 #include <setjmp.h>
 #include <time.h>
+#include <stdint.h>
+#include <inttypes.h>
+#include <errno.h>
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -33,6 +36,7 @@
 #include <dirent.h>     /* opendir() to test if a folder is empty */
 #include <limits.h>     /* PATH_MAX for realpath() */
 #include <unistd.h>     /* getpid() for the POSIX http_get temp file */
+#include <fcntl.h>
 #include <sys/resource.h>  /* getrlimit() — size the deep-recursion guard to the real stack */
 #endif
 #ifdef __APPLE__
@@ -62,7 +66,7 @@ static int utf8_clen(unsigned char c) {
 }
 
 /* ------------------------------------------------------------------ values */
-typedef enum { V_NUM, V_STR, V_BOOL, V_NONE, V_LIST, V_MAP, V_TASK } VType;
+typedef enum { V_NUM, V_STR, V_BOOL, V_NONE, V_LIST, V_MAP, V_TASK, V_INT, V_DECIMAL, V_BYTES } VType;
 typedef struct Value Value;
 typedef struct TaskDef TaskDef;   /* a first-class task value points at one of these (defined later) */
 static const char *taskdef_name(TaskDef *t);   /* TaskDef's fields aren't known this early; reach the name through here */
@@ -70,7 +74,11 @@ typedef struct { Value *items; int n, cap; } SList;
 /* keys[]/vals[] stay insertion-ordered (so iteration order is unchanged); idx[] is an
    open-addressing hash index (storing position+1, 0 = empty) that makes key lookup O(1). */
 typedef struct { char **keys; Value *vals; int n, cap; int *idx; int idxcap; const char *classname; } SMap;  /* classname != NULL marks an object instance of that type */
-struct Value { VType type; double num; char *str; int boolean; SList *list; SMap *map; TaskDef *task; };
+struct Value { VType type; double num; char *str; int boolean; SList *list; SMap *map; TaskDef *task; int64_t exact; int scale; size_t length; };
+static int is_exact(Value v) { return v.type == V_INT || v.type == V_DECIMAL; }
+static char *exact_to_str(Value v);
+static char *bytes_to_hex(Value v);
+static int exact_compare(Value a, Value b, int line);
 
 static Value vnum(double n)  { Value v = {0}; v.type = V_NUM;  v.num = n; return v; }
 static Value vstr(const char *s) { Value v = {0}; v.type = V_STR; v.str = gc_strdup(s ? s : ""); return v; }
@@ -106,6 +114,11 @@ static void *gc_alloc(GCKind kind, size_t size) {   /* a zeroed object + header,
    vstr_take() does the same but frees a malloc'd original (used for builtin-built buffers). */
 static char *gc_strdup(const char *s) { size_t n = strlen(s) + 1; char *p = (char *)gc_alloc(GC_STR, n); memcpy(p, s, n); return p; }
 static Value vstr_take(char *owned) { Value v = vstr(owned ? owned : ""); free(owned); return v; }
+static Value vbytes(const unsigned char *data, size_t length) {
+  Value v = {0}; v.type = V_BYTES; v.length = length;
+  v.str = gc_alloc(GC_STR, length + 1); if (length) memcpy(v.str, data, length);
+  v.str[length] = 0; return v;
+}
 
 static SList *list_new(void) { return (SList *)gc_alloc(GC_LIST, sizeof(SList)); }
 static void list_push(SList *l, Value x) {
@@ -224,6 +237,8 @@ static char *stringify(Value v) {
 static char *stringify_inner(Value v) {
   switch (v.type) {
     case V_NUM:  return num_to_str(v.num);
+    case V_INT: case V_DECIMAL: return exact_to_str(v);
+    case V_BYTES: { char *hex = bytes_to_hex(v); size_t n = strlen(hex); char *text = malloc(n + 8); snprintf(text, n + 8, "bytes(%s)", hex); free(hex); return text; }
     case V_STR:  return dup_str(v.str ? v.str : "");
     case V_BOOL: return dup_str(v.boolean ? "yes" : "no");
     case V_LIST: {
@@ -253,9 +268,14 @@ static char *stringify_inner(Value v) {
   }
 }
 static const char *type_name(Value v) {
+  if (v.type == V_INT) return "an integer";
+  if (v.type == V_DECIMAL) return "a decimal";
+  if (v.type == V_BYTES) return "bytes";
   switch (v.type) { case V_NUM: return "a number"; case V_STR: return "text"; case V_BOOL: return "a yes/no"; case V_LIST: return "a list"; case V_MAP: return "a map"; case V_TASK: return "a task"; default: return "nothing"; }
 }
 static int is_truthy(Value v) {
+  if (is_exact(v)) return v.exact != 0;
+  if (v.type == V_BYTES) return v.length != 0;
   switch (v.type) { case V_NUM: return v.num != 0; case V_STR: return v.str && v.str[0]; case V_BOOL: return v.boolean; case V_LIST: return v.list && v.list->n > 0; case V_MAP: return v.map && v.map->n > 0; case V_TASK: return 1; default: return 0; }
 }
 static int g_eq_depth = 0;
@@ -267,9 +287,17 @@ static int values_equal(Value a, Value b) {
   return r;
 }
 static int values_equal_inner(Value a, Value b) {
+  if (is_exact(a) || is_exact(b)) {
+    if (!(is_exact(a) || a.type == V_NUM) || !(is_exact(b) || b.type == V_NUM)) return 0;
+    /* Equality must not turn an inexact float into an exact large identifier. */
+    if ((a.type == V_NUM && (a.num != floor(a.num) || fabs(a.num) > 9007199254740991.0)) ||
+        (b.type == V_NUM && (b.num != floor(b.num) || fabs(b.num) > 9007199254740991.0))) return 0;
+    return exact_compare(a, b, 0) == 0;
+  }
   if (a.type != b.type) return 0;
   switch (a.type) {
     case V_NUM:  return a.num == b.num;
+    case V_BYTES: return a.length == b.length && !memcmp(a.str, b.str, a.length);
     case V_STR:  return strcmp(a.str ? a.str : "", b.str ? b.str : "") == 0;
     case V_BOOL: return a.boolean == b.boolean;
     case V_LIST: {
@@ -423,6 +451,9 @@ static TaskDef *want_task(int line, const char *fn, int pos, Value v, const char
 static void want_one_num(int line, const char *fn, int n, Value *a, const char *hint) { if (n != 1) arity_error(line, fn, "one number", n); if (a[0].type != V_NUM) arg_error(line, fn, 1, "a number", a[0], hint); }
 static void want_one_str(int line, const char *fn, int n, Value *a, const char *hint) { if (n != 1) arity_error(line, fn, "one piece of text", n); if (a[0].type != V_STR) arg_error(line, fn, 1, "some text", a[0], hint); }
 
+#include "exact_numeric.h"
+#include "binary_values.h"
+
 /* -------------------------------------------------------------------- lexer */
 typedef enum {
   T_NUM, T_STR, T_IDENT,
@@ -479,11 +510,32 @@ static TokType keyword(const char *w) {
 
 static void scan_fstring(const char *src, int *ip, int len, int line);
 
+static void scan_multiline_text(const char *src, int *ip, int len, int line) {
+  int i = *ip + 3, used = 0; char *text = (char *)malloc((size_t)(len - i) + 1);
+  if (!text) fail(line, "couldn't allocate multiline text.");
+  while (i < len) {
+    if (i + 2 < len && src[i] == '"' && src[i + 1] == '"' && src[i + 2] == '"') {
+      text[used] = 0; push_tok(T_STR, text, 0, line); *ip = i + 3; return;
+    }
+    if (src[i] == '\\' && i + 1 < len) {
+      char next = src[i + 1];
+      if (next == 'n') text[used++] = '\n'; else if (next == 't') text[used++] = '\t';
+      else if (next == 'r') text[used++] = '\r'; else if (next == 'b') text[used++] = '\b';
+      else if (next == 'f') text[used++] = '\f'; else text[used++] = next;
+      i += 2;
+    } else text[used++] = src[i++];
+  }
+  free(text); fail(line, "this multiline text is missing its closing triple quote (\"\"\").");
+}
+
 /* scan exactly one token at *ip (the caller has already skipped spaces/comments) */
 static void scan_token(const char *src, int *ip, int len, int line) {
   int i = *ip;
   char c = src[i];
-  if (c == 'f' && i + 1 < len && src[i + 1] == '"') { scan_fstring(src, ip, len, line); return; }
+  if (c == 'f' && i + 1 < len && src[i + 1] == '"') {
+    if (i + 3 < len && src[i + 2] == '"' && src[i + 3] == '"') fail(line, "multiline interpolated text isn't supported yet; use plain triple quotes and join values.");
+    scan_fstring(src, ip, len, line); return;
+  }
   if (isdigit((unsigned char)c) || (c == '.' && i + 1 < len && isdigit((unsigned char)src[i + 1]))) {
     int s = i, dot = 0;                              /* at most one '.' in the mantissa (1.2.3 isn't one number) */
     while (i < len && (isdigit((unsigned char)src[i]) || (src[i] == '.' && !dot) ||
@@ -507,11 +559,13 @@ static void scan_token(const char *src, int *ip, int len, int line) {
     push_tok(T_NUM, t, nv, line); *ip = i; return;
   }
   if (c == '"') {
+    if (i + 2 < len && src[i + 1] == '"' && src[i + 2] == '"') { scan_multiline_text(src, ip, len, line); return; }
     i++; char *buf = (char *)malloc(len - i + 1); int b = 0;
     while (i < len && src[i] != '"' && src[i] != '\n') {       /* text stays on one line */
       if (src[i] == '\\' && i + 1 < len) {
         char nx = src[i + 1];
         if (nx == 'n') buf[b++] = '\n'; else if (nx == 't') buf[b++] = '\t';
+        else if (nx == 'r') buf[b++] = '\r'; else if (nx == 'b') buf[b++] = '\b'; else if (nx == 'f') buf[b++] = '\f';
         else if (nx == '"') buf[b++] = '"'; else if (nx == '\\') buf[b++] = '\\'; else buf[b++] = nx;
         i += 2;
       } else buf[b++] = src[i++];
@@ -631,7 +685,9 @@ static void tokenize(const char *src, int len) {
       char c = src[i];
       if (c == ' ' || c == '\t') { i++; continue; }
       if (c == '~') { while (i < len && src[i] != '\n') i++; break; }
+      int before = i;
       scan_token(src, &i, len, line);
+      for (int j = before; j < i; j++) if (src[j] == '\n') line++;
     }
     /* an unfinished line inside brackets joins the next one — no statement break here */
     if (g_bracket_depth == 0) push_tok(T_NEWLINE, NULL, 0, line);
@@ -688,6 +744,8 @@ static Token expect(TokType t, const char *msg) { if (!check(t)) fail(toks[pos].
 
 static Expr *expression(void);
 static Expr *parse_anon_task(int line);   /* anonymous task literal (lambda): task(params): body */
+
+#include "ergonomics_parser.h"
 
 static Expr *primary(void) {
   Token t = peek();
@@ -753,16 +811,7 @@ static Expr *primary(void) {
     if (check(T_LPAREN)) {           /* a call: name(args) or module.name(args) */
       advance();
       Expr *e = new_expr(E_CALL, line); e->name = who; e->module = module;
-      Expr **args = NULL; int n = 0, cap = 0;
-      if (!check(T_RPAREN)) {
-        do {
-          if (check(T_RPAREN)) break;           /* a trailing comma is fine */
-          if (n >= cap) { cap = cap ? cap * 2 : 4; args = (Expr **)realloc(args, cap * sizeof(Expr *)); }
-          args[n++] = expression();
-        } while (match(T_COMMA));
-      }
-      expect(T_RPAREN, "I expected a ')' to close the inputs.");
-      e->args = args; e->nargs = n; return e;
+      parse_call_inputs(e); return e;
     }
     if (module) { Expr *e = new_expr(E_MEMBER, line); e->module = module; e->name = who; return e; }
     Expr *e = new_expr(E_VAR, line); e->name = who; return e;
@@ -788,14 +837,8 @@ static Expr *postfix(void) {        /* primary followed by any number of [index]
       Token nm = expect(T_IDENT, "I expected a name after '.' (a field or method).");
       if (check(T_LPAREN)) {          /* e.method(args)  ->  E_METHODCALL */
         advance();
-        Expr **args = NULL; int n = 0, cap = 0;
-        if (!check(T_RPAREN)) do {
-          if (check(T_RPAREN)) break;
-          if (n >= cap) { cap = cap ? cap * 2 : 4; args = (Expr **)realloc(args, cap * sizeof(Expr *)); }
-          args[n++] = expression();
-        } while (match(T_COMMA));
-        expect(T_RPAREN, "I expected a ')' to close the inputs.");
-        Expr *mc = new_expr(E_METHODCALL, line); mc->target = e; mc->name = nm.text; mc->args = args; mc->nargs = n; e = mc;
+        Expr *mc = new_expr(E_METHODCALL, line); mc->target = e; mc->name = nm.text;
+        parse_call_inputs(mc); e = mc;
       } else {                        /* e.field  ->  index by the field name (reuses map get/set) */
         Expr *ix = new_expr(E_INDEX, line); ix->target = e;
         Expr *key = new_expr(E_STR, line); key->str = nm.text; ix->index = key; e = ix;
@@ -848,6 +891,9 @@ static Expr *pipe_expr(void) {
       Expr **args = (Expr **)malloc((right->nargs + 1) * sizeof(Expr *));
       args[0] = left;
       for (int k = 0; k < right->nargs; k++) args[k + 1] = right->args[k];
+      if (right->keys) { char **names = (char **)calloc((size_t)right->nargs + 1, sizeof(char *));
+        for (int k = 0; k < right->nargs; k++) names[k + 1] = right->keys[k];
+        right->keys = names; }
       right->args = args; right->nargs += 1; left = right;
     } else if (right->kind == E_VAR) {           /* x |> f  ->  f(x) */
       Expr *call = new_expr(E_CALL, line); call->name = right->name;
@@ -1287,7 +1333,7 @@ static void env_assign(Env *e, const char *name, Value v, int line) {
 
 /* tasks: top-level functions, hoisted so call order doesn't matter */
 struct TaskDef { char *name; char **params; int nparams; Expr **defaults; char **ptypes; char *rettype; Stmt **body; int nbody; int line;
-                 int is_public; int fileid; Env *home; Env *file_env; char *owner_type; };   /* home = closure/scope base; file_env = where `public make` lands; owner_type = the type a method is defined on (NULL for plain tasks/lambdas, so `super` knows the parent). TaskDef typedef is forward-declared up by Value */
+                 int is_public; int fileid; Env *home; Env *file_env; char *owner_type; const char *source_path; };   /* home = closure/scope base; file_env = where public globals land. */
 static const char *taskdef_name(TaskDef *t) { return (t && t->name) ? t->name : "?"; }
 /* Definitions have stable addresses: loading a module must not invalidate a stored task. */
 static TaskDef **tasks = NULL; static int ntasks = 0, captasks = 0;
@@ -1309,6 +1355,7 @@ static void task_register(Stmt *s, int fileid, Env *home) {
   TaskDef *t = (TaskDef *)calloc(1, sizeof(TaskDef)); tasks[ntasks++] = t;
   t->name = s->name; t->params = s->params; t->nparams = s->nparams; t->defaults = s->pdefaults; t->ptypes = s->ptypes; t->rettype = s->rettype; t->body = s->body; t->nbody = s->nbody; t->line = s->line;
   t->is_public = s->is_public; t->fileid = fileid; t->home = home; t->file_env = home; t->owner_type = NULL;
+  t->source_path = g_current_file;
 }
 
 /* Parse an anonymous task literal (lambda):  task(a, b): expr   or   task(a):\n<indented block>.
@@ -1366,6 +1413,7 @@ static Expr *parse_anon_task(int line) {
   TaskDef *td = (TaskDef *)calloc(1, sizeof(TaskDef));
   td->name = "anonymous task"; td->params = params; td->nparams = np; td->defaults = pdefs; td->ptypes = ptypes; td->rettype = rettype;
   td->body = body; td->nbody = nbody; td->line = line;
+  td->source_path = g_current_file;
   Expr *e = new_expr(E_LAMBDA, line); e->lambda = td;
   return e;
 }
@@ -1446,7 +1494,7 @@ static void gc_push_value(Value v) {
   if (v.type == V_LIST)      gc_push(v.list);
   else if (v.type == V_MAP)  gc_push(v.map);
   else if (v.type == V_TASK) gc_push(v.task);
-  else if (v.type == V_STR)  gc_push(v.str);   /* the string itself is a GC_STR object */
+  else if (v.type == V_STR || v.type == V_BYTES) gc_push(v.str);
 }
 static void gc_drain(void) {                    /* process the worklist iteratively (constant C-stack) */
   while (gc_workn) {
@@ -1532,6 +1580,7 @@ static Value run_task(TaskDef *t, Env *frame, int line) {
   int saved_loopctl = g_loopctl;                               /* a stop/skip inside the body must not leak into a CALLER's loop */
   int saved_fid = cur_fileid; cur_fileid = t->fileid;          /* inside the body, see THIS task's file */
   Env *saved_fe = cur_file_env; cur_file_env = t->file_env;    /* ...and a `public make` lands in the FILE env (not a lambda's capture frame) */
+  const char *saved_source = g_current_file; if (t->source_path) g_current_file = t->source_path;
   returning = 0; g_loopctl = 0;
   exec_block(t->body, t->nbody, frame);
   Value result = returning ? return_value : vnone();
@@ -1539,6 +1588,7 @@ static Value run_task(TaskDef *t, Env *frame, int line) {
   if (g_learn) { char *rs = stringify(result); printf("  " C_DIM "%s gave back %s" C_RESET "\n\n", t->name, rs); free(rs); }
   returning = saved_ret; return_value = saved_rv; g_loopctl = saved_loopctl;
   cur_fileid = saved_fid; cur_file_env = saved_fe;
+  g_current_file = saved_source;
   call_depth--;
   return result;
 }
@@ -1550,13 +1600,8 @@ static void task_arity_check(TaskDef *t, int got, int line) {
     else snprintf(m, sizeof m, "the task '%s' wants %d to %d inputs, but got %d.", t->name, req, t->nparams, got);
     fail(line, m); }
 }
-static Value call_task_def(TaskDef *t, Expr *call, Env *env) {
-  task_arity_check(t, call->nargs, call->line);
-  Env *frame = env_new(t->home);      /* a task sees its OWN file (privates + publics) + its locals */
-  for (int i = 0; i < call->nargs; i++) { Value av = eval(call->args[i], env); if (t->ptypes && t->ptypes[i]) { char w[96]; snprintf(w, sizeof w, "the input '%s'", t->params[i]); check_type(av, t->ptypes[i], call->line, w); } env_define(frame, t->params[i], av); }
-  for (int i = call->nargs; i < t->nparams; i++) { Value av = eval(t->defaults[i], frame); if (t->ptypes && t->ptypes[i]) { char w[96]; snprintf(w, sizeof w, "the input '%s'", t->params[i]); check_type(av, t->ptypes[i], call->line, w); } env_define(frame, t->params[i], av); }   /* fill trailing defaults */
-  return run_task(t, frame, call->line);
-}
+#include "ergonomics_calls.h"
+static Value call_task_def(TaskDef *t, Expr *call, Env *env) { return call_task_expr(t, call, env, NULL); }
 /* call a task VALUE with already-evaluated args (used by map/filter/reduce/each) */
 static Value call_task_v(TaskDef *t, Value *argv, int argc, int line) {
   task_arity_check(t, argc, line);
@@ -1605,7 +1650,18 @@ static const char *const BUILTIN_NAMES[] = {
   "get","json","explore","color",
 };
 static const int NBUILTIN_NAMES = (int)(sizeof BUILTIN_NAMES / sizeof BUILTIN_NAMES[0]);
+static int production_builtin_name(const char *name);
+static int foundation_builtin_name(const char *name);
+static int parallel_builtin_name(const char *name);
+static int workflow_builtin_name(const char *name);
+static int is_builtin_module(const char *name) {
+  const char *names[] = {"system", "http", "files", "csv", "process", "numbers", "sqlite", "data", "workflow"};
+  for (unsigned i = 0; i < sizeof names / sizeof names[0]; i++) if (!strcmp(name, names[i])) return 1;
+  return 0;
+}
 static int is_builtin_name(const char *name) {
+  if (exact_builtin_name(name) || bytes_builtin_name(name)) return 1;
+  if (production_builtin_name(name) || foundation_builtin_name(name) || parallel_builtin_name(name) || workflow_builtin_name(name)) return 1;
   for (int i = 0; i < NBUILTIN_NAMES; i++) if (!strcmp(BUILTIN_NAMES[i], name)) return 1;
   return 0;
 }
@@ -1650,7 +1706,8 @@ static const char *nearest_map_key(SMap *m, const char *key) {
 static void fail_map_key(int line, Value mapval, const char *key, const char *sug) {
   char *r = stringify(mapval);
   char msg[512];
-  snprintf(msg, sizeof msg, "I was looking for the key \"%s\", but found \"%s\" in this map:\n\n  %.300s\n\n  Did you mean \"%s\"?", key, sug, r ? r : "{ ... }", sug);
+  if (sug) snprintf(msg, sizeof msg, "I was looking for the key \"%s\", but found \"%s\" in this map:\n\n  %.300s\n\n  Did you mean \"%s\"?", key, sug, r ? r : "{ ... }", sug);
+  else snprintf(msg, sizeof msg, "the map has no key called \"%s\":\n\n  %.300s", key, r ? r : "{ ... }");
   free(r);
   fail_kind(line, "key", msg);
 }
@@ -1844,6 +1901,15 @@ static Value jvalue_inner(JParse *j) {
     }
     char *end; double n = strtod(j->s + s0, &end);
     if (end != j->s + j->pos || !isfinite(n)) { j->ok = 0; return vnone(); }
+    if (fabs(n) > 9007199254740991.0 && !memchr(j->s + s0, '.', (size_t)(j->pos - s0)) &&
+        !memchr(j->s + s0, 'e', (size_t)(j->pos - s0)) && !memchr(j->s + s0, 'E', (size_t)(j->pos - s0))) {
+      char digits[32]; int count = j->pos - s0;
+      if (count >= (int)sizeof digits) { j->ok = 0; return vnone(); }
+      memcpy(digits, j->s + s0, count); digits[count] = 0;
+      errno = 0; char *tail; long long exact = strtoll(digits, &tail, 10);
+      if (errno == ERANGE || *tail) { j->ok = 0; return vnone(); }
+      return vexact((int64_t)exact, 0, 0);
+    }
     return vnum(n);
   }
   j->ok=0; return vnone();
@@ -1891,6 +1957,11 @@ static void to_json(Value v, char **o, size_t *c, size_t *l) {
   if (++g_json_w_depth > 200) { sb_add(o, c, l, "null"); g_json_w_depth--; return; }   /* match parse_json's depth cap (200) so output always round-trips */
   switch (v.type) {
     case V_NUM:  { char *t = num_to_json(v.num); sb_add(o, c, l, t); free(t); break; }
+    case V_INT: case V_DECIMAL: {
+      sb_add(o, c, l, v.type == V_INT ? "{\"$sprout.integer\":" : "{\"$sprout.decimal\":");
+      char *t = exact_to_str(v); json_escape(t, o, c, l); free(t); sb_add(o, c, l, "}"); break;
+    }
+    case V_BYTES: { sb_add(o, c, l, "{\"$sprout.bytes\":"); char *text = bytes_to_hex(v); json_escape(text, o, c, l); free(text); sb_add(o, c, l, "}"); break; }
     case V_STR:  json_escape(v.str ? v.str : "", o, c, l); break;
     case V_BOOL: sb_add(o, c, l, v.boolean ? "true" : "false"); break;
     case V_LIST: sb_add(o, c, l, "["); for (int i = 0; v.list && i < v.list->n; i++) { if (i) sb_add(o, c, l, ","); to_json(v.list->items[i], o, c, l); } sb_add(o, c, l, "]"); break;
@@ -1901,26 +1972,37 @@ static void to_json(Value v, char **o, size_t *c, size_t *l) {
   g_json_w_depth--;
 }
 static char *value_to_json(Value v) { char *o = NULL; size_t c = 0, l = 0; g_json_w_depth = 0; to_json(v, &o, &c, &l); return o ? o : dup_str("null"); }
+static Value restore_exact_json(Value v, int depth) {
+  if (depth > 200) fail_kind(0, "data", "stored data is nested too deeply.");
+  if (v.type == V_MAP && v.map) {
+    SMap *m = v.map;
+    if (m->n == 1 && m->vals[0].type == V_STR && !strcmp(m->keys[0], "$sprout.bytes")) return bytes_from_hex(m->vals[0].str, 0);
+    if (m->n == 1 && m->vals[0].type == V_STR &&
+        (!strcmp(m->keys[0], "$sprout.integer") || !strcmp(m->keys[0], "$sprout.decimal")))
+      return exact_parse(m->vals[0].str, !strcmp(m->keys[0], "$sprout.decimal"), 0);
+    for (int i = 0; i < m->n; i++) m->vals[i] = restore_exact_json(m->vals[i], depth + 1);
+  } else if (v.type == V_LIST && v.list)
+    for (int i = 0; i < v.list->n; i++) v.list->items[i] = restore_exact_json(v.list->items[i], depth + 1);
+  return v;
+}
 
 /* ---- persistence: a single per-folder key/value store, kept as JSON in sprout.data.json ---- */
 #define SPROUT_STORE "sprout.data.json"
+static int runtime_atomic_write(const char *path, const char *text);
 static SMap *store_load(void) {
   char *txt = read_whole_file(SPROUT_STORE);
   if (!txt) return map_new();
   Value v = parse_json(txt);
-  if (v.type == V_MAP && v.map) { free(txt); return v.map; }
+  if (v.type == V_MAP && v.map) { free(txt); return restore_exact_json(v, 0).map; }
   /* the file exists but won't parse: keep a backup before starting fresh, so we never silently lose data */
   if (txt[0]) { FILE *b = fopen(SPROUT_STORE ".bak", "wb"); if (b) { fwrite(txt, 1, strlen(txt), b); fclose(b); } }
   free(txt);
+  fail_kind(0, "data", "sprout.data.json is invalid; the original was preserved. Repair or move it before saving new data.");
   return map_new();
 }
 static int store_save(SMap *m) {
   char *json = value_to_json(vmap(m));
-  FILE *f = fopen(SPROUT_STORE, "wb");
-  if (!f) { free(json); return 0; }
-  size_t jl = strlen(json), wrote = fwrite(json, 1, jl, f);
-  fclose(f); free(json);
-  return wrote == jl;
+  int ok = runtime_atomic_write(SPROUT_STORE, json); free(json); return ok;
 }
 
 /* replace every occurrence of `find` in `s` with `repl` */
@@ -2231,7 +2313,13 @@ static int re_search(RENode *root, const char *text, int from, int tlen, RECaps 
   return 0;
 }
 
+#include "runtime_foundation.h"
+#include "stdlib.inc"
+#include "parallel_runtime.h"
+#include "workflow_runtime.h"
+
 static Value call_builtin(Expr *call, Env *env) {
+  builtin_positional_inputs(call);
   const char *name = call->name;
   int n = call->nargs;
   if (g_sandbox && builtin_blocked(name))
@@ -2239,6 +2327,9 @@ static Value call_builtin(Expr *call, Env *env) {
   if (n > 16) fail(call->line, "that's too many inputs for a builtin.");
   Value a[16];
   for (int i = 0; i < n; i++) a[i] = eval(call->args[i], env);
+  { Value out; if (exact_builtin(name, n, a, call->line, &out)) return out; }
+  { Value out; if (bytes_builtin(name, n, a, call->line, &out)) return out; }
+  { Value out; if (foundation_builtin(name, n, a, call->line, &out) || production_builtin(name, n, a, call->line, &out) || parallel_builtin(name, n, a, call->line, &out) || workflow_builtin(name, n, a, call->line, &out)) { runtime_tick(call->line); return out; } }
 
   if (!strcmp(name, "range")) {
     if (n != 1 && n != 2) arity_error(call->line, "range", "1 or 2 numbers, like range(5) or range(2, 8)", n);
@@ -2253,6 +2344,7 @@ static Value call_builtin(Expr *call, Env *env) {
   }
   if (!strcmp(name, "length")) {
     if (n != 1) arity_error(call->line, "length", "one thing (a list, a map, or text), like length(items)", n);
+    if (a[0].type == V_BYTES) return vnum((double)a[0].length);
     if (a[0].type == V_LIST) return vnum(a[0].list ? a[0].list->n : 0);
     if (a[0].type == V_MAP)  return vnum(a[0].map ? a[0].map->n : 0);
     if (a[0].type == V_STR)  { const char *p = a[0].str ? a[0].str : ""; long long c = 0; for (int i = 0; p[i]; i += utf8_clen((unsigned char)p[i])) c++; return vnum((double)c); }
@@ -2393,6 +2485,8 @@ static Value call_builtin(Expr *call, Env *env) {
   if (!strcmp(name, "copy")) { if (n != 1) arity_error(call->line, "copy", "one value, like copy(items)", n); return deep_copy(a[0]); }
   if (!strcmp(name, "kind_of")) {   /* a simple, switchable type tag for beginners: when kind_of(x) == "number": ... */
     if (n != 1) arity_error(call->line, "kind_of", "one value, like kind_of(x)", n);
+    if (is_exact(a[0])) return vstr(a[0].type == V_INT ? "integer" : "decimal");
+    if (a[0].type == V_BYTES) return vstr("bytes");
     const char *k = "nothing";
     switch (a[0].type) { case V_NUM: k="number"; break; case V_STR: k="text"; break; case V_BOOL: k="yes-no"; break; case V_LIST: k="list"; break; case V_MAP: k=(a[0].map && a[0].map->classname) ? a[0].map->classname : "map"; break; case V_TASK: k="task"; break; default: k="nothing"; }
     return vstr_take(dup_str(k));
@@ -2838,12 +2932,19 @@ static Value call_builtin(Expr *call, Env *env) {
   }
   if (!strcmp(name,"wait")) {
     want_one_num(call->line,"wait",n,a,"wait(2)");
+    if (!isfinite(a[0].num) || a[0].num > 31536000) fail_kind(call->line, "type", "wait needs a finite number of seconds up to one year.");
     if (a[0].num>0) {
+      uint64_t end = runtime_now_ms() + (uint64_t)(a[0].num * 1000);
+      while (runtime_now_ms() < end) {
+        runtime_tick(call->line);
+        uint64_t left = end - runtime_now_ms(); if (left > 50) left = 50;
 #ifdef _WIN32
-      Sleep((DWORD)(a[0].num*1000));
+        Sleep((DWORD)left);
 #else
-      struct timespec ts; ts.tv_sec=(time_t)a[0].num; ts.tv_nsec=(long)((a[0].num-(double)(time_t)a[0].num)*1e9); nanosleep(&ts,NULL);
+        struct timespec ts; ts.tv_sec = 0; ts.tv_nsec = (long)left * 1000000L; nanosleep(&ts,NULL);
 #endif
+      }
+      runtime_tick(call->line);
     }
     return vnone();
   }
@@ -2856,7 +2957,10 @@ static Value call_builtin(Expr *call, Env *env) {
     if (n!=2) arity_error(call->line, name, "a file name and some text, like write(\"f.txt\", \"hi\")", n);
     want_str(call->line, name, 1, a[0], "write(\"f.txt\", \"hi\")");
     FILE*f=fopen(a[0].str?a[0].str:"", name[0]=='a'?"ab":"wb"); if(!f) fail_kind(call->line,"io","I couldn't open that file to write.");
-    char*t=stringify(a[1]); fwrite(t,1,strlen(t),f); fclose(f); return vnone();
+    char*t=stringify(a[1]); size_t size = strlen(t);
+    int ok = fwrite(t,1,size,f) == size; if (fclose(f) != 0) ok = 0; free(t);
+    if (!ok) fail_kind(call->line,"io","the file write did not complete.");
+    return vnone();
   }
   if (!strcmp(name,"exists")) {
     want_one_str(call->line,"exists",n,a,"exists(\"notes.txt\")");
@@ -2946,6 +3050,13 @@ static double check_finite(double d, int line) {
 }
 /* +, -, *, /, % on two values (shared by binary expressions and compound 'set x += ...') */
 static Value apply_arith(TokType op, Value l, Value r, int line) {
+  if (op == T_PLUS && l.type == V_BYTES && r.type == V_BYTES) {
+    if (l.length > 16777216 || r.length > 16777216 - l.length) fail_kind(line, "limit", "a byte buffer is limited to 16 MiB.");
+    unsigned char *data = malloc(l.length + r.length + 1); if (!data) fail_kind(line, "memory", "could not join byte buffers.");
+    memcpy(data, l.str, l.length); memcpy(data + l.length, r.str, r.length); Value out = vbytes(data, l.length + r.length); free(data); return out;
+  }
+  if ((is_exact(l) || is_exact(r)) && !(op == T_PLUS && (l.type == V_STR || r.type == V_STR)))
+    return exact_arithmetic(op == T_PLUS ? '+' : op == T_MINUS ? '-' : op == T_STAR ? '*' : op == T_SLASH ? '/' : '%', l, r, line);
   if (op == T_PLUS) {
     if (l.type == V_LIST && r.type == V_LIST) {        /* list concatenation: [1, 2] + [3, 4] -> [1, 2, 3, 4] */
       SList *out = list_new();
@@ -3004,6 +3115,7 @@ static Value eval_binary(Expr *e, Env *env) {
         if (cv.type != V_NUM) fail_kind(e->line, "type", "compare(self, other) must give a number (< 0, 0, or > 0).");
         cmp = (cv.num < 0) ? -1 : (cv.num > 0) ? 1 : 0;
       }
+      else if (is_exact(l) || is_exact(r)) cmp = exact_compare(l, r, e->line);
       else if (l.type == V_NUM && r.type == V_NUM) cmp = (l.num < r.num) ? -1 : (l.num > r.num) ? 1 : 0;
       else if (l.type == V_STR && r.type == V_STR) cmp = strcmp(l.str, r.str);
       else { char buf[256]; snprintf(buf, sizeof buf, "I can't compare %s with %s \xE2\x80\x94 I compare two numbers or two pieces of text (or a type with a compare method).", type_name(l), type_name(r)); fail_kind(e->line, "type", buf); return vnone(); }
@@ -3029,6 +3141,7 @@ static Value eval_binary(Expr *e, Env *env) {
 
 /* the built-in `system` module: OS-level, explicit (use system) actions like system.run(...) */
 static Value call_system(Expr *e, Env *env) {
+  builtin_positional_inputs(e);
   if (g_sandbox) fail(e->line, "the 'system' module is turned off in sandbox mode — no shell access here.");
   if (!strcmp(e->name, "run")) {
     if (e->nargs != 1) fail(e->line, "system.run needs one piece of text, like system.run(\"echo hi\").");
@@ -3084,6 +3197,9 @@ static void check_type(Value v, const char *tn, int line, const char *what) {
   if (!tn) return;
   int builtin = 1, ok = 0;
   if      (!strcmp(tn, "number"))  ok = v.type == V_NUM;
+  else if (!strcmp(tn, "integer")) ok = v.type == V_INT;
+  else if (!strcmp(tn, "decimal")) ok = v.type == V_DECIMAL;
+  else if (!strcmp(tn, "bytes")) ok = v.type == V_BYTES;
   else if (!strcmp(tn, "text"))    ok = v.type == V_STR;
   else if (!strcmp(tn, "list"))    ok = v.type == V_LIST;
   else if (!strcmp(tn, "map"))     ok = v.type == V_MAP;
@@ -3125,6 +3241,7 @@ static void type_register(Stmt *s, int fileid, Env *home) {
     t->methods[i].defaults = m->pdefaults; t->methods[i].ptypes = m->ptypes; t->methods[i].rettype = m->rettype;
     t->methods[i].body = m->body; t->methods[i].nbody = m->nbody; t->methods[i].line = m->line;
     t->methods[i].is_public = 0; t->methods[i].fileid = fileid; t->methods[i].home = home; t->methods[i].file_env = home; t->methods[i].owner_type = t->name;
+    t->methods[i].source_path = g_current_file;
   }
   for (int k = 0; k < t->nimpl; k++) {   /* verify each 'does Interface' claim (declare interfaces + parents before the type) */
     TypeReg *iface = type_find(t->implements[k]);
@@ -3155,8 +3272,29 @@ static void type_bind_fields(TypeReg *t, Expr *call, Env *env, SMap *m, int *arg
   }
 }
 /* build a new instance: its own type tag, with all fields (inherited + own) bound in order. */
+static void type_collect_fields(TypeReg *type, char **names, Expr **defaults, int *at, int line) {
+  if (type->parent) {
+    TypeReg *parent = type_find(type->parent); if (!parent) failf(line, "unknown parent type '%s'.", type->parent);
+    type_collect_fields(parent, names, defaults, at, line);
+  }
+  for (int i = 0; i < type->nfields; i++) { names[*at] = type->fields[i]; defaults[*at] = type->defaults[i]; (*at)++; }
+}
+static Value type_instantiate_named(TypeReg *type, Expr *call, Env *env) {
+  int n = type_field_count(type), at = 0;
+  char **names = (char **)malloc((size_t)(n ? n : 1) * sizeof(char *));
+  Expr **defaults = (Expr **)malloc((size_t)(n ? n : 1) * sizeof(Expr *));
+  if (!names || !defaults) fail(call->line, "couldn't allocate constructor inputs.");
+  type_collect_fields(type, names, defaults, &at, call->line);
+  int *slots = argument_positions(type->name, names, defaults, n, 0, call);
+  SList *provided = list_new();
+  for (int i = 0; i < call->nargs; i++) list_push(provided, eval(call->args[i], env));
+  SMap *object = map_new(); object->classname = type->name;
+  for (int i = 0; i < n; i++) map_set(object, names[i], slots[i] >= 0 ? provided->items[slots[i]] : eval(defaults[i], env));
+  free(names); free(defaults); free(slots); return vmap(object);
+}
 static Value type_instantiate(TypeReg *t, Expr *call, Env *env) {
   if (t->is_interface) fail_kind(call->line, "type", "an interface describes methods, but can't create an object — call a type that does the interface instead.");
+  if (call_has_named(call)) return type_instantiate_named(t, call, env);
   int total = type_field_count(t);
   if (call->nargs > total) { char m[200]; snprintf(m, sizeof m, "%s takes at most %d value(s), but got %d.", t->name, total, call->nargs); fail(call->line, m); }
   SMap *m = map_new(); m->classname = t->name;
@@ -3165,7 +3303,7 @@ static Value type_instantiate(TypeReg *t, Expr *call, Env *env) {
   return vmap(m);
 }
 /* call a method on an instance: bind `self` to the receiver, then the given args. */
-static Value type_method_call(Value recv, const char *name, Expr **args, int nargs, Env *env, int line) {
+static Value type_method_call(Value recv, const char *name, Expr **args, char **names, int nargs, Env *env, int line) {
   if (recv.type != V_MAP || !recv.map || !recv.map->classname)
     failf(line, "only an object has methods to call (tried '.%s').", name);
   TypeReg *t = type_find(recv.map->classname);
@@ -3180,12 +3318,8 @@ static Value type_method_call(Value recv, const char *name, Expr **args, int nar
     else snprintf(m, sizeof m, "a %s has no method called '%s'.", t->name, name);
     fail(line, m);
   }
-  Value *argv = (Value *)malloc((size_t)(nargs + 1) * sizeof(Value));
-  argv[0] = recv;
-  for (int i = 0; i < nargs; i++) argv[i + 1] = eval(args[i], env);
-  Value r = call_task_v(md, argv, nargs + 1, line);
-  free(argv);
-  return r;
+  Expr call = {0}; call.args = args; call.keys = names; call.nargs = nargs; call.line = line;
+  return call_task_expr(md, &call, env, &recv);
 }
 /* register a freshly-parsed file's top-level tasks AND types before it runs. */
 static void register_top(Stmt *s, int fileid, Env *home) {
@@ -3208,12 +3342,7 @@ static Value eval_super_call(Expr *e, Env *env) {
   if (!pt) { char m[200]; snprintf(m, sizeof m, "super refers to unknown parent type '%s'.", cur->parent); fail(e->line, m); }
   TaskDef *md = type_method(pt, e->name);
   if (!md) { char m[220]; snprintf(m, sizeof m, "no parent method '%s' to call with super (looking up from '%s').", e->name, cur->parent); fail(e->line, m); }
-  Value *argv = (Value *)malloc((size_t)(e->nargs + 1) * sizeof(Value));
-  argv[0] = *selfv;
-  for (int i = 0; i < e->nargs; i++) argv[i + 1] = eval(e->args[i], env);
-  Value r = call_task_v(md, argv, e->nargs + 1, e->line);
-  free(argv);
-  return r;
+  Value receiver = *selfv; return call_task_expr(md, e, env, &receiver);
 }
 
 static Value call_module(Expr *e, Env *env) {
@@ -3221,7 +3350,7 @@ static Value call_module(Expr *e, Env *env) {
   /* if `module` is actually a variable holding a value, `.name(...)` is method-call syntax */
   { Value *ov = env_find(env, e->module);
     if (ov) {
-      if (ov->type == V_MAP && ov->map && ov->map->classname) return type_method_call(*ov, e->name, e->args, e->nargs, env, e->line);   /* an object: real method call */
+      if (ov->type == V_MAP && ov->map && ov->map->classname) return type_method_call(*ov, e->name, e->args, e->keys, e->nargs, env, e->line);   /* an object: real method call */
       /* a plain value (list/text/number/map): Sprout uses functions, not methods — redirect */
       char m[256];
       if (is_builtin_name(e->name)) snprintf(m, sizeof m, "%s is %s, not an object — write %s(%s) instead of %s.%s().", e->module, type_name(*ov), e->name, e->module, e->module, e->name);
@@ -3234,6 +3363,22 @@ static Value call_module(Expr *e, Env *env) {
     fail_hard(e->line, "name", m);
   }
   if (!strcmp(e->module, "system")) return call_system(e, env);
+  if (is_builtin_module(e->module)) {
+    const char *name = NULL;
+    if (!strcmp(e->module, "http") && !strcmp(e->name, "request")) name = "request";
+    else if (!strcmp(e->module, "process") && !strcmp(e->name, "run")) name = "process";
+    else if (!strcmp(e->module, "process") && !strcmp(e->name, "parallel")) name = "parallel";
+    else if (!strcmp(e->module, "workflow") && !strcmp(e->name, "run")) name = "workflow_run";
+    else if (!strcmp(e->module, "numbers") && exact_builtin_name(e->name)) name = e->name;
+    else if (!strcmp(e->module, "data") && (foundation_builtin_name(e->name) || bytes_builtin_name(e->name))) name = e->name;
+    char mapped[96];
+    if (!name && (!strcmp(e->module, "files") || !strcmp(e->module, "csv") || !strcmp(e->module, "sqlite"))) {
+      snprintf(mapped, sizeof mapped, "%s_%s", !strcmp(e->module, "files") ? "file" : !strcmp(e->module, "sqlite") ? "sql" : "csv", e->name);
+      if (production_builtin_name(mapped)) name = mapped;
+    }
+    if (!name) failf(e->line, "that standard module has no operation called '%s'.", e->name);
+    Expr call = *e; call.module = NULL; call.name = (char *)name; return call_builtin(&call, env);
+  }
   ModNS *mod = modns_get(e->module);
   if (!mod) { char m[200]; snprintf(m, sizeof m, "I don't know a module called '%s'.", e->module); fail_hard(e->line, "name", m); }
   TaskDef *t = task_find_public(mod->fileid, e->name);
@@ -3242,6 +3387,7 @@ static Value call_module(Expr *e, Env *env) {
 }
 
 static Value eval(Expr *e, Env *env) {
+  runtime_tick(e->line);
   if (stack_too_deep()) fail(e->line, "this is nested too deeply.");
   switch (e->kind) {
     case E_NUM:  return vnum(e->num);
@@ -3253,6 +3399,7 @@ static Value eval(Expr *e, Env *env) {
       *t = *e->lambda;                                /* params/body/name/nparams/nbody/line (shared AST) */
       t->home = env;                                  /* the closure: a fresh capture per evaluation */
       t->fileid = cur_fileid;
+      t->source_path = g_current_file;
       t->file_env = cur_file_env;                     /* where a `public make` inside this lambda belongs */
       return vtask(t);
     }
@@ -3309,7 +3456,7 @@ static Value eval(Expr *e, Env *env) {
     }
     case E_UNARY:
       if (e->op == T_NOT) return vbool(!is_truthy(eval(e->operand, env)));
-      { Value v = eval(e->operand, env); if (v.type != V_NUM) fail_kind(e->line, "type", "I can only put a minus sign in front of a number."); return vnum(-v.num); }
+      { Value v = eval(e->operand, env); if (is_exact(v)) return exact_checked(-(__int128)v.exact, v.scale, v.type == V_DECIMAL, e->line); if (v.type != V_NUM) fail_kind(e->line, "type", "I can only put a minus sign in front of a number."); return vnum(-v.num); }
     case E_LOGICAL: {
       int l = is_truthy(eval(e->left, env));
       if (e->op == T_AND) return vbool(l ? is_truthy(eval(e->right, env)) : 0);
@@ -3327,10 +3474,15 @@ static Value eval(Expr *e, Env *env) {
                    if (is_builtin_name(e->name)) return call_builtin(e, env);   /* a builtin (even if a variable shadows the name) */
                    { Value *fv = env_find(env, e->name); if (fv) { char m[200]; snprintf(m, sizeof m, "'%s' is %s, not a task, so it can't be called with ( ).", e->name, type_name(*fv)); fail_hard(e->line, "type", m); } }
                    return call_builtin(e, env);   /* unknown name -> the friendly "did you mean" error */
-    case E_METHODCALL: { Value recv = eval(e->target, env); return type_method_call(recv, e->name, e->args, e->nargs, env, e->line); }
+    case E_METHODCALL: { Value recv = eval(e->target, env); return type_method_call(recv, e->name, e->args, e->keys, e->nargs, env, e->line); }
     case E_MEMBER: {
       /* obj.field — when `module` is actually a variable holding an object, read its field */
-      { Value *ov = env_find(env, e->module); if (ov && ov->type == V_MAP && ov->map && ov->map->classname) { int i = map_index(ov->map, e->name); return i >= 0 ? ov->map->vals[i] : vnone(); } }
+      { Value *ov = env_find(env, e->module); if (ov && ov->type == V_MAP && ov->map) {
+        int i = map_index(ov->map, e->name); if (i >= 0) return ov->map->vals[i];
+        if (ov->map->classname) return vnone();
+        const char *sug = nearest_map_key(ov->map, e->name);
+        fail_map_key(e->line, *ov, e->name, sug);
+      } }
       if (!has_use(cur_fileid, e->module)) { char m[256]; snprintf(m, sizeof m, "to read %s.%s, add 'use %s' at the top of this file.", e->module, e->name, e->module); fail_hard(e->line, "name", m); }
       if (!strcmp(e->module, "system")) { char m[200]; snprintf(m, sizeof m, "system.%s is an action - call it, like system.%s(...).", e->name, e->name); fail_hard(e->line, "name", m); }
       ModNS *mod = modns_get(e->module);
@@ -3343,6 +3495,12 @@ static Value eval(Expr *e, Env *env) {
     case E_MAP:  { SMap *m = map_new(); for (int i = 0; i < e->nargs; i++) map_set(m, e->keys[i], eval(e->args[i], env)); return vmap(m); }
     case E_INDEX: {
       Value c = eval(e->target, env), ix = eval(e->index, env);
+      if (c.type == V_BYTES) {
+        if (ix.type != V_NUM || !isfinite(ix.num) || ix.num != floor(ix.num) || fabs(ix.num) > 9007199254740991.0) fail_kind(e->line, "type", "a byte index must be a whole number.");
+        int64_t index = (int64_t)ix.num; if (index < 0) index += (int64_t)c.length;
+        if (index < 0 || (uint64_t)index >= c.length) fail_kind(e->line, "index", "that byte index is outside the buffer.");
+        return vnum((unsigned char)c.str[index]);
+      }
       if (c.type == V_LIST) {
         if (ix.type != V_NUM) { char m[160], d[96]; val_describe(ix, d, sizeof d); snprintf(m, sizeof m, "a list position must be a number, but you used %s.", d); fail_kind(e->line, "type", m); }
         if (ix.num != (double)(long long)ix.num) { char m[160]; snprintf(m, sizeof m, "a list position must be a whole number, but you used %g.", ix.num); fail_kind(e->line, "type", m); }
@@ -3383,6 +3541,15 @@ static Value eval(Expr *e, Env *env) {
       long long s = 0, en = 0;
       if (have_s) { Value v = eval(e->index, env); if (v.type != V_NUM || v.num != (double)(long long)v.num) fail_kind(e->line, "type", "a slice start must be a whole number, like xs[1:3]."); s = (long long)v.num; }
       if (have_e) { Value v = eval(e->operand, env); if (v.type != V_NUM || v.num != (double)(long long)v.num) fail_kind(e->line, "type", "a slice end must be a whole number, like xs[1:3]."); en = (long long)v.num; }
+      if (c.type == V_BYTES) {
+        long long len = (long long)c.length, a = have_s ? (s < 0 ? s + len : s) : 0, b = have_e ? (en < 0 ? en + len : en) : len;
+        if (a < 0) a = 0;
+        if (a > len) a = len;
+        if (b < 0) b = 0;
+        if (b > len) b = len;
+        if (b < a) b = a;
+        return vbytes((unsigned char *)c.str + a, (size_t)(b - a));
+      }
       if (c.type == V_LIST) {
         long long len = c.list ? c.list->n : 0;
         long long a = have_s ? (s < 0 ? s + len : s) : 0, b = have_e ? (en < 0 ? en + len : en) : len;
@@ -3440,7 +3607,7 @@ static void render_expr(Expr *e, int wv, Env *env, char **o, size_t *c, size_t *
     }
     case E_COALESCE: render_expr(e->left, wv, env, o, c, l); sb_add(o, c, l, " or else "); render_expr(e->right, wv, env, o, c, l); break;
     case E_CALL: if (e->module) { sb_add(o, c, l, e->module); sb_add(o, c, l, "."); } sb_add(o, c, l, e->name); sb_add(o, c, l, "(");
-      for (int i = 0; i < e->nargs; i++) { if (i) sb_add(o, c, l, ", "); render_expr(e->args[i], wv, env, o, c, l); } sb_add(o, c, l, ")"); break;
+      for (int i = 0; i < e->nargs; i++) { if (i) sb_add(o, c, l, ", "); if (e->keys && e->keys[i]) { sb_add(o, c, l, e->keys[i]); sb_add(o, c, l, ": "); } render_expr(e->args[i], wv, env, o, c, l); } sb_add(o, c, l, ")"); break;
     case E_MEMBER: sb_add(o, c, l, e->module); sb_add(o, c, l, "."); sb_add(o, c, l, e->name); break;
     case E_LIST: sb_add(o, c, l, "[");
       for (int i = 0; i < e->nargs; i++) { if (i) sb_add(o, c, l, ", "); render_expr(e->args[i], wv, env, o, c, l); } sb_add(o, c, l, "]"); break;
@@ -3449,7 +3616,7 @@ static void render_expr(Expr *e, int wv, Env *env, char **o, size_t *c, size_t *
     case E_INDEX: render_expr(e->target, wv, env, o, c, l); sb_add(o, c, l, "["); render_expr(e->index, wv, env, o, c, l); sb_add(o, c, l, "]"); break;
     case E_SLICE: render_expr(e->target, wv, env, o, c, l); sb_add(o, c, l, "["); if (e->index) render_expr(e->index, wv, env, o, c, l); sb_add(o, c, l, ":"); if (e->operand) render_expr(e->operand, wv, env, o, c, l); sb_add(o, c, l, "]"); break;
     case E_METHODCALL: render_expr(e->target, wv, env, o, c, l); sb_add(o, c, l, "."); sb_add(o, c, l, e->name); sb_add(o, c, l, "(");
-      for (int i = 0; i < e->nargs; i++) { if (i) sb_add(o, c, l, ", "); render_expr(e->args[i], wv, env, o, c, l); } sb_add(o, c, l, ")"); break;
+      for (int i = 0; i < e->nargs; i++) { if (i) sb_add(o, c, l, ", "); if (e->keys && e->keys[i]) { sb_add(o, c, l, e->keys[i]); sb_add(o, c, l, ": "); } render_expr(e->args[i], wv, env, o, c, l); } sb_add(o, c, l, ")"); break;
     case E_LAMBDA: sb_add(o, c, l, "task(");
       for (int i = 0; e->lambda && i < e->lambda->nparams; i++) { if (i) sb_add(o, c, l, ", "); sb_add(o, c, l, e->lambda->params[i]); } sb_add(o, c, l, "): ..."); break;
     case E_RANGE: render_expr(e->left, wv, env, o, c, l); sb_add(o, c, l, " to "); render_expr(e->right, wv, env, o, c, l); break;
@@ -3491,6 +3658,8 @@ static void learn_loop(Env *be, const char *n1, const char *n2) {
 }
 
 static void exec(Stmt *s, Env *env) {
+  runtime_tick(s->line);
+  runtime_trace("step", s, env);
   /* a safe point: between statements every live value is a root. Inline the common
      no-collect case (just a load + compare) so non-allocating loops pay almost nothing. */
 #ifndef __EMSCRIPTEN__   /* the conservative stack scan can't see roots held in WASM locals; leak instead (playground programs are short, each run is a fresh instance) */
@@ -3635,10 +3804,10 @@ static void exec(Stmt *s, Env *env) {
       break;   /* nothing matched and no 'otherwise' — do nothing, like a `when` with no otherwise */
     }
     case S_REPEAT_TIMES: {
-      Value c = eval(s->count, env); if (c.type != V_NUM) fail(s->line, "'repeat ... times' needs a number.");
-      long long times = (long long)c.num;
+      Value c = eval(s->count, env); if ((c.type != V_NUM && c.type != V_INT) || !isfinite(c.num) || (c.type == V_NUM && c.num >= 9223372036854775808.0)) fail(s->line, "'repeat ... times' needs a finite number within signed 64-bit range.");
+      long long times = c.type == V_INT ? c.exact : c.num <= 0 ? 0 : (long long)c.num;
       int scoped = block_binds_names(s->body, s->nbody);   /* skip the per-turn scope when the body makes nothing */
-      for (long long k = 0; k < times; k++) { if (g_learn) printf("  " C_DIM "Repeat turn %lld of %lld" C_RESET "\n\n", k + 1, times); if (scoped) exec_scoped(s->body, s->nbody, env); else exec_block(s->body, s->nbody, env); if (returning) break; if (g_loopctl) { int stop = g_loopctl == 2; g_loopctl = 0; if (stop) break; } }
+      for (long long k = 0; k < times; k++) { runtime_tick(s->line); if (g_learn) printf("  " C_DIM "Repeat turn %lld of %lld" C_RESET "\n\n", k + 1, times); if (scoped) exec_scoped(s->body, s->nbody, env); else exec_block(s->body, s->nbody, env); if (returning) break; if (g_loopctl) { int stop = g_loopctl == 2; g_loopctl = 0; if (stop) break; } }
       break;
     }
     case S_REPEAT_WHILE: {
@@ -3652,7 +3821,7 @@ static void exec(Stmt *s, Env *env) {
     case S_USE: {                                /* import a module so this file can name it */
       char *base = module_basename(s->name);
       mark_use(cur_fileid, base);
-      int builtin = !strcmp(base, "system");     /* system is built in - no file to load */
+      int builtin = is_builtin_module(base);
       free(base);
       if (!builtin) {
         /* loading a module reads (and runs) another file from disk — block it for untrusted code */
@@ -3742,12 +3911,14 @@ static void exec(Stmt *s, Env *env) {
       volatile int sq = g_quiet_fail; g_quiet_fail = 1;   /* soft errors inside become catchable, not printed */
       volatile int sdepth = call_depth;                   /* read after the longjmp -> volatile (-O2 safety) */
       volatile int sfid = cur_fileid; Env * volatile sfe = cur_file_env;  /* a failing cross-file task value leaves these in ITS file; restore on catch */
+      const char * volatile ssource = g_current_file;
       if (SJSET(tb) == 0) {
         exec_scoped(s->body, s->nbody, env);              /* the protected steps */
         err_jmp = saved; g_quiet_fail = sq;               /* clean exit: give/stop/skip flags pass through, caught does NOT run */
       } else {                                            /* a soft error was caught (a hard one would have skipped to g_top_jmp) */
         err_jmp = saved; g_quiet_fail = sq;
         call_depth = sdepth; returning = 0; g_loopctl = 0; cur_fileid = sfid; cur_file_env = sfe;   /* unwind the half-done try cleanly */
+        g_current_file = ssource;
         Value err = current_error_value();                /* {message, kind, line} (or the user's fail-map) */
         Env *be = env_new(env);
         if (s->name) env_define(be, s->name, err);        /* caught problem:  ->  'problem' holds the error map */
@@ -3772,7 +3943,7 @@ static char *read_file(const char *path, int *out_len) {
   *out_len = (int)got; return buf;
 }
 
-#define SPROUT_VERSION "0.1.22"
+#define SPROUT_VERSION "0.2.0-dev"
 
 static void usage(void) {
   printf("Sprout v%s - a small, friendly language, written from scratch in C.\n\n", SPROUT_VERSION);
@@ -3794,6 +3965,9 @@ static void usage(void) {
   printf("  sprout version           show the version\n");
   printf("  sprout help              show this help\n");
   printf("\n");
+  printf("  --max-steps N            stop after N interpreter actions\n");
+  printf("  --timeout-ms N           stop after a runtime deadline\n");
+  printf("  --trace-json             record bounded step/variable/stack events on stderr\n");
   printf("  --sandbox                run untrusted code safely: turns OFF file, shell, and\n");
   printf("                           network builtins (read/write/remember/get/system...).\n");
   printf("                           Works anywhere on the line; or set SPROUT_SANDBOX=1.\n");
@@ -4216,6 +4390,7 @@ static int cmd_api(const char *url) {
 /* the include map from sprout.toml: a module name (e.g. "server") -> its file path */
 static char **g_modname = NULL, **g_modpath = NULL; static int g_nmod = 0, g_capmod = 0;
 static char **g_incpath = NULL; static int g_ninc = 0, g_capinc = 0;   /* include[] in listed order */
+static char **g_assetpath = NULL; static int g_nassets = 0;   /* assets[] are bundled, never executed */
 static char *g_main_file = NULL, *g_project_name = NULL;
 static int  g_toml_done = 0;
 
@@ -4295,6 +4470,20 @@ static void toml_load(void) {
           }
         }
       }
+      else if (wl == 6 && !strncmp(s + st, "assets", 6)) {
+        while (i < len && s[i] != '[' && s[i] != '\n') i++;
+        if (i < len && s[i] == '[') {
+          i++;
+          while (i < len && s[i] != ']') {
+            if (s[i] == '"') { char *v = toml_string(s, &i, len); if (v) {
+              g_assetpath = (char **)realloc(g_assetpath, (size_t)(g_nassets + 1) * sizeof(char *));
+              g_assetpath[g_nassets++] = v;
+            } }
+            else if (s[i] == '#' || s[i] == '~') { while (i < len && s[i] != '\n') i++; }
+            else i++;
+          }
+        }
+      }
     } else i++;
   }
   free(s);
@@ -4302,14 +4491,38 @@ static void toml_load(void) {
 }
 
 /* turn a `use` target into a file path: a path as-is, or a bare name via the map / common folders */
+static int dist_safe_path(const char *s);
 static char *resolve_module(const char *name) {
   toml_load();
   int looks_path = strstr(name, ".sprout") || strchr(name, '/') || strchr(name, '\\');
+  /* Imports are local to their importing file first, then use the project search path. */
+  if (g_current_file && g_current_file[0] != '<') {
+    const char *slash = NULL;
+    for (const char *p = g_current_file; *p; p++) if (*p == '/' || *p == '\\') slash = p;
+    if (slash) { char local[1024]; int n = snprintf(local, sizeof local, "%.*s/%s%s",
+      (int)(slash - g_current_file), g_current_file, name, looks_path ? "" : ".sprout");
+      if (n > 0 && n < (int)sizeof local && path_exists(local)) return dup_str(local);
+    }
+  }
   if (looks_path) return path_exists(name) ? dup_str(name) : NULL;
   for (int i = 0; i < g_nmod; i++) if (!strcmp(g_modname[i], name)) return dup_str(g_modpath[i]);
   const char *pre[] = { "", "modules/", "src/", "lib/", "sprout_packages/" };
   char buf[1024];
   for (int k = 0; k < (int)(sizeof pre / sizeof pre[0]); k++) { snprintf(buf, sizeof buf, "%s%s.sprout", pre[k], name); if (path_exists(buf)) return dup_str(buf); }
+  if (dist_safe_path(name) && !strchr(name, '/')) {
+    char manifest[1024]; snprintf(manifest, sizeof manifest, "sprout_packages/%s/sprout.package", name);
+    char *text = read_whole_file(manifest);
+    if (text) { const char *line = text;
+      while (*line) { char key[32], entry[800], extra[2];
+        if (sscanf(line, "%31s %799s %1s", key, entry, extra) >= 2 && !strcmp(key, "entry") && dist_safe_path(entry)) {
+          snprintf(buf, sizeof buf, "sprout_packages/%s/%s", name, entry);
+          free(text); return path_exists(buf) ? dup_str(buf) : NULL;
+        }
+        const char *next = strchr(line, '\n'); if (!next) break; line = next + 1;
+      }
+      free(text);
+    }
+  }
   return NULL;
 }
 
@@ -4347,7 +4560,7 @@ static void load_module(const char *name) {
   Env *fe = env_new(global_env);               /* this file's own scope (its privates live here) */
   int prevfid = cur_fileid; Env *prevfe = cur_file_env;
   cur_fileid = ++g_next_fileid; cur_file_env = fe;
-  { char *base = module_basename(path); modns_register(base, cur_fileid, fe); free(base); }   /* reachable as base.member */
+  { char *base = module_basename(name); modns_register(base, cur_fileid, fe); free(base); }   /* requested package name remains its namespace */
   for (int i = 0; i < n; i++) register_top(prog[i], cur_fileid, fe);
   if (g_check_only) check_imports(prog, n, fe);
   else exec_block(prog, n, fe);
@@ -4435,168 +4648,38 @@ static int cmd_test(int argc, char **argv) {
   return test_report();
 }
 
-/* ===================== standalone bundles: ship a program as one executable =====================
-   `sprout bundle app.sprout` copies this interpreter and appends the script plus a trailer:
-   [interpreter bytes][script bytes][MAGIC(16)][script length (8 bytes, little-endian)].
-   At startup the interpreter reads its own tail; if the MAGIC is there it runs the embedded
-   script instead of reading the command line. The OS loader ignores bytes appended after a
-   valid PE/ELF executable, so the combined file still runs. Single-file programs (plus built-in
-   modules like `use system`); a program that `use`s other files isn't bundled with them yet. */
-#define SB_MAGIC "SPROUT_BUNDLE_01"
-#define SB_MAGIC_LEN 16
-#define SB_TRAILER (SB_MAGIC_LEN + 8)
-
-static char *self_exe_path(void) {   /* the path to THIS running executable, or NULL */
-#ifdef _WIN32
-  char buf[1024]; DWORD n = GetModuleFileNameA(NULL, buf, (DWORD)sizeof buf);
-  if (n == 0 || n >= sizeof buf) return NULL;
-  return dup_str(buf);
-#elif defined(__APPLE__)
-  char buf[4096]; uint32_t sz = sizeof buf;
-  if (_NSGetExecutablePath(buf, &sz) != 0) return NULL;
-  return dup_str(buf);
-#else
-  char buf[4096]; ssize_t n = readlink("/proc/self/exe", buf, sizeof buf - 1);
-  if (n <= 0) return NULL;
-  buf[n] = 0;
-  return dup_str(buf);
-#endif
-}
-static unsigned char *read_bytes(const char *path, long *len) {   /* whole file as bytes; NULL on failure */
-  FILE *f = fopen(path, "rb"); if (!f) return NULL;
-  if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return NULL; }
-  long n = ftell(f); if (n < 0) { fclose(f); return NULL; }
-  fseek(f, 0, SEEK_SET);
-  unsigned char *buf = (unsigned char *)malloc((size_t)n + 1); if (!buf) { fclose(f); return NULL; }
-  size_t got = fread(buf, 1, (size_t)n, f); fclose(f); buf[got] = 0; *len = (long)got; return buf;
-}
-/* if this exe has a script baked into its tail, return it (null-terminated, malloc'd), else NULL.
-   Reads only the small trailer in the common (un-bundled) case, so startup stays fast. */
-static char *embedded_script(void) {
-  char *path = self_exe_path(); if (!path) return NULL;
-  FILE *f = fopen(path, "rb"); free(path); if (!f) return NULL;
-  if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return NULL; }
-  long total = ftell(f);
-  if (total < SB_TRAILER) { fclose(f); return NULL; }
-  unsigned char tr[SB_TRAILER];
-  fseek(f, total - SB_TRAILER, SEEK_SET);
-  if (fread(tr, 1, SB_TRAILER, f) != (size_t)SB_TRAILER || memcmp(tr, SB_MAGIC, SB_MAGIC_LEN) != 0) { fclose(f); return NULL; }
-  unsigned long slen = 0; for (int i = 0; i < 8; i++) slen |= (unsigned long)tr[SB_MAGIC_LEN + i] << (8 * i);
-  if (slen == 0 || (long)slen > total - SB_TRAILER) { fclose(f); return NULL; }
-  char *src = (char *)malloc(slen + 1);
-  fseek(f, total - SB_TRAILER - (long)slen, SEEK_SET);
-  size_t got = fread(src, 1, slen, f); fclose(f);
-  src[got] = 0; return src;
-}
-static int cmd_bundle(int argc, char **argv) {
-  console_setup();
-  if (argc < 3) { fprintf(stderr, "\n  Usage:  sprout bundle <app.sprout> [-o <output>]\n\n"); return 1; }
-  const char *script = argv[2]; const char *out = NULL;
-  for (int i = 3; i + 1 < argc; i++) if (!strcmp(argv[i], "-o")) out = argv[i + 1];
-  char outbuf[1024];
-  if (!out) {   /* default: the script's base name (+ .exe on Windows) */
-    const char *b = script; for (const char *p = script; *p; p++) if (*p == '/' || *p == '\\') b = p + 1;
-    int bl = (int)strlen(b); if (bl > 7 && !strcmp(b + bl - 7, ".sprout")) bl -= 7;
-#ifdef _WIN32
-    snprintf(outbuf, sizeof outbuf, "%.*s.exe", bl, b);
-#else
-    snprintf(outbuf, sizeof outbuf, "%.*s", bl, b);
-#endif
-    out = outbuf;
-  }
-#ifdef _WIN32
-  else if (strlen(out) < 4 || strcmp(out + strlen(out) - 4, ".exe") != 0) {   /* a Windows exe must end in .exe to launch by name */
-    snprintf(outbuf, sizeof outbuf, "%s.exe", out); out = outbuf;
-  }
-#endif
-  char *self = self_exe_path();
-  if (!self) { fprintf(stderr, "  I couldn't find my own program file to copy.\n"); return 1; }
-  long ilen; unsigned char *interp = read_bytes(self, &ilen); free(self);
-  if (!interp) { fprintf(stderr, "  I couldn't read my own program file.\n"); return 1; }
-  if (ilen >= SB_TRAILER && memcmp(interp + ilen - SB_TRAILER, SB_MAGIC, SB_MAGIC_LEN) == 0) {   /* strip an old bundle */
-    unsigned long old = 0; for (int i = 0; i < 8; i++) old |= (unsigned long)interp[ilen - 8 + i] << (8 * i);
-    if ((long)(old + SB_TRAILER) <= ilen) ilen -= (long)(old + SB_TRAILER);
-  }
-  long slen; unsigned char *src = read_bytes(script, &slen);
-  if (!src) { free(interp); fprintf(stderr, "  I couldn't open the script: %s\n", script); return 1; }
-  FILE *o = fopen(out, "wb");
-  if (!o) { free(interp); free(src); fprintf(stderr, "  I couldn't create %s\n", out); return 1; }
-  fwrite(interp, 1, (size_t)ilen, o);
-  fwrite(src, 1, (size_t)slen, o);
-  fwrite(SB_MAGIC, 1, SB_MAGIC_LEN, o);
-  unsigned char lenbytes[8]; for (int i = 0; i < 8; i++) lenbytes[i] = (unsigned char)((unsigned long)slen >> (8 * i));
-  fwrite(lenbytes, 1, 8, o);
-  fclose(o); free(interp); free(src);
-#ifndef _WIN32
-  chmod(out, 0755);
-#endif
-  printf("\n  " C_GREEN C_BOLD "Bundled" C_RESET " %s into a standalone program:  " C_CYAN "%s" C_RESET "\n  Run it directly — no Sprout needed.\n\n", script, out);
-  return 0;
-}
+#include "distribution_bundle.h"
 
 /* ===================== `sprout format` — a code formatter =====================
    Re-indents to 4 spaces per block level, trims trailing whitespace, collapses blank runs, and
    ends the file with one newline. Every comment and token is preserved; lines inside a multi-line
    ( [ { literal are left exactly as written. Structure-preserving (it only changes insignificant
    whitespace) and idempotent. Defaults to printing to stdout — `--write` edits in place. */
-static int fmt_bracket_delta(const char *s, const char *e) {   /* net () [] {} on a line, ignoring strings/comments */
-  int d = 0, instr = 0;
-  for (const char *p = s; p < e; p++) {
-    if (instr) { if (*p == '\\' && p + 1 < e) p++; else if (*p == '"') instr = 0; continue; }
-    if (*p == '"') instr = 1;
-    else if (*p == '~') break;
-    else if (*p == '(' || *p == '[' || *p == '{') d++;
-    else if (*p == ')' || *p == ']' || *p == '}') d--;
-  }
-  return d;
-}
-static char *format_source(const char *src) {
-  size_t cap = strlen(src) * 2 + 256, len = 0; char *out = (char *)malloc(cap);
-  int stack[256], sp = 0; stack[0] = 0;     /* original indent widths; depth = sp */
-  int bracket = 0, blanks = 0;
-  for (const char *p = src; *p; ) {
-    const char *ls = p; while (*p && *p != '\n') p++;
-    const char *le = p; if (*p == '\n') p++;
-    const char *c = ls; int iw = 0;
-    while (c < le && (*c == ' ' || *c == '\t')) { iw += (*c == '\t') ? 4 : 1; c++; }
-    const char *ce = le; while (ce > c && (ce[-1] == ' ' || ce[-1] == '\t' || ce[-1] == '\r')) ce--;
-    int clen = (int)(ce - c);
-    if (len + (size_t)(le - ls) + 1200 > cap) { cap = (len + (size_t)(le - ls) + 1200) * 2; out = (char *)realloc(out, cap); }
-    if (bracket > 0) {                        /* inside a multi-line literal: keep the line as written */
-      if (clen > 0) { size_t n = (size_t)(ce - ls); memcpy(out + len, ls, n); len += n; }
-      out[len++] = '\n'; bracket += fmt_bracket_delta(c, ce); blanks = 0; continue;
-    }
-    if (clen == 0) { if (++blanks <= 1) out[len++] = '\n'; continue; }   /* collapse blank runs to one */
-    blanks = 0;
-    int depth;
-    if (*c != '~') {                          /* a real statement opens/closes the block level */
-      while (sp > 0 && iw < stack[sp]) sp--;
-      if (iw > stack[sp] && sp < 255) stack[++sp] = iw;
-      depth = sp;
-    } else {                                  /* a comment keeps the block level, but indents to ITS OWN column */
-      depth = sp;
-      while (depth > 0 && iw < stack[depth]) depth--;
-    }
-    for (int i = 0; i < depth * 4; i++) out[len++] = ' ';
-    memcpy(out + len, c, (size_t)clen); len += (size_t)clen;
-    out[len++] = '\n';
-    bracket += fmt_bracket_delta(c, ce);
-  }
-  while (len > 1 && out[len - 1] == '\n' && out[len - 2] == '\n') len--;   /* exactly one trailing newline */
-  if (len > 0 && out[len - 1] != '\n') out[len++] = '\n';
-  out[len] = 0; return out;
-}
+#include "ergonomics_format.h"
 static int cmd_format(int argc, char **argv) {
   console_setup();
   if (argc < 3) { fprintf(stderr, "\n  Usage:  sprout format <file.sprout> [--write] [--check]\n\n"); return 1; }
-  const char *file = NULL; int dowrite = 0, docheck = 0;
+  const char *file = NULL; int dowrite = 0, docheck = 0, fromstdin = 0;
   for (int i = 2; i < argc; i++) {   /* flags work in any position; the first non-flag is the file */
     if (!strcmp(argv[i], "--write") || !strcmp(argv[i], "-w")) dowrite = 1;
     else if (!strcmp(argv[i], "--check")) docheck = 1;
+    else if (!strcmp(argv[i], "--stdin")) fromstdin = 1;
     else if (!file) file = argv[i];
   }
   if (!file) { fprintf(stderr, "\n  Usage:  sprout format <file.sprout> [--write] [--check]\n\n"); return 1; }
-  int slen; char *src = read_file(file, &slen);
+  if (fromstdin && (dowrite || docheck)) { fprintf(stderr, "  --stdin produces formatted stdout; it cannot combine with --write or --check.\n"); return 1; }
+  int slen; char *src;
+  if (fromstdin) {
+    size_t cap = 4096, used = 0; src = (char *)malloc(cap); int ch;
+    while ((ch = fgetc(stdin)) != EOF) {
+      if (used + 1 >= cap) { if (cap >= (64u << 20)) { free(src); fprintf(stderr, "  Formatter input exceeds 64 MiB.\n"); return 1; }
+        cap *= 2; src = (char *)realloc(src, cap); }
+      if (ch == 0) { free(src); fprintf(stderr, "  Formatter input contains a zero byte.\n"); return 1; }
+      src[used++] = (char)ch;
+    }
+    if (ferror(stdin)) { free(src); fprintf(stderr, "  Couldn't read formatter input.\n"); return 1; }
+    src[used] = 0; slen = (int)used;
+  } else src = read_file(file, &slen);
   char *fmt = format_source(src);
   int changed = (strcmp(src, fmt) != 0);
   int rc = 0;
@@ -4615,110 +4698,7 @@ static int cmd_format(int argc, char **argv) {
   free(src); free(fmt); return rc;
 }
 
-/* ===================== packages: `sprout add` / `install` / `remove` =====================
-   A tiny package manager. A package is a Sprout file that exposes `public` tasks. `sprout add`
-   fetches it — from a local path, an http(s) URL, or a `github:user/repo` shorthand — into
-   sprout_packages/<name>.sprout and records it in the `sprout.packages` manifest; `use <name>`
-   then finds it (sprout_packages/ is on the module search path). `sprout install` re-fetches
-   everything in the manifest, so you can share a project without committing its packages. No
-   central registry — a source is a path or URL you choose to trust. */
-#define PKG_DIR "sprout_packages"
-#define PKG_MANIFEST "sprout.packages"
-
-static void pkg_name_of(const char *source, char *out, size_t outsz) {   /* a package's name from its source */
-  const char *s = source;
-  if (!strncmp(s, "github:", 7)) s += 7;
-  const char *b = s;
-  for (const char *p = s; *p; p++) if (*p == '/' || *p == '\\') b = p + 1;
-  size_t n = strlen(b);
-  if (n > 7 && !strcmp(b + n - 7, ".sprout")) n -= 7;
-  if (n >= outsz) n = outsz - 1;
-  memcpy(out, b, n); out[n] = 0;
-}
-static char *pkg_fetch(const char *source) {   /* a package's source text, or NULL */
-  if (!strncmp(source, "http://", 7) || !strncmp(source, "https://", 8)) return http_get(source);
-  if (!strncmp(source, "github:", 7)) {
-    const char *spec = source + 7;             /* user/repo  ->  raw .../user/repo/main/repo.sprout */
-    const char *slash = strchr(spec, '/');
-    if (!slash || !slash[1]) return NULL;
-    char url[700]; snprintf(url, sizeof url, "https://raw.githubusercontent.com/%s/main/%s.sprout", spec, slash + 1);
-    return http_get(url);
-  }
-  return read_whole_file(source);              /* a local path */
-}
-static int pkg_install_one(const char *name, const char *source) {   /* fetch + write the package file */
-  char *content = pkg_fetch(source);
-  if (!content) { fprintf(stderr, "  Couldn't fetch package '%s' from %s\n", name, source); return 1; }
-  char path[1024]; snprintf(path, sizeof path, "%s/%s.sprout", PKG_DIR, name);
-  ensure_parent_dirs(path);
-  FILE *f = fopen(path, "wb");
-  if (!f) { free(content); fprintf(stderr, "  Couldn't write %s\n", path); return 1; }
-  fwrite(content, 1, strlen(content), f); fclose(f); free(content);
-  return 0;
-}
-static void pkg_manifest_set(const char *name, const char *source) {   /* one line per name in the manifest */
-  char *old = read_whole_file(PKG_MANIFEST);
-  FILE *f = fopen(PKG_MANIFEST, "wb");
-  if (!f) { free(old); return; }
-  if (!old || !old[0]) fputs("# Sprout packages: `sprout add` records here, `sprout install` restores them.\n", f);
-  if (old) { for (char *line = strtok(old, "\n"); line; line = strtok(NULL, "\n")) {
-      char ln[256] = ""; sscanf(line, "%255s", ln);
-      if (line[0] && strcmp(ln, name) != 0) fprintf(f, "%s\n", line);
-  } }
-  fprintf(f, "%s %s\n", name, source);
-  fclose(f); free(old);
-}
-static int cmd_add(int argc, char **argv) {
-  console_setup();
-  if (argc < 3) { fprintf(stderr, "\n  Usage:  sprout add <path | https://... | github:user/repo> [name]\n\n"); return 1; }
-  const char *source = argv[2];
-  char name[256];
-  if (argc >= 4) snprintf(name, sizeof name, "%s", argv[3]); else pkg_name_of(source, name, sizeof name);
-  if (!name[0]) { fprintf(stderr, "  I couldn't work out a package name — pass one:  sprout add %s <name>\n", source); return 1; }
-  /* the manifest is one whitespace-separated line per package, so a name/source with a space
-     could be added but never restored by `sprout install`. Reject it up front with a clear message. */
-  for (const char *q = source; *q; q++) if (*q==' '||*q=='\t') { fprintf(stderr, "  A package source can't contain spaces (the manifest is space-separated): %s\n", source); return 1; }
-  for (const char *q = name; *q; q++) if (*q==' '||*q=='\t') { fprintf(stderr, "  A package name can't contain spaces: %s\n", name); return 1; }
-  if (pkg_install_one(name, source) != 0) return 1;
-  pkg_manifest_set(name, source);
-  printf("\n  " C_GREEN C_BOLD "Added" C_RESET " package " C_CYAN "%s" C_RESET " — use it with:  " C_CYAN "use %s" C_RESET "\n\n", name, name);
-  return 0;
-}
-static int cmd_install(void) {
-  console_setup();
-  char *m = read_whole_file(PKG_MANIFEST);
-  if (!m) { fprintf(stderr, "\n  No %s here. Add a package first:  sprout add <source>\n\n", PKG_MANIFEST); return 1; }
-  int got = 0, have = 0, failed = 0;
-  for (char *line = strtok(m, "\n"); line; line = strtok(NULL, "\n")) {
-    if (!line[0] || line[0] == '#') continue;
-    char name[256], source[768];
-    if (sscanf(line, "%255s %767s", name, source) != 2) continue;
-    char path[1024]; snprintf(path, sizeof path, "%s/%s.sprout", PKG_DIR, name);
-    if (path_exists(path)) have++;
-    else if (pkg_install_one(name, source) == 0) { printf("  installed %s\n", name); got++; }
-    else failed++;
-  }
-  free(m);
-  printf("\n  %d installed, %d already present%s.\n\n", got, have, failed ? " (some failed)" : "");
-  return failed ? 1 : 0;
-}
-static int cmd_remove(int argc, char **argv) {
-  console_setup();
-  if (argc < 3) { fprintf(stderr, "\n  Usage:  sprout remove <name>\n\n"); return 1; }
-  const char *name = argv[2];
-  char path[1024]; snprintf(path, sizeof path, "%s/%s.sprout", PKG_DIR, name);
-  int had_file = path_exists(path), in_manifest = 0;
-  char *old = read_whole_file(PKG_MANIFEST);
-  if (old) {
-    FILE *f = fopen(PKG_MANIFEST, "wb");
-    if (f) { for (char *line = strtok(old, "\n"); line; line = strtok(NULL, "\n")) { char ln[256] = ""; sscanf(line, "%255s", ln); if (strcmp(ln, name) == 0) in_manifest = 1; else fprintf(f, "%s\n", line); } fclose(f); }
-    free(old);
-  }
-  if (!had_file && !in_manifest) { fprintf(stderr, "  No package called '%s' is installed.\n", name); return 1; }
-  if (had_file) remove(path);
-  printf("  Removed package %s\n", name);
-  return 0;
-}
+#include "distribution_packages.h"
 
 /* size the deep-recursion guard to ~75% of THIS process's real stack, so it fails cleanly on
    any stack (the 8 MB POSIX default as well as the 64 MB Windows build) instead of segfaulting. */
@@ -4744,12 +4724,14 @@ int main(int argc, char **argv) {
      this run for untrusted code; strip the flag so the normal positional args still line up. */
   if (getenv("SPROUT_SANDBOX")) g_sandbox = 1;
   { int w = 1; for (int r = 1; r < argc; r++) { if (!strcmp(argv[r], "--sandbox")) { g_sandbox = 1; continue; } argv[w++] = argv[r]; } argc = w; }
+  if (!runtime_cli_flags(&argc, argv)) return 2;
+  atexit(production_cleanup);
   srand((unsigned)time(NULL));
   console_setup();   /* enable UTF-8 + ANSI colour for every run */
   { char *baked = embedded_script();   /* a standalone bundle: run the script baked into this exe */
     if (baked) {
       g_prog_args = argv + 1; g_prog_nargs = argc - 1;   /* every arg goes straight to the program */
-      g_current_file = "<bundled>";
+      g_current_file = g_bundle_entry ? g_bundle_entry : "<bundled>";
       global_env = env_new(NULL); cur_file_env = env_new(global_env); cur_fileid = ++g_next_fileid;
       sjmp_buf jb; err_jmp = &jb; g_top_jmp = &jb;
       if (SJSET(jb) != 0) { return 1; }
@@ -4773,7 +4755,7 @@ int main(int argc, char **argv) {
   if (!strcmp(arg, "bundle")) return cmd_bundle(argc, argv);
   if (!strcmp(arg, "format") || !strcmp(arg, "fmt")) return cmd_format(argc, argv);
   if (!strcmp(arg, "add")) return cmd_add(argc, argv);
-  if (!strcmp(arg, "install")) return cmd_install();
+  if (!strcmp(arg, "install")) return cmd_install(argc, argv);
   if (!strcmp(arg, "remove")) return cmd_remove(argc, argv);
   if (!strcmp(arg, "api")) {
     if (argc < 3) { fprintf(stderr, "  api needs a web address:  sprout api https://...\n"); return 1; }
@@ -4796,7 +4778,7 @@ int main(int argc, char **argv) {
   g_prog_nargs = argc > prog_argstart ? argc - prog_argstart : 0;
 
   int len; char *src;
-  if (check_only && argc >= 4 && !strcmp(argv[3], "--stdin")) {
+  if (argc >= 4 && !strcmp(argv[3], "--stdin")) {
     size_t cap = 4096, used = 0; int ch;
     src = (char *)malloc(cap);
     while ((ch = getchar()) != EOF) {

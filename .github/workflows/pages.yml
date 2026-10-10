@@ -8,13 +8,13 @@ on:
   push:
     branches: [main]
     paths:
-      - 'src/sprout.c'
+      - 'src/**'
       - 'playground/web/**'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
   pull_request:
     paths:
-      - 'src/sprout.c'
+      - 'src/**'
       - 'src/tests/**'
       - 'playground/web/**'
       - 'playground/tests/**'

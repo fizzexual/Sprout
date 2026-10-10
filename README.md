@@ -5,11 +5,11 @@
 <h1 align="center">🌱 Sprout 🌱</h1>
 
 <p align="center"><b>A small, friendly programming language — written from scratch in C.</b><br/>
-Plain-English code, helpful errors, and zero dependencies. No Node, no VM, no runtime to install.</p>
+Plain-English code and helpful errors in a native executable. No separate language runtime to install.</p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ea043?style=flat-square" alt="license" /></a>
-  <img src="https://img.shields.io/badge/dependencies-0-2ea043?style=flat-square" alt="zero dependencies" />
+  <img src="https://img.shields.io/badge/native%20executable-C-2ea043?style=flat-square" alt="native executable" />
   <img src="https://img.shields.io/badge/written%20in-C-2ea043?style=flat-square" alt="written in C" />
   <img src="https://img.shields.io/badge/runtime-none-2ea043?style=flat-square" alt="no runtime needed" />
 </p>
@@ -71,6 +71,20 @@ keywords, error messages that point at the line and suggest a fix, and a step-by
 mode. The interpreter is a single dependency-free C executable, and the same code runs in the
 browser playground through WebAssembly. It is an actively developed hobby language (see
 [CHANGELOG.md](CHANGELOG.md) and [ROADMAP.md](ROADMAP.md)), not yet a stable 1.0.
+
+The revival branch is building a practical native application foundation. It adds
+[exact data and execution budgets](docs/runtime-data.md),
+[HTTP/files/processes/CSV/SQLite](docs/native-library.md),
+[complete project bundles and verified packages](docs/distribution.md),
+[restartable workflows](docs/workflows.md),
+[named arguments and multiline text](docs/ergonomics.md), semantic editor tooling,
+recorded playground debugging, and an [app toolkit](docs/app-toolkit.md).
+[Node](integrations/node/README.md), [Python](integrations/python/README.md), and
+[C hosts](integrations/native/README.md) use bounded JSON workers; see the
+[API integration](docs/services.md) and [production roadmap](PRODUCTION_ROADMAP.md)
+for supported workloads and remaining release gates. Native SQLite builds vendor
+a pinned SQLite source dependency. These features do not constitute a stable 1.0
+or a blanket production-readiness claim.
 
 ## Code you can read out loud
 

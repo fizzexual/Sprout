@@ -1,13 +1,15 @@
 // extension.js — Sprout support for VS Code:
 //   * Run / Check commands + a status-bar Run button
 //   * Live diagnostics: checks the unsaved buffer through `sprout check --stdin`
-//   * Autocomplete for keywords, built-ins, and names already in the file
+//   * Lexical completion, navigation, task signatures, rename, and formatting
 // (Syntax highlighting and snippets are declared in package.json and need no code.)
 
 const vscode = require("vscode");
 const cp = require("child_process");
 const fs = require("fs");
 const path = require("path");
+const { providers } = require("./providers");
+let languageTools;
 
 function sproutCmd() {
   return vscode.workspace.getConfiguration("sprout").get("command", "sprout");
@@ -58,7 +60,7 @@ function checkDocument(doc) {
     checks.delete(key);
     if (doc.isClosed || doc.version !== version) return;
     const out = `${stderr || ""}\n${stdout || ""}`;
-    const diags = [];
+    const diags = languageTools ? languageTools.staticDiagnostics(doc) : [];
     // Format: "Sprout error in <file> (line N): <message>"
     const m = out.match(/Sprout error(?: in (.*?))?(?: \(line (\d+)\))?: +([^\n]*)/);
     if (m) {
@@ -89,47 +91,8 @@ function scheduleCheck(doc, delay) {
   timers.set(key, setTimeout(() => { timers.delete(key); checkDocument(doc); }, delay));
 }
 
-// ---- Autocomplete ----
-const KEYWORDS = ["make", "set", "show", "when", "orwhen", "otherwise", "for each", "in", "repeat",
-  "while", "task", "give", "type", "interface", "does", "from", "match", "is", "try", "caught",
-  "fail", "use", "and", "or", "not", "stop", "skip", "public", "private", "yes", "no", "nothing"];
-const BUILTINS = ["range", "length", "add", "remove", "insert", "sort", "sort_by", "reverse",
-  "index_of", "map", "filter", "reduce", "group_by", "min_by", "max_by", "partition", "chunk",
-  "sum", "count", "unique", "zip", "flatten", "slice", "keys", "values", "contains", "first",
-  "last", "copy", "kind_of", "is_a", "round", "format", "floor", "ceil", "abs", "sqrt", "pow",
-  "min", "max", "clamp", "sign", "random", "number", "is_number", "upper", "lower", "trim",
-  "replace", "split", "join", "starts_with", "ends_with", "words", "lines", "title", "pad_start",
-  "pad_end", "code", "char", "matches", "find", "find_all", "captures", "ask", "args", "env",
-  "exit", "now", "today", "time", "seed", "sin", "cos", "tan", "log", "exp", "pi",
-  "days", "hours", "minutes", "time_parts", "time_make", "time_format", "wait",
-  "read", "write", "append", "exists", "remember", "recall", "forget", "get", "json", "explore", "color"];
-
-function completionProvider() {
-  return {
-    provideCompletionItems(doc) {
-      const items = [];
-      for (const k of KEYWORDS) {
-        const it = new vscode.CompletionItem(k, vscode.CompletionItemKind.Keyword);
-        items.push(it);
-      }
-      for (const b of BUILTINS) {
-        const it = new vscode.CompletionItem(b, vscode.CompletionItemKind.Function);
-        it.insertText = new vscode.SnippetString(`${b}($0)`);
-        items.push(it);
-      }
-      // names already defined in this file (make X / task X / type X)
-      const seen = new Set([...KEYWORDS, ...BUILTINS]);
-      const re = /\b(?:make|task|type|interface)\s+([A-Za-z_]\w*)/g;
-      let mm;
-      while ((mm = re.exec(doc.getText()))) {
-        if (!seen.has(mm[1])) { seen.add(mm[1]); items.push(new vscode.CompletionItem(mm[1], vscode.CompletionItemKind.Variable)); }
-      }
-      return items;
-    },
-  };
-}
-
 function activate(context) {
+  languageTools = providers(projectDirectory, sproutCmd);
   for (const [id, sub] of [["sprout.run", "run"], ["sprout.check", "check"]]) {
     context.subscriptions.push(vscode.commands.registerCommand(id, makeRunner(sub)));
   }
@@ -162,8 +125,14 @@ function activate(context) {
   }));
   for (const doc of vscode.workspace.textDocuments) checkDocument(doc);
 
-  // completion
-  context.subscriptions.push(vscode.languages.registerCompletionItemProvider("sprout", completionProvider()));
+  const selector = { language: "sprout", scheme: "file" };
+  context.subscriptions.push(vscode.languages.registerCompletionItemProvider(selector, languageTools.completion, "."));
+  context.subscriptions.push(vscode.languages.registerHoverProvider(selector, languageTools.hover));
+  context.subscriptions.push(vscode.languages.registerSignatureHelpProvider(selector, languageTools.signature, "(", ","));
+  context.subscriptions.push(vscode.languages.registerDefinitionProvider(selector, languageTools.definition));
+  context.subscriptions.push(vscode.languages.registerReferenceProvider(selector, languageTools.reference));
+  context.subscriptions.push(vscode.languages.registerRenameProvider(selector, languageTools.rename));
+  context.subscriptions.push(vscode.languages.registerDocumentFormattingEditProvider(selector, languageTools.formatting));
 }
 
 function deactivate() {

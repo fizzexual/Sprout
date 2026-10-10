@@ -1,0 +1,4 @@
+make items = []
+repeat 50000 times:
+    add(items, "value")
+show length(join(items, ","))

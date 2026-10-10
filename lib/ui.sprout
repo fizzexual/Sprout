@@ -1,0 +1,66 @@
+~ Small HTML toolkit. Content arguments contain rendered fragments; text arguments are escaped.
+~ Client behavior is supplied by trusted JavaScript, not evaluated Sprout inside the browser.
+
+public task escape(value):
+    make text = "" + value
+    set text = replace(text, "&", "&amp;")
+    set text = replace(text, "<", "&lt;")
+    set text = replace(text, ">", "&gt;")
+    set text = replace(text, "\"", "&quot;")
+    give replace(text, "'", "&#39;")
+
+private task safe_url(url):
+    make text = trim("" + url)
+    make scheme = lower(text)
+    when contains(text, "\n") or contains(text, "\r") or contains(text, "\t"):
+        fail "A UI link or form URL must not contain control whitespace."
+    when contains(scheme, ":") and not starts_with(scheme, "https://") and not starts_with(scheme, "http://"):
+        fail "A UI link or form needs a relative URL, http:// URL, or https:// URL."
+    give escape(text)
+
+public task heading(text, level = 1):
+    when not contains([1, 2, 3, 4, 5, 6], level):
+        fail "Heading level must be from 1 to 6."
+    give "<h" + level + ">" + escape(text) + "</h" + level + ">"
+
+public task paragraph(text):
+    give "<p>" + escape(text) + "</p>"
+
+public task button(text, id = ""):
+    give "<button type=\"button\" id=\"" + escape(id) + "\">" + escape(text) + "</button>"
+
+public task link(text, url):
+    give "<a href=\"" + safe_url(url) + "\">" + escape(text) + "</a>"
+
+public task input(label, name, value = "", kind = "text"):
+    when not contains(["text", "search", "email", "number", "date", "password", "checkbox"], kind):
+        fail "Unsupported UI input type."
+    give "<label class=\"field\" for=\"" + escape(name) + "\"><span>" + escape(label) + "</span><input id=\"" + escape(name) + "\" name=\"" + escape(name) + "\" type=\"" + kind + "\" value=\"" + escape(value) + "\"></label>"
+
+public task form(action, content):
+    give "<form action=\"" + safe_url(action) + "\" method=\"get\">" + content + "<button type=\"submit\">Submit</button></form>"
+
+public task card(title, content):
+    give "<section class=\"card\">" + heading(title, 2) + content + "</section>"
+
+public task metric(label, value):
+    give "<section class=\"card metric\"><span>" + escape(label) + "</span><strong>" + escape(value) + "</strong></section>"
+
+public task columns(fragments):
+    give "<div class=\"grid\">" + join(fragments, "") + "</div>"
+
+public task table(headers, rows, id = "report"):
+    make html = "<div class=\"table-wrap\"><table id=\"" + escape(id) + "\"><thead><tr>"
+    for each header in headers:
+        set html += "<th scope=\"col\">" + escape(header) + "</th>"
+    set html += "</tr></thead><tbody>"
+    for each row in rows:
+        set html += "<tr>"
+        for each value in row:
+            set html += "<td>" + escape(value) + "</td>"
+        set html += "</tr>"
+    give html + "</tbody></table></div>"
+
+public task page(title, content, script = ""):
+    make styles = "*{box-sizing:border-box}body{margin:0;background:#f5f7f5;color:#20382c;font:16px system-ui,sans-serif}main{max-width:1100px;margin:48px auto;padding:0 24px}h1{font-size:clamp(28px,5vw,42px);letter-spacing:-1px;margin-bottom:12px}h2{font-size:18px;margin:0 0 16px}p{color:#52675c;line-height:1.6}a{color:#246b44}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin:24px 0}.card{background:white;border:1px solid #dce6df;border-radius:16px;padding:22px;box-shadow:0 4px 14px #20382c06}.metric span{display:block;color:#52675c;font-size:14px}.metric strong{display:block;font-size:30px;margin-top:8px}.field{display:flex;flex-direction:column;gap:8px;margin:16px 0}.field span{font-size:14px;font-weight:600}input{padding:12px;border:1px solid #b5c9bd;border-radius:9px;font:inherit;width:100%;background:white;color:inherit}button{padding:10px 16px;border:0;border-radius:9px;background:#246b44;color:white;font:inherit;cursor:pointer}button:hover{background:#185533}button:focus-visible,input:focus-visible,a:focus-visible{outline:3px solid #65bd8c;outline-offset:3px}.table-wrap{overflow:auto;margin-top:20px}table{border-collapse:collapse;width:100%;font-size:14px}th,td{padding:13px 12px;text-align:left;border-bottom:1px solid #e5ece7;white-space:nowrap}th{background:#edf4ef}th button{background:transparent;color:#20382c;padding:0;font-weight:600}th button:hover{color:#246b44;background:transparent}td[hidden],tr[hidden]{display:none}[role=status]{color:#52675c;font-size:14px}footer{font-size:13px;color:#73867b;margin-top:24px}"
+    give "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + escape(title) + "</title><style>" + styles + "</style></head><body><main>" + content + "<footer>Built with Sprout</footer></main><script>" + script + "</script></body></html>"

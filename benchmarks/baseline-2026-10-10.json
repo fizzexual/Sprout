@@ -1,0 +1,144 @@
+{
+  "platform": "Windows-10-10.0.19045-SP0",
+  "python": "3.12.10",
+  "binary_sha256": "f097db5333e8b306b0da97054992b1a0670b8e25ce60a4624a457de6f949d5ba",
+  "samples": 5,
+  "warmups": 1,
+  "clock": "perf_counter wall time including process startup",
+  "workloads": {
+    "arithmetic": {
+      "ast": {
+        "median_seconds": 0.10854249994736165,
+        "min_seconds": 0.10355639993213117,
+        "max_seconds": 0.12154259998351336,
+        "samples_seconds": [
+          0.11181549995671958,
+          0.12154259998351336,
+          0.10854249994736165,
+          0.10813350009266287,
+          0.10355639993213117
+        ]
+      },
+      "numeric_vm": {
+        "median_seconds": 0.1183160999789834,
+        "min_seconds": 0.1170078000286594,
+        "max_seconds": 0.1304630000377074,
+        "samples_seconds": [
+          0.1171866999939084,
+          0.1170078000286594,
+          0.1183160999789834,
+          0.12434819992631674,
+          0.1304630000377074
+        ]
+      },
+      "source_sha256": "d2e124bf462478199bc3e0d24d4013ec8dbda0cbaa64334738429ba1c94462f1",
+      "output_sha256": "1963ff2cdf44e414aa1e8229778eb238ed060b251629e5cab401188773fe8b65",
+      "vm_speedup": 0.9173941666995629
+    },
+    "collections": {
+      "ast": {
+        "median_seconds": 0.08178799995221198,
+        "min_seconds": 0.0698287000413984,
+        "max_seconds": 0.08649779995903373,
+        "samples_seconds": [
+          0.08649779995903373,
+          0.08249469997826964,
+          0.08178799995221198,
+          0.07976049999706447,
+          0.0698287000413984
+        ]
+      },
+      "numeric_vm": {
+        "median_seconds": 0.08936680003535002,
+        "min_seconds": 0.07360199990216643,
+        "max_seconds": 0.09574200003407896,
+        "samples_seconds": [
+          0.07360199990216643,
+          0.09366830007638782,
+          0.08526329998858273,
+          0.08936680003535002,
+          0.09574200003407896
+        ]
+      },
+      "source_sha256": "69e7c7fdc45e14d9853748f861513d9c0b224e4d73e2f785ca301f0388a13dab",
+      "output_sha256": "b2c9148c96ca04869b2a66fbb8ab8d99ca284eb3834dd237631e627490499fe3",
+      "vm_speedup": 0.9151944561051736
+    },
+    "tasks": {
+      "ast": {
+        "median_seconds": 0.12600550008937716,
+        "min_seconds": 0.11318159999791533,
+        "max_seconds": 0.12939990009181201,
+        "samples_seconds": [
+          0.12939990009181201,
+          0.12416110001504421,
+          0.12691800005268306,
+          0.11318159999791533,
+          0.12600550008937716
+        ]
+      },
+      "numeric_vm": {
+        "median_seconds": 0.12455609999597073,
+        "min_seconds": 0.10969299997668713,
+        "max_seconds": 0.12686439999379218,
+        "samples_seconds": [
+          0.12663549999706447,
+          0.1242253000382334,
+          0.12686439999379218,
+          0.12455609999597073,
+          0.10969299997668713
+        ]
+      },
+      "source_sha256": "52fa66d5129714f4355e56f1810301fbb41db458616f0c5af9741e211556934f",
+      "output_sha256": "c813bbe4a3b259c24de2bd4d52865c3de55d444aceabea93a06cda787583c1f8",
+      "vm_speedup": 1.01163652437298
+    },
+    "text": {
+      "ast": {
+        "median_seconds": 0.05500739999115467,
+        "min_seconds": 0.040839600027538836,
+        "max_seconds": 0.05865350004751235,
+        "samples_seconds": [
+          0.040839600027538836,
+          0.04953910002950579,
+          0.05500739999115467,
+          0.05865350004751235,
+          0.05618979991413653
+        ]
+      },
+      "numeric_vm": {
+        "median_seconds": 0.05018279992509633,
+        "min_seconds": 0.04383280000183731,
+        "max_seconds": 0.05396559997461736,
+        "samples_seconds": [
+          0.04909400001633912,
+          0.05330230004619807,
+          0.05396559997461736,
+          0.05018279992509633,
+          0.04383280000183731
+        ]
+      },
+      "source_sha256": "9eb7fc5507dd98c08f6578168d3a32e66986e5cc87fff4c15b7c9998401d3ff7",
+      "output_sha256": "97b8dd0ec4acbc0ff19ec7b73286ffab2d6f1590dbb9923f0256c70a1fd5930a",
+      "vm_speedup": 1.096140511754219
+    }
+  },
+  "measurement_gate": {
+    "arithmetic_at_least_10_percent_faster": false,
+    "other_workloads_no_more_than_5_percent_slower": false,
+    "regressions": [
+      "arithmetic",
+      "collections"
+    ],
+    "passes": false,
+    "note": "Local timing evidence; cross-platform parity and repeated measurements remain required."
+  },
+  "date": "2026-10-10",
+  "build": {
+    "compiler": "WinLibs GCC 16.2.0",
+    "optimization": "-O2",
+    "architecture": "Windows x86_64",
+    "variant": "experimental numeric-expression bytecode prototype"
+  },
+  "decision": "Measurement gate failed; prototype remains outside the shipping runtime."
+}

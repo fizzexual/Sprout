@@ -1,0 +1,6 @@
+make n = 0
+make total = 0
+repeat 500000 times:
+    set total = (total + n * 3 + 7) % 1000003
+    set n = n + 1
+show total
