@@ -10,9 +10,11 @@ To report a security problem, do not open an issue. Follow [SECURITY.md](SECURIT
 - **A C compiler.** `cc` or `gcc` on Linux and macOS. On Windows, MinGW `gcc`, for
   example: `winget install --id BrechtSanders.WinLibs.POSIX.UCRT`
 - **bash**, to run the test suite. CI runs it with bash on Linux, macOS and Windows.
+- **Python 3 and Node.js**, for the CLI and editor/playground regression tests.
 - **Docker**, only if you work on the playground.
 
-Sprout has no other dependencies. The whole interpreter is one file: `src/sprout.c`.
+The Sprout executable has no runtime dependencies beyond the operating system.
+The whole interpreter is one file: `src/sprout.c`.
 
 ## Build
 
@@ -28,7 +30,9 @@ Windows, from the repo root:
 gcc -O2 -Wall -s -Wl,--stack,67108864 -o src/sprout.exe src/sprout.c -lm -lurlmon
 ```
 
-Or run `build.cmd` from the `src` folder. It runs the same `gcc` command.
+Or run `src\build.cmd` from the repository root. It builds relative to the script,
+so any working directory is supported. Run `install.ps1` afterward for a per-user
+Windows installation and PATH entry.
 
 ## Run
 
@@ -43,6 +47,8 @@ From the `src` folder:
 
 ```bash
 bash src/tests/run.sh
+python src/tests/cli_test.py src/sprout       # use src/sprout.exe on Windows
+node --test vscode-extension/tests/*.test.js playground/tests/*.test.js
 ```
 
 This runs every file in `src/tests/` and every program in `examples/`:

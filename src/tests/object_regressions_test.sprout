@@ -1,0 +1,25 @@
+interface Speaker:
+    speak
+
+type Person does Speaker:
+    task speak(self) -> text:
+        give "hello"
+    task broken(self) -> number:
+        give "wrong"
+
+task greet(who: Speaker) -> text:
+    give who.speak()
+
+test "interfaces describe objects instead of constructing them":
+    expect error "type":
+        show Speaker()
+
+test "method return annotations are enforced":
+    expect Person().speak() == "hello"
+    expect error "type":
+        show Person().broken()
+
+test "interface annotations accept implementing objects":
+    expect greet(Person()) == "hello"
+    expect error "type":
+        show greet(42)

@@ -26,6 +26,9 @@ botanica/build/
 
 # Build artifacts — the interpreter exe is published to Releases, never committed.
 *.exe
+*.obj
+src/sprout
+__pycache__/
 
 # Stray scratch / probe files. Real source lives in src/, src/tests/, modules/, etc.;
 # loose .sprout files at the repo root — and `src/test_*.sprout` probes (note: real

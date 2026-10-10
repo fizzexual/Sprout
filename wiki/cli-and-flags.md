@@ -33,6 +33,7 @@ with [getting started](getting-started.md) and the [cheatsheet](cheatsheet.md).
 | `sprout` | open the interactive screen (menu → live REPL, run a file, help) |
 | `sprout <file.sprout>` | run a single program |
 | `sprout run <file>` | run a single program (same thing, more explicit) |
+| `sprout check <file> [--stdin]` | check syntax, declarations, and top-level imports without running code; `--stdin` reads the unsaved source from standard input |
 | `sprout new <folder>` | create a new project folder |
 | `sprout build` | run the project in the current folder (reads `sprout.toml`) |
 | `sprout test [file]` | run tests — one file, or every `tests/*.sprout` |

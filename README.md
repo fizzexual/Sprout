@@ -187,14 +187,16 @@ needs nothing.
 # get a compiler (Windows, one time):
 winget install --id BrechtSanders.WinLibs.POSIX.UCRT
 
-# build the interpreter:
-cd src
-build.cmd                     # or: gcc -O2 -Wall -s -o sprout.exe sprout.c -lm -lurlmon -lws2_32
+# build and install the interpreter (Windows, from the repo root):
+.\src\build.cmd
+.\install.ps1                 # installs to your user PATH; open a new terminal afterward
+# Linux / macOS: cc -O2 -Wall -o src/sprout src/sprout.c -lm
 
 # run a program:
 sprout run hello.sprout     # or just: sprout hello.sprout
 sprout --sandbox run x.sprout   # run UNTRUSTED code: no file / shell / network access
-sprout version              # -> Sprout v0.1.1
+sprout version              # -> Sprout v0.1.22
+sprout check hello.sprout    # syntax, declarations, and imports; no program execution
 sprout new myapp            # create a full multi-file project folder
 sprout build                # run the project in the current folder (reads sprout.toml)
 sprout test                 # run your tests (a file, or every tests/*.sprout)
@@ -255,8 +257,10 @@ The rules below are tested. If something here reads as a mistake, it probably is
 
 **Values & types.** Dynamically typed. Five value kinds: **number**, **text**,
 **yes/no** (boolean), **nothing**, and the collections **list** and **map**.
-There are no user-defined types/structs/classes — a **map** (`{name: "Sam"}`) is
-the record type. Maps preserve **insertion order**; keys are text.
+Tasks are first-class values. A **map** (`{name: "Sam"}`) is a lightweight record;
+`type` adds user-defined objects, fields, methods, and inheritance. `interface`
+describes required methods, and optional annotations check values at runtime.
+Maps preserve **insertion order**; keys are text.
 
 **Numbers are IEEE-754 doubles.** There is no separate integer type, so `5 / 2`
 is `2.5` and very large integers lose precision. `%` is `fmod`; **the remainder
@@ -267,8 +271,7 @@ display without a decimal point** — `range(3)` shows `[0, 1, 2]`, and
 indices/counts/`length` read as `0`, `1`, `2` (not `0.0`) — so the doubles-only
 choice is invisible until you do real division. (Very large whole numbers fall back
 to exponential form, e.g. `1e+21`, past `1e15`.) **Scientific-notation literals** are
-accepted (`1e3`, `2.5e-2`). `random` is **not** seedable yet, so runs aren't
-reproducible (a roadmap item).
+accepted (`1e3`, `2.5e-2`). `seed(n)` makes subsequent `random` calls reproducible.
 
 **Text is UTF-8.** `length("café")` is `4` (characters, not bytes). Strings are
 immutable, but **indexable by character**: `s[i]` is the *i*-th character, 0-based
@@ -630,10 +633,10 @@ stays callable, so it's clearer not to.
 
 ### Not in the core (on purpose)
 
-A few things you won't find, by design: **no user-defined types** (maps are the record),
-**no multi-line string syntax**, **no negative indexing**, and **no separate integer
-type** (numbers are doubles). I left each of these out so there's one obvious way to do the
-thing — they're decisions, not gaps I'm getting to.
+A few things you won't find, by design: **no multi-line string syntax** and
+**no separate integer type** (numbers are doubles). Objects, interfaces, negative
+indexing (`xs[-1]`), slices (`xs[1:3]`), default parameters, and destructuring are
+supported; see the [current language guide](wiki/README.md).
 
 For the record: **first-class/stored tasks** landed in v0.0.20 and **lambdas + closures**
 in v0.0.24 (`task(x): x * 2`, capturing surrounding variables — see *Lambdas (anonymous
@@ -642,8 +645,10 @@ tasks)* above), and **error handling** (`try:` / `caught:`) in v0.0.14–v0.0.15
 
 ### Grammar (core, EBNF)
 
-Descriptive, not yet a formal spec — the source is the truth — but enough to spot
-ambiguities. `INDENT`/`DEDENT`/`NEWLINE` come from the lexer (see below).
+This is an excerpt for basic statements and expressions, not the complete grammar.
+Objects, interfaces, annotations, lambdas, patterns, pipes, slices, and comprehensions
+are described in the [language guide](wiki/README.md). `INDENT`/`DEDENT`/`NEWLINE`
+come from the lexer (see below); the source and tests define the precise rules.
 
 ```ebnf
 program    = { statement } ;
@@ -722,7 +727,7 @@ one differently, [tell me](https://github.com/fizzexual/Sprout/issues).
 | **All C, zero deps** (links only OS libs) | One ~175 KB exe, nothing to install, no supply chain | I reimplement everything (JSON, HTTP) by hand; C memory discipline is on me |
 | **Conservative mark-sweep GC** *(v0.1.0; strings v0.1.3)* | Long-running programs stay bounded — lists, maps, environments, closures, **and strings** all collected; cycles collected; it can never free a live value | Some overhead on allocation/call-heavy paths |
 | **Doubles only, no integer type** | One number type means a beginner never has to pick one before `make x = 5` | Precision/overflow at the extremes (past `1e+21`); no bigint |
-| **Maps are the only record** | One way to group data, not two — fewer concepts before you're productive | No structs/methods/shape-checking |
+| **Maps and optional objects** | Start with simple records; add methods, inheritance, and annotations when needed | More concepts as programs grow |
 | **Named tasks are top-level; closures are lambdas** | "What can call what" stays obvious — a `task` statement in a block is a clear error, never a silent no-op | To capture surrounding locals you reach for an anonymous `task(x): …` lambda |
 | **One clear error at a time** (dynamic typing) | A beginner gets one fixable message, not a cascade or a type-checker to satisfy before running | No batch diagnostics; type mistakes surface at runtime (wrap risky work in `try:` / `caught:`) |
 | **`system.run` gated behind `use system`** | Shell access is explicit and never ambient; `--sandbox` removes it entirely for hosting untrusted code | It's still real OS power once you opt in |
@@ -774,8 +779,8 @@ The longer, sequenced plan lives in **[ROADMAP.md](ROADMAP.md)**. I run an adver
 source.sprout → lexer → parser → AST → tree-walking interpreter → output
 ```
 
-The whole language is **one C file** (`src/sprout.c`, ~2k lines), compiled to a
-~175 KB native exe. Your `.sprout` program is **interpreted** (the AST is walked) —
+The whole interpreter is **one C file** (`src/sprout.c`), compiled to a small
+native executable. Your `.sprout` program is **interpreted** (the AST is walked) —
 only the interpreter itself is compiled to machine code.
 
 - **Lexer** — hand-written; turns indentation into `INDENT`/`DEDENT` tokens

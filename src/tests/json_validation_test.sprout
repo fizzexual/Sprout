@@ -1,0 +1,19 @@
+test "JSON numbers follow the grammar and stay finite":
+    for each bad in ["-", "01", "-01", "1.", "1e", "1e+", "1+2", "1-2", "1.2.3", "1e999", "-1e999"]:
+        expect json(bad) == nothing
+    expect json("-0.25e+2") == -25
+    expect json("1e-3") == 0.001
+    expect json("[1, 2, 3]") == [1, 2, 3]
+    expect json("[01]") == nothing
+    expect json("{\"value\":1e999}") == nothing
+
+test "JSON strings accept standard escapes and reject malformed text":
+    expect json("\"\\b\\f\\n\\r\\t\\/\\\\\\\"\"") == char(8) + char(12) + "\n" + char(13) + "\t/\\\""
+    expect json("\"\\q\"") == nothing
+    expect json("\"raw\nnewline\"") == nothing
+    expect json("\"\\uD800\"") == nothing
+    expect json("\"\\uDC00\"") == nothing
+    expect json("\"\\uD800\\u0041\"") == nothing
+    expect json("\"\\u0000\"") == nothing
+    expect json("\"\\uD83D\\uDE00\"") == "😀"
+    expect json("\"caf\\u00e9\"") == "café"

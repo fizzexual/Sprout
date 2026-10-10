@@ -35,6 +35,10 @@ gcc -O2 -Wall -s -Wl,--stack,67108864 -o sprout.exe sprout.c -lm -lurlmon   # Wi
 cc  -O2 -Wall -o sprout sprout.c -lm                                         # macOS / Linux
 ```
 
+On Windows, you can also run `src\build.cmd` from the repository root, followed
+by `install.ps1` in PowerShell. This installs to `%LOCALAPPDATA%\Programs\Sprout`
+and adds that folder to your user PATH. Open a new terminal afterward.
+
 This produces a **~175 KB** `sprout` executable that links only against the
 operating system's own libraries. (On Windows the `-lurlmon` library powers the
 network builtins, and the larger stack lets the interpreter report "nested too

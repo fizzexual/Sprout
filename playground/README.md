@@ -1,5 +1,15 @@
 # Sprout playground (Docker)
 
+The static [WebAssembly playground](web/) runs the interpreter entirely in the
+browser. Each run uses a dedicated worker, so the editor stays responsive during
+infinite loops. Runs stop after five seconds or 65,536 output characters; the Stop
+button cancels a run immediately. Errors retain the interpreter's exit status.
+GitHub Pages builds the WebAssembly artifacts from `src/sprout.c`.
+
+To serve a local WebAssembly build: `python -m http.server 8080 --directory playground/web`.
+Both `sprout.js` and `sprout.wasm` must be compiled with the flags in
+`.github/workflows/pages.yml`; they are generated artifacts and are not committed.
+
 Run **untrusted** Sprout submissions on your server without handing strangers your
 filesystem, shell, or network. This is the operational layer on top of the `--sandbox`
 flag: a minimal, non-root image plus a resource-limited runner.

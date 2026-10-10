@@ -1,64 +1,57 @@
-# Sprout — the interpreter (C) 🌱
+# Sprout interpreter
 
-This is **Sprout, written from scratch in C** — an interpreter that depends on
-*nothing but the operating system*. No Node, no JavaScript, no runtime to install.
-The same path Python (CPython) and Lua took.
+Sprout is a native interpreter written in one C file, `sprout.c`. The executable
+needs only the operating system's libraries. The same interpreter compiles to
+WebAssembly for the [browser playground](../playground/web/).
 
-> Sprout began life as a TypeScript-on-Node implementation. That has been **retired**
-> in favour of this native C runtime — Sprout's *own* engine. The language is being
-> rebuilt here one slice at a time (see the roadmap below); git history keeps the old
-> TS version if it's ever needed.
+## Build
 
-## Build it
+Windows, with MinGW GCC on PATH, from the repository root:
 
-You need a C compiler **once** (to build). The `sprout.exe` it produces needs nothing.
-
-```bat
-winget install --id BrechtSanders.WinLibs.POSIX.UCRT   :: get gcc (one time)
-build.cmd                                               :: -> sprout.exe
-sprout.exe hello.sprout
+```powershell
+.\src\build.cmd
+.\install.ps1
 ```
 
-Or directly: `gcc -O2 -Wall -s -o sprout.exe sprout.c -lm`
+`build.cmd` builds next to its source, regardless of the current working directory.
+`install.ps1` copies the executable to `%LOCALAPPDATA%\Programs\Sprout` and adds
+that directory to your user PATH. Open a new terminal afterward. A compiler is
+needed to build, but never to run Sprout.
 
-The result is a **~32 KB** native executable. It links only against `KERNEL32.dll`
-and the Windows system C runtime (`api-ms-win-crt-*`) — both ship with Windows.
+Linux or macOS, from the repository root:
 
-## What runs today (slices 1-4)
-
-- Values: numbers, text, `yes` / `no`, `nothing`
-- `make`, `set`, `show` (commas join with spaces)
-- Math `+ - * / %` with precedence and `( )`; `+` also joins text
-- Compare `== != < <= > >=`, logic `and` `or` `not`
-- `when` / `orwhen` / `otherwise`
-- `repeat N times`, `repeat while`
-- `task` / `give`, function calls, **recursion**, lexical scope (a task sees globals + its own locals)
-- Lists `[1, 2, 3]` and maps `{name: "Sam"}` — indexing `xs[0]` / `m["k"]`, `set xs[i] = …`, `for each x in …`, `range`
-- Toolbox: `length` `add` `keys` `contains` `first` `last` `range` `sqrt` `abs` `round` `floor` `ceil` `min` `max` `random` `number` `upper` `lower` `trim` `replace` `split` `join` `now` `today` `wait` `ask`
-- **Superpowers (built in):** `get(url)` (web), `json(text)` (parse to native lists/maps), `read`/`write`/`append`/`exists` (files), `run(command)` (shell)
-- Comments (`~`), indentation-based blocks, friendly errors with line numbers
-
-```sprout
-task fib(n):
-    when n < 2:
-        give n
-    give fib(n - 1) + fib(n - 2)
-
-repeat 10 times:
-    show "*"
-show "fib(10) =", fib(10)
+```sh
+cc -O2 -Wall -o src/sprout src/sprout.c -lm
+./src/sprout version
+./src/sprout src/hello.sprout
 ```
 
-Run the smoke tests: `sprout.exe tests/core.sprout` and `sprout.exe tests/tasks.sprout`
+For Windows compiler setup, see [getting started](../wiki/getting-started.md).
 
-## The roadmap (later slices)
+## Test
 
-1. ✅ **Core** — variables, math, text, `when`, `repeat`
-2. ✅ **Tasks** — `task` / `give`, function calls, recursion, scope
-3. ✅ **Collections** — lists `[...]`, maps `{...}`, indexing, `for each`, `range`
-4. ✅ **Superpowers** — toolbox (math/text), files, web (`get`), JSON, `run`, `ask`
-5. f-strings (`f"..."`) + `remember` / `recall` *(next)*
-6. A small garbage collector (today memory is never freed — fine for short programs)
-7. The GUI, the internet, libraries
+From the repository root:
 
-Built from scratch, one slice at a time. 🌱
+```sh
+bash src/tests/run.sh
+python src/tests/cli_test.py src/sprout          # use src/sprout.exe on Windows
+node --test vscode-extension/tests/*.test.js playground/tests/*.test.js
+```
+
+The shell suite runs language tests, examples, sandbox probes, and error trace
+checks. CLI regressions use Python's standard library; editor and playground
+tests use Node's built-in test runner. Python and Node are development tools,
+not dependencies of the Sprout executable.
+
+## Current language
+
+The interpreter supports collections, closures, objects and inheritance,
+interfaces and optional type annotations, pattern matching, pipes, modules,
+error handling, testing, and file/network/persistence builtins. A conservative
+mark-sweep collector reclaims runtime strings, collections, environments, and
+closures, including cycles.
+
+- [Language guide](../wiki/README.md)
+- [CLI reference](../wiki/cli-and-flags.md)
+- [Examples](../examples/README.md)
+- [Contribution and CI guide](../CONTRIBUTING.md)

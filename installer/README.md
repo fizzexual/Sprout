@@ -6,8 +6,10 @@ self-contained download — no extra files, and install works offline.
 
 ## For users
 
-Download **`sprout-installer.exe`** from the
-[latest release](https://github.com/fizzexual/Sprout/releases/latest) and run it:
+Release builds now include **`sprout-installer.exe`**. For older releases that only
+contain `sprout-windows-x86_64.exe`, use that binary directly, or build from this
+checkout and run `install.ps1` in PowerShell. The C installer can also be built
+locally and run:
 
 ```
   Sprout Installer  🌱

@@ -1,35 +1,47 @@
 # Sprout for VS Code
 
-Language support for the [Sprout](https://github.com/fizzexual/Sprout)
-programming language and its styling language **Bloom**.
+Syntax highlighting, snippets, autocomplete, live diagnostics, and Run/Verify
+commands for the [Sprout](https://github.com/fizzexual/Sprout) programming language.
+Legacy Bloom files retain syntax highlighting.
 
-## Features
+## Set up the interpreter
 
-- 🎨 **Syntax highlighting** for `.sprout` and `.bloom`
-- ✂️ **Snippets** — type `window`, `task`, `when`, `repeat`, `make`, … and press Tab
-- ▶️ **Run commands** — Run, Run as Window, Run as Website, and Verify, from the
-  editor title bar, the right-click menu, or the Command Palette
-- 🌱 File icons for `.sprout` and `.bloom`
+Build the current C interpreter from this checkout. On Windows, run
+`src\build.cmd`, then `install.ps1` from the repository root. Restart VS Code so
+its terminals inherit the updated PATH. Alternatively, set `sprout.command` to
+the full executable path, including any spaces; do not add shell quotes.
 
-## Run commands
+Live diagnostics require the current `sprout check <file> --stdin` command. The
+extension checks unsaved buffers in the project directory without running code.
+It reports syntax, import, and declaration errors. Runtime type/value errors are
+reported when you run the program.
 
-With a `.sprout` file open: click the **▶ Run** button in the editor title bar,
-or right-click → **Sprout: Run File** (also `Run as Window`, `Run as Website`,
-`Verify File`). They run in an integrated terminal.
+## Commands
 
-The commands call `sprout` on your PATH. From the Sprout repo, run `npm link`
-once to make `sprout` available — or set **`sprout.command`** in Settings to a
-full path / `node path\to\src\cli.ts`.
+With a `.sprout` file open, use the editor toolbar or Command Palette:
 
-## Install
+- **Sprout: Run File** saves the file and runs it in an integrated task terminal.
+- **Sprout: Verify File** checks syntax and imports without executing the program.
 
-**Try it instantly:** open this folder in VS Code and press <kbd>F5</kbd> — a new
-"Extension Development Host" window opens with the extension loaded. Open any
-`.sprout` file to see highlighting.
+The nearest `sprout.toml` selects the working directory; otherwise the workspace
+folder is used. Executables and filenames are passed as process arguments, so
+paths with spaces work. The retired Node GUI and website commands are no longer
+shown.
 
-**Install permanently:** package it into a `.vsix` and install that:
+## Package and install
 
-```bash
+From this directory:
+
+```sh
 npx @vscode/vsce package
-code --install-extension sprout-language-0.1.0.vsix
+code --install-extension sprout-language-0.3.1.vsix
 ```
+
+## Test
+
+```sh
+node --test tests/*.test.js
+```
+
+The regression suite covers unsaved buffers, project paths, diagnostic races,
+closed documents, missing executables, imported errors, and run arguments.

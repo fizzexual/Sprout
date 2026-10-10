@@ -149,6 +149,7 @@
     <div class="spacer"></div>
     <button class="widget"><span style="color:var(--dim)">Current File</span><svg class="ico chev" viewBox="0 0 16 16" width="12" height="12"><path d="M4 6l4 4 4-4"/></svg></button>
     <button class="runbtn" id="runTop" title="Run (Ctrl+Enter)"><svg class="ico" viewBox="0 0 16 16"><path d="M4 3l9 5-9 5z"/></svg></button>
+    <button class="iconbtn" id="stopTop" title="Stop running program" aria-label="Stop running program" disabled>■</button>
     <button class="iconbtn" title="Debug"><svg class="ico" viewBox="0 0 16 16"><path d="M5 6a3 3 0 016 0v3a3 3 0 01-6 0zM2 7h3M11 7h3M2 11h3M11 11h3M8 3v1"/></svg></button>
     <button class="iconbtn"><svg class="ico fill" viewBox="0 0 16 16" width="4" height="16"><circle cx="2" cy="3" r="1.4"/><circle cx="2" cy="8" r="1.4"/><circle cx="2" cy="13" r="1.4"/></svg></button>
     <button class="iconbtn" title="Search"><svg class="ico" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="M11 11l3 3"/></svg></button>
@@ -404,7 +405,7 @@ show "double(21) =", double(21)
 show "map with a stored task:", map([1, 2, 3], double)`],
 ];
 
-const KW = new Set(['make','set','show','when','orwhen','otherwise','for','each','in','repeat','while','task','give','type','from','match','is','try','caught','fail','use','and','or','not','stop','skip','public','private','to','learn','test','expect','self']);
+const KW = new Set(['make','set','show','when','orwhen','otherwise','for','each','in','repeat','while','times','task','give','type','interface','does','from','match','is','try','caught','fail','use','and','or','not','stop','skip','public','private','to','learn','test','expect','self']);
 const LIT = new Set(['yes','no','nothing']);
 const FN = new Set(['range','length','add','remove','insert','sort','sort_by','reverse','index_of','map','filter','reduce','group_by','min_by','max_by','partition','chunk','sum','count','unique','zip','flatten','slice','keys','values','contains','first','last','copy','kind_of','is_a','round','format','floor','ceil','abs','sqrt','pow','min','max','clamp','sign','random','seed','number','is_number','sin','cos','tan','log','exp','pi','upper','lower','trim','replace','split','join','starts_with','ends_with','words','lines','title','pad_start','pad_end','code','char','matches','find','find_all','captures','ask','args','env','exit','now','today','time']);
 
@@ -538,37 +539,63 @@ function loadExample(i, rowEl){
   code.focus();
 }
 
-// ---- run via WASM ----
+// ---- run via WASM in a terminable worker ----
 const stripAnsi = s => s.replace(/\x1b\[[0-9;]*m/g,'');
-let ready=false, tries=0;
-(function wait(){ if(typeof createSprout==='function'){ready=true;$('wasmState').textContent='WASM ready';$('inspText').textContent='ready';}
-  else if(tries++<40) setTimeout(wait,150);
-  else { $('wasmState').textContent='WASM unavailable'; $('inspText').textContent='offline'; } })();
-
-async function run(){
+let worker=null, ready=false, running=false, startupTimer, runTimer;
+function bootWorker(){
+  if(worker) return;
+  ready=false; $('wasmState').textContent='WASM loading…'; $('inspText').textContent='loading…';
+  $('runTop').disabled=true;
+  let next;
+  try { next=new Worker('worker.js'); } catch(e) { unavailable(String(e)); return; }
+  worker=next;
+  startupTimer=setTimeout(()=>unavailable('The interpreter took too long to load.'),15000);
+  next.onmessage=event=>{
+    if(worker!==next) return;
+    const data=event.data;
+    if(data.type==='ready'){
+      clearTimeout(startupTimer); ready=true;
+      $('wasmState').textContent='WASM ready'; $('inspText').textContent='ready'; $('runTop').disabled=false;
+    } else if(data.type==='done'){
+      const text=stripAnsi(data.output).replace(/\n+$/,'');
+      const note=data.stopped ? '[stopped: '+data.stopped+']' : data.exitCode ? 'Process exited with code '+data.exitCode+'.' : 'Process finished.';
+      complete((text || '(no output)')+'\n\n'+note);
+    } else if(data.type==='error') unavailable(data.message);
+  };
+  next.onerror=event=>{ event.preventDefault(); unavailable(event.message || 'Could not load the interpreter.'); };
+}
+function unavailable(message){
+  if(worker) worker.terminate(); worker=null; ready=false; running=false;
+  clearTimeout(startupTimer); clearTimeout(runTimer);
+  $('runTop').disabled=false; $('stopTop').disabled=true;
+  $('wasmState').textContent='WASM unavailable'; $('inspText').textContent='offline';
+  $('ecol').classList.add('show-run');
+  $('console').textContent='Could not start the interpreter. '+message+'\nPress Run to retry.';
+}
+function complete(text){
+  if(worker) worker.terminate(); worker=null; ready=false; running=false;
+  clearTimeout(startupTimer); clearTimeout(runTimer);
+  $('stopTop').disabled=true; $('console').textContent=text;
+  bootWorker();
+}
+function stop(){ if(running) complete('[stopped by you]'); }
+function run(){
   $('ecol').classList.add('show-run');
   const con=$('console');
-  if(!ready){ con.innerHTML='<span class="muted">the WebAssembly interpreter is still loading…</span>'; return; }
-  $('inspText').textContent='running…'; con.innerHTML='<span class="muted">running '+$('tabName').textContent+'…</span>';
-  let buf='';
-  const push=s=>{ buf+=s+'\n'; };
-  try{
-    const M=await createSprout({print:push,printErr:push,noInitialRun:true});
-    M.FS.writeFile('/program.sprout', code.value);
-    try{ M.callMain(['/program.sprout','--sandbox']); }
-    catch(e){ if(!(e&&(e.name==='ExitStatus'||e.status!==undefined))) push('[runtime error] '+e); }
-  }catch(e){ push('[could not start the interpreter] '+e); }
-  const text=stripAnsi(buf).replace(/\n+$/,'');
-  con.textContent = text.length ? text : '(no output)';
-  con.innerHTML += '\n<span class="ok">\nProcess finished.</span>';
-  $('inspText').textContent='ready';
+  if(running) return;
+  if(!ready){ con.textContent='The WebAssembly interpreter is loading…'; bootWorker(); return; }
+  running=true; $('runTop').disabled=true; $('stopTop').disabled=false;
+  $('inspText').textContent='running…'; con.textContent='Running '+$('tabName').textContent+'…';
+  runTimer=setTimeout(()=>complete('[stopped: 5 second time limit]'),5000);
+  worker.postMessage({type:'run',code:code.value});
 }
 $('runTop').onclick=run; runGutter.onclick=run;
+$('stopTop').onclick=stop;
 $('runClose').onclick=()=>$('ecol').classList.remove('show-run');
 $('tabX').onclick=()=>{};
 
 buildTree(); loadExample(0, document.querySelector('.row.file')); code.focus();
+bootWorker();
 </script>
-<script src="sprout.js"></script>
 </body>
 </html>

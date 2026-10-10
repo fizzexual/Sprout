@@ -7,6 +7,32 @@ All notable changes to **Sprout**. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Stored task values remain valid when an imported module grows the task registry.
+  Type definitions also keep stable addresses as more modules load.
+- Calling an interface now reports a catchable type error instead of crashing.
+  Inheritance cycles and inheritance from an interface are rejected at registration.
+- Method return annotations are enforced, and interface annotations accept objects
+  whose types implement that interface.
+- JSON parsing rejects malformed numbers, overflow, invalid escapes, raw control
+  characters, and unpaired surrogates. Standard backspace/form-feed escapes work.
+  NUL-containing strings return `nothing` because Sprout text is NUL-terminated.
+- `sprout check` validates top-level imports recursively without executing imported
+  code; `--stdin` checks editor buffers with their original filename.
+- VS Code diagnostics preserve project paths, discard stale results, cancel closed
+  buffers, and explain missing executables. Run/Verify use process arguments rather
+  than shell strings; retired GUI/website commands are removed.
+- The WebAssembly playground runs in a worker, with Stop, a five-second limit,
+  an output cap, and accurate error exit status.
+- Windows builds work from the repository root; `install.ps1` installs per-user.
+  Release builds include the Windows installer. Setup and architecture docs match
+  the current C interpreter.
+
+### Validation
+
+- Added language, CLI, editor, and worker regressions to cross-platform CI.
+
 ### Added
 
 - `sprout check <file>` parses and loads a program without running it. It reports syntax

@@ -8,10 +8,8 @@
  * the math/compare/and/or/not operators, `when`/`orwhen`/`otherwise`, `repeat`,
  * `task`/`give` with recursion, and lists/maps with indexing, `for each`, and the
  * collection builtins (range, length, add, keys, contains, first, last).
- * (f-strings, input, and the libraries come in later slices.)
- *
- * Memory is intentionally never freed — a Sprout program is short-lived and the
- * OS reclaims everything on exit. A later slice can add a small garbage collector.
+ * Also includes closures, objects, interfaces, modules, testing, and CLI tooling.
+ * Heap values are reclaimed by a conservative mark-sweep garbage collector.
  */
 
 #include <stdio.h>
@@ -1291,23 +1289,24 @@ static void env_assign(Env *e, const char *name, Value v, int line) {
 struct TaskDef { char *name; char **params; int nparams; Expr **defaults; char **ptypes; char *rettype; Stmt **body; int nbody; int line;
                  int is_public; int fileid; Env *home; Env *file_env; char *owner_type; };   /* home = closure/scope base; file_env = where `public make` lands; owner_type = the type a method is defined on (NULL for plain tasks/lambdas, so `super` knows the parent). TaskDef typedef is forward-declared up by Value */
 static const char *taskdef_name(TaskDef *t) { return (t && t->name) ? t->name : "?"; }
-static TaskDef *tasks = NULL; static int ntasks = 0, captasks = 0;
+/* Definitions have stable addresses: loading a module must not invalidate a stored task. */
+static TaskDef **tasks = NULL; static int ntasks = 0, captasks = 0;
 /* bare calls only see tasks of the CURRENT file; cross-file goes through a module namespace */
 static TaskDef *task_find(const char *name) {
-  for (int i = 0; i < ntasks; i++) if (tasks[i].fileid == cur_fileid && !strcmp(tasks[i].name, name)) return &tasks[i];
+  for (int i = 0; i < ntasks; i++) if (tasks[i]->fileid == cur_fileid && !strcmp(tasks[i]->name, name)) return tasks[i];
   return NULL;
 }
 /* a PUBLIC task of a specific file, reached as module.name() */
 static TaskDef *task_find_public(int fileid, const char *name) {
-  for (int i = 0; i < ntasks; i++) if (tasks[i].fileid == fileid && tasks[i].is_public && !strcmp(tasks[i].name, name)) return &tasks[i];
+  for (int i = 0; i < ntasks; i++) if (tasks[i]->fileid == fileid && tasks[i]->is_public && !strcmp(tasks[i]->name, name)) return tasks[i];
   return NULL;
 }
 static void task_register(Stmt *s, int fileid, Env *home) {
   for (int i = 0; i < ntasks; i++)
-    if (tasks[i].fileid == fileid && !strcmp(tasks[i].name, s->name))
+    if (tasks[i]->fileid == fileid && !strcmp(tasks[i]->name, s->name))
       failf(s->line, "there are two tasks named '%s' in this file.", s->name);
-  if (ntasks >= captasks) { captasks = captasks ? captasks * 2 : 8; tasks = (TaskDef *)realloc(tasks, captasks * sizeof(TaskDef)); }
-  TaskDef *t = &tasks[ntasks++];
+  if (ntasks >= captasks) { captasks = captasks ? captasks * 2 : 8; tasks = (TaskDef **)realloc(tasks, captasks * sizeof(TaskDef *)); }
+  TaskDef *t = (TaskDef *)calloc(1, sizeof(TaskDef)); tasks[ntasks++] = t;
   t->name = s->name; t->params = s->params; t->nparams = s->nparams; t->defaults = s->pdefaults; t->ptypes = s->ptypes; t->rettype = s->rettype; t->body = s->body; t->nbody = s->nbody; t->line = s->line;
   t->is_public = s->is_public; t->fileid = fileid; t->home = home; t->file_env = home; t->owner_type = NULL;
 }
@@ -1478,7 +1477,7 @@ static void gc_collect(void) {
   gc_workn = 0;                                               /* queue all the roots, then drain once */
   gc_push(global_env); gc_push(cur_file_env);
   for (int i = 0; i < g_nmods; i++) gc_push(g_mods[i].env);
-  for (int i = 0; i < ntasks; i++) { gc_push(tasks[i].home); gc_push(tasks[i].file_env); }
+  for (int i = 0; i < ntasks; i++) { gc_push(tasks[i]->home); gc_push(tasks[i]->file_env); }
   gc_push_value(return_value);
   if (g_have_fail_override) gc_push_value(g_fail_override);
   gc_scan_range((char *)&regs, (char *)&regs + sizeof regs);   /* the spilled registers */
@@ -1617,7 +1616,7 @@ static const char *suggest_name(const char *name, Env *env, int include_vars) {
   if (include_vars)
     for (Env *e = env; e; e = e->parent)
       for (int i = 0; i < e->n; i++) { int d = edit_distance(name, e->vars[i].name); if (d < bestd) { bestd = d; best = e->vars[i].name; } }
-  for (int i = 0; i < ntasks; i++) { int d = edit_distance(name, tasks[i].name); if (d < bestd) { bestd = d; best = tasks[i].name; } }
+  for (int i = 0; i < ntasks; i++) { int d = edit_distance(name, tasks[i]->name); if (d < bestd) { bestd = d; best = tasks[i]->name; } }
   for (int i = 0; i < NBUILTIN_NAMES; i++) { int d = edit_distance(name, BUILTIN_NAMES[i]); if (d < bestd) { bestd = d; best = BUILTIN_NAMES[i]; } }
   int L = (int)strlen(name); int thr = L <= 3 ? 1 : 2;
   /* bestd == 0 means a same-spelled name exists but isn't usable here (e.g. another file's
@@ -1759,6 +1758,7 @@ static Value jstring(JParse *j) {
     if (c == '\\' && j->pos + 1 < j->len) {
       char nx = j->s[j->pos + 1];
       if (nx=='n') buf[b++]='\n'; else if (nx=='t') buf[b++]='\t'; else if (nx=='r') buf[b++]='\r';
+      else if (nx=='b') buf[b++]='\b'; else if (nx=='f') buf[b++]='\f';
       else if (nx=='"') buf[b++]='"'; else if (nx=='\\') buf[b++]='\\'; else if (nx=='/') buf[b++]='/';
       else if (nx=='u' && j->pos + 5 < j->len) {
         int cp = jhex4(j->s + j->pos + 2);
@@ -1768,14 +1768,17 @@ static Value jstring(JParse *j) {
           int lo = jhex4(j->s + j->pos + 2);
           if (lo >= 0xDC00 && lo <= 0xDFFF) { cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00); j->pos += 6; }
         }
+        /* Sprout uses NUL-terminated UTF-8 text: never silently truncate a JSON string,
+           or encode an unpaired surrogate as invalid UTF-8. */
+        if (cp == 0 || (cp >= 0xD800 && cp <= 0xDFFF)) { j->ok = 0; break; }
         if (cp < 0x80) buf[b++]=(char)cp;
         else if (cp < 0x800) { buf[b++]=(char)(0xC0|(cp>>6)); buf[b++]=(char)(0x80|(cp&0x3F)); }
         else if (cp < 0x10000) { buf[b++]=(char)(0xE0|(cp>>12)); buf[b++]=(char)(0x80|((cp>>6)&0x3F)); buf[b++]=(char)(0x80|(cp&0x3F)); }
         else { buf[b++]=(char)(0xF0|(cp>>18)); buf[b++]=(char)(0x80|((cp>>12)&0x3F)); buf[b++]=(char)(0x80|((cp>>6)&0x3F)); buf[b++]=(char)(0x80|(cp&0x3F)); }
         continue;
-      } else buf[b++]=nx;
+      } else { j->ok = 0; break; }
       j->pos += 2;
-    } else { buf[b++]=c; j->pos++; }
+    } else { if ((unsigned char)c < 0x20 || c == '\\') { j->ok = 0; break; } buf[b++]=c; j->pos++; }
   }
   if (j->pos < j->len) j->pos++; else j->ok = 0;
   buf[b]=0; return vstr_take(buf);
@@ -1822,8 +1825,26 @@ static Value jvalue_inner(JParse *j) {
   if (c=='n') { if (j->pos+4<=j->len && strncmp(j->s+j->pos,"null",4)==0){ j->pos+=4; return vnone();} j->ok=0; return vnone(); }
   if (c=='-' || (c>='0'&&c<='9')) {
     int s0=j->pos; if (c=='-') j->pos++;
-    while (j->pos<j->len) { char d=j->s[j->pos]; if ((d>='0'&&d<='9')||d=='.'||d=='e'||d=='E'||d=='+'||d=='-') j->pos++; else break; }
-    char tmp[64]; int ln=j->pos-s0; if (ln>63) ln=63; memcpy(tmp,j->s+s0,ln); tmp[ln]=0; return vnum(atof(tmp));
+    if (j->pos >= j->len) { j->ok = 0; return vnone(); }
+    if (j->s[j->pos] == '0') j->pos++;
+    else if (j->s[j->pos] >= '1' && j->s[j->pos] <= '9') {
+      while (j->pos < j->len && isdigit((unsigned char)j->s[j->pos])) j->pos++;
+    } else { j->ok = 0; return vnone(); }
+    if (j->pos < j->len && j->s[j->pos] == '.') {
+      int start = ++j->pos;
+      while (j->pos < j->len && isdigit((unsigned char)j->s[j->pos])) j->pos++;
+      if (j->pos == start) { j->ok = 0; return vnone(); }
+    }
+    if (j->pos < j->len && (j->s[j->pos] == 'e' || j->s[j->pos] == 'E')) {
+      j->pos++;
+      if (j->pos < j->len && (j->s[j->pos] == '+' || j->s[j->pos] == '-')) j->pos++;
+      int start = j->pos;
+      while (j->pos < j->len && isdigit((unsigned char)j->s[j->pos])) j->pos++;
+      if (j->pos == start) { j->ok = 0; return vnone(); }
+    }
+    char *end; double n = strtod(j->s + s0, &end);
+    if (end != j->s + j->pos || !isfinite(n)) { j->ok = 0; return vnone(); }
+    return vnum(n);
   }
   j->ok=0; return vnone();
 }
@@ -1980,6 +2001,7 @@ static int value_cmp(const void *pa, const void *pb) {
    runs untrusted code, turn off every builtin that can touch the filesystem, a shell, or
    the network — otherwise a stranger's program gets file + shell + SSRF access to the host. */
 static int g_sandbox = 0;
+static int g_check_only = 0;   /* parse imports and declarations without executing their code */
 static char **g_prog_args = NULL; static int g_prog_nargs = 0;   /* the program's own CLI args, for args() */
 static int builtin_blocked(const char *name) {
   static const char *const b[] = { "read", "write", "append", "exists",        /* filesystem */
@@ -3025,10 +3047,10 @@ static Value call_system(Expr *e, Env *env) {
    type name; its fields are the map's entries, so field get/set reuse the [ ] machinery.
    A method is a task whose first parameter is the receiver (by convention, `self`). */
 struct TypeReg { char *name; char *parent; int fileid; char **fields; Expr **defaults; int nfields; TaskDef *methods; int nmethods; int is_interface; char **implements; int nimpl; };
-static TypeReg *g_types = NULL; static int g_ntypes = 0, g_captypes = 0;
+static TypeReg **g_types = NULL; static int g_ntypes = 0, g_captypes = 0;
 
 static TypeReg *type_find(const char *name) {
-  for (int i = 0; i < g_ntypes; i++) if (!strcmp(g_types[i].name, name)) return &g_types[i];
+  for (int i = 0; i < g_ntypes; i++) if (!strcmp(g_types[i]->name, name)) return g_types[i];
   return NULL;
 }
 /* find a method by name, looking up the inheritance chain (child overrides parent). */
@@ -3073,23 +3095,33 @@ static void check_type(Value v, const char *tn, int line, const char *what) {
   if (!builtin) {
     if (!type_find(tn)) { char m[220]; snprintf(m, sizeof m, "there's no type called '%s' (in the annotation for %s). Types are number, text, list, map, boolean, task, nothing, or one you defined.", tn, what); fail_kind(line, "type", m); }
     TypeReg *vt = (v.type == V_MAP && v.map && v.map->classname) ? type_find(v.map->classname) : NULL;
-    ok = vt && type_is_a(vt, tn);
+    ok = vt && (type_is_a(vt, tn) || type_does(vt, tn));
   }
   if (!ok) { char m[280], d[96]; val_describe(v, d, sizeof d); snprintf(m, sizeof m, "%s must be a %s, but got %s.", what, tn, d); fail_kind(line, "type", m); }
 }
 /* register a `type`: record its fields, and build a TaskDef for each method. */
 static void type_register(Stmt *s, int fileid, Env *home) {
   if (type_find(s->name)) failf(s->line, "there are two types named '%s'.", s->name);
-  if (g_ntypes >= g_captypes) { g_captypes = g_captypes ? g_captypes * 2 : 8; g_types = (TypeReg *)realloc(g_types, g_captypes * sizeof(TypeReg)); }
-  TypeReg *t = &g_types[g_ntypes++];
+  if (g_ntypes >= g_captypes) { g_captypes = g_captypes ? g_captypes * 2 : 8; g_types = (TypeReg **)realloc(g_types, g_captypes * sizeof(TypeReg *)); }
+  TypeReg *t = (TypeReg *)calloc(1, sizeof(TypeReg)); g_types[g_ntypes++] = t;
   t->name = s->name; t->parent = s->name2; t->fileid = fileid; t->fields = s->params; t->defaults = s->values; t->nfields = s->nparams;
   t->is_interface = s->is_interface; t->implements = s->implements; t->nimpl = s->nimpl;
+  /* A forward parent may be registered later, but every known chain must be acyclic
+     and inherit from concrete types. Validate again as each declaration arrives. */
+  for (int i = 0; i < g_ntypes; i++) {
+    TypeReg *p = g_types[i]; int hops = 0;
+    while (p && p->parent) {
+      p = type_find(p->parent);
+      if (p && p->is_interface) fail_kind(s->line, "type", "a type can't inherit from an interface — use 'does' to implement it.");
+      if (++hops > g_ntypes) fail_kind(s->line, "type", "types can't inherit in a circle — each parent must lead to a different ancestor.");
+    }
+  }
   t->nmethods = s->nbody;
   t->methods = s->nbody ? (TaskDef *)calloc((size_t)s->nbody, sizeof(TaskDef)) : NULL;
   for (int i = 0; i < s->nbody; i++) {
     Stmt *m = s->body[i];
     t->methods[i].name = m->name; t->methods[i].params = m->params; t->methods[i].nparams = m->nparams;
-    t->methods[i].defaults = m->pdefaults; t->methods[i].ptypes = m->ptypes;   /* so default params + type annotations work on methods too */
+    t->methods[i].defaults = m->pdefaults; t->methods[i].ptypes = m->ptypes; t->methods[i].rettype = m->rettype;
     t->methods[i].body = m->body; t->methods[i].nbody = m->nbody; t->methods[i].line = m->line;
     t->methods[i].is_public = 0; t->methods[i].fileid = fileid; t->methods[i].home = home; t->methods[i].file_env = home; t->methods[i].owner_type = t->name;
   }
@@ -3123,6 +3155,7 @@ static void type_bind_fields(TypeReg *t, Expr *call, Env *env, SMap *m, int *arg
 }
 /* build a new instance: its own type tag, with all fields (inherited + own) bound in order. */
 static Value type_instantiate(TypeReg *t, Expr *call, Env *env) {
+  if (t->is_interface) fail_kind(call->line, "type", "an interface describes methods, but can't create an object — call a type that does the interface instead.");
   int total = type_field_count(t);
   if (call->nargs > total) { char m[200]; snprintf(m, sizeof m, "%s takes at most %d value(s), but got %d.", t->name, total, call->nargs); fail(call->line, m); }
   SMap *m = map_new(); m->classname = t->name;
@@ -3748,6 +3781,7 @@ static void usage(void) {
   printf("  sprout test [file]       run tests (a file, or every tests/*.sprout)\n");
   printf("  sprout bundle <file>     package a program into a standalone executable\n");
   printf("  sprout format <file>     tidy a program's formatting (--write to edit, --check for CI)\n");
+  printf("  sprout check <file>      check syntax and imports without running (--stdin for editor buffers)\n");
   printf("  sprout add <source>      install a library (a path, https url, or github:user/repo)\n");
   printf("  sprout install           fetch every library in sprout.packages\n");
   printf("  sprout remove <name>     uninstall a library\n");
@@ -4294,6 +4328,12 @@ static Stmt **parse_file(const char *path, int *n) {
   return prog;
 }
 
+/* Check top-level imports recursively, through the usual resolver and dedup set.
+   Only the import statement runs; imported programs never execute in check mode. */
+static void check_imports(Stmt **prog, int n, Env *env) {
+  for (int i = 0; i < n; i++) if (prog[i]->kind == S_USE) exec(prog[i], env);
+}
+
 /* load another project file once: register its tasks, then run its top level */
 static void load_module(const char *name) {
   char *path = resolve_module(name);
@@ -4308,7 +4348,8 @@ static void load_module(const char *name) {
   cur_fileid = ++g_next_fileid; cur_file_env = fe;
   { char *base = module_basename(path); modns_register(base, cur_fileid, fe); free(base); }   /* reachable as base.member */
   for (int i = 0; i < n; i++) register_top(prog[i], cur_fileid, fe);
-  exec_block(prog, n, fe);
+  if (g_check_only) check_imports(prog, n, fe);
+  else exec_block(prog, n, fe);
   returning = 0;                 /* a module's top-level `give` (if any) doesn't return to the user */
   cur_fileid = prevfid; cur_file_env = prevfe;
   g_current_file = prev;
@@ -4748,12 +4789,21 @@ int main(int argc, char **argv) {
   }
   if (!strcmp(arg, "check")) {          /* parse + load a file WITHOUT running it — catches syntax + load errors */
     if (argc < 3) { fprintf(stderr, "  check needs a file:  sprout check file.sprout\n"); return 1; }
-    file = argv[2]; check_only = 1;
+    file = argv[2]; check_only = 1; g_check_only = 1;
   }
   g_prog_args = argv + prog_argstart;   /* what args() returns to the program */
   g_prog_nargs = argc > prog_argstart ? argc - prog_argstart : 0;
 
-  int len; char *src = read_file(file, &len);
+  int len; char *src;
+  if (check_only && argc >= 4 && !strcmp(argv[3], "--stdin")) {
+    size_t cap = 4096, used = 0; int ch;
+    src = (char *)malloc(cap);
+    while ((ch = getchar()) != EOF) {
+      if (used + 1 >= cap) { cap *= 2; src = (char *)realloc(src, cap); }
+      src[used++] = (char)ch;
+    }
+    src[used] = 0; len = (int)used;
+  } else src = read_file(file, &len);
   g_current_file = file;
   { char *c = canon_path(file); loaded_add(c); free(c); }   /* so a `use` can't reload the entry file */
   global_env = env_new(NULL);                  /* the shared/public space */
@@ -4767,7 +4817,7 @@ int main(int argc, char **argv) {
   int ncount; Stmt **program = parse_program(&ncount);
   { char *base = module_basename(file); modns_register(base, cur_fileid, cur_file_env); free(base); }  /* same as `sprout build` */
   for (int i = 0; i < ncount; i++) register_top(program[i], cur_fileid, cur_file_env);
-  if (check_only) { printf("ok: %s — no syntax or load errors.\n", file); err_jmp = NULL; g_top_jmp = NULL; return 0; }
+  if (check_only) { check_imports(program, ncount, cur_file_env); printf("ok: %s — no syntax or load errors.\n", file); err_jmp = NULL; g_top_jmp = NULL; return 0; }
   exec_block(program, ncount, cur_file_env);
   err_jmp = NULL; g_top_jmp = NULL;
   return test_report();   /* if the file had tests, report + set the exit code */

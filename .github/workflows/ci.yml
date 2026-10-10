@@ -33,8 +33,24 @@ jobs:
           bin=src/sprout; [ -f src/sprout.exe ] && bin=src/sprout.exe
           "$bin" version
 
+      - name: Build and smoke-test Windows installation
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          & .\installer\build.cmd
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\install.ps1 -InstallDir "$env:RUNNER_TEMP\sprout-install" -NoPath
+
       - name: Run test suite
         run: bash src/tests/run.sh
+
+      - name: CLI regression tests
+        run: |
+          bin=src/sprout; [ -f src/sprout.exe ] && bin=src/sprout.exe
+          python src/tests/cli_test.py "$bin"
+
+      - name: Editor and playground regression tests
+        run: node --test vscode-extension/tests/*.test.js playground/tests/*.test.js
 
       - name: Standalone bundle round-trip
         shell: bash
@@ -89,9 +105,8 @@ jobs:
       - name: Build with AddressSanitizer
         run: cc -O1 -g -fsanitize=address -fno-omit-frame-pointer -o src/sprout src/sprout.c -lm
 
-      # Sprout intentionally leaks until the GC lands, so leak detection is OFF here.
-      # This job guards against the bugs that matter: use-after-free, buffer overflows,
-      # bad frees. It is also the safety net the future garbage collector will be built against.
+      # Leak detection is off because parser/CLI state lives until process exit.
+      # Guard collected runtime values against use-after-free, overflows, and bad frees.
       # detect_stack_use_after_return=0 keeps locals on the REAL C stack. ASan's default
       # "fake stack" relocates them to the heap, where the GC's conservative stack scan
       # can't see them — incompatible with conservative collection (Boehm documents the

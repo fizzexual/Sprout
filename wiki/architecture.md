@@ -82,20 +82,22 @@ line number and stops:
   Sprout error (line 2): I don't know what 'nme' is.
 ```
 
-(The `^` pointer and "did you mean?" suggestions are on the [roadmap](README.md#roadmap).)
+Name and method typos include "did you mean?" suggestions. Uncaught task errors
+also print a call trace.
 
 ## Memory
 
-For now, memory is **never freed** — a Sprout program is short-lived and the OS
-reclaims everything on exit. A small garbage collector is a later slice; until
-then this keeps the interpreter simple.
+Runtime strings, collections, environments, and closures are reclaimed by a
+conservative mark-sweep collector, including cycles. It scans the native stack
+and registered roots; parser and CLI state lives until process exit. Set
+`SPROUT_GC_STRESS=1` to collect after every statement during testing.
 
 ---
 
 ## Building
 
 ```
-src/sprout.c  →  gcc -O2 -Wall -s  →  sprout.exe   (~34 KB)
+src/sprout.c  →  C compiler  →  sprout (sprout.exe on Windows)
 ```
 
 The result links only against the operating system's own libraries (on Windows,

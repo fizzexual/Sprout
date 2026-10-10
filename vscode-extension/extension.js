@@ -1,68 +1,92 @@
 // extension.js — Sprout support for VS Code:
-//   * Run / GUI / Serve / Check commands + a status-bar Run button
-//   * Live diagnostics: runs `sprout check` as you type and shows errors inline
+//   * Run / Check commands + a status-bar Run button
+//   * Live diagnostics: checks the unsaved buffer through `sprout check --stdin`
 //   * Autocomplete for keywords, built-ins, and names already in the file
 // (Syntax highlighting and snippets are declared in package.json and need no code.)
 
 const vscode = require("vscode");
 const cp = require("child_process");
 const fs = require("fs");
-const os = require("os");
 const path = require("path");
 
 function sproutCmd() {
   return vscode.workspace.getConfiguration("sprout").get("command", "sprout");
 }
 
-// ---- Run / GUI / Serve / Check: send to an integrated terminal ----
+function projectDirectory(doc) {
+  const folder = vscode.workspace.getWorkspaceFolder(doc.uri);
+  let dir = path.dirname(doc.fileName);
+  while (true) {
+    if (fs.existsSync(path.join(dir, "sprout.toml"))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return folder ? folder.uri.fsPath : path.dirname(doc.fileName);
+}
+
+// ProcessExecution handles paths with spaces and shell metacharacters on every OS.
 function makeRunner(sub) {
-  return () => {
+  return async () => {
     const editor = vscode.window.activeTextEditor;
     if (!editor || editor.document.languageId !== "sprout") {
       vscode.window.showErrorMessage("Open a .sprout file first.");
       return;
     }
-    editor.document.save().then(() => {
-      const file = editor.document.fileName;
-      let term = vscode.window.terminals.find((t) => t.name === "Sprout");
-      if (!term) term = vscode.window.createTerminal("Sprout");
-      term.show();
-      term.sendText(`${sproutCmd()} ${sub} "${file}"`);
-    });
+    if (!(await editor.document.save())) return;
+    const task = new vscode.Task({ type: "sprout", command: sub }, vscode.TaskScope.Workspace,
+      sub === "run" ? "Run File" : "Verify File", "Sprout",
+      new vscode.ProcessExecution(sproutCmd(), [sub, editor.document.fileName],
+        { cwd: projectDirectory(editor.document) }), []);
+    task.presentationOptions = { reveal: vscode.TaskRevealKind.Always, panel: vscode.TaskPanelKind.Shared };
+    await vscode.tasks.executeTask(task);
   };
 }
 
-// ---- Live diagnostics via `sprout check` on a temp copy of the buffer ----
+// ---- Live diagnostics, preserving the real filename and project import paths ----
 let diagnostics;
 const timers = new Map();
+const checks = new Map();
 
 function checkDocument(doc) {
-  if (!doc || doc.languageId !== "sprout") return;
-  // Write the current (possibly unsaved) buffer to a temp file so we can check-as-you-type.
-  const tmp = path.join(os.tmpdir(), `sprout-check-${Date.now()}-${Math.floor(Math.random() * 1e6)}.sprout`);
-  try { fs.writeFileSync(tmp, doc.getText()); } catch (e) { return; }
-  cp.execFile(sproutCmd(), ["check", tmp], { timeout: 8000 }, (err, stdout, stderr) => {
-    try { fs.unlinkSync(tmp); } catch (e) {}
+  if (!doc || doc.isClosed || doc.languageId !== "sprout" || doc.uri.scheme !== "file") return;
+  const key = doc.uri.toString(), version = doc.version, cwd = projectDirectory(doc);
+  const previous = checks.get(key);
+  if (previous) previous.kill();
+  const child = cp.execFile(sproutCmd(), ["check", doc.fileName, "--stdin"], { cwd, timeout: 8000 }, (err, stdout, stderr) => {
+    if (checks.get(key) !== child) return;
+    checks.delete(key);
+    if (doc.isClosed || doc.version !== version) return;
     const out = `${stderr || ""}\n${stdout || ""}`;
     const diags = [];
     // Format: "Sprout error in <file> (line N): <message>"
-    const m = out.match(/Sprout error[^\n]*?\(line (\d+)\):\s*([^\n]*)/);
+    const m = out.match(/Sprout error(?: in (.*?))?(?: \(line (\d+)\))?: +([^\n]*)/);
     if (m) {
-      const line = Math.max(0, parseInt(m[1], 10) - 1);
+      const imported = m[1] && path.resolve(cwd, m[1]) !== path.resolve(doc.fileName);
+      const line = imported ? 0 : Math.min(doc.lineCount - 1, Math.max(0, parseInt(m[2] || "1", 10) - 1));
       const textLine = line < doc.lineCount ? doc.lineAt(line) : null;
       const range = textLine
         ? new vscode.Range(line, textLine.firstNonWhitespaceCharacterIndex, line, textLine.text.length)
         : new vscode.Range(line, 0, line, 200);
-      diags.push(new vscode.Diagnostic(range, m[2].trim(), vscode.DiagnosticSeverity.Error));
+      const message = imported ? `${path.basename(m[1])}:${m[2] || 1}: ${m[3].trim()}` : m[3].trim();
+      diags.push(new vscode.Diagnostic(range, message, vscode.DiagnosticSeverity.Error));
+    } else if (err) {
+      const message = err.code === "ENOENT"
+        ? "Sprout executable not found. Install Sprout or set sprout.command to its full path."
+        : "Sprout could not check this file. Run Sprout: Verify File to see the details.";
+      diags.push(new vscode.Diagnostic(new vscode.Range(0, 0, 0, 0), message, vscode.DiagnosticSeverity.Warning));
     }
     diagnostics.set(doc.uri, diags);
   });
+  checks.set(key, child);
+  child.stdin.on("error", () => {}); // a missing executable may close stdin before the buffer is sent
+  child.stdin.end(doc.getText());
 }
 
 function scheduleCheck(doc, delay) {
   const key = doc.uri.toString();
   clearTimeout(timers.get(key));
-  timers.set(key, setTimeout(() => checkDocument(doc), delay));
+  timers.set(key, setTimeout(() => { timers.delete(key); checkDocument(doc); }, delay));
 }
 
 // ---- Autocomplete ----
@@ -76,7 +100,9 @@ const BUILTINS = ["range", "length", "add", "remove", "insert", "sort", "sort_by
   "min", "max", "clamp", "sign", "random", "number", "is_number", "upper", "lower", "trim",
   "replace", "split", "join", "starts_with", "ends_with", "words", "lines", "title", "pad_start",
   "pad_end", "code", "char", "matches", "find", "find_all", "captures", "ask", "args", "env",
-  "exit", "now", "today", "time"];
+  "exit", "now", "today", "time", "seed", "sin", "cos", "tan", "log", "exp", "pi",
+  "days", "hours", "minutes", "time_parts", "time_make", "time_format", "wait",
+  "read", "write", "append", "exists", "remember", "recall", "forget", "get", "json", "explore", "color"];
 
 function completionProvider() {
   return {
@@ -104,7 +130,7 @@ function completionProvider() {
 }
 
 function activate(context) {
-  for (const [id, sub] of [["sprout.run", "run"], ["sprout.gui", "gui"], ["sprout.serve", "serve"], ["sprout.check", "check"]]) {
+  for (const [id, sub] of [["sprout.run", "run"], ["sprout.check", "check"]]) {
     context.subscriptions.push(vscode.commands.registerCommand(id, makeRunner(sub)));
   }
 
@@ -127,13 +153,24 @@ function activate(context) {
   context.subscriptions.push(vscode.workspace.onDidOpenTextDocument((d) => checkDocument(d)));
   context.subscriptions.push(vscode.workspace.onDidSaveTextDocument((d) => checkDocument(d)));
   context.subscriptions.push(vscode.workspace.onDidChangeTextDocument((e) => scheduleCheck(e.document, 400)));
-  context.subscriptions.push(vscode.workspace.onDidCloseTextDocument((d) => diagnostics.delete(d.uri)));
-  if (vscode.window.activeTextEditor) checkDocument(vscode.window.activeTextEditor.document);
+  context.subscriptions.push(vscode.workspace.onDidCloseTextDocument((d) => {
+    const key = d.uri.toString();
+    clearTimeout(timers.get(key)); timers.delete(key);
+    const child = checks.get(key); checks.delete(key);
+    if (child) child.kill();
+    diagnostics.delete(d.uri);
+  }));
+  for (const doc of vscode.workspace.textDocuments) checkDocument(doc);
 
   // completion
   context.subscriptions.push(vscode.languages.registerCompletionItemProvider("sprout", completionProvider()));
 }
 
-function deactivate() {}
+function deactivate() {
+  for (const timer of timers.values()) clearTimeout(timer);
+  timers.clear();
+  for (const child of checks.values()) child.kill();
+  checks.clear();
+}
 
 module.exports = { activate, deactivate };
