@@ -58,6 +58,8 @@ declaration and `retries: 0..5`; the count is additional attempts after the firs
 A process timeout, output overflow or cancellation after dispatch is a failure.
 Jobs cancelled before dispatch stay pending and consume no attempt. A dependency
 on a failed job prevents descendants from launching.
+All currently ready jobs enter the queue together; `workers` limits simultaneous
+execution. Retryable failures can leave queued jobs pending for the next batch.
 
 This provides at-least-once recovery for explicitly safe jobs, not exactly-once
 external side effects. Use transactional writes, unique operation keys, or

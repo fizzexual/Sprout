@@ -167,8 +167,10 @@ static Value workflow_run(Value jobs, SMap *options, int line) {
   int stopped = 0;
   for (;;) {
     if (stopped) break;
-    SList *commands = list_new(); int indices[16], selected = 0;
-    for (int i = 0; i < count && selected < workers; i++) {
+    SList *commands = list_new(); int indices[128], selected = 0;
+    /* Queue every currently ready job; parallel_run enforces the worker cap.
+       Dependencies become eligible only after the previous batch is persisted. */
+    for (int i = 0; i < count; i++) {
       SMap *entry = entries->items[i].map;
       if (strcmp(pr_option(entry, "status").str, "pending")) continue;
       Value job = jobs.list->items[i], after = pr_option(job.map, "after"); int ready = 1;
@@ -198,7 +200,6 @@ static Value workflow_run(Value jobs, SMap *options, int line) {
       if (!is_truthy(pr_option(result.map, "attempted"))) {
         map_set(entry, "attempts", vnum(pr_option(entry, "attempts").num - 1));
         map_set(entry, "status", vstr("pending"));
-        if (fast.type == V_NONE || fast.boolean) stopped = 1;
         continue;
       }
       int ok = is_truthy(pr_option(result.map, "ok"));

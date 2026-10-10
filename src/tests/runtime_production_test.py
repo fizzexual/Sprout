@@ -174,8 +174,11 @@ class RuntimeTests(unittest.TestCase):
     def test_workflow_retry(self):
         marker = self.root / 'attempt'
         code = 'from pathlib import Path;p=Path(' + repr(str(marker)) + ');n=int(p.read_text()) if p.exists() else 0;p.write_text(str(n+1));raise SystemExit(1 if n==0 else 0)'
-        result = self.json(self.workflow([{'id': 'retry', 'argv': command(code), 'idempotent': True, 'retries': 1}]))
+        result = self.json(self.workflow([
+            {'id': 'retry', 'argv': command(code), 'idempotent': True, 'retries': 1},
+            {'id': 'queued', 'argv': command('print(42)')}], workers=1))
         self.assertTrue(result['ok']); self.assertEqual(result['jobs'][0]['attempts'], 2)
+        self.assertEqual(result['jobs'][1]['attempts'], 1)
     def test_workflow_recovery_counter_is_not_retry_budget(self):
         source = self.workflow([{'id': 'safe', 'argv': command('print(42)'), 'idempotent': True}])
         self.assertTrue(self.json(source)['ok'])
@@ -197,11 +200,11 @@ class RuntimeTests(unittest.TestCase):
     def test_workflow_unstarted_jobs_keep_their_attempt(self):
         jobs = [{'id': 'missing', 'argv': [str(self.root / 'no-such-executable')]}]
         jobs += [{'id': 'j'+str(i), 'argv': command('import time;time.sleep(.04);print(42)')} for i in range(15)]
-        first = self.json(self.workflow(jobs, workers=16))
+        first = self.json(self.workflow(jobs, workers=1))
         untouched = [j for j in first['jobs'] if j['result'] and not j['result']['attempted']]
-        self.assertTrue(untouched, 'fixture expected fail-fast to stop at least one unstarted command')
+        self.assertEqual(len(untouched), 15, 'one worker must leave all jobs after the failed command queued')
         self.assertTrue(all(j['status'] == 'pending' and j['attempts'] == 0 for j in untouched))
-        second = self.json(self.workflow(jobs, workers=16, fail_fast=False))
+        second = self.json(self.workflow(jobs, workers=2, fail_fast=False))
         by_id = {j['id']: j for j in second['jobs']}
         self.assertTrue(all(by_id[j['id']]['status'] == 'done' and by_id[j['id']]['attempts'] == 1 for j in untouched))
     def test_workflow_lock_unwinds_while_wizard_stays_alive(self):
@@ -225,5 +228,19 @@ class RuntimeTests(unittest.TestCase):
             self.assertTrue(result['ok'], 'a failed run retained its OS checkpoint lock')
         finally:
             process.stdin.close(); process.wait(timeout=3); reader.join(timeout=1); process.stderr.close()
+    def test_workflow_deadline_persists_known_queued_outcomes(self):
+        marker = self.root / 'queued-side-effect'
+        jobs = [{'id': 'slow', 'argv': command('import time;time.sleep(4)')},
+                {'id': 'queued', 'argv': command('from pathlib import Path;Path(' + repr(str(marker)) + ').touch()')}]
+        source = self.workflow(jobs, workers=1, fail_fast=False)
+        result = self.run_source(source, '--timeout-ms', '300')
+        self.assertNotEqual(result.returncode, 0); self.assertIn('--timeout-ms', result.stderr)
+        self.assertFalse(marker.exists())
+        saved = json.loads((self.root / 'checkpoint.json').read_text())
+        self.assertEqual(saved['jobs'][0]['status'], 'failed')
+        self.assertEqual(saved['jobs'][1]['status'], 'pending')
+        self.assertEqual(saved['jobs'][1]['attempts'], 0)
+        resumed = self.json(source)
+        self.assertEqual(resumed['jobs'][1]['status'], 'done'); self.assertTrue(marker.exists())
 
 if __name__ == '__main__': unittest.main()
