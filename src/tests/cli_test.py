@@ -66,7 +66,8 @@ class CLI(unittest.TestCase):
     def test_inheritance_cycles_are_errors_instead_of_crashes(self):
         for code in ['type A from A:\n    make x = 0\nshow A()\n',
                      'type A from B:\n    make x = 0\ntype B from A:\n    make y = 0\nshow A()\n',
-                     'interface I:\n    speak\ntype A from I:\n    make x = 0\nshow A()\n']:
+                     'interface I:\n    speak\ntype A from I:\n    make x = 0\nshow A()\n',
+                     'type A from I:\n    make x = 0\ninterface I:\n    speak\nshow A()\n']:
             with self.subTest(code=code):
                 entry = self.source('app.sprout', code)
                 result = self.run_sprout('run', entry)

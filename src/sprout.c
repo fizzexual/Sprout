@@ -3106,16 +3106,17 @@ static void type_register(Stmt *s, int fileid, Env *home) {
   TypeReg *t = (TypeReg *)calloc(1, sizeof(TypeReg)); g_types[g_ntypes++] = t;
   t->name = s->name; t->parent = s->name2; t->fileid = fileid; t->fields = s->params; t->defaults = s->values; t->nfields = s->nparams;
   t->is_interface = s->is_interface; t->implements = s->implements; t->nimpl = s->nimpl;
-  /* A forward parent may be registered later, but every known chain must be acyclic
-     and inherit from concrete types. Validate again as each declaration arrives. */
-  for (int i = 0; i < g_ntypes; i++) {
-    TypeReg *p = g_types[i]; int hops = 0;
-    while (p && p->parent) {
-      p = type_find(p->parent);
-      if (p && p->is_interface) fail_kind(s->line, "type", "a type can't inherit from an interface — use 'does' to implement it.");
-      if (++hops > g_ntypes) fail_kind(s->line, "type", "types can't inherit in a circle — each parent must lead to a different ancestor.");
-    }
+  /* Previously registered chains are acyclic. Only a chain through this new type
+     can close a forward-reference cycle, so don't rescan every ancestor of every type. */
+  TypeReg *p = t; int hops = 0;
+  while (p && p->parent) {
+    p = type_find(p->parent);
+    if (p && p->is_interface) fail_kind(s->line, "type", "a type can't inherit from an interface — use 'does' to implement it.");
+    if (p == t || ++hops > g_ntypes) fail_kind(s->line, "type", "types can't inherit in a circle — each parent must lead to a different ancestor.");
   }
+  if (t->is_interface) for (int i = 0; i < g_ntypes; i++)
+    if (g_types[i]->parent && !strcmp(g_types[i]->parent, t->name))
+      fail_kind(s->line, "type", "a type can't inherit from an interface — use 'does' to implement it.");
   t->nmethods = s->nbody;
   t->methods = s->nbody ? (TaskDef *)calloc((size_t)s->nbody, sizeof(TaskDef)) : NULL;
   for (int i = 0; i < s->nbody; i++) {
