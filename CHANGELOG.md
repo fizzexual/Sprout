@@ -25,6 +25,10 @@ All notable changes to **Sprout**. The format follows
 - Escaped HTML app components and an offline searchable/sortable CSV report.
 - Process-isolated Node, Python and native C host SDKs; a bounded HTTP API host
   and parameterized contacts service example.
+- Go cgo and .NET P/Invoke worker SDKs share the native process boundary, support
+  cancellation, validate bounded JSON, and include executable pricing-rule examples.
+  The C ABI accepts optional Windows job/POSIX address-space memory caps while
+  preserving its original options prefix.
 - Reproducible workload benchmarks, trace profiling, deterministic fuzz probes,
   and a numeric bytecode experiment that remains outside the default runtime
   because its measured performance gate failed.

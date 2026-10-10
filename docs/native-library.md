@@ -98,8 +98,14 @@ Start/capture failures set `error`. A timeout, cancellation, or output overflow
 terminates the owned process tree. Both streams are drained concurrently, so
 writing to stderr while stdout fills does not deadlock. Text capture rejects NUL
 bytes. Windows uses a job object and an explicit inherited-handle list. POSIX
-uses a process group; a deliberately detached descendant can escape that group,
-so this is a lifecycle tool, not a security sandbox. `--sandbox` blocks it.
+uses a process group plus an ownership-pipe guardian outside that group. The
+guardian kills the group when its owner exits abruptly, allowing cleanup to
+cascade through nested Sprout process calls. The worker starts behind a gate
+until the guardian exists, and normal calls reap the guardian. This costs one
+extra process per live command. Ordinary grandchildren stay covered; deliberate
+`setsid`/`setpgid` detachment can escape. Cleanup is asynchronous and cannot undo
+completed effects. This is a lifecycle tool, not a security sandbox. `--sandbox`
+blocks it.
 
 ## CSV
 

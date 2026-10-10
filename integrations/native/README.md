@@ -74,6 +74,8 @@ before `exec`, limiting each process's address space; descendants inherit that
 limit. These are different accounting models, neither a resident-memory limit.
 Allocation refusal produces child failure, or launch failure if the loader cannot
 start within the limit. The SDK does not promise a distinct memory-limit status.
+macOS can reject a cap smaller than the forked host's existing map before `exec`;
+that also reports a launch failure rather than silently running without the cap.
 Choose a cap that covers native libraries and the workload, then verify it on the
 deployment platform. The original ABI1 options prefix remains accepted; the
 original `sprout_host_options_init` writes only that prefix and leaves the added
@@ -86,10 +88,24 @@ status is `SPROUT_HOST_CANCELLED`. After the run returns, join all callbacks
 before `sprout_host_cancel_free`; the handle cannot be freed while a callback
 is using it. Go and .NET bindings implement this lifetime rule.
 
-The host passes literal argv, drains both pipes concurrently, and terminates its
-owned process tree after timeout, overflow, or cancellation. Windows uses a job object; POSIX
-uses a process group, which deliberately detached descendants can escape. The
-executable is never searched on PATH. Native C/C++ callers can include the header;
+The host passes literal argv and drains both pipes concurrently. Timeout,
+overflow, or cancellation terminates the Windows job or POSIX worker process
+group. Deliberately detached descendants can escape a POSIX group. A trusted
+worker's native subprocess calls use ownership-pipe guardians. Each guardian
+lives outside the worker group and kills that group when the owner's pipe closes,
+including after abrupt owner death. Workers remain behind a launch gate until
+the guardian is established. Nested Sprout runner groups therefore clean up in
+a cascade after host cancellation or owner `SIGKILL`; ordinary grandchildren
+in those groups are included. Normal runs reap their guardian before returning.
+This adds one small guardian process per live POSIX command.
+
+Cleanup is asynchronous and cannot undo effects already performed. Programs
+that deliberately use `setsid`/`setpgid` to leave owned groups can escape;
+externally forked host children that retain ownership-pipe descriptors can defer
+EOF detection. SDK-created children close unrelated descriptors, and ownership
+pipes are close-on-exec. Keep external host fork/exec descriptor hygiene and use
+an OS supervisor/container for hostile code or stronger tenant lifecycle control.
+The executable is never searched on PATH. Native C/C++ callers can include the header;
 the implementation compiles as C. The result status distinguishes malformed
 arguments, launch failure, timeout, capture overflow, child failure, and bad
 framing. Captured diagnostics preserve the child's encoding.

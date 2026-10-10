@@ -21,7 +21,7 @@ output stream. Options permit a working directory, explicit trusted `AllowIO`,
 and larger bounded limits. `MaxMemoryBytes` optionally caps total committed job
 memory on Windows or per-process address space on POSIX; zero disables that cap.
 These limits do not measure resident memory. `context` cancellation joins the native cancellation
-callback and terminates the owned process tree. Every source/executable/cwd path
+callback and terminates the Windows job or POSIX worker group. Every source/executable/cwd path
 must be absolute. Requests are at most 1 MiB of JSON; output is validated JSON.
 Nonzero worker exits produce a `Failure` with status, diagnostics and exit code;
 timeouts/cancellation wrap Go context errors.
@@ -36,7 +36,11 @@ copies of the shared native SDK source at `src/`, allowing this module to build
 independently from a Go module archive. Run `sync_native.py` after changing the
 shared SDK; the tests reject stale copies. The platform lifecycle boundary is
 the native SDK's Windows job object / POSIX process group, not an OS tenant
-sandbox. Deliberately detached POSIX descendants can escape a process group.
+sandbox. POSIX ownership-pipe guardians clean nested Sprout runner groups after
+host cancellation or abrupt owner death, including ordinary grandchildren.
+Each live command uses one extra guardian process. Intentionally detached
+`setsid`/`setpgid` descendants can escape. Cleanup cannot undo existing effects;
+use an OS supervisor/container for hostile source or stronger tenant control.
 
 Run real worker tests:
 

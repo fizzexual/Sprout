@@ -13,6 +13,9 @@
     <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-shade-plugin</artifactId><version>3.6.2</version><executions><execution><phase>package</phase><goals><goal>shade</goal></goals><configuration>
       <createDependencyReducedPom>false</createDependencyReducedPom>
       <relocations><relocation><pattern>com.fasterxml.jackson</pattern><shadedPattern>io.sprout.paper.internal.jackson</shadedPattern></relocation></relocations>
+      <transformers>
+        <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheNoticeResourceTransformer"/>
+      </transformers>
       <filters><filter><artifact>*:*</artifact><excludes><exclude>META-INF/*.SF</exclude><exclude>META-INF/*.RSA</exclude><exclude>META-INF/*.DSA</exclude></excludes></filter></filters>
     </configuration></execution></executions></plugin>
   </plugins></build>

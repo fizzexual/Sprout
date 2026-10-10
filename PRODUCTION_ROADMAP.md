@@ -54,10 +54,12 @@ Implemented foundations include exact/binary data, bounded runtime traces,
 native I/O and SQLite, deterministic project bundles, verified package locks,
 semantic editor tooling, recorded debugging, named arguments/multiline text,
 bounded native parallelism, checkpointed workflows, an offline app toolkit,
-and isolated host/service protocols. The numeric bytecode experiment is
+and isolated host/service protocols with C, Node, Python, Go, .NET and Java
+SDKs. A bounded Paper adapter is packaged and tested against its pinned API.
+The numeric bytecode experiment is
 reproducible but failed its speed gate; it remains experimental. Native host
-adapters and cross-platform integration evidence are being verified before the
-next review checkpoint. [Stack adoption](docs/stack-adoption.md) maps these
+adapters have native integration tests, while real server and migration evidence
+remain release gates. [Stack adoption](docs/stack-adoption.md) maps these
 interfaces to the existing GitHub projects.
 
 Production promotion still requires representative migrations, real Paper

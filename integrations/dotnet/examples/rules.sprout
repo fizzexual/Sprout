@@ -5,5 +5,5 @@ when quantity < 0 or quantity > 10000:
 make subtotal = decimal(request.unit_price) * quantity
 make discount = decimal("0")
 when quantity >= 10:
-    discount = subtotal * decimal("0.10")
+    set discount = subtotal * decimal("0.10")
 show json_encode({subtotal: subtotal, discount: discount, total: subtotal - discount})

@@ -355,7 +355,9 @@ static const char *g_err_kind = "error";  /* ...its category           (the caug
 #define MAX_CALL_FRAMES 6001
 static int call_depth = 0;
 static struct { const char *name; int line; } g_frames[MAX_CALL_FRAMES];
+static void workflow_error_cleanup(void);
 static void fail_full(int line, const char *msg, const char *kind, int hard) {
+  workflow_error_cleanup();
   snprintf(g_err_msg, sizeof g_err_msg, "%s", msg ? msg : "something went wrong.");
   g_err_line = line;
   g_err_kind = kind ? kind : "error";

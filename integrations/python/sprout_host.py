@@ -11,6 +11,18 @@ import threading
 import time
 from decimal import Decimal, InvalidOperation
 
+MAX_JSON_NESTING = 128
+
+
+def _check_depth(depth):
+    if depth > MAX_JSON_NESTING:
+        raise ValueError(f"JSON nesting exceeds {MAX_JSON_NESTING} containers")
+
+
+def _tagged(key, value, depth):
+    _check_depth(depth + 1)
+    return {key: value}
+
 
 class SproutError(RuntimeError):
     def __init__(self, message, code, *, stderr="", exit_code=None):
@@ -18,14 +30,14 @@ class SproutError(RuntimeError):
         self.code, self.stderr, self.exit_code = code, stderr, exit_code
 
 
-def _encode(value, active=None):
+def _encode(value, active=None, depth=0):
     active = set() if active is None else active
     if value is None or isinstance(value, (str, bool)):
         return value
     if isinstance(value, int):
         if not -(2**63) <= value < 2**63:
             raise ValueError("Sprout integers are signed 64-bit values")
-        return {"$sprout.integer": str(value)} if abs(value) > 2**53 - 1 else value
+        return _tagged("$sprout.integer", str(value), depth) if abs(value) > 2**53 - 1 else value
     if isinstance(value, Decimal):
         if not value.is_finite():
             raise ValueError("Sprout decimals must be finite")
@@ -37,9 +49,9 @@ def _encode(value, active=None):
             coefficient *= 10**exponent
         if exponent < -18 or not -(2**63) <= coefficient < 2**63:
             raise ValueError("Decimal exceeds Sprout's 64-bit coefficient or 18 fractional places")
-        return {"$sprout.decimal": format(value, "f")}
+        return _tagged("$sprout.decimal", format(value, "f"), depth)
     if isinstance(value, (bytes, bytearray)):
-        return {"$sprout.bytes": bytes(value).hex()}
+        return _tagged("$sprout.bytes", bytes(value).hex(), depth)
     if isinstance(value, float):
         if not math.isfinite(value):
             raise ValueError("JSON numbers must be finite")
@@ -47,6 +59,7 @@ def _encode(value, active=None):
             raise ValueError("Use int instead of an unsafe floating-point integer")
         return value
     if isinstance(value, (dict, list, tuple)):
+        _check_depth(depth + 1)
         if id(value) in active:
             raise ValueError("JSON input cannot contain cycles")
         active.add(id(value))
@@ -54,8 +67,8 @@ def _encode(value, active=None):
             if isinstance(value, dict):
                 if not all(isinstance(k, str) for k in value):
                     raise TypeError("JSON map keys must be text")
-                return {k: _encode(v, active) for k, v in value.items()}
-            return [_encode(v, active) for v in value]
+                return {k: _encode(v, active, depth + 1) for k, v in value.items()}
+            return [_encode(v, active, depth + 1) for v in value]
         finally:
             active.remove(id(value))
     raise TypeError("Input must contain JSON values, int64, Decimal, or bytes")
@@ -95,6 +108,29 @@ def _object(pairs):
 
 
 def decode(text):
+    if isinstance(text, (bytes, bytearray)):
+        text = text.decode("utf-8-sig")
+    if not isinstance(text, str):
+        raise TypeError("JSON input must be text or UTF-8 bytes")
+    # Scan before parsing so even a small, deeply nested request cannot consume
+    # the Python parser's recursion budget. Brackets inside text do not count.
+    depth = 0
+    quoted = escaped = False
+    for character in text:
+        if quoted:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                quoted = False
+        elif character == '"':
+            quoted = True
+        elif character in "[{":
+            depth += 1
+            _check_depth(depth)
+        elif character in "]}":
+            depth -= 1
     def invalid(value):
         raise ValueError("non-finite JSON number: " + value)
     def finite(value):
@@ -102,11 +138,17 @@ def decode(text):
         if not math.isfinite(number):
             raise ValueError("non-finite JSON number")
         return number
-    return json.loads(text, object_pairs_hook=_object, parse_constant=invalid, parse_float=finite)
+    try:
+        return json.loads(text, object_pairs_hook=_object, parse_constant=invalid, parse_float=finite)
+    except RecursionError as error:
+        raise ValueError("JSON input is nested too deeply") from error
 
 
 def encode(value):
-    return json.dumps(_encode(value), ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+    try:
+        return json.dumps(_encode(value), ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+    except RecursionError as error:
+        raise ValueError("JSON input is nested too deeply") from error
 
 
 def _positive(value, name, maximum=2**31-1):
@@ -176,11 +218,13 @@ def run(program, input_value, *, command="sprout", cwd=None, sandbox=True,
     def write():
         try:
             child.stdin.write(request)
-            child.stdin.close()
-        except (OSError, BrokenPipeError):
+        except OSError:
             pass
         finally:
-            child.stdin.close()
+            try:
+                child.stdin.close()
+            except OSError:
+                pass
 
     readers = [threading.Thread(target=read, args=(child.stdout, 0, max_output_bytes), daemon=True),
                threading.Thread(target=read, args=(child.stderr, 1, max_error_bytes), daemon=True)]
@@ -201,9 +245,12 @@ def run(program, input_value, *, command="sprout", cwd=None, sandbox=True,
                     pass
             elif child.poll() is None:
                 # Native process operations additionally own Windows kill-on-close jobs.
-                subprocess.run(["taskkill", "/PID", str(child.pid), "/T", "/F"],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                               timeout=2, creationflags=subprocess.CREATE_NO_WINDOW)
+                try:
+                    subprocess.run(["taskkill", "/PID", str(child.pid), "/T", "/F"],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                   timeout=2, creationflags=subprocess.CREATE_NO_WINDOW)
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
             if child.poll() is None:
                 child.kill()
             break

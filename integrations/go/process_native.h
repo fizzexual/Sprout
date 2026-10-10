@@ -204,43 +204,85 @@ cleanup:
   free(cmd); free(wcwd); r.out_len = out.n; r.err_len = err.n; r.out = pr_buffer_take(&out); r.err = pr_buffer_take(&err); return r;
 }
 #elif !defined(__EMSCRIPTEN__)
+/* Every forked helper drops other requests' ownership pipes. A guardian must
+   never keep another group's owner alive by retaining its write descriptor. */
+static inline void pr_child_close_fds(int keep, long descriptor_limit) {
+  int closed_all = 0;
+#if defined(__linux__) && defined(SYS_close_range)
+  if (keep == 3 && syscall(SYS_close_range, 4u, ~0u, 0u) == 0) closed_all = 1;
+#endif
+  if (!closed_all) for (long fd = 3; fd < descriptor_limit; fd++) if (fd != keep) close((int)fd);
+}
+static inline void pr_guardian_watch(int owner_pipe, int launch_gate, pid_t worker, long descriptor_limit) {
+  /* A separate group survives killpg(owner) long enough to clean the worker.
+     This group is established before the guardian opens the launch gate. */
+  if (setpgid(0, 0)) _exit(127);
+  unsigned char go = 1; ssize_t released;
+  do { released = write(launch_gate, &go, 1); } while (released < 0 && errno == EINTR);
+  close(launch_gate);
+  if (released != 1) { kill(-worker, SIGKILL); _exit(127); }
+  int keep = 3;
+  if (owner_pipe != keep && dup2(owner_pipe, keep) < 0) { kill(-worker, SIGKILL); _exit(127); }
+  close(0); close(1); close(2); pr_child_close_fds(keep, descriptor_limit);
+  char ignored[64]; ssize_t n;
+  do { n = read(keep, ignored, sizeof ignored); } while (n > 0 || (n < 0 && errno == EINTR));
+  /* EOF means normal release, cancellation, or abrupt owner death. Nested
+     Sprout owners losing their life close their own pipes, cascading cleanup. */
+  kill(-worker, SIGKILL); close(keep); _exit(0);
+}
 static inline PRProcess pr_run_raw_limited(char **argv, int argc, const char *cwd, const char *input, size_t input_len, int timeout_ms, size_t max_output, int binary, PRCancel *cancel, uint64_t max_memory_bytes) {
   (void)argc; PRProcess r = {0}; r.exit_code = -1;
-  int op[2] = {-1,-1}, ep[2] = {-1,-1}, xp[2] = {-1,-1}; FILE *in = tmpfile();
-  if (!in || (input && fwrite(input, 1, input_len, in) != input_len) || fflush(in) || fseek(in, 0, SEEK_SET) || pipe(op) || pipe(ep) || pipe(xp)) {
-    int e = errno; if (in) fclose(in); for (int i = 0; i < 2; i++) { if (op[i] >= 0) close(op[i]); if (ep[i] >= 0) close(ep[i]); if (xp[i] >= 0) close(xp[i]); }
+  unsigned long long start = pr_clock_ms();
+  int op[2] = {-1,-1}, ep[2] = {-1,-1}, xp[2] = {-1,-1}, watch[2] = {-1,-1}, gate[2] = {-1,-1}; FILE *in = tmpfile();
+  if (!in || (input && fwrite(input, 1, input_len, in) != input_len) || fflush(in) || fseek(in, 0, SEEK_SET) || pipe(op) || pipe(ep) || pipe(xp) || pipe(watch) || pipe(gate)) {
+    int e = errno; if (in) fclose(in); for (int i = 0; i < 2; i++) { if (op[i] >= 0) close(op[i]); if (ep[i] >= 0) close(ep[i]); if (xp[i] >= 0) close(xp[i]); if (watch[i] >= 0) close(watch[i]); if (gate[i] >= 0) close(gate[i]); }
     return pr_process_error(strerror(e), e);
   }
-  for (int i = 0; i < 2; i++) { fcntl(op[i], F_SETFD, FD_CLOEXEC); fcntl(ep[i], F_SETFD, FD_CLOEXEC); fcntl(xp[i], F_SETFD, FD_CLOEXEC); }
+  for (int i = 0; i < 2; i++) { fcntl(op[i], F_SETFD, FD_CLOEXEC); fcntl(ep[i], F_SETFD, FD_CLOEXEC); fcntl(xp[i], F_SETFD, FD_CLOEXEC); fcntl(watch[i], F_SETFD, FD_CLOEXEC); fcntl(gate[i], F_SETFD, FD_CLOEXEC); }
   fcntl(fileno(in), F_SETFD, FD_CLOEXEC);
   long descriptor_limit = sysconf(_SC_OPEN_MAX); if (descriptor_limit < 0) descriptor_limit = 1024;
   pid_t pid = fork();
   if (pid == 0) {
     close(op[0]); close(ep[0]); close(xp[0]);
+    close(watch[0]); close(watch[1]); close(gate[1]);
     int e = 0;
     if (setpgid(0, 0) || dup2(fileno(in), STDIN_FILENO) < 0 || dup2(op[1], STDOUT_FILENO) < 0 || dup2(ep[1], STDERR_FILENO) < 0 || (cwd && *cwd && chdir(cwd))) e = errno;
     if (!e && max_memory_bytes) {
       struct rlimit memory = {(rlim_t)max_memory_bytes, (rlim_t)max_memory_bytes};
       if ((uint64_t)memory.rlim_cur != max_memory_bytes || setrlimit(RLIMIT_AS, &memory)) e = errno ? errno : EINVAL;
     }
+    char go = 0; ssize_t launched;
+    do { launched = read(gate[0], &go, 1); } while (launched < 0 && errno == EINTR);
+    close(gate[0]);
+    if (!e && (launched != 1 || go != 1)) e = ECANCELED;
     /* No malloc/stdio cleanup after fork: another host thread may have held a
        libc lock. Keep only stdio + an exec-error descriptor across this phase. */
     int error_fd = 3;
     if (xp[1] != error_fd && dup2(xp[1], error_fd) < 0) { error_fd = xp[1]; if (!e) e = errno; }
     fcntl(error_fd, F_SETFD, FD_CLOEXEC);
-    int closed_all = 0;
-#if defined(__linux__) && defined(SYS_close_range)
-    if (error_fd == 3 && syscall(SYS_close_range, 4u, ~0u, 0u) == 0) closed_all = 1;
-#endif
-    if (!closed_all) for (long fd = 3; fd < descriptor_limit; fd++) if (fd != error_fd) close((int)fd);
+    pr_child_close_fds(error_fd, descriptor_limit);
     if (!e) { execvp(argv[0], argv); e = errno; }
     (void)write(error_fd, &e, sizeof e); _exit(127);
   }
-  close(op[1]); close(ep[1]); close(xp[1]); fclose(in);
-  if (pid < 0) { int e = errno; close(op[0]); close(ep[0]); close(xp[0]); return pr_process_error(strerror(e), e); }
-  setpgid(pid, pid); fcntl(op[0], F_SETFL, O_NONBLOCK); fcntl(ep[0], F_SETFL, O_NONBLOCK); fcntl(xp[0], F_SETFL, O_NONBLOCK);
+  int fork_error = errno;
+  close(op[1]); close(ep[1]); close(xp[1]); fclose(in); close(gate[0]);
+  if (pid < 0) { close(op[0]); close(ep[0]); close(xp[0]); close(watch[0]); close(watch[1]); close(gate[1]); return pr_process_error(strerror(fork_error), fork_error); }
+  setpgid(pid, pid);
+  pid_t guardian = fork();
+  if (guardian == 0) { close(watch[1]); pr_guardian_watch(watch[0], gate[1], pid, descriptor_limit); }
+  int guardian_error = errno;
+  close(watch[0]); close(gate[1]);
+  if (guardian < 0 || setpgid(guardian, guardian)) {
+    if (guardian >= 0) guardian_error = errno;
+    close(watch[1]); kill(-pid, SIGKILL);
+    while (waitpid(pid, NULL, 0) < 0 && errno == EINTR) {}
+    if (guardian > 0) while (waitpid(guardian, NULL, 0) < 0 && errno == EINTR) {}
+    close(op[0]); close(ep[0]); close(xp[0]); return pr_process_error("process: could not establish process guardian", guardian_error);
+  }
+  /* The guardian opens the launch gate only after it leaves the owner group.
+     An owner lost before that establishment closes the gate without launch. */
+  fcntl(op[0], F_SETFL, O_NONBLOCK); fcntl(ep[0], F_SETFL, O_NONBLOCK); fcntl(xp[0], F_SETFL, O_NONBLOCK);
   PRBuffer out = {0}, err = {0}; int status = 0, done = 0, killed = 0, openo = 1, opene = 1;
-  unsigned long long start = pr_clock_ms();
   while (!done || openo || opene) {
     struct pollfd ps[2] = {{op[0], POLLIN | POLLHUP, 0}, {ep[0], POLLIN | POLLHUP, 0}};
     if (poll(ps, 2, 5) < 0 && errno != EINTR) { r.error = pr_strdup("process: failed to poll output"); r.code = errno; killed = 1; }
@@ -266,6 +308,8 @@ static inline PRProcess pr_run_raw_limited(char **argv, int argc, const char *cw
   }
   int exec_error = 0; if (read(xp[0], &exec_error, sizeof exec_error) == sizeof exec_error) { if (!r.error) r.error = pr_strdup(strerror(exec_error)); r.code = exec_error; }
   close(op[0]); close(ep[0]); close(xp[0]);
+  close(watch[1]);
+  while (waitpid(guardian, NULL, 0) < 0 && errno == EINTR) {}
   r.exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : WIFSIGNALED(status) ? 128 + WTERMSIG(status) : -1;
   r.out_len = out.n; r.err_len = err.n; r.out = pr_buffer_take(&out); r.err = pr_buffer_take(&err); return r;
 }

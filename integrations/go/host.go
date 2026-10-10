@@ -83,7 +83,9 @@ func New(executable string, options Options) (*Host, error) {
 }
 
 // Run executes a source file in a fresh process. ctx cancellation terminates
-// the owned process tree; native handles remain alive until callbacks join.
+// the Windows job or POSIX worker group; handles stay alive until callbacks join.
+// POSIX guardians cascade cleanup through nested Sprout runner groups.
+// Intentionally detached descendants can escape owned process groups.
 func (h *Host) Run(ctx context.Context, program string, request any) (Result, error) {
 	if h == nil {
 		return Result{}, errors.New("a nonnil Sprout host is required")

@@ -91,6 +91,12 @@ class SproutHandler(http.server.BaseHTTPRequestHandler):
             self.respond(400, {"error": "too many query fields"}); return
         request = {"method": self.command, "path": path.path, "query": query, "body": body}
         try:
+            encoded_request = encode(request).encode("utf-8")
+        except (ValueError, TypeError):
+            self.respond(400, {"error": "invalid JSON request"}); return
+        if len(encoded_request) + 1 > 1048576:
+            self.respond(413, {"error": "request too large"}); return
+        try:
             response = run(self.server.program, request, command=self.server.command,
                            sandbox=not self.server.allow_io, timeout_ms=self.server.timeout_ms,
                            runtime_timeout_ms=max(1, self.server.timeout_ms - 250))

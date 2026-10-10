@@ -69,8 +69,18 @@ must be trusted application source; `ui.page` does not sanitize JavaScript.
 
 ## Distribution
 
-The HTML output is already self-contained. The generator is a multi-file project:
-bundle `dashboard.sprout` with its `lib/ui.sprout` import and the CSV/JavaScript
-assets using the current project bundle command. The standalone generator still
-needs permission to write its output. Asset paths are relative to the project
-directory, matching normal Sprout execution.
+The HTML output is already self-contained. To distribute the generator, run this
+from the repository project root:
+
+```sh
+sprout bundle examples/apps/dashboard.sprout --asset examples/apps/orders.csv --asset examples/apps/report.js -o dashboard
+./dashboard examples/apps/orders.csv /absolute/path/my-report.html
+```
+
+On Windows use `-o dashboard.exe` and `.\dashboard.exe`, with an absolute output
+path such as `C:\Reports\orders.html`. The imported `lib/ui.sprout` is collected
+automatically; the CSV and client script are explicit assets. The native bundle
+extracts its project into a temporary directory and runs there. An absolute
+output path keeps the generated HTML after that temporary project is removed.
+The generator needs permission to write its output. See [distribution](distribution.md)
+for archive integrity, package locks and bundling limits.

@@ -6,6 +6,7 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 from sprout_service import SproutServer
 
 @unittest.skipUnless(os.environ.get("SPROUT_COMMAND"), "set SPROUT_COMMAND")
@@ -32,6 +33,22 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(self.request('POST', '/', '{broken')[0], 400)
         self.assertEqual(self.request('POST', '/', '{"$sprout.decimal":"bad"}')[0], 400)
         self.assertEqual(self.request('POST', '/', '1e999')[0], 400)
+    def test_deep_small_body_returns_400_without_worker(self):
+        for depth in (128, 129):
+            with self.subTest(depth=depth):
+                body = '[' * depth + '0' + ']' * depth
+                self.assertLess(len(body), self.server.max_body)
+                with patch('sprout_service.run') as worker:
+                    self.assertEqual(self.request('POST', '/', body)[0], 400)
+                    worker.assert_not_called()
+        self.assertEqual(self.request('GET', '/health')[0], 200)
+    def test_envelope_input_byte_cap_returns_413_without_worker(self):
+        self.server.max_body = 1048576
+        body = '"' + 'a' * (self.server.max_body - 2) + '"'
+        self.assertEqual(len(body), self.server.max_body)
+        with patch('sprout_service.run') as worker:
+            self.assertEqual(self.request('POST', '/', body)[0], 413)
+            worker.assert_not_called()
     def test_invalid_header_and_recovery(self):
         self.path.write_text('show json_encode({status: 200, headers: {x: "bad\\r\\nInjected: yes"}, body: 42})\n', encoding='utf-8')
         self.assertEqual(self.request('GET', '/')[0], 502)

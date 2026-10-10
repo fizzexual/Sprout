@@ -177,13 +177,65 @@ class NativeSDK(unittest.TestCase):
         ready = self.native_options(); self.assertEqual(self.library.sprout_host_run_cancellable(ctypes.byref(ready), ctypes.byref(result), None), 0)
         self.library.sprout_host_result_free(ctypes.byref(result))
 
+    def nested_worker(self):
+        begun, effect = self.root / 'grandchild-started', self.root / 'delayed-effect'
+        grandchild = f'from pathlib import Path;import time;Path({str(begun)!r}).touch();time.sleep(.6);Path({str(effect)!r}).write_text("escaped")'
+        parent = f'import subprocess,sys,time;subprocess.Popen([sys.executable,"-c",{grandchild!r}]);time.sleep(5)'
+        argv = json.dumps([sys.executable, '-c', parent])
+        source = f'show json_encode(process({argv}, {{timeout_ms: 5000}}))\n'
+        return source, begun, effect
+
+    def wait_started(self, path):
+        deadline = time.monotonic() + 3
+        while not path.exists() and time.monotonic() < deadline: time.sleep(.01)
+        self.assertTrue(path.exists(), 'nested grandchild fixture never started')
+
+    @unittest.skipIf(os.name == 'nt', 'POSIX ownership-pipe guardian regression')
+    def test_owner_sigkill_cascades_to_nested_groups_and_grandchildren(self):
+        source, begun, effect = self.nested_worker()
+        program = self.root / 'crash.sprout'; program.write_text(source)
+        request = self.root / 'request.json'; request.write_text('{}')
+        owner = subprocess.Popen([str(self.host), str(BINARY), str(program), str(request), '5000', '1048576', '1', '10000000'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            self.wait_started(begun)
+        finally:
+            owner.kill(); owner.communicate(timeout=2)
+        time.sleep(.8)
+        self.assertFalse(effect.exists(), 'nested group survived abrupt native-host death')
+        self.assertEqual(self.run_worker('show json_encode({ready:yes})\n').returncode, 0)
+
+    @unittest.skipIf(os.name == 'nt', 'POSIX ownership-pipe guardian regression')
+    def test_trusted_sdk_cancellation_kills_nested_groups_and_grandchildren(self):
+        source, begun, effect = self.nested_worker()
+        options = self.native_options(source); options.flags = 1; options.timeout = 5000
+        result = self.Result(); cancel = self.library.sprout_host_cancel_new(); self.assertTrue(cancel)
+        try:
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                pending = pool.submit(self.library.sprout_host_run_cancellable, ctypes.byref(options), ctypes.byref(result), cancel)
+                try:
+                    self.wait_started(begun)
+                finally:
+                    self.library.sprout_host_cancel_request(cancel)
+                self.assertEqual(pending.result(timeout=2), 8)
+        finally:
+            self.library.sprout_host_result_free(ctypes.byref(result)); self.library.sprout_host_cancel_free(cancel)
+        time.sleep(.8)
+        self.assertFalse(effect.exists(), 'nested group survived trusted-host cancellation')
+        self.assertEqual(self.run_worker('show json_encode({ready:yes})\n').returncode, 0)
+
     def test_os_memory_refusal_and_abi_prefix_compatibility(self):
         options = self.native_options(executable=self.memory_probe); options.memory = 64 * 1024 * 1024
         result = self.Result()
         try:
-            self.assertEqual(self.library.sprout_host_run_cancellable(ctypes.byref(options), ctypes.byref(result), None), 5)
-            self.assertEqual(result.exit, 42)
-            self.assertIn(b'memory allocation denied', ctypes.string_at(result.stderr, result.stderr_length))
+            status = self.library.sprout_host_run_cancellable(ctypes.byref(options), ctypes.byref(result), None)
+            if sys.platform == 'darwin' and status == 2:
+                # XNU rejects lowering RLIMIT_AS below the forked host's current
+                # map size, before exec has replaced it with the smaller worker.
+                self.assertNotEqual(result.code, 0)
+            else:
+                self.assertEqual(status, 5)
+                self.assertEqual(result.exit, 42)
+                self.assertIn(b'memory allocation denied', ctypes.string_at(result.stderr, result.stderr_length))
         finally: self.library.sprout_host_result_free(ctypes.byref(result))
         options.memory = 0
         self.assertEqual(self.library.sprout_host_run_cancellable(ctypes.byref(options), ctypes.byref(result), None), 0)

@@ -27,7 +27,13 @@ step/output limits, a working directory, trusted `AllowIO`, and optional
 `MaxMemoryBytes`. The memory option caps Windows total job committed memory or
 POSIX address space per process; it is not a resident-memory measurement.
 Cancellation joins callbacks before freeing native state and terminates owned
-processes. `TimeoutException`, `OperationCanceledException`, or
+processes. POSIX ownership-pipe guardians cascade cleanup through a trusted
+worker's nested Sprout subprocess groups after cancellation or abrupt owner
+death; ordinary grandchildren are included. One extra guardian process is used
+per live command. Intentionally detached `setsid`/`setpgid` descendants can escape.
+Cleanup cannot undo effects already performed. Use an OS supervisor/container
+for hostile source or stronger tenant lifecycle control.
+`TimeoutException`, `OperationCanceledException`, or
 `SproutWorkerException` report bounded failure; the last includes diagnostics,
 status and exit code. Runtime deadlines may reach the worker first and produce
 a `SproutWorkerException` with the runtime diagnostic.

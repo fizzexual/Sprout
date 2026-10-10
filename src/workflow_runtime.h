@@ -18,6 +18,7 @@ typedef struct {
   int fd;
 #endif
 } WorkflowLock;
+static WorkflowLock *g_workflow_lock = NULL;
 static int workflow_lock(const char *path, WorkflowLock *lock) {
   char *name = malloc(strlen(path) + 6); if (!name) return 0;
   sprintf(name, "%s.lock", path);
@@ -35,6 +36,7 @@ static int workflow_lock(const char *path, WorkflowLock *lock) {
 #endif
 }
 static void workflow_unlock(WorkflowLock *lock) {
+  if (g_workflow_lock == lock) g_workflow_lock = NULL;
 #ifdef _WIN32
   CloseHandle(lock->handle);
 #elif !defined(__EMSCRIPTEN__)
@@ -42,6 +44,11 @@ static void workflow_unlock(WorkflowLock *lock) {
 #else
   (void)lock;
 #endif
+}
+/* All Sprout errors unwind through fail_full, including uncatchable budgets.
+   No user callback runs while this single interpreter-owned lock is held. */
+static void workflow_error_cleanup(void) {
+  if (g_workflow_lock) workflow_unlock(g_workflow_lock);
 }
 static int workflow_save(const char *path, SMap *state) {
   char *text = value_to_json(vmap(state));
@@ -110,6 +117,7 @@ static Value workflow_run(Value jobs, SMap *options, int line) {
   dist_shahex((unsigned char *)serialized, strlen(serialized), fingerprint); free(serialized);
   WorkflowLock lock;
   if (!workflow_lock(checkpoint, &lock)) fail(line, "workflow checkpoint is locked by another run or its directory is unavailable.");
+  g_workflow_lock = &lock;
   SMap *state = map_new(); SList *entries = list_new(); int resumed = 0;
   FILE *file = pr_fopen(checkpoint, "rb");
   const char *error = NULL;
@@ -144,14 +152,16 @@ static Value workflow_run(Value jobs, SMap *options, int line) {
     if (entry.type != V_MAP) { error = "workflow checkpoint job is corrupt."; break; }
     Value status = pr_option(entry.map, "status"), tries = pr_option(entry.map, "attempts"), id = pr_option(entry.map, "id"), result = pr_option(entry.map, "result");
     Value wanted = pr_option(jobs.list->items[i].map, "id");
-    if (id.type != V_STR || strcmp(id.str, wanted.str) || status.type != V_STR || tries.type != V_NUM || tries.num < 0 || tries.num > 6 || floor(tries.num) != tries.num ||
+    if (id.type != V_STR || strcmp(id.str, wanted.str) || status.type != V_STR || tries.type != V_NUM || tries.num < 0 || tries.num > 1000000 || floor(tries.num) != tries.num ||
         (strcmp(status.str, "pending") && strcmp(status.str, "running") && strcmp(status.str, "done") && strcmp(status.str, "failed"))) { error = "workflow checkpoint job is corrupt."; break; }
     if (!strcmp(status.str, "done") && (result.type != V_MAP || !is_truthy(pr_option(result.map, "ok")))) { error = "workflow checkpoint completion is corrupt."; break; }
     if (!strcmp(status.str, "running")) {
+      if (tries.num >= 1000000) { error = "workflow attempt counter exhausted; reconcile this checkpoint before recovery."; break; }
       if (!idempotent[i]) { error = "interrupted job has uncertain side effects; recovery requires idempotent: yes and a matching specification."; break; }
       map_set(entry.map, "status", vstr("pending"));
     }
     if (!strcmp(status.str, "failed") && idempotent[i] && tries.num <= retries[i]) map_set(entry.map, "status", vstr("pending"));
+    if (!strcmp(pr_option(entry.map, "status").str, "pending") && tries.num >= 1000000) { error = "workflow attempt counter exhausted; no further command was launched."; break; }
   }
   if (error) { workflow_unlock(&lock); fail_kind(line, "workflow", error); }
   int stopped = 0;
@@ -170,7 +180,9 @@ static Value workflow_run(Value jobs, SMap *options, int line) {
       SMap *command = map_new(); const char *keys[] = {"argv", "cwd", "stdin", "timeout_ms", NULL};
       for (int j = 0; keys[j]; j++) { Value v = pr_option(job.map, keys[j]); if (v.type != V_NONE) map_set(command, keys[j], v); }
       int limit = pr_int_option(job.map, "max_output", output, 1, PR_MAX_BYTES, line);
-      int share = (int)(PR_MAX_BYTES / (2u * (unsigned)count)); if (limit > share) limit = share;
+      /* JSON control-byte escaping expands a byte to six characters. Reserve
+         metadata and hold all persisted raw pipes to 3 MiB across the DAG. */
+      int share = (int)((3u * 1024u * 1024u) / (2u * (unsigned)count)); if (limit > share) limit = share;
       map_set(command, "max_output", vnum(limit));
       list_push(commands, vmap(command)); indices[selected++] = i;
       map_set(entry, "status", vstr("running")); map_set(entry, "attempts", vnum(pr_option(entry, "attempts").num + 1));
@@ -183,12 +195,20 @@ static Value workflow_run(Value jobs, SMap *options, int line) {
     for (int j = 0; j < selected; j++) {
       int i = indices[j]; SMap *entry = entries->items[i].map; Value result = results.list->items[j];
       map_set(entry, "result", result);
+      if (!is_truthy(pr_option(result.map, "attempted"))) {
+        map_set(entry, "attempts", vnum(pr_option(entry, "attempts").num - 1));
+        map_set(entry, "status", vstr("pending"));
+        if (fast.type == V_NONE || fast.boolean) stopped = 1;
+        continue;
+      }
       int ok = is_truthy(pr_option(result.map, "ok"));
       int retry = !ok && idempotent[i] && pr_option(entry, "attempts").num <= retries[i];
       map_set(entry, "status", vstr(ok ? "done" : retry ? "pending" : "failed"));
       if (!ok && !retry && (fast.type == V_NONE || fast.boolean)) stopped = 1;
     }
     if (!workflow_save(checkpoint, state)) { error = "commands finished but their result checkpoint could not be persisted; recover using idempotent jobs only."; break; }
+    /* Persist known execution outcomes before the uncatchable budget unwind. */
+    runtime_tick(line);
   }
   workflow_unlock(&lock);
   if (error) fail_kind(line, "workflow", error);

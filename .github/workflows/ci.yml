@@ -28,6 +28,17 @@ jobs:
         if: runner.os == 'Windows'
         run: gcc -O2 -Wall -s -DSPROUT_SQLITE -Wl,--stack,67108864 -o src/sprout.exe src/sprout.c src/vendor/sqlite/sqlite3.c -lm -lurlmon
 
+      - name: Export native worker path
+        # Python produces a native absolute Windows path rather than MSYS /d/... paths.
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          binary = (Path.cwd() / 'src' / ('sprout.exe' if os.name == 'nt' else 'sprout')).resolve()
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as env:
+              env.write(f'SPROUT_BINARY={binary}\nSPROUT_COMMAND={binary}\n')
+          PY
+
       - name: Version smoke test
         run: |
           bin=src/sprout; [ -f src/sprout.exe ] && bin=src/sprout.exe
@@ -51,12 +62,11 @@ jobs:
 
       - name: Editor and playground regression tests
         run: |
-          bin="$PWD/src/sprout"; [ -f "$PWD/src/sprout.exe" ] && bin="$PWD/src/sprout.exe"
-          SPROUT_COMMAND="$bin" node --test vscode-extension/tests/*.test.js playground/tests/*.test.js integrations/node/tests/*.test.js examples/apps/*.test.js
+          node --test vscode-extension/tests/*.test.js playground/tests/*.test.js integrations/node/tests/*.test.js examples/apps/*.test.js
 
       - name: Native production foundation contracts
         run: |
-          bin="$PWD/src/sprout"; [ -f "$PWD/src/sprout.exe" ] && bin="$PWD/src/sprout.exe"
+          bin="$SPROUT_BINARY"
           python src/tests/stdlib_production_test.py "$bin"
           python src/tests/distribution_test.py "$bin"
           python src/tests/runtime_production_test.py "$bin"
@@ -65,6 +75,66 @@ jobs:
           python tools/fuzz.py "$bin" --iterations 200 --seed 20261010 --report "$RUNNER_TEMP/fuzz.json" --artifacts "$RUNNER_TEMP/fuzz-artifacts"
           SPROUT_COMMAND="$bin" python -m unittest discover -s integrations/python -p 'test_*.py'
           "$bin" test examples/apps/ui_test.sprout
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.x'
+          cache: false
+
+      - name: Go SDK real-worker tests
+        working-directory: integrations/go
+        env:
+          CGO_ENABLED: '1'
+        run: go test -count=1 ./...
+
+      - name: Set up .NET 10
+        id: dotnet
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build native host library for .NET
+        run: |
+          mkdir -p native-host
+          case "$RUNNER_OS" in
+            Windows) gcc -std=c11 -O2 -shared -Wl,--export-all-symbols src/embed.c -o native-host/sprout_host.dll ;;
+            macOS) cc -std=c11 -O2 -dynamiclib src/embed.c -o native-host/libsprout_host.dylib ;;
+            Linux) cc -std=c11 -O2 -shared -fPIC src/embed.c -o native-host/libsprout_host.so ;;
+          esac
+          python - <<'PY'
+          import os, sys
+          from pathlib import Path
+          name = 'sprout_host.dll' if os.name == 'nt' else 'libsprout_host.dylib' if sys.platform == 'darwin' else 'libsprout_host.so'
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as env:
+              env.write(f'SPROUT_HOST_LIBRARY={(Path.cwd() / "native-host" / name).resolve()}\n')
+          PY
+
+      - name: .NET SDK real-worker tests
+        working-directory: integrations/dotnet
+        env:
+          DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+          DOTNET_SDK_VERSION: ${{ steps.dotnet.outputs.dotnet-version }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          Path('global.json').write_text(json.dumps({'sdk': {'version': os.environ['DOTNET_SDK_VERSION'], 'rollForward': 'disable'}}), encoding='utf-8')
+          PY
+          dotnet --version
+          dotnet run --project tests --configuration Release
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: integrations/java/pom.xml
+
+      - name: Java SDK real-worker tests
+        working-directory: integrations/java
+        run: mvn --batch-mode --no-transfer-progress test
 
       - name: Standalone bundle round-trip
         shell: bash
@@ -106,6 +176,42 @@ jobs:
           "$bin" remove mathx
           grep -q '^mathx ' sprout.packages && { echo "FAIL: remove left a manifest entry"; exit 1; }
           echo "package manager OK: add, use, install-restore, remove"
+
+  paper:
+    name: Paper adapter (Java 25, native worker)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build native interpreter
+        run: |
+          cc -O2 -Wall -DSPROUT_SQLITE -o src/sprout src/sprout.c src/vendor/sqlite/sqlite3.c -lm -pthread -ldl
+          printf 'SPROUT_BINARY=%s/src/sprout\nSPROUT_COMMAND=%s/src/sprout\n' "$PWD" "$PWD" >> "$GITHUB_ENV"
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+          cache-dependency-path: |
+            integrations/java/pom.xml
+            integrations/paper/pom.xml
+
+      - name: Install Java SDK
+        working-directory: integrations/java
+        run: mvn --batch-mode --no-transfer-progress test install
+
+      - name: Compile and test Paper adapter
+        working-directory: integrations/paper
+        run: mvn --batch-mode --no-transfer-progress test package
+
+      - name: Packaged Paper JAR native smoke
+        working-directory: integrations/paper
+        run: java -cp 'target/sprout-paper-0.1.0.jar:target/test-classes' io.sprout.paper.PackagedJarSmoke "$SPROUT_BINARY" src/main/resources/rules.sprout
 
   asan:
     name: memory safety (AddressSanitizer, Linux)

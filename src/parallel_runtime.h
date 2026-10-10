@@ -4,11 +4,11 @@
 #endif
 typedef struct {
   char **argv; int argc; char *cwd, *input;
-  int timeout; size_t cap; PRProcess result;
+  int timeout, attempted; size_t cap; PRProcess result;
 } ParallelJob;
 typedef struct {
   ParallelJob *jobs; int count, fail_fast;
-  _Atomic int next; PRCancel cancel;
+  _Atomic int next; PRCancel cancel; uint64_t deadline;
 } ParallelGroup;
 static int parallel_builtin_name(const char *name) { return !strcmp(name, "parallel"); }
 static void parallel_work(ParallelGroup *group) {
@@ -20,8 +20,19 @@ static void parallel_work(ParallelGroup *group) {
       job->result = pr_process_error("process: cancelled before launch", ECANCELED);
       job->result.cancelled = 1; continue;
     }
+    int timeout = job->timeout;
+    if (group->deadline) {
+      uint64_t now = pr_clock_ms();
+      if (now >= group->deadline) {
+        job->result = pr_process_error("process: deadline expired before launch", ETIMEDOUT);
+        job->result.timed_out = 1; continue;
+      }
+      uint64_t remaining = group->deadline - now;
+      if (remaining < (uint64_t)timeout) timeout = (int)remaining;
+    }
+    job->attempted = 1;
     job->result = pr_run_control(job->argv, job->argc, job->cwd, job->input,
-                                 job->timeout, job->cap, &group->cancel);
+                                 timeout, job->cap, &group->cancel);
     PRProcess *r = &job->result;
     if (group->fail_fast && (r->exit_code != 0 || r->error || r->timed_out || r->truncated))
       atomic_store(&group->cancel.cancelled, 1);
@@ -90,6 +101,7 @@ static Value parallel_run(Value commands, SMap *options, int line) {
     if (jobs[i].cap > share) jobs[i].cap = share;
   }
   ParallelGroup group = {0}; group.jobs = jobs; group.count = count;
+  group.deadline = g_runtime_deadline;
   group.fail_fast = fast.type == V_NONE || fast.boolean;
   atomic_init(&group.next, 0); atomic_init(&group.cancel.cancelled, 0);
   if (workers > count) workers = count;
@@ -108,17 +120,19 @@ static Value parallel_run(Value commands, SMap *options, int line) {
   for (int i = 0; i < launched; i++) pthread_join(threads[i], NULL);
 #endif
   for (int i = 0; i < count; i++) {
-    Value v = pr_process_value(&jobs[i].result); map_set(v.map, "index", vnum(i)); list_push(result, v);
+    Value v = pr_process_value(&jobs[i].result); map_set(v.map, "index", vnum(i));
+    map_set(v.map, "attempted", vbool(jobs[i].attempted)); list_push(result, v);
     pr_process_free(&jobs[i].result);
     for (int j = 0; j < jobs[i].argc; j++) free(jobs[i].argv[j]);
     free(jobs[i].argv); free(jobs[i].cwd); free(jobs[i].input);
   }
-  free(jobs); runtime_tick(line); return vlist(result);
+  free(jobs); return vlist(result);
 #endif
 }
 static int parallel_builtin(const char *name, int n, Value *a, int line, Value *out) {
   if (!parallel_builtin_name(name)) return 0;
   if (n < 1 || n > 2) arity_error(line, name, "commands and optional options", n);
   if (n == 2 && a[1].type != V_MAP) fail(line, "parallel options must be a map.");
-  *out = parallel_run(a[0], n == 2 ? a[1].map : NULL, line); return 1;
+  *out = parallel_run(a[0], n == 2 ? a[1].map : NULL, line);
+  runtime_tick(line); return 1;
 }
