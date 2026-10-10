@@ -54,7 +54,7 @@ jobs:
         run: node playground/tests/wasm-smoke.js "$PWD/site/sprout.js"
 
       - uses: actions/configure-pages@v5
-        if: github.event_name != 'pull_request'
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         with:
           enablement: true          # force the Pages source to GitHub Actions (don't fall back to the README via Jekyll)
       - uses: actions/upload-pages-artifact@v3
@@ -62,7 +62,7 @@ jobs:
           path: site
 
   deploy:
-    if: github.event_name != 'pull_request'
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
     environment:
