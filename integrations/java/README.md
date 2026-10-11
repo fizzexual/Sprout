@@ -30,5 +30,10 @@ host CPU limit, although emitted bytes are capped and parsed again. Native
 worker deadlines begin after host-side input preparation.
 The effective input cap is `min(maxInputBytes, 1 MiB)`, including the newline;
 configuring a larger cap cannot bypass the native request ceiling.
+Jackson core/databind are pinned through `jackson-databind:2.21.7`. Its parser
+also limits each object property name to 50,000 characters and rejects an
+oversized name while reading it, including the character parser used for
+worker output. [Dependency review](../../docs/dependency-security-2026-10-11.md)
+records the advisory, bounded reproduction, and resolved Paper dependencies.
 
 `SPROUT_COMMAND` enables the actual native interpreter test. Unit tests use a Java subprocess fixture to verify limits, cancellation, protocol rejection, and argument handling.

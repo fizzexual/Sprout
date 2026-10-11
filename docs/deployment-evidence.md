@@ -217,6 +217,49 @@ long-run evidence at
 `D:/Codex/Kestrel/work/deployment-candidate-smoke-20261011-final.json`. This smoke
 validates harness mechanics; hours-long candidate evidence remains pending.
 
+## Replacement candidate controls and pending run
+
+The `86ab3b4b0e6606a6d74a2e930483f5773ed84f6c` candidate passed a real
+stop-file cancellation check after 80 contacts and ten traffic bursts. The
+report recorded `interrupted`, `passed: false`, `workload_completed: false`
+and `partial_dataset_verified: true`; the only error was the requested
+cancellation. Its host reaped all 83 native children and returned to one
+thread. A separate 20.156-second completion check passed with 80 contacts,
+four clean host lifecycles, three lock recoveries and eight independent data
+checks. These private smoke reports verify control mechanics, not sustained
+deployment readiness.
+
+The earlier `3f656ae` eight-hour attempt was deliberately superseded before
+completion. Its exact owned controller was stopped, its host shut down through
+the control-pipe EOF cleanup path, and all eight host summaries showed native
+exit accounting and final thread cleanup. An independent final SQLite check
+found 4,960 stored contacts matching their scheduled values. The private report
+and separate manual-interruption record preserve it as interrupted evidence;
+it must not be presented as an eight-hour pass.
+
+The replacement eight-hour run started at **2026-10-11 20:14:15 UTC**, with a
+target end of **2026-10-12 04:14:15 UTC**. Its source hashes were independently
+compared with the Git blobs of the full `86ab3b4` commit. The workspace is
+`D:/Codex/Kestrel/work/deployment-86ab3b4-8h-20261011`; its running report remains
+private at `D:/Codex/Kestrel/work/deployment-86ab3b4-8h-20261011.json`. A dedicated
+`STOP` control path can interrupt it without changing frozen source files.
+
+| Frozen input | SHA256 |
+| --- | --- |
+| Native binary | `b387bdbc62da7ac777209bfd1b7e0630de65d0c0da1a09380bf5382af624341f` |
+| Harness | `a0bad015faf1384a61ad8e2c3f4363a5d0cd1321989c00418d8390c687e0340a` |
+| Python SDK | `fe1c07db6982c88356b9c4942899ef0e6e13ee27d2b671bd500f2a4220af34a8` |
+| Python HTTP host | `326e5b35929ae1f9340a45612af201dfacf7f339883f391fef6333a75c3aa4e4` |
+| Contacts app | `0e5ce19d5427241b414c1654b1ae5da06ef013df13d0dbc2659c4327f3867f7b` |
+
+At the first completed restart, the service retained 728 contacts, reaped all
+745 native children and returned to one Python thread. Sampled host RSS peaked
+at 33,546,240 bytes; retained RSS growth was 2,174,976 bytes. Handles peaked at
+244 and ended at 150, compared with 140 initially. At the 192.157-second
+progress snapshot, 776 contacts and four lock recoveries had completed with no
+errors. **The eight-hour outcome remains pending.** These initial observations
+do not establish full-duration resource stability or uptime.
+
 This exercise covers sustained local traffic, controlled SQLite contention,
 data preservation across graceful restarts and worker cleanup. It does not
 certify public deployment security, uninterrupted uptime, network conditions,

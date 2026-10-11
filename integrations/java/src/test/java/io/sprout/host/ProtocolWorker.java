@@ -22,6 +22,7 @@ public final class ProtocolWorker {
             case "nul-key" -> "{\"\\u0000\":true}";
             case "paired" -> "{\"text\":\"\\ud83c\\udf31\",\"literal\":\"\\\\ud800\"}";
             case "large-finite" -> "{\"value\":100000000000000000000}";
+            case "oversized-name" -> "{\"" + "a".repeat(131_072) + "\":1}";
             case "leading-blank" -> "\n{}";
             case "trailing-blank" -> "{}\n";
             case "healthy" -> "{\"ok\":true}";

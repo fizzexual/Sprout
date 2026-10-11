@@ -28,10 +28,22 @@ recorded SDK/server hashes. It completed in 1,800.188 seconds with 7,168 contact
 11 cleanly stopped service epochs. Frozen inputs were unchanged and no invariant
 errors were recorded in the [completed report](../benchmarks/deployment-2026-10-11-windows.json).
 Its resource samples are observations; the corrected candidate harness also
-enforces resource ceilings and rejects interrupted/incomplete runs. An eight-hour
-candidate run began at 19:51 UTC; a subsequent service startup fix requires a new
-frozen run, so this run will be retained as interrupted evidence. Mutable working-tree tests do not count as a
+enforces resource ceilings and rejects interrupted/incomplete runs. The first
+candidate run was superseded after the service startup fix and retained as
+interrupted evidence, with 4,960 exact contacts and verified owned-process cleanup.
+The replacement eight-hour HTTP/SQLite run started at 20:14 UTC on frozen
+`86ab3b4b0e6606a6d74a2e930483f5773ed84f6c` inputs, targeting 04:14 UTC on
+October 12. Its running report is pending evidence. A 20.156-second candidate
+smoke passed with 80 contacts and four cleanly stopped hosts, including all
+completion, snapshot, resource and storage gates. Mutable working-tree tests do not count as a
 single-build soak. See [deployment evidence](deployment-evidence.md).
+
+The service/harness candidate `86ab3b4` passed all eight jobs in
+[cross-platform CI](https://github.com/fizzexual/Sprout/actions/runs/38171134448),
+including Windows/Linux/macOS native and SDK checks, WASM, sanitizers, Docker
+and Paper. The subsequent Java-only Jackson dependency fix passed local Java,
+Paper and packaged-host checks and requires its own final committed CI run.
+The frozen HTTP/SQLite run retains the separately recorded native/Python inputs.
 
 The review has reproduced these issues and fixes are under validation:
 
@@ -41,11 +53,12 @@ The review has reproduced these issues and fixes are under validation:
 | SDKs accept duplicate or non-finite worker JSON | Reject ambiguous keys, non-finite numbers and excessive nesting | Node/Go/.NET/Java local regressions passed; final CI pending |
 | SDK strings differ from native text | Reject malformed wire text; accept valid Unicode pairs | Local SDK regressions passed; final CI pending |
 | Shared input graphs expand before byte limits | Bound ordinary input preparation and serialized output across the SDKs | Node 24, Python 22, Go 11, .NET 8 and Java 31 local test groups passed |
+| Java's pinned Jackson parser has current security advisories | Use the patched 2.21 line and verify early field-name limits and packaged dependencies | Jackson 2.21.7; Java 33 and Paper 20 tests, packaged native smoke and shaded dependency verification passed; [dependency evidence](dependency-security-2026-10-11.md); final CI pending |
 | Native host accepts extra blank response lines | Exactly one JSON line with at most one terminal newline | 10 native ABI tests, with two Windows platform skips, passed |
 | Node worker ignores graceful timeout termination | Force termination of the direct worker and recover the next request | Fix passed local test; POSIX CI validation pending |
 | Paper reload snapshots accumulate | Delete inactive snapshots after all in-flight uses release them | Focused offline lifetime tests passed; final CI pending |
 | Service shutdown can wait indefinitely for trickling readers | Bound total header/body read time, drain dispatched workers and separate writable state | Windows host/service 40 passed with one POSIX skip; Linux signal/read-deadline checks passed |
-| Service binding waits on reverse DNS before reporting readiness | Bind using the literal address and retain an actual health/startup probe | Updated Windows suite: 42 tests, one platform skip; seven focused Linux tests passed; macOS CI pending |
+| Service binding waits on reverse DNS before reporting readiness | Bind using the literal address and retain an actual health/startup probe | Updated Windows suite: 42 tests, one platform skip; focused Linux checks and actual macOS CI service/startup/workload checks passed |
 | Release workflow omits newer contract gates | Fail closed on contract failures and publish checksums and provenance | Workflow and thirteen manifest regressions passed locally, including exact installer payload; no release published |
 | Development tags can become a stable Latest release | Mark prerelease tags as prereleases and prevent Latest publication | Workflow classification checked for stable, prerelease and build-metadata tags; no release published |
 
