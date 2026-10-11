@@ -8,6 +8,12 @@ on:
   workflow_call:
 
 jobs:
+  wasm:
+    name: WebAssembly interpreter verification
+    uses: ./.github/workflows/wasm-verify.yml
+    permissions:
+      contents: read
+
   build-test:
     name: build & test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
