@@ -74,12 +74,19 @@ unexplained native startup error; a same-commit rerun passed. A separate bounded
 Linux backend control passed 32 launches with complete child reaping. No
 production ordering defect was substantiated and no budgets or statuses were
 waived. Test-only diagnostics now identify the control, native status/system
-code and elapsed time; that diagnostic revision awaits fresh CI.
+code and elapsed time. The diagnostic/evidence revision
+`adb2c25ede6e8215b256970ca14ef892673a1803` passed all eight
+[fresh CI jobs](https://github.com/fizzexual/Sprout/actions/runs/38183104346)
+on its first attempt; the earlier unexplained observation remains recorded.
 
 A 20.000-second integrated native/SDK smoke passed with 80 exact contacts,
 three clean service lifecycles, all 89 native workers exited and independent
 SQLite integrity/value checks. The frozen `86ab3b4` eight-hour run
 continues unchanged and cannot be attributed to these newer native/SDK fixes.
+The existing Windows installation was updated to the tested normal binary
+SHA256 `066095edef005a511b1e89e0351f2099edcce5ea5fafce1e89425ebc639c725f`.
+Its installed copy passed the seven publication regression methods, with two
+POSIX-only skips. It still reports `0.2.0-dev`; no stable release was published.
 
 The review reproduced these issues and verified their fixes:
 
