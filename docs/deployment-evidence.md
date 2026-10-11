@@ -258,6 +258,26 @@ validates harness mechanics; hours-long candidate evidence remains pending.
 
 ## Replacement candidate controls and pending run
 
+The later cadence candidate `fbd795d54eb7bdf829ba23015f048b18096b1f27`
+passed all eight [native/SDK, WASM, sanitizer, Docker and Paper CI jobs](https://github.com/fizzexual/Sprout/actions/runs/38177615020)
+and one real native loopback smoke: 20.000 seconds of traffic, 20.110 seconds
+including final checks, 80 exact contacts, three clean hosts, three lock
+recoveries and six independent oracles. All 89 native children exited and every
+host returned to one thread. The largest recorded controller gap was 3.313
+seconds on the monotonic clock and 3.311 seconds on wall time; the host sampler
+gap was below 0.111 seconds. Completion, cadence, resource and storage gates
+passed. An additional read-only SQLite check matched every expected row and
+returned `integrity_check: ok`.
+
+Its harness SHA256 is
+`3fcb9d093e0ec66f6829aa8ec278f297214d897a21c6c197b292ac3d45898cd7`.
+The other four input hashes match the frozen `86ab3b4` inventory below; all five
+were unchanged at completion and all four source files matched candidate Git
+blobs. The private report is
+`D:/Codex/Kestrel/work/deployment-fbd795d-smoke-20261011.json`, with a separate
+`deployment-fbd795d-smoke-20261011-verification.json` record. This short run
+verifies guard mechanics and cleanup; it is not an eight-hour qualification.
+
 The `86ab3b4b0e6606a6d74a2e930483f5773ed84f6c` candidate passed a real
 stop-file cancellation check after 80 contacts and ten traffic bursts. The
 report recorded `interrupted`, `passed: false`, `workload_completed: false`
@@ -285,6 +305,9 @@ private at `D:/Codex/Kestrel/work/deployment-86ab3b4-8h-20261011.json`. A dedica
 Its frozen harness predates the dual-clock cadence guard. It continues unchanged
 and requires a separate final audit of traffic volume, probe counts, epoch
 durations and sample coverage before any completed evidence is published.
+The [v2 aggregate policy](deployment-coverage.md) was declared at 21:41:33 UTC,
+before the run finishes, with SHA256
+`e0fa18931226ba2c181d2700dea0da3e91fc9cba878c551232298cb9342bd0ee`.
 Aggregate metrics can disqualify gross gaps but cannot reconstruct the largest
 traffic gap; this run cannot be described as passing the newer cadence gate.
 

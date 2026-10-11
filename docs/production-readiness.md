@@ -45,9 +45,12 @@ and Paper with the patched Jackson dependency. Its native/Python/harness sources
 match the preceding `86ab3b4` service candidate, whose
 [full CI](https://github.com/fizzexual/Sprout/actions/runs/38171134448) also passed.
 The frozen HTTP/SQLite run retains the separately recorded native/Python inputs.
-Evidence-only documentation commits do not change these tested inputs. The
-separate cadence and coverage changes below require fresh candidate CI; they
-do not change the native interpreter or Python service/SDK sources.
+Evidence-only documentation commits do not change tested inputs. The separate
+cadence and coverage candidate `fbd795d54eb7bdf829ba23015f048b18096b1f27`
+passed all eight jobs in [fresh CI](https://github.com/fizzexual/Sprout/actions/runs/38177615020).
+Its 20.000-second real native smoke passed with 80 exact contacts, three clean
+hosts, all 89 native children exited and independently checked SQLite integrity.
+It does not change the native interpreter or Python service/SDK sources.
 
 A later evidence review reproduced a false pass in the frozen deployment
 harness: advancing the clock by eight hours after one burst could satisfy its
@@ -75,8 +78,8 @@ The review reproduced these issues and verified their fixes:
 | Service binding waits on reverse DNS before reporting readiness | Bind using the literal address and retain an actual health/startup probe | Updated Windows suite: 42 tests, one platform skip; focused Linux checks and actual macOS CI service/startup/workload checks passed |
 | Release workflow omits newer contract gates | Fail closed on contract failures and publish checksums and provenance | Workflow and thirteen manifest regressions passed locally, including exact installer payload; no release published |
 | Development tags can become a stable Latest release | Mark prerelease tags as prereleases and prevent Latest publication | Workflow classification checked for stable, prerelease and build-metadata tags; no release published |
-| Elapsed time can falsely satisfy a sustained-run gate | Record bounded dual-clock controller/sampler progress from setup through cleanup | 29 focused local harness regressions passed; fresh candidate CI pending |
-| Short host epochs can evade per-epoch sampling coverage | Require predeclared aggregate traffic, host-time and sample coverage, with exact lifecycle/data accounting | Separate fixed-profile auditor and focused regressions; fresh candidate CI pending |
+| Elapsed time can falsely satisfy a sustained-run gate | Record bounded dual-clock controller/sampler progress from setup through cleanup | 29 focused local harness regressions, real native smoke and fresh cross-platform CI passed |
+| Short host epochs can evade per-epoch sampling coverage | Require predeclared aggregate traffic, host-time and sample coverage, with exact lifecycle/data accounting | Auditor v2: 17 focused tests, one local Windows symlink skip; Linux and fresh cross-platform CI passed |
 
 This is an independent agent review of other agents' code, not an external
 professional audit. Sanitizer results and checks are reported for the exact
