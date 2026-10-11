@@ -69,6 +69,7 @@ jobs:
           python src/tests/embed_test.py "$bin"
           python src/tests/release_manifest_test.py
           python src/tests/deployment_harness_test.py
+          python src/tests/deployment_coverage_test.py
           node --test integrations/node/tests/*.test.js
           python tools/soak.py "$bin" --cycles 5 --report "$RUNNER_TEMP/release-soak.json"
           python tools/service_load.py "$bin" --contacts 100 --report "$RUNNER_TEMP/release-service-load.json"

@@ -43,18 +43,99 @@ def check_stop_file(path):
     raise DeploymentStopped('stop file requested cancellation: ' + str(path))
 
 
-def pause_until(deadline, stop_file):
+def pause_until(deadline, stop_file, cadence=None):
     while True:
         check_stop_file(stop_file)
+        if cadence is not None:
+            cadence.pending()
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return
-        time.sleep(min(.25, remaining) if stop_file is not None else remaining)
+        time.sleep(min(.25, remaining) if stop_file is not None or cadence is not None else remaining)
 
 
 def require(condition, message):
     if not condition:
         raise AssertionError(message)
+
+
+def finite_number(value):
+    return type(value) in (int, float) and math.isfinite(value)
+
+
+def elapsed_since(started):
+    """Keep failed-clock reports serializable without inventing elapsed time."""
+    try:
+        now = time.monotonic()
+        elapsed = now - started if finite_number(now) and finite_number(started) else None
+        return elapsed if finite_number(elapsed) and elapsed >= 0 else None
+    except Exception:
+        return None
+
+
+class Cadence:
+    """Constant-size dual-clock evidence; pending reads never reset progress."""
+    def __init__(self, max_gap_seconds, label):
+        require(finite_number(max_gap_seconds) and max_gap_seconds > 0,
+                'maximum cadence gap must be finite and positive')
+        self.label = label
+        self.data = dict(max_gap_seconds=max_gap_seconds, checkpoints=0, failed=False, failure=None,
+                         first_monotonic=None, last_monotonic=None, last_observed_monotonic=None,
+                         first_wall=None, last_wall=None, last_observed_wall=None,
+                         maximum_monotonic_gap_seconds=0, maximum_wall_gap_seconds=0)
+
+    def _record(self, advance):
+        try:
+            monotonic, wall = time.monotonic(), time.time()
+            require(finite_number(monotonic) and finite_number(wall), self.label + ' cadence clock is missing or nonfinite')
+            if self.data['checkpoints']:
+                for name, value in [('monotonic', monotonic), ('wall', wall)]:
+                    require(value >= self.data['last_observed_' + name], self.label + ' cadence ' + name + ' clock moved backward')
+                    gap = value - self.data['last_' + name]
+                    require(finite_number(gap), self.label + ' cadence clock delta is nonfinite')
+                    self.data['maximum_' + name + '_gap_seconds'] = max(self.data['maximum_' + name + '_gap_seconds'], gap)
+            # Commit only validated finite readings, including evidence of an excessive gap.
+            self.data['last_observed_monotonic'], self.data['last_observed_wall'] = monotonic, wall
+            require(self.data['maximum_monotonic_gap_seconds'] <= self.data['max_gap_seconds'] and
+                    self.data['maximum_wall_gap_seconds'] <= self.data['max_gap_seconds'],
+                    self.label + ' cadence exceeded maximum gap')
+            if advance:
+                if not self.data['checkpoints']:
+                    self.data['first_monotonic'], self.data['first_wall'] = monotonic, wall
+                self.data['last_monotonic'], self.data['last_wall'] = monotonic, wall
+                self.data['checkpoints'] += 1
+        except Exception as error:
+            self.data['failed'] = True
+            if self.data['failure'] is None:
+                self.data['failure'] = type(error).__name__ + ': ' + str(error)
+            raise
+
+    def checkpoint(self):
+        self._record(True)
+
+    def pending(self):
+        require(self.data['checkpoints'] > 0, self.label + ' cadence has no initial checkpoint')
+        self._record(False)
+
+    def report(self):
+        return self.data.copy()
+
+
+def cadence_gate(summary, max_gap_seconds):
+    require(isinstance(summary, dict), 'cadence evidence is missing')
+    require(finite_number(max_gap_seconds) and max_gap_seconds > 0, 'cadence policy is missing or invalid')
+    require(finite_number(summary.get('max_gap_seconds')) and summary['max_gap_seconds'] == max_gap_seconds,
+            'cadence policy differs from configuration')
+    require(type(summary.get('checkpoints')) is int and summary['checkpoints'] >= 2, 'cadence checkpoints are missing')
+    require(summary.get('failed') is False and summary.get('failure') is None, 'cadence clock/gap failure was recorded')
+    for clock in ('monotonic', 'wall'):
+        readings = [summary.get(prefix + clock) for prefix in ('first_', 'last_', 'last_observed_')]
+        require(all(finite_number(value) for value in readings), 'cadence clock readings are missing or nonfinite')
+        first, last, observed = readings
+        require(first <= last <= observed, 'cadence clock readings moved backward')
+        gap = summary.get('maximum_' + clock + '_gap_seconds')
+        require(finite_number(gap) and 0 <= gap <= max_gap_seconds, 'cadence maximum gap is missing, invalid or exceeded')
+        require(observed - last <= gap, 'cadence pending interval exceeds recorded maximum gap')
 
 
 def sha(path):
@@ -84,7 +165,7 @@ def percentiles(values):
                 p95=values[(95 * len(values) + 99) // 100 - 1], maximum=values[-1])
 
 
-def resource_gate(summary, limits, workers, descriptor=None):
+def resource_gate(summary, limits, workers, descriptor=None, max_gap_seconds=60):
     """Check recorded observations, without treating them as an uptime guarantee."""
     require(summary['samples'] > 0, 'host resource samples are missing')
     require(summary['clean_shutdown'] and summary['final_threads'] == summary['baseline_threads'],
@@ -92,6 +173,7 @@ def resource_gate(summary, limits, workers, descriptor=None):
     require(summary['native_started'] == summary['native_exited'] and not summary['native_active_pids'],
             'host left native workers running')
     require(summary['maximum_native_active'] <= workers, 'native worker concurrency exceeded its limit')
+    cadence_gate(summary.get('cadence'), max_gap_seconds)
     if descriptor is None:
         descriptor = 'handles' if os.name == 'nt' else 'open_fds' if sys.platform.startswith('linux') else ''
     initial, last, peak = summary['initial'], summary['last'], summary['host_sampled_maximum']
@@ -111,9 +193,15 @@ def resource_gate(summary, limits, workers, descriptor=None):
 
 def completion_gate(report):
     require(report.get('workload_completed') is True, 'deployment workload did not complete')
-    require(report.get('traffic_duration_seconds', 0) >= report['configuration']['duration_seconds'],
+    duration, requested = report.get('traffic_duration_seconds'), report['configuration'].get('duration_seconds')
+    require(finite_number(duration) and finite_number(requested) and requested > 0 and duration >= requested,
             'deployment traffic duration was shorter than requested')
     require(report.get('frozen_inputs_unchanged') is True, 'frozen deployment inputs were not verified at completion')
+    gap = report['configuration'].get('max_gap_seconds')
+    cadence_gate(report.get('controller_cadence'), gap)
+    require(bool(report.get('hosts')), 'host cadence evidence is missing')
+    for host_summary in report['hosts']:
+        cadence_gate(host_summary.get('cadence'), gap)
 
 
 def workspace_bytes(workspace):
@@ -200,11 +288,13 @@ def resource(pid):
 
 
 class Probes:
-    def __init__(self, binary, metrics):
+    def __init__(self, binary, metrics, max_gap_seconds=60):
         self.binary, self.metrics = str(binary), Path(metrics)
         self.active = {}; self.lock = threading.Lock(); self.stop = threading.Event()
         self.started = self.exited = self.samples = self.maximum_active = 0
         self.host_max = {}; self.native_max = {}; self.errors = []
+        self.cadence = Cadence(max_gap_seconds, 'host sampler')
+        self.cadence.checkpoint()
         self.first = resource(os.getpid()); self.last = self.first
         self.real_popen = subprocess.Popen
         self.thread = threading.Thread(target=self.loop, daemon=True)
@@ -227,6 +317,7 @@ class Probes:
         return child
 
     def capture(self):
+        self.cadence.checkpoint()
         with self.lock:
             self.clean(); pids = list(self.active)
         self.last = resource(os.getpid()); self.samples += 1
@@ -243,6 +334,7 @@ class Probes:
             self.clean()
             active = list(self.active)
         return dict(pid=os.getpid(), samples=self.samples, initial=self.first, last=self.last,
+                    cadence=self.cadence.report(),
                     host_sampled_maximum=self.host_max, native_sampled_maximum=self.native_max,
                     native_started=self.started, native_exited=self.exited, native_active_pids=active,
                     maximum_native_active=self.maximum_active, errors=self.errors)
@@ -263,7 +355,7 @@ class Probes:
 def host(args):
     sys.path.insert(0, str(Path(args.sdk).resolve()))
     from sprout_service import SproutServer
-    probes = Probes(args.binary, args.metrics)
+    probes = Probes(args.binary, args.metrics, args.max_gap_seconds)
     baseline_threads = threading.active_count()
     with patch('sprout_host.subprocess.Popen', new=probes.launch):
         server = SproutServer(('127.0.0.1', 0), args.program, command=args.binary, workers=args.workers, allow_io=True)
@@ -281,7 +373,11 @@ def host(args):
                 if not active and threading.active_count() <= baseline_threads + 1:
                     break
                 time.sleep(.02)
-            probes.stop.set(); probes.thread.join(timeout=3); probes.capture()
+            probes.stop.set(); probes.thread.join(timeout=3)
+            try:
+                probes.capture()
+            except Exception as error:
+                probes.errors.append('%s: %s' % (type(error).__name__, error))
             summary = probes.report()
             summary['final_threads'] = threading.active_count()
             summary['baseline_threads'] = baseline_threads
@@ -291,11 +387,12 @@ def host(args):
 
 
 class Service:
-    def __init__(self, frozen, program, binary, workers, metrics):
+    def __init__(self, frozen, program, binary, workers, metrics, max_gap_seconds=60):
         self.metrics = metrics; self.stderr = bytearray(); self.lines = queue.Queue()
         command = [sys.executable, str(frozen / 'tools/deployment_soak.py'), 'host',
                    '--sdk', str(frozen / 'integrations/python'), '--program', str(program),
-                   '--binary', str(binary), '--workers', str(workers), '--metrics', str(metrics)]
+                   '--binary', str(binary), '--workers', str(workers), '--metrics', str(metrics),
+                   '--max-gap-seconds', str(max_gap_seconds)]
         self.process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         stderr=subprocess.PIPE, start_new_session=os.name != 'nt',
                                         creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
@@ -413,11 +510,15 @@ def verify(service, folder, expected):
 def main(args):
     stop_file = Path(args.stop_file).absolute() if getattr(args, 'stop_file', None) is not None else None
     args.stop_file = stop_file
+    args.max_gap_seconds = getattr(args, 'max_gap_seconds', 60)
     for value, name in [(args.duration_seconds, 'duration'), (args.rate, 'rate'),
-                        (args.restart_seconds, 'restart interval'), (args.contention_seconds, 'contention interval')]:
-        require(math.isfinite(value) and value > 0, name + ' must be finite and positive')
+                        (args.restart_seconds, 'restart interval'), (args.contention_seconds, 'contention interval'),
+                        (args.max_gap_seconds, 'maximum cadence gap')]:
+        require(finite_number(value) and value > 0, name + ' must be finite and positive')
     require(1 <= args.clients <= 64 and 1 <= args.workers <= 64 and 1 <= args.burst <= args.clients,
             'clients/workers must be1..64 and burst must fit clients')
+    require(args.burst / args.rate <= args.max_gap_seconds,
+            'planned pacing exceeds maximum cadence gap; configure a larger --max-gap-seconds explicitly')
     require(args.shard_contacts >= args.burst and args.shard_contacts <= 5000, 'shard contacts must be burst..5000')
     for value in (args.max_host_rss_mib, args.max_retained_rss_growth_mib, args.max_host_handles,
                   args.max_retained_handles_growth, args.max_host_fds, args.max_retained_fds_growth,
@@ -456,22 +557,26 @@ def main(args):
                   resource_limits=resource_limits, resource_gates='Required host metrics and sampled ceilings checked after every epoch.',
                   storage_limits=storage_limits,
                   workload_completed=False, state='running', passed=None)
+    controller_cadence = Cadence(args.max_gap_seconds, 'controller')
+    report['controller_cadence'] = controller_cadence.report()
+    report['cadence_scope'] = ('Bounded dual-clock controller progress and sampler first/last/max-gap summaries; '
+                               'pending pacing checks do not reset completed-burst progress. '
+                               'Backward clock adjustments or either clock exceeding the configured gap fail closed.')
     report['configuration'] = {key: str(value) if isinstance(value, Path) else value for key, value in report['configuration'].items()}
     report['interpretation'] = (
         'Bounded local HTTP/SQLite deployment exercise with graceful process restarts, not uptime certification '
         'or proof of crash/high-availability behavior. SQLite shards rotate before the all-rows GET output cap. '
         'Independent expected records and unique email keys reconcile transport retries; not exactly-once delivery.')
     save(workspace / 'manifest.json', report); save(args.report, report)
-    started = time.monotonic(); until = started + args.duration_seconds
+    started = None
     statuses = report['post_status_counts']; transports = report['transport_errors']; counts = report['counts']
     attempt_ms = []; logical_ms = []; service = None; shard = -1; expected = {}; folder = None; index = 0
-    next_restart = next_health = next_contention = next_save = next_burst = started
-    oracle = sqlite3.connect(workspace / 'independent-oracle.sqlite')
-    oracle.execute('CREATE TABLE expected(shard INTEGER, email TEXT PRIMARY KEY, name TEXT NOT NULL)')
+    oracle = None
     baseline_threads = threading.active_count()
     print('Deployment run PID %d; frozen binary %s; report %s' % (os.getpid(), hashes[next(iter(hashes))], args.report), flush=True)
     def persist(enforce_budget=True):
-        report.update(elapsed_seconds=time.monotonic()-started, logical_contact_latency_ms=percentiles(logical_ms),
+        report['controller_cadence'] = controller_cadence.report()
+        report.update(elapsed_seconds=elapsed_since(started), logical_contact_latency_ms=percentiles(logical_ms),
                       post_attempt_latency_ms=percentiles(attempt_ms), active_host_pid=service.process.pid if service else None)
         observation = dict(workspace_bytes=workspace_bytes(workspace), report_bytes=0)
         report['storage_observation'] = observation
@@ -483,15 +588,24 @@ def main(args):
         nonlocal service
         if service:
             stopping, service = service, None
-            summary = stopping.close(); summary['epoch_seconds'] = time.monotonic() - host_started
+            summary = stopping.close(); summary['epoch_seconds'] = elapsed_since(host_started)
             summary['shard'] = shard; report['hosts'].append(summary)
             counts['hosts_cleanly_stopped'] += 1
-            resource_gate(summary, resource_limits, args.workers)
+            resource_gate(summary, resource_limits, args.workers, max_gap_seconds=args.max_gap_seconds)
     try:
         check_stop_file(stop_file)
+        controller_cadence.checkpoint()
+        started = controller_cadence.report()['first_monotonic']
+        until = started + args.duration_seconds
+        require(finite_number(until), 'deployment clock deadline is nonfinite')
+        next_restart = next_health = next_contention = next_save = next_burst = started
+        oracle = sqlite3.connect(workspace / 'independent-oracle.sqlite')
+        oracle.execute('CREATE TABLE expected(shard INTEGER, email TEXT PRIMARY KEY, name TEXT NOT NULL)')
+        controller_cadence.pending()
         with ThreadPoolExecutor(max_workers=args.clients) as pool:
             while time.monotonic() < until:
                 check_stop_file(stop_file)
+                controller_cadence.pending()
                 now = time.monotonic()
                 rotate = service is None or len(expected) + args.burst > args.shard_contacts
                 restart = now >= next_restart
@@ -507,7 +621,7 @@ def main(args):
                         expected = {}
                     host_started = time.monotonic()
                     service = Service(frozen, folder / 'contacts.sprout', binary, args.workers,
-                                      workspace / ('host-%04d-metrics.json' % counts['hosts_started']))
+                                      workspace / ('host-%04d-metrics.json' % counts['hosts_started']), args.max_gap_seconds)
                     counts['hosts_started'] += 1
                     status, body = service.request('GET', '/health'); require(status == 200 and json.loads(body)['ok'], 'new host health failed')
                     verify(service, folder, expected); counts['oracle_checks'] += 1
@@ -537,6 +651,7 @@ def main(args):
                     attempt_ms.extend(result['attempt_ms']); logical_ms.append(result['logical_ms'])
                     counts['ambiguous_commits'] += int(result['ambiguous']); counts['contacts'] += 1
                 counts['bursts'] += 1
+                controller_cadence.checkpoint()
                 check_stop_file(stop_file)
                 if counts['bursts'] % 15 == 0:
                     verify(service, folder, expected); counts['oracle_checks'] += 1
@@ -549,9 +664,10 @@ def main(args):
                     print('Elapsed %.1f s / contacts %d / hosts %d / errors %d' %
                           (time.monotonic()-started, counts['contacts'], counts['hosts_started'], len(report['errors'])), flush=True)
                 next_burst = max(next_burst + len(values) / args.rate, time.monotonic())
-                pause_until(min(next_burst, until), stop_file)
+                pause_until(min(next_burst, until), stop_file, controller_cadence)
             check_stop_file(stop_file)
-            report['traffic_duration_seconds'] = time.monotonic() - started
+            controller_cadence.pending()
+            report['traffic_duration_seconds'] = controller_cadence.report()['last_observed_monotonic'] - started
             verify(service, folder, expected); counts['oracle_checks'] += 1
             stop_host()
             report['shards'].append(dict(shard=shard, verified_contacts=len(expected), integrity='ok'))
@@ -561,6 +677,8 @@ def main(args):
         require(all(sha(frozen / relative) == value for relative, value in hashes.items()), 'frozen input changed during run')
         report['frozen_inputs_unchanged'] = True
         check_stop_file(stop_file)
+        controller_cadence.checkpoint()
+        report['controller_cadence'] = controller_cadence.report()
         report['workload_completed'] = True
         completion_gate(report)
         persist()
@@ -581,7 +699,8 @@ def main(args):
         if service:
             try: stop_host()
             except Exception as error: report['errors'].append(dict(type=type(error).__name__, message=str(error)))
-        oracle.close()
+        if oracle is not None:
+            oracle.close()
         report['state'] = 'interrupted' if report.get('stop_requested') else 'finished'
         report['passed'] = not report['errors']
         # Preserve the failed report even if a budget check triggered the stop.
@@ -596,9 +715,12 @@ def arguments():
         sys.argv.pop(1)
         for name in ('sdk', 'program', 'binary', 'metrics'): parser.add_argument('--' + name, required=True)
         parser.add_argument('--workers', type=int, required=True)
+        parser.add_argument('--max-gap-seconds', type=float, required=True)
         return host(parser.parse_args())
     parser.add_argument('binary', type=Path)
     parser.add_argument('--duration-seconds', type=float, default=1800)
+    parser.add_argument('--max-gap-seconds', type=float, default=60,
+                        help='Fail on longer controller progress or sampler gaps in either monotonic or wall time. Planned pacing must fit this finite positive limit.')
     parser.add_argument('--rate', type=float, default=4, help='Target new contacts/sec; bursts and restart/check overhead may reduce actual rate.')
     parser.add_argument('--clients', type=int, default=8)
     parser.add_argument('--workers', type=int, default=4)

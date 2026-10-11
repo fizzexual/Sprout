@@ -5,6 +5,8 @@ frozen native interpreter, Python SDK, HTTP host, contacts app and harness. Each
 input is copied into a new workspace and hashed before traffic starts; the final
 success gate verifies those copies again. A running report has `passed: null`;
 only a finished report with `passed: true` represents completed evidence.
+Older frozen harnesses also need an independent coverage review: elapsed time
+alone does not establish that traffic continued throughout the requested run.
 
 ## Method
 
@@ -63,6 +65,33 @@ separately and excluded from those latency distributions. Failure reports and
 databases are retained; a failed invariant exits nonzero. The current harness
 uses `perf_counter` for latency and records its implementation and resolution.
 
+Future-run cadence evidence uses both `monotonic` and wall-clock `time` readings.
+The controller keeps an initial progress point, observes completed bursts, and
+checks the pending gap during pacing and before final completion. Pacing polls
+do not reset the last completed burst. Each host observes sampler captures,
+including the final shutdown capture. The report retains only checkpoint counts,
+first/last readings, last observed readings and maximum gaps for each clock;
+it does not retain an ever-growing timestamp array.
+The traffic start and deadline are anchored to that initial checkpoint before
+opening the expected-data oracle, so a long setup pause also fails the guard.
+
+`--max-gap-seconds` defaults to 60 seconds and must be finite and positive.
+Either clock exceeding this controller progress or sampler gap, missing or
+nonfinite readings, and backward clocks fail the run. The default leaves room
+for legitimate combined restart, startup and request budgets; it is a test
+coverage policy, not a service latency SLA. Planned `--burst / --rate` pacing
+must fit the configured gap. Slower intentional traffic requires an explicitly
+larger limit, which changes the scope of the evidence. Polling checks pending
+gaps at most every 250 ms while pacing; blocking operations are checked at their
+next progress boundary.
+
+Checking wall time alongside monotonic time detects suspension when a platform's
+monotonic clock omits time asleep. This is deliberately conservative: a backward
+wall-clock adjustment, or a forward adjustment large enough to exceed the gap,
+also disqualifies the run even if the application remained healthy. These
+observations bound recorded progress gaps; they do not establish uninterrupted
+request traffic, capture every native resource peak or certify uptime.
+
 ## Run it
 
 Use a new workspace for every run. Nothing is exposed beyond loopback, and the
@@ -111,10 +140,20 @@ FD counts. Default sampled host RSS is capped at 128 MiB, retained RSS growth at
 with retained growth of 32. These configurable ceilings are deliberately above
 the observed fixture measurements; they are test limits, not product memory
 guarantees. Maximum observed native worker concurrency must fit `--workers`.
-Fifteen independent reporting/resource/deadline/storage/control regressions include interruption,
+Twenty-nine independent reporting/resource/deadline/storage/control regressions include interruption,
 missing measurements, exceeded ceilings, incomplete duration, timeout clamping
 and rejection of a late successful response, preexisting stop controls that
 prevent host launch, inaccessible controls and cancellation during pacing.
+Cadence regressions include a real SQLite oracle with bounded fake clocks and
+transport: the older frozen harness passes an eight-hour request after one
+eight-contact burst when the first pacing sleep advances by 28,801 seconds;
+the new harness rejects the identical workload specifically for its controller
+gap, with valid sampler telemetry and owned cleanup. A wall-only jump also
+fails, while normal paced bursts and 45-second operations pass. Separate tests
+cover backward clocks, missing/nonfinite readings, final sampler coverage and
+JSON reports that contain no NaN or Infinity after a clock failure.
+Actual controller-path fixtures check excessive and healthy oracle setup and
+an explicitly enlarged limit for intentionally slow pacing.
 The Windows sampler caches its
 ctypes API and structure once; a regression checks that repeated sampling does
 not retain new pointer types.
@@ -243,6 +282,11 @@ compared with the Git blobs of the full `86ab3b4` commit. The workspace is
 `D:/Codex/Kestrel/work/deployment-86ab3b4-8h-20261011`; its running report remains
 private at `D:/Codex/Kestrel/work/deployment-86ab3b4-8h-20261011.json`. A dedicated
 `STOP` control path can interrupt it without changing frozen source files.
+Its frozen harness predates the dual-clock cadence guard. It continues unchanged
+and requires a separate final audit of traffic volume, probe counts, epoch
+durations and sample coverage before any completed evidence is published.
+Aggregate metrics can disqualify gross gaps but cannot reconstruct the largest
+traffic gap; this run cannot be described as passing the newer cadence gate.
 
 | Frozen input | SHA256 |
 | --- | --- |

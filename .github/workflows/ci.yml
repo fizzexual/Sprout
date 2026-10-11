@@ -94,6 +94,7 @@ jobs:
           python tools/soak.py "$SPROUT_BINARY" --cycles 5 --report "$RUNNER_TEMP/soak.json"
           python tools/service_load.py "$SPROUT_BINARY" --contacts 100 --report "$RUNNER_TEMP/service-load.json"
           python src/tests/deployment_harness_test.py
+          python src/tests/deployment_coverage_test.py
           python tools/deployment_soak.py "$SPROUT_BINARY" --duration-seconds 8 --restart-seconds 3 --contention-seconds 3 --rate 4 --workspace "$RUNNER_TEMP/deployment-smoke" --report "$RUNNER_TEMP/deployment-smoke.json" --label ci-smoke
 
       - name: Set up Go

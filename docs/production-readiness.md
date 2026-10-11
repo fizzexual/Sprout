@@ -45,7 +45,19 @@ and Paper with the patched Jackson dependency. Its native/Python/harness sources
 match the preceding `86ab3b4` service candidate, whose
 [full CI](https://github.com/fizzexual/Sprout/actions/runs/38171134448) also passed.
 The frozen HTTP/SQLite run retains the separately recorded native/Python inputs.
-Subsequent evidence-only documentation commits do not change these tested inputs.
+Evidence-only documentation commits do not change these tested inputs. The
+separate cadence and coverage changes below require fresh candidate CI; they
+do not change the native interpreter or Python service/SDK sources.
+
+A later evidence review reproduced a false pass in the frozen deployment
+harness: advancing the clock by eight hours after one burst could satisfy its
+duration check with only eight contacts. This finding concerns the test evidence,
+not a reproduced service failure. The active frozen run remains unchanged. Its
+completion will require a separate [aggregate coverage audit](deployment-coverage.md)
+under thresholds declared before the run finishes; the original `passed` field
+alone is insufficient. Future harness runs record bounded controller and sampler
+gaps in both monotonic and wall time and reject clock reversals or nonfinite
+readings. The existing frozen run cannot establish a maximum traffic gap.
 
 The review reproduced these issues and verified their fixes:
 
@@ -63,6 +75,8 @@ The review reproduced these issues and verified their fixes:
 | Service binding waits on reverse DNS before reporting readiness | Bind using the literal address and retain an actual health/startup probe | Updated Windows suite: 42 tests, one platform skip; focused Linux checks and actual macOS CI service/startup/workload checks passed |
 | Release workflow omits newer contract gates | Fail closed on contract failures and publish checksums and provenance | Workflow and thirteen manifest regressions passed locally, including exact installer payload; no release published |
 | Development tags can become a stable Latest release | Mark prerelease tags as prereleases and prevent Latest publication | Workflow classification checked for stable, prerelease and build-metadata tags; no release published |
+| Elapsed time can falsely satisfy a sustained-run gate | Record bounded dual-clock controller/sampler progress from setup through cleanup | 29 focused local harness regressions passed; fresh candidate CI pending |
+| Short host epochs can evade per-epoch sampling coverage | Require predeclared aggregate traffic, host-time and sample coverage, with exact lifecycle/data accounting | Separate fixed-profile auditor and focused regressions; fresh candidate CI pending |
 
 This is an independent agent review of other agents' code, not an external
 professional audit. Sanitizer results and checks are reported for the exact
@@ -75,6 +89,9 @@ jobs that ran. A crash must never count as an expected input rejection.
 - Immutable sustained-run reports record build/source/host hashes, duration,
   exact data oracles, contention and restart recovery, process exits and resource
   samples. Missing required platform metrics and exhausted retries fail the run.
+  Duration must be supported by workload and sampling coverage. The existing
+  frozen eight-hour profile additionally requires its separate predeclared
+  aggregate qualification; newer runs require recorded controller/sampler gaps.
 - Security findings have reproductions, fixes and regression evidence. Known
   deployment limits are documented, including descendant cleanup, memory
   boundaries, host authentication, data-file concurrency and filesystem behavior.
