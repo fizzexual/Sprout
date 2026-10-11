@@ -62,6 +62,15 @@ alone is insufficient. Future harness runs record bounded controller and sampler
 gaps in both monotonic and wall time and reject clock reversals or nonfinite
 readings. The existing frozen run cannot establish a maximum traffic gap.
 
+The October 12 operational review reproduced data loss when an existing store
+could not be read, a leaked Python worker after I/O thread startup failed, and
+a deployment mismatch where Compose fetched moving `main` sources while CI
+tested a local image. The fixes fail closed on store read errors, clean up
+partially started workers, and build the checkout through the actual loopback
+Compose configuration. Focused native, Python and container checks passed;
+fresh integrated candidate CI is pending. The frozen `86ab3b4` eight-hour run
+continues unchanged and cannot be attributed to these newer native/SDK fixes.
+
 The review reproduced these issues and verified their fixes:
 
 | Issue | Required behavior | State |
@@ -80,6 +89,9 @@ The review reproduced these issues and verified their fixes:
 | Development tags can become a stable Latest release | Mark prerelease tags as prereleases and prevent Latest publication | Workflow classification checked for stable, prerelease and build-metadata tags; no release published |
 | Elapsed time can falsely satisfy a sustained-run gate | Record bounded dual-clock controller/sampler progress from setup through cleanup | 29 focused local harness regressions, real native smoke and fresh cross-platform CI passed |
 | Short host epochs can evade per-epoch sampling coverage | Require predeclared aggregate traffic, host-time and sample coverage, with exact lifecycle/data accounting | Auditor v2: 17 focused tests, one local Windows symlink skip; Linux and fresh cross-platform CI passed |
+| An unreadable store is treated as empty and overwritten | Only an absent-path open initializes empty; later read errors preserve bytes and raise `io` | Publication and portable read/seek/close fault regressions passed on Windows/Linux; integrated CI pending |
+| Python cannot start I/O threads after launching a worker | Reap the owned worker, close available pipes, preserve interrupts and recover | Five lifecycle regressions and 47 combined Windows checks, one POSIX skip; integrated CI pending |
+| Compose deploys different source and exposes all interfaces | Build the reviewed checkout, publish loopback, and exercise shipped Compose in CI | Actual local Compose limits, output/recovery/cleanup checks passed; integrated CI pending |
 
 This is an independent agent review of other agents' code, not an external
 professional audit. Sanitizer results and checks are reported for the exact
@@ -95,6 +107,8 @@ jobs that ran. A crash must never count as an expected input rejection.
   Duration must be supported by workload and sampling coverage. The existing
   frozen eight-hour profile additionally requires its separate predeclared
   aggregate qualification; newer runs require recorded controller/sampler gaps.
+  If native or SDK source changes during a frozen run, retain that result under
+  its original hashes and collect separate evidence for the changed candidate.
 - Security findings have reproductions, fixes and regression evidence. Known
   deployment limits are documented, including descendant cleanup, memory
   boundaries, host authentication, data-file concurrency and filesystem behavior.

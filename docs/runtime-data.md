@@ -50,7 +50,11 @@ previews, task stack and sequence. Previews do not call user formatting tasks.
 Recording stops after 5,000 events or approximately 2 MiB; execution continues.
 The playground presents this as recorded playback, with a lower UI trace cap.
 
-Persistence saves use temporary files, flush, and atomic replacement. Invalid
-`sprout.data.json` raises a data error and preserves the original and a backup.
+Persistence saves use temporary files, flush, and atomic replacement. Only an
+absent `sprout.data.json` initializes an empty store. Open/read/seek/close errors
+raise an I/O error and preserve the existing file; a failed read after opening
+cannot be classified as absence. Invalid JSON raises a data error and preserves
+the original; writing a separate backup is best effort and can fail if the
+directory is unwritable.
 Exact types and binary values survive recall. Atomic replacement prevents partial
 JSON; the key/value store does not provide concurrent transaction isolation.

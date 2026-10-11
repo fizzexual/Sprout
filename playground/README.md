@@ -28,28 +28,31 @@ timeout and an output cap; they differ only in isolation between submissions.
 
 ## The web playground (`docker compose up`)
 
-Copy [`docker-compose.yml`](../docker-compose.yml) into **any empty folder** and run:
+From a reviewed repository checkout containing
+[`docker-compose.yml`](../docker-compose.yml), run:
 
 ```sh
 docker compose up --build
 # then open http://localhost:8080
 ```
 
-That's it — you don't need to clone the repo. The compose file is self-contained: it
-downloads the Sprout source from GitHub and builds the image itself (it uses a
-`dockerfile_inline:` build, so the one YAML file is all you need). A sandboxed editor with
-a Run button comes up at `http://localhost:8080`.
+Compose builds the checkout's interpreter, vendored SQLite, runner and web server
+together using `playground/Dockerfile.web`. Pin and record the source revision
+before deployment; the build no longer downloads moving `main` source files.
+The default published port binds `127.0.0.1`, so the editor is reachable locally
+at `http://localhost:8080`. An external listener needs an explicit operator
+decision and an authenticated TLS proxy.
+
+If you previously copied only the Compose file into an empty directory, migrate
+to a complete pinned checkout. The one-file remote-source build is removed.
+Base image tags remain mutable; this source change alone does not establish
+reproducible builds, image signing or production certification.
 
 Under the hood `docker-compose.yml` applies the full hardening (non-root, read-only root +
 `tmpfs`, `--cap-drop ALL`, `no-new-privileges`, memory/CPU/pids limits); a tiny
 dependency-free Python server (`server.py`) accepts code on `POST /run` and hands each
 submission to the **same** runner (`run.sh`) used below. Output is capped, runs time out,
 and at most `SPROUT_MAX_CONCURRENT` run at once (excess requests get HTTP 429).
-
-> **Building from a local checkout instead?** If you're developing Sprout and want the
-> playground to run your working copy, replace the `dockerfile_inline:` block in
-> `docker-compose.yml` with a single line — `dockerfile: playground/Dockerfile.web` — and
-> run `docker compose up --build` from the repo root.
 
 > **Shared-container trade-off:** submissions share one container, so isolation *between*
 > submissions is weaker than the per-submission model below. It's still safe for the code

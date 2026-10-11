@@ -25,6 +25,10 @@ Sprout text. Duplicate decoded keys and non-finite numbers are rejected.
 
 `run` caps streamed stdout/stderr, stdin, interpreter steps, runtime deadline,
 and host deadline. Pass a `threading.Event` as `cancel` for cancellation.
+If local thread/task capacity prevents an I/O thread from starting after launch,
+the SDK terminates and reaps the owned worker, closes available pipes, and raises
+`SproutError` with code `io`. Thread objects are prepared before launch. An
+initialization interrupt performs cleanup and retains its interrupt semantics.
 `SproutError.code` distinguishes runtime, protocol, cancellation and limit
 failures; `stderr` is retained within its configured cap.
 Input encoding counts compact UTF-8 JSON bytes before expanding further shared

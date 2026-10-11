@@ -247,6 +247,24 @@ def _positive(value, name, maximum=2**31-1):
     return value
 
 
+def _stop_child(child):
+    if os.name != "nt":
+        try:
+            os.killpg(child.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    elif child.poll() is None:
+        # Native process operations additionally own Windows kill-on-close jobs.
+        try:
+            subprocess.run(["taskkill", "/PID", str(child.pid), "/T", "/F"],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           timeout=2, creationflags=subprocess.CREATE_NO_WINDOW)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    if child.poll() is None:
+        child.kill()
+
+
 def run(program, input_value, *, command="sprout", cwd=None, sandbox=True,
         timeout_ms=5000, runtime_timeout_ms=4000, max_steps=100000,
         max_input_bytes=1048576, max_output_bytes=1048576, max_error_bytes=65536,
@@ -274,13 +292,7 @@ def run(program, input_value, *, command="sprout", cwd=None, sandbox=True,
             "--timeout-ms", str(runtime_timeout_ms)]
     if sandbox:
         args.append("--sandbox")
-    try:
-        child = subprocess.Popen(args, cwd=str(cwd or filename.parent), stdin=subprocess.PIPE,
-                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                 start_new_session=os.name != "nt",
-                                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
-    except OSError as error:
-        raise SproutError(f"Could not start Sprout: {error}", "spawn") from error
+    # Prepare state and thread objects before launching the owned worker.
     chunks = [bytearray(), bytearray()]
     failed = threading.Event()
     errors = []
@@ -292,7 +304,8 @@ def run(program, input_value, *, command="sprout", cwd=None, sandbox=True,
                 errors.append((message, code))
                 failed.set()
 
-    def read(stream, index, maximum):
+    def read(index, maximum):
+        stream = child.stdout if index == 0 else child.stderr
         try:
             while True:
                 chunk = stream.read1(4096)
@@ -318,11 +331,45 @@ def run(program, input_value, *, command="sprout", cwd=None, sandbox=True,
             except OSError:
                 pass
 
-    readers = [threading.Thread(target=read, args=(child.stdout, 0, max_output_bytes), daemon=True),
-               threading.Thread(target=read, args=(child.stderr, 1, max_error_bytes), daemon=True)]
+    readers = [threading.Thread(target=read, args=(0, max_output_bytes), daemon=True),
+               threading.Thread(target=read, args=(1, max_error_bytes), daemon=True)]
     writer = threading.Thread(target=write, daemon=True)
-    for thread in readers + [writer]:
-        thread.start()
+    threads = readers + [writer]
+    try:
+        child = subprocess.Popen(args, cwd=str(cwd or filename.parent), stdin=subprocess.PIPE,
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                 start_new_session=os.name != "nt",
+                                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+    except OSError as error:
+        raise SproutError(f"Could not start Sprout: {error}", "spawn") from error
+    try:
+        for thread in threads:
+            thread.start()
+    except BaseException as error:
+        # OS thread/task exhaustion can happen after any start. Cleanup must
+        # also cover this path, before the ordinary deadline loop exists.
+        _stop_child(child)
+        try:
+            child.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            child.kill()
+            child.wait(timeout=2)
+        for thread in threads:
+            if thread.ident is not None:
+                thread.join(timeout=.5)
+        for stream, thread in ((child.stdout, readers[0]), (child.stderr, readers[1]), (child.stdin, writer)):
+            # A detached/external pipe owner may keep an I/O thread blocked.
+            # Closing its buffered stream here would wait for that thread's
+            # internal lock indefinitely; its own finally block owns closure.
+            if thread.is_alive():
+                continue
+            try:
+                stream.close()
+            except OSError:
+                pass
+        if isinstance(error, Exception):
+            raise SproutError("Could not start Sprout I/O threads", "io") from error
+        raise
     deadline = time.monotonic() + timeout_ms / 1000
     while child.poll() is None or any(t.is_alive() for t in readers):
         if cancel and cancel.is_set():
@@ -330,21 +377,7 @@ def run(program, input_value, *, command="sprout", cwd=None, sandbox=True,
         if time.monotonic() >= deadline:
             fail("Sprout request exceeded its host deadline", "timeout")
         if failed.is_set():
-            if os.name != "nt":
-                try:
-                    os.killpg(child.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-            elif child.poll() is None:
-                # Native process operations additionally own Windows kill-on-close jobs.
-                try:
-                    subprocess.run(["taskkill", "/PID", str(child.pid), "/T", "/F"],
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                   timeout=2, creationflags=subprocess.CREATE_NO_WINDOW)
-                except (OSError, subprocess.TimeoutExpired):
-                    pass
-            if child.poll() is None:
-                child.kill()
+            _stop_child(child)
             break
         failed.wait(.01)
     try:

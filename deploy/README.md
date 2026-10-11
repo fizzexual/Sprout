@@ -49,6 +49,21 @@ or account system. TLS and access rules come from the proxy's
 [authentication](https://nginx.org/en/docs/http/ngx_http_auth_basic_module.html),
 and [proxy](https://nginx.org/en/docs/http/ngx_http_proxy_module.html) contracts.
 
+Loopback binding is not authentication. Other local clients with network access
+can reach the bridge directly and bypass the proxy's credentials. This private
+operator profile requires trusted local clients or enforced OS/network isolation
+that restricts direct upstream access.
+
+The nginx body-read and client-send timeouts are inactivity intervals between
+I/O operations, not total upload/download deadlines. A client that keeps making
+progress can remain connected longer. With request buffering enabled, the
+bridge's two-second request-read deadline starts when nginx forwards the
+buffered request; it does not cover the earlier client upload. The proxy's
+connection/descriptor, temporary-storage and authentication limits therefore
+need their own operator monitoring and capacity policy. See nginx's
+[body-read timeout](https://nginx.org/en/docs/http/ngx_http_core_module.html#client_body_timeout)
+and [client-send timeout](https://nginx.org/en/docs/http/ngx_http_core_module.html#send_timeout).
+
 `/health` is liveness: it responds without running the program or checking its
 database. Before promotion and after restart, run an authenticated application
 read such as `/contacts` and verify its schema, then execute the deployment's

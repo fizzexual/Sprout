@@ -1744,15 +1744,31 @@ static void fail_map_key(int line, Value mapval, const char *key, const char *su
 /* ---- helpers for the "superpower" builtins: files, shell, web, json, text ---- */
 
 static char *read_whole_file(const char *path) {
+  errno = 0;
   FILE *f = fopen(path, "rb");
   if (!f) return NULL;
-  if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return NULL; }
-  long sz = ftell(f);
-  if (sz < 0) { fclose(f); return NULL; }       /* not a normal seekable file (e.g. a directory) */
-  fseek(f, 0, SEEK_SET);
-  char *buf = (char *)malloc(sz + 1);
-  if (!buf) { fclose(f); return NULL; }
-  size_t got = fread(buf, 1, sz, f); buf[got] = 0; fclose(f);
+  int error = 0; long sz = -1; char *buf = NULL;
+  if (fseek(f, 0, SEEK_END) != 0) error = errno ? errno : EIO;
+  if (!error) {
+    errno = 0; sz = ftell(f);
+    if (sz < 0) error = errno ? errno : EIO;
+  }
+  if (!error) {
+    errno = 0;
+    if (fseek(f, 0, SEEK_SET) != 0) error = errno ? errno : EIO;
+  }
+  if (!error) {
+    if ((uintmax_t)sz > (uintmax_t)SIZE_MAX - 1) error = EFBIG;
+    else if (!(buf = (char *)malloc((size_t)sz + 1))) error = ENOMEM;
+  }
+  if (!error) {
+    errno = 0; size_t got = fread(buf, 1, (size_t)sz, f);
+    if (got != (size_t)sz || ferror(f)) error = errno ? errno : EIO;
+    else buf[got] = 0;
+  }
+  if (fclose(f) != 0 && !error) error = errno ? errno : EIO;
+  /* Once opening succeeded, a later failure cannot mean the store is absent. */
+  if (error) { free(buf); errno = error == ENOENT ? EIO : error; return NULL; }
   return buf;
 }
 
@@ -2104,7 +2120,11 @@ static Value restore_exact_json(Value v, int depth) {
 static int runtime_atomic_write(const char *path, const char *text);
 static SMap *store_load(void) {
   char *txt = read_whole_file(SPROUT_STORE);
-  if (!txt) return map_new();
+  if (!txt) {
+    if (errno == ENOENT) return map_new();
+    fail_kind(0, "io", "I couldn't read sprout.data.json; the existing store was not replaced.");
+    return NULL;
+  }
   Value v = parse_json(txt);
   if (v.type == V_MAP && v.map) { free(txt); return restore_exact_json(v, 0).map; }
   /* the file exists but won't parse: keep a backup before starting fresh, so we never silently lose data */

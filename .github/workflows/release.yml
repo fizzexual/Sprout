@@ -61,6 +61,8 @@ jobs:
           python src/tests/distribution_test.py "$bin"
           python src/tests/security_boundary_test.py "$bin"
           python src/tests/serialization_test.py "$bin"
+          python src/tests/store_publication_test.py "$bin"
+          python src/tests/store_read_fault_test.py
           python src/tests/runtime_production_test.py "$bin"
           python src/tests/sqlite_migrations_test.py "$bin"
           python src/tests/workflow_tools_test.py "$bin"
