@@ -3,6 +3,7 @@ import argparse
 import http.server
 import json
 import socket
+import signal
 import threading
 from pathlib import Path
 from urllib.parse import urlsplit, parse_qs
@@ -10,15 +11,21 @@ from sprout_host import run, encode, decode, SproutError
 
 
 class SproutServer(http.server.ThreadingHTTPServer):
-    daemon_threads = True
+    # Wait for bounded in-flight handlers when the listener closes. Otherwise
+    # service shutdown can abandon workers after an already accepted request.
+    daemon_threads = False
+    block_on_close = True
     request_queue_size = 32
     def __init__(self, address, program, *, command="sprout", workers=8, allow_io=False,
-                 timeout_ms=5000, max_body=65536):
+                 timeout_ms=5000, max_body=65536, cwd=None):
         for value, label, maximum in ((workers, 'workers', 64), (max_body, 'body limit', 1048576),
                                       (timeout_ms, 'timeout_ms', 3600000)):
             if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= maximum:
                 raise ValueError(f'{label} must be an integer from 1 to {maximum}')
         self.program = Path(program).resolve()
+        self.working_dir = self.program.parent if cwd is None else Path(cwd).resolve()
+        if not self.working_dir.is_dir():
+            raise ValueError('working directory must be an existing directory')
         self.command, self.allow_io = command, allow_io
         self.timeout_ms, self.max_body = timeout_ms, max_body
         self.capacity = threading.BoundedSemaphore(workers)
@@ -113,6 +120,7 @@ class SproutHandler(http.server.BaseHTTPRequestHandler):
             self.respond(413, {"error": "request too large"}); return
         try:
             response = run(self.server.program, request, command=self.server.command,
+                           cwd=self.server.working_dir,
                            sandbox=not self.server.allow_io, timeout_ms=self.server.timeout_ms,
                            runtime_timeout_ms=max(1, self.server.timeout_ms - 250))
             if not isinstance(response, dict):
@@ -142,14 +150,27 @@ def main():
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--timeout-ms", type=int, default=5000)
+    parser.add_argument("--max-body", type=int, default=65536)
+    parser.add_argument("--cwd", help="Existing writable state directory; defaults to the program's directory")
     parser.add_argument("--allow-io", action="store_true")
     args = parser.parse_args()
     with SproutServer((args.host, args.port), args.program, command=args.command,
-                      workers=args.workers, allow_io=args.allow_io) as server:
+                      workers=args.workers, allow_io=args.allow_io,
+                      timeout_ms=args.timeout_ms, max_body=args.max_body, cwd=args.cwd) as server:
         print(f"Sprout worker service at http://{args.host}:{server.server_port}", flush=True)
+        stopping = threading.Event()
+        def stop(_signal, _frame):
+            if not stopping.is_set():
+                stopping.set()
+                # shutdown waits for serve_forever and must run on another thread.
+                threading.Thread(target=server.shutdown, daemon=True).start()
+        previous = signal.signal(signal.SIGTERM, stop)
         try:
             server.serve_forever()
         except KeyboardInterrupt:
             pass
+        finally:
+            signal.signal(signal.SIGTERM, previous)
 
 if __name__ == "__main__": main()

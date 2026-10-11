@@ -1,13 +1,27 @@
 name: Release
 
-# Push a version tag to cut a release:  git tag v0.1.15 && git push origin v0.1.15
+# A version tag must match the compiled interpreter version exactly.
 # This builds Sprout on Linux, macOS and Windows, runs the test suite on each, and publishes a
 # GitHub Release with all three binaries attached (plus auto-generated notes).
 on:
   push:
     tags: ['v*']
 
+permissions:
+  contents: read
+concurrency:
+  group: sprout-release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  verification:
+    name: Full native, SDK, sanitizer and container verification
+    uses: ./.github/workflows/ci.yml
+
+  wasm-verification:
+    name: Actual WebAssembly verification
+    uses: ./.github/workflows/wasm-verify.yml
+
   build:
     name: build ${{ matrix.asset }}
     runs-on: ${{ matrix.os }}
@@ -32,24 +46,55 @@ jobs:
             cp "${{ matrix.asset }}" src/sprout
           fi
           "./${{ matrix.asset }}" version
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          binary = (Path.cwd() / '${{ matrix.asset }}').resolve()
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as env:
+              env.write(f'SPROUT_BINARY={binary}\nSPROUT_COMMAND={binary}\n')
+          PY
           bash src/tests/run.sh          # never ship a binary that fails its tests
-          bin="$PWD/${{ matrix.asset }}"
+          bin="$(python -c 'import os; from pathlib import Path; print((Path.cwd() / "${{ matrix.asset }}").resolve())')"
+          export SPROUT_BINARY="$bin" SPROUT_COMMAND="$bin"
+          python src/tests/cli_test.py "$bin"
           python src/tests/stdlib_production_test.py "$bin"
           python src/tests/distribution_test.py "$bin"
+          python src/tests/security_boundary_test.py "$bin"
+          python src/tests/serialization_test.py "$bin"
           python src/tests/runtime_production_test.py "$bin"
+          python src/tests/sqlite_migrations_test.py "$bin"
+          python src/tests/workflow_tools_test.py "$bin"
+          python src/tests/cli_library_test.py "$bin"
           python src/tests/ergonomics_test.py "$bin"
           python src/tests/embed_test.py "$bin"
+          python src/tests/release_manifest_test.py
+          python src/tests/deployment_harness_test.py
+          node --test integrations/node/tests/*.test.js
+          python tools/soak.py "$bin" --cycles 5 --report "$RUNNER_TEMP/release-soak.json"
+          python tools/service_load.py "$bin" --contacts 100 --report "$RUNNER_TEMP/release-service-load.json"
+          python tools/deployment_soak.py "$bin" --duration-seconds 8 --restart-seconds 3 --contention-seconds 3 --rate 4 --workspace "$RUNNER_TEMP/release-deployment-smoke" --report "$RUNNER_TEMP/release-deployment-smoke.json" --label release-smoke
           SPROUT_COMMAND="$bin" python -m unittest discover -s integrations/python -p 'test_*.py'
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.asset }}
-          path: ${{ matrix.asset }}
 
       - name: Build Windows installer
         if: runner.os == 'Windows'
         shell: cmd
         run: installer\build.cmd
+
+      - name: Record tested native assets and enforce matching version
+        shell: bash
+        run: |
+          compiler=cc; if [ "$RUNNER_OS" = "Windows" ]; then compiler=gcc; fi
+          args=(platform "${{ matrix.asset }}" --platform "$RUNNER_OS" --tag "$GITHUB_REF_NAME" --revision "$GITHUB_SHA" --compiler "$compiler")
+          if [ "$RUNNER_OS" = "Windows" ]; then args+=(--installer installer/sprout-installer.exe); fi
+          python tools/release_manifest.py "${args[@]}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: |
+            ${{ matrix.asset }}
+            ${{ matrix.asset }}.manifest.json
+          if-no-files-found: error
 
       - uses: actions/upload-artifact@v4
         if: runner.os == 'Windows'
@@ -60,15 +105,19 @@ jobs:
 
   release:
     name: publish release
-    needs: build
+    needs: [build, verification, wasm-verification]
     runs-on: ubuntu-latest
     permissions:
       contents: write                    # required to create the GitHub Release
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
+
+      - name: Validate all platform assets before publishing
+        run: python tools/release_manifest.py assemble dist --tag "$GITHUB_REF_NAME" --revision "$GITHUB_SHA"
 
       - name: Publish the release
         uses: softprops/action-gh-release@v2

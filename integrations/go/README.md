@@ -26,6 +26,15 @@ must be absolute. Requests are at most 1 MiB of JSON; output is validated JSON.
 Nonzero worker exits produce a `Failure` with status, diagnostics and exit code;
 timeouts/cancellation wrap Go context errors.
 
+The wire boundary accepts one JSON value with at most 128 nested containers,
+unique decoded object keys, finite numbers, and Unicode scalar text without NUL.
+One optional final LF or CRLF and horizontal whitespace are allowed; blank extra
+lines are rejected. Ordinary finite JSON numbers, including values beyond int64,
+remain `json.Number`. Plain Go request strings and keys are checked before
+serialization can replace invalid UTF-8. Custom `json.Marshaler` implementations
+own their transformations; their resulting wire bytes receive the same checks.
+`Result.Decode` also applies these checks before decoding a stored response.
+
 `Integer`, `Decimal`, and `Bytes` encode version 1 exact-value tags. Decode uses
 `json.Number`; tags stay explicit maps unless the application defines a custom
 decoder. Decimal arithmetic follows Sprout's signed 64-bit coefficient and

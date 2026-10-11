@@ -38,6 +38,14 @@ for hostile source or stronger tenant lifecycle control.
 status and exit code. Runtime deadlines may reach the worker first and produce
 a `SproutWorkerException` with the runtime diagnostic.
 
+Requests and responses require unique decoded object keys, finite JSON numbers,
+at most 128 nested containers, and Unicode scalar text without NUL. Plain string
+values and dictionary string keys are checked before the serializer can replace
+unpaired UTF-16 surrogates. Serialized wire data is checked again. One optional
+final LF or CRLF and horizontal whitespace are allowed; additional blank lines
+are protocol errors. Ordinary large finite JSON numbers remain ordinary numbers;
+the int64 contract applies to explicit exact-integer tags.
+
 Exact integers, decimals, and bytes use `SproutValues` to encode the version 1
 JSON tags. Returned tags remain explicit JSON objects. A Sprout decimal has a
 signed 64-bit coefficient and at most 18 fractional places, which is narrower

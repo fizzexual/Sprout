@@ -20,11 +20,20 @@ The boundary permits at most 128 nested wire containers, including exact-value
 tag maps. Excessive nesting and malformed exact tags are rejected before launch
 or reported as protocol errors. The service validates the complete request
 envelope against its encoded input limit before creating a worker.
+Strings and keys must be Unicode scalar text without NUL, matching native
+Sprout text. Duplicate decoded keys and non-finite numbers are rejected.
 
 `run` caps streamed stdout/stderr, stdin, interpreter steps, runtime deadline,
 and host deadline. Pass a `threading.Event` as `cancel` for cancellation.
 `SproutError.code` distinguishes runtime, protocol, cancellation and limit
 failures; `stderr` is retained within its configured cap.
+Input encoding counts compact UTF-8 JSON bytes before expanding further shared
+collections or creating binary hex text. `max_input_bytes` includes the final
+newline and is clamped to the native reader's 1 MiB limit. An already-set cancel
+event is checked before input traversal. Standalone `encode(value)` keeps its
+existing behavior; `encode(value, max_bytes=N)` optionally applies the same
+encoded-size budget without a line terminator. These caps do not provide an OS
+memory limit or interrupt arbitrary Python methods supplied by the application.
 
 Sandbox mode defaults to enabled. Trusted applications that import files or
 use native libraries can set `sandbox=False`; use a restricted OS identity or
@@ -43,3 +52,12 @@ uses prepared parameters and a 250 ms database wait: a duplicate email returns
 409, while schema, busy, and storage failures return 503 and can recover on a
 later request. Deploy the bridge behind your application's HTTP/TLS and
 authentication layer.
+
+The CLI accepts `--workers`, `--timeout-ms` and `--max-body`; defaults are 8,
+5000 ms and 65536 bytes. Use `--cwd /var/lib/sprout` to place relative application
+data in an existing writable directory while keeping the source immutable.
+Without `--cwd`, the worker uses the source file's directory.
+Listener shutdown waits for accepted handlers to finish
+within their configured worker/read limits. POSIX SIGTERM and Ctrl+C stop the
+listener and drain those requests; forced process termination does not promise
+graceful drain. `/health` reports listener liveness, not worker/database readiness.

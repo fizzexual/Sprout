@@ -135,7 +135,7 @@ static void runtime_trace(const char *event, Stmt *s, Env *env) {
     map_set(frame, "line", vnum(g_frames[i].line)); list_push(stack, vmap(frame));
   }
   map_set(m, "stack", vlist(stack));
-  char *text = value_to_json(vmap(m)); g_trace_bytes += strlen(text);
+  char *text = value_to_json_internal(vmap(m)); g_trace_bytes += strlen(text);
   fprintf(stderr, "@sprout-trace %s\n", text); free(text);
 }
 static int foundation_builtin_name(const char *name) {

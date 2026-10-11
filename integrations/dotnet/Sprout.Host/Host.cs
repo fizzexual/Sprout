@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Sprout.Host;
 
@@ -28,6 +29,7 @@ public sealed class WorkerHost
 {
     private readonly string executable;
     private readonly HostOptions options;
+    private static readonly JsonSerializerOptions RequestJson = CreateRequestOptions();
     public WorkerHost(string executable, HostOptions? options = null)
     {
         RequireAbsolute(executable, nameof(executable));
@@ -44,8 +46,10 @@ public sealed class WorkerHost
     {
         RequireAbsolute(program, nameof(program));
         cancellationToken.ThrowIfCancellationRequested();
-        var payload = JsonSerializer.Serialize(request);
+        var payload = JsonSerializer.Serialize(request, RequestJson);
         if (Encoding.UTF8.GetByteCount(payload) > 1_048_576) throw new ArgumentException("Request JSON exceeds 1 MiB.", nameof(request));
+        using (var document = JsonDocument.Parse(payload, new JsonDocumentOptions { MaxDepth = 128 }))
+            ValidateWireValue(document.RootElement);
         return Task.Run(() => Run(program, payload, cancellationToken), CancellationToken.None);
     }
     private WorkerResult Run(string program, string payload, CancellationToken token)
@@ -79,9 +83,10 @@ public sealed class WorkerHost
             try
             {
                 using var document = JsonDocument.Parse(Utf8Text(result.Output, result.OutputLength), new JsonDocumentOptions { MaxDepth = 128 });
+                ValidateWireValue(document.RootElement);
                 return new(document.RootElement.Clone(), diagnostics, result.ExitCode);
             }
-            catch (JsonException error) { throw new SproutWorkerException(6, result.ExitCode, result.SystemCode, $"Worker output is invalid JSON: {error.Message}", diagnostics); }
+            catch (Exception error) when (error is JsonException or InvalidOperationException) { throw new SproutWorkerException(6, result.ExitCode, result.SystemCode, $"Worker output is invalid JSON: {error.Message}", diagnostics); }
         }
         finally
         {
@@ -91,6 +96,58 @@ public sealed class WorkerHost
         }
     }
     private static string Utf8Text(IntPtr p, nuint length) => length == 0 ? "" : Marshal.PtrToStringUTF8(p, checked((int)length))!;
+    private static JsonSerializerOptions CreateRequestOptions()
+    {
+        var options = new JsonSerializerOptions { MaxDepth = 128 };
+        options.Converters.Add(new StrictTextConverter());
+        return options;
+    }
+    private sealed class StrictTextConverter : JsonConverter<string>
+    {
+        public override string? Read(ref Utf8JsonReader reader, Type type, JsonSerializerOptions options)
+        { var text = reader.GetString(); if (text is not null) ValidateWireText(text); return text; }
+        public override void Write(Utf8JsonWriter writer, string text, JsonSerializerOptions options)
+        { ValidateWireText(text); writer.WriteStringValue(text); }
+        public override void WriteAsPropertyName(Utf8JsonWriter writer, string text, JsonSerializerOptions options)
+        { ValidateWireText(text); writer.WritePropertyName(text); }
+    }
+    private static void ValidateWireValue(JsonElement value)
+    {
+        switch (value.ValueKind)
+        {
+            case JsonValueKind.Object:
+                var keys = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var property in value.EnumerateObject())
+                {
+                    ValidateWireText(property.Name);
+                    if (!keys.Add(property.Name)) throw new JsonException("Duplicate JSON object key.");
+                    ValidateWireValue(property.Value);
+                }
+                break;
+            case JsonValueKind.Array:
+                foreach (var item in value.EnumerateArray()) ValidateWireValue(item);
+                break;
+            case JsonValueKind.String:
+                ValidateWireText(value.GetString()!);
+                break;
+            case JsonValueKind.Number:
+                if (!value.TryGetDouble(out double number) || !double.IsFinite(number)) throw new JsonException("JSON number must be finite.");
+                break;
+        }
+    }
+    private static void ValidateWireText(string text)
+    {
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (c == '\0') throw new JsonException("Sprout JSON text cannot contain NUL.");
+            if (char.IsHighSurrogate(c))
+            {
+                if (++i >= text.Length || !char.IsLowSurrogate(text[i])) throw new JsonException("Unpaired JSON surrogate.");
+            }
+            else if (char.IsLowSurrogate(c)) throw new JsonException("Unpaired JSON surrogate.");
+        }
+    }
     private static void RequireAbsolute(string path, string name)
     {
         if (string.IsNullOrEmpty(path) || !Path.IsPathFullyQualified(path) || path.Contains('\0')) throw new ArgumentException("Path must be absolute and contain no NUL bytes.", name);

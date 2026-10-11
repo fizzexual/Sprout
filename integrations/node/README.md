@@ -27,12 +27,20 @@ The source reads `json_decode(read_input())` and prints exactly one
 runtime failures, byte limits, and timeouts reject with `SproutError`; error codes
 are `spawn`, `stdin`, `runtime`, `protocol`, `input-limit`, `stdout-limit`,
 `stderr-limit`, `timeout`, or `canceled`. `stderr` is available when captured.
+Input and output permit at most 128 nested JSON containers. Duplicate decoded
+object keys, non-finite numbers, unpaired surrogates, and NUL text are rejected.
+Valid Unicode surrogate pairs round-trip. Reserved exact-value tags stay plain
+maps in this SDK; your application owns their schema and conversion.
+Input must use plain JSON data properties. Accessors and serialization hooks
+are rejected. Input sizing stops shared-reference expansion at the byte cap
+before allocating the full JSON request; already-canceled requests stop before
+visiting input. Host execution deadlines begin after this synchronous preparation.
 
 Options are `command`, `cwd`, `sandbox`, `signal` (an AbortSignal), `timeoutMs`
 (host wall time, default 5000), `runtimeTimeoutMs` (default 4000), `maxSteps`
 (100000), `maxInputBytes`/`maxOutputBytes` (1 MiB), and `maxErrorBytes` (64 KiB).
 Output bounds apply while streams arrive. Timeout or cancellation kills the
-direct interpreter. The adapter does not promise to kill arbitrary descendants
+direct interpreter forcibly. The adapter does not promise to kill arbitrary descendants
 started by trusted, unsandboxed programs. Keep exact identifiers and decimals as
 JSON strings when JavaScript's number precision would otherwise lose information.
 

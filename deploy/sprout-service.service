@@ -1,0 +1,32 @@
+# Example systemd unit for one trusted private HTTP/SQLite worker.
+# Provision the identity/files first; this file is not an installer.
+[Unit]
+Description=Sprout private worker bridge
+After=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=sprout
+Group=sprout
+WorkingDirectory=/var/lib/sprout
+ExecStart=/usr/bin/python3 /opt/sprout/integrations/python/sprout_service.py /opt/sprout/app/worker.sprout --command /opt/sprout/bin/sprout --host 127.0.0.1 --port 8080 --workers 8 --timeout-ms 5000 --max-body 65536 --cwd /var/lib/sprout --allow-io
+Restart=on-failure
+RestartSec=2
+KillMode=mixed
+TimeoutStopSec=15
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/sprout
+MemoryMax=512M
+TasksMax=128
+LimitNOFILE=512
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

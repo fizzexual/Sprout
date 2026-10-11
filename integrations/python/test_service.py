@@ -3,6 +3,10 @@ from contextlib import closing
 import json
 import os
 import socket
+import queue
+import subprocess
+import sys
+import time
 import sqlite3
 from pathlib import Path
 import tempfile
@@ -67,6 +71,64 @@ class ServiceTests(unittest.TestCase):
         self.path.write_text('fail "internal detail"\n', encoding='utf-8')
         status, data = self.request('GET', '/')
         self.assertEqual(status, 502); self.assertNotIn('internal detail', json.dumps(data))
+    def test_listener_close_drains_an_accepted_worker(self):
+        entered = threading.Event(); release = threading.Event(); closed = threading.Event()
+        results = []
+        def worker(*args, **kwargs):
+            entered.set()
+            if not release.wait(3): raise AssertionError('test worker was not released')
+            return {'status': 200, 'body': {'finished': True}}
+        def close():
+            self.server.server_close(); closed.set()
+        with patch('sprout_service.run', side_effect=worker):
+            client = threading.Thread(target=lambda: results.append(self.request('GET', '/drain')))
+            client.start()
+            try:
+                self.assertTrue(entered.wait(2))
+                self.server.shutdown()
+                closer = threading.Thread(target=close); closer.start()
+                self.assertFalse(closed.wait(.1), 'close returned while an accepted worker was active')
+            finally:
+                release.set(); client.join(3)
+                if 'closer' in locals(): closer.join(3)
+            self.assertTrue(closed.is_set())
+            self.assertFalse(client.is_alive())
+            self.assertEqual(results, [(200, {'finished': True})])
+    @unittest.skipIf(os.name == 'nt', 'Windows TerminateProcess does not deliver POSIX SIGTERM')
+    def test_cli_sigterm_drains_a_live_native_worker(self):
+        self.path.write_text('write("started.txt", "yes")\nwait(1)\n'
+                             'show json_encode({status: 200, body: {finished: yes}})\n', encoding='utf-8')
+        process = subprocess.Popen([sys.executable, str(Path(__file__).with_name('sprout_service.py')),
+                                    str(self.path), '--command', os.environ['SPROUT_COMMAND'],
+                                    '--port', '0', '--workers', '1', '--timeout-ms', '2000',
+                                    '--max-body', '1000', '--allow-io'],
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        lines = queue.Queue(); results = queue.Queue()
+        reader = threading.Thread(target=lambda: lines.put(process.stdout.readline()), daemon=True)
+        reader.start(); client = None
+        try:
+            line = lines.get(timeout=3)
+            port = int(line.strip().rsplit(':', 1)[1])
+            def request():
+                try:
+                    with closing(http.client.HTTPConnection('127.0.0.1', port, timeout=4)) as connection:
+                        connection.request('GET', '/drain')
+                        response = connection.getresponse()
+                        results.put((response.status, json.loads(response.read())))
+                except Exception as error: results.put(error)
+            client = threading.Thread(target=request); client.start()
+            deadline = time.monotonic() + 2
+            while not (self.path.parent / 'started.txt').exists() and time.monotonic() < deadline:
+                time.sleep(.01)
+            self.assertTrue((self.path.parent / 'started.txt').exists())
+            process.terminate()
+            self.assertEqual(results.get(timeout=3), (200, {'finished': True}))
+            self.assertEqual(process.wait(timeout=3), 0)
+            self.assertEqual(process.stderr.read(), '')
+        finally:
+            if process.poll() is None: process.kill(); process.wait(timeout=3)
+            if client: client.join(3)
+            reader.join(3); process.stdout.close(); process.stderr.close()
     def test_invalid_framing_never_dispatches(self):
         for field in (b'Content-Length: +0', b'Content-Length: -0',
                       b'Content-Length: 0\r\nTransfer-Encoding:',
@@ -120,5 +182,18 @@ class ServiceTests(unittest.TestCase):
                 database.rollback()
         self.assertEqual(self.request('POST', '/contacts', data)[0], 201)
         self.assertEqual(self.request('GET', '/contacts')[1]['contacts'][0][1], 'Busy')
+    def test_explicit_state_directory_keeps_database_outside_source(self):
+        state = self.path.parent / 'state'; state.mkdir()
+        self.server.shutdown(); self.server.server_close(); self.thread.join()
+        self.server = SproutServer(('127.0.0.1', 0), self.path, command=os.environ['SPROUT_COMMAND'],
+                                   allow_io=True, cwd=state)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True); self.thread.start()
+        example = Path(__file__).resolve().parents[2] / 'examples/services/contacts.sprout'
+        self.path.write_text(example.read_text(encoding='utf-8'), encoding='utf-8')
+        data = json.dumps({'name': 'Separate state', 'email': 'state@example.test'})
+        self.assertEqual(self.request('POST', '/contacts', data)[0], 201)
+        self.assertEqual(self.request('GET', '/contacts')[1]['contacts'][0][1], 'Separate state')
+        self.assertTrue((state / 'contacts.sqlite').is_file())
+        self.assertFalse((self.path.parent / 'contacts.sqlite').exists())
 
 if __name__ == '__main__': unittest.main()

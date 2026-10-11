@@ -33,3 +33,13 @@ rate limiting, logs and request monitoring. The host defaults to loopback. Keep
 trusted worker programs in protected paths and use OS/container limits where
 untrusted code is accepted. A new interpreter per request favors isolation and
 simple rules; measure latency before choosing it for high-throughput APIs.
+
+Configure CLI limits with `--workers`, `--timeout-ms` and `--max-body`. Listener
+close waits for accepted requests to finish; POSIX SIGTERM and Ctrl+C drain those
+handlers. Configure a supervisor shutdown grace longer than the worker timeout
+plus the two-second socket read limit and scheduling overhead. Forced termination
+can still interrupt work. See [deployment evidence](deployment-evidence.md) and
+[production readiness gates](production-readiness.md) before promoting a build.
+Use `--cwd /var/lib/sprout` to keep relative SQLite files and stores in a writable
+state directory while the installed worker source stays read-only. The directory
+must already exist; by default it is the worker source's directory.

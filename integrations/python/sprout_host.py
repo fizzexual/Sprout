@@ -19,8 +19,32 @@ def _check_depth(depth):
         raise ValueError(f"JSON nesting exceeds {MAX_JSON_NESTING} containers")
 
 
-def _tagged(key, value, depth):
+def _scalar_text(value):
+    if "\x00" in value:
+        raise ValueError("Sprout text cannot contain NUL")
+    if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
+        raise ValueError("JSON text contains an unpaired surrogate")
+    return value
+
+
+def _check_strings(value):
+    if isinstance(value, str):
+        _scalar_text(value)
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            _scalar_text(key)
+            _check_strings(item)
+    elif isinstance(value, list):
+        for item in value:
+            _check_strings(item)
+
+
+def _tagged(key, value, depth, budget=None):
     _check_depth(depth + 1)
+    if budget is not None:
+        budget.add(3)  # Braces and colon.
+        budget.text(key)
+        budget.text(value)
     return {key: value}
 
 
@@ -30,45 +54,104 @@ class SproutError(RuntimeError):
         self.code, self.stderr, self.exit_code = code, stderr, exit_code
 
 
-def _encode(value, active=None, depth=0):
+class _JsonBudget:
+    """Count the actual compact UTF-8 wire shape before expanding more input."""
+    def __init__(self, maximum):
+        self.remaining = maximum
+
+    def add(self, amount):
+        if amount > self.remaining:
+            raise SproutError("JSON input exceeds its byte limit", "input-limit")
+        self.remaining -= amount
+
+    def text(self, value):
+        self.add(2)  # String quotes.
+        for character in value:
+            unit = ord(character)
+            if unit == 0:
+                raise ValueError("Sprout text cannot contain NUL")
+            if 0xD800 <= unit <= 0xDFFF:
+                raise ValueError("JSON text contains an unpaired surrogate")
+            if character in '"\\\b\f\n\r\t':
+                size = 2
+            elif unit < 0x20:
+                size = 6
+            else:
+                size = 1 if unit < 0x80 else 2 if unit < 0x800 else 3 if unit < 0x10000 else 4
+            self.add(size)
+        return value
+
+
+def _encode(value, active=None, depth=0, budget=None):
     active = set() if active is None else active
-    if value is None or isinstance(value, (str, bool)):
+    if isinstance(value, str):
+        return budget.text(value) if budget is not None else _scalar_text(value)
+    if value is None or isinstance(value, bool):
+        if budget is not None:
+            budget.add(4 if value is None or value is True else 5)
         return value
     if isinstance(value, int):
         if not -(2**63) <= value < 2**63:
             raise ValueError("Sprout integers are signed 64-bit values")
-        return _tagged("$sprout.integer", str(value), depth) if abs(value) > 2**53 - 1 else value
+        if abs(value) > 2**53 - 1:
+            return _tagged("$sprout.integer", str(value), depth, budget)
+        if budget is not None:
+            budget.add(len(str(value)))
+        return value
     if isinstance(value, Decimal):
         if not value.is_finite():
             raise ValueError("Sprout decimals must be finite")
         sign, digits, exponent = value.as_tuple()
-        coefficient = int("".join(map(str, digits)) or "0") * (-1 if sign else 1)
-        if exponent > 0:
-            if exponent > 18:
-                raise ValueError("Decimal coefficient exceeds signed 64-bit range")
-            coefficient *= 10**exponent
-        if exponent < -18 or not -(2**63) <= coefficient < 2**63:
+        # Reject huge coefficients/exponents before integer conversion or fixed
+        # point formatting can construct an arbitrarily large intermediate.
+        if exponent > 18 or exponent < -18 or len(digits) + max(exponent, 0) > 19:
             raise ValueError("Decimal exceeds Sprout's 64-bit coefficient or 18 fractional places")
-        return _tagged("$sprout.decimal", format(value, "f"), depth)
+        coefficient = 0
+        for digit in digits:
+            coefficient = coefficient * 10 + digit
+        coefficient *= (-1 if sign else 1) * 10**max(exponent, 0)
+        if not -(2**63) <= coefficient < 2**63:
+            raise ValueError("Decimal exceeds Sprout's 64-bit coefficient or 18 fractional places")
+        return _tagged("$sprout.decimal", format(value, "f"), depth, budget)
     if isinstance(value, (bytes, bytearray)):
+        if budget is not None:
+            _check_depth(depth + 1)
+            budget.add(20 + 2 * len(value))  # Count hex before allocating it.
         return _tagged("$sprout.bytes", bytes(value).hex(), depth)
     if isinstance(value, float):
         if not math.isfinite(value):
             raise ValueError("JSON numbers must be finite")
         if value.is_integer() and abs(value) > 2**53 - 1:
             raise ValueError("Use int instead of an unsafe floating-point integer")
+        if budget is not None:
+            budget.add(len(json.dumps(value, allow_nan=False)))
         return value
     if isinstance(value, (dict, list, tuple)):
         _check_depth(depth + 1)
         if id(value) in active:
             raise ValueError("JSON input cannot contain cycles")
+        if budget is not None:
+            budget.add(2)  # Brackets or braces.
         active.add(id(value))
         try:
             if isinstance(value, dict):
-                if not all(isinstance(k, str) for k in value):
-                    raise TypeError("JSON map keys must be text")
-                return {k: _encode(v, active, depth + 1) for k, v in value.items()}
-            return [_encode(v, active, depth + 1) for v in value]
+                encoded = {}
+                for key, item in value.items():
+                    if not isinstance(key, str):
+                        raise TypeError("JSON map keys must be text")
+                    if budget is not None:
+                        budget.add(1 + bool(encoded))  # Colon and optional comma.
+                        key = budget.text(key)
+                    else:
+                        key = _scalar_text(key)
+                    encoded[key] = _encode(item, active, depth + 1, budget)
+                return encoded
+            encoded = []
+            for item in value:
+                if budget is not None and encoded:
+                    budget.add(1)
+                encoded.append(_encode(item, active, depth + 1, budget))
+            return encoded
         finally:
             active.remove(id(value))
     raise TypeError("Input must contain JSON values, int64, Decimal, or bytes")
@@ -77,6 +160,7 @@ def _encode(value, active=None, depth=0):
 def _object(pairs):
     result = {}
     for key, value in pairs:
+        _scalar_text(key)
         if key in result:
             raise ValueError("duplicate JSON map key")
         result[key] = value
@@ -139,14 +223,20 @@ def decode(text):
             raise ValueError("non-finite JSON number")
         return number
     try:
-        return json.loads(text, object_pairs_hook=_object, parse_constant=invalid, parse_float=finite)
+        value = json.loads(text, object_pairs_hook=_object, parse_constant=invalid, parse_float=finite)
+        _check_strings(value)
+        return value
     except RecursionError as error:
         raise ValueError("JSON input is nested too deeply") from error
 
 
-def encode(value):
+def encode(value, *, max_bytes=None):
+    """Encode compact JSON; optional max_bytes bounds UTF-8 before expansion."""
+    if max_bytes is not None and (isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 0):
+        raise ValueError("max_bytes must be a nonnegative integer")
+    budget = None if max_bytes is None else _JsonBudget(max_bytes)
     try:
-        return json.dumps(_encode(value), ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+        return json.dumps(_encode(value, budget=budget), ensure_ascii=False, allow_nan=False, separators=(",", ":"))
     except RecursionError as error:
         raise ValueError("JSON input is nested too deeply") from error
 
@@ -172,7 +262,9 @@ def run(program, input_value, *, command="sprout", cwd=None, sandbox=True,
         _positive(value, name)
     if not isinstance(sandbox, bool):
         raise TypeError("sandbox must be bool")
-    request = (encode(input_value) + "\n").encode("utf-8")
+    if cancel and cancel.is_set():
+        raise SproutError("Sprout request canceled", "canceled")
+    request = (encode(input_value, max_bytes=min(max_input_bytes, 1048576) - 1) + "\n").encode("utf-8")
     if len(request) > min(max_input_bytes, 1048576):
         raise SproutError("JSON input exceeds its byte limit", "input-limit")
     if cancel and cancel.is_set():

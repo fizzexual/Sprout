@@ -2,6 +2,7 @@ package io.sprout.host;
 
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.StreamReadFeature;
+import com.fasterxml.jackson.core.StreamReadConstraints;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -17,6 +18,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /** Blocking JSON host. Call from a worker thread; interrupt the caller to cancel. */
 public final class SproutHost implements AutoCloseable {
     private static final ObjectMapper JSON = new ObjectMapper(JsonFactory.builder()
+        .streamReadConstraints(StreamReadConstraints.builder().maxNestingDepth(128).build())
         .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION).build())
         .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
 
@@ -51,7 +53,7 @@ public final class SproutHost implements AutoCloseable {
 
     public JsonNode run(Path program, JsonNode input) {
         Objects.requireNonNull(program); Objects.requireNonNull(input);
-        validateInput(input, 0);
+        validateValue(input, 0, "input");
         byte[] request = (input.toString() + "\n").getBytes(StandardCharsets.UTF_8);
         if (request.length > options.maxInputBytes()) throw new SproutException("input_limit", "JSON input exceeds byte limit");
         if (closed.get()) throw new SproutException("closed", "Sprout host is closed");
@@ -91,7 +93,11 @@ public final class SproutHost implements AutoCloseable {
             if (response.endsWith("\r")) response = response.substring(0, response.length() - 1);
             if (response.isBlank() || response.indexOf('\n') >= 0 || response.indexOf('\r') >= 0)
                 throw new SproutException("protocol", "Expected exactly one JSON output line");
-            try { return JSON.readTree(response); }
+            try {
+                JsonNode value = JSON.readTree(response);
+                validateValue(value, 0, "protocol");
+                return value;
+            }
             catch (IOException failure) { throw new SproutException("protocol", "Output is not strict JSON", failure); }
         } catch (InterruptedException failure) {
             Thread.currentThread().interrupt();
@@ -128,12 +134,25 @@ public final class SproutHost implements AutoCloseable {
             return bytes.toByteArray();
         }
     }
-    private static void validateInput(JsonNode node, int depth) {
-        if (depth > 128) throw new SproutException("input", "JSON nesting exceeds 128 levels");
-        if (node.isFloatingPointNumber() && !Double.isFinite(node.doubleValue()))
-            throw new SproutException("input", "Input must contain finite JSON numbers");
-        if (node.isMissingNode() || node.isPojo() || node.isBinary()) throw new SproutException("input", "Input must contain plain JSON values");
-        if (node.isContainerNode()) node.forEach(child -> validateInput(child, depth + 1));
+    private static void validateValue(JsonNode node, int depth, String code) {
+        if (node.isNumber() && !Double.isFinite(node.doubleValue()))
+            throw new SproutException(code, "JSON numbers must be finite");
+        if (node.isMissingNode() || node.isPojo() || node.isBinary()) throw new SproutException(code, "Expected plain JSON values");
+        if (node.isTextual()) validateText(node.textValue(), code);
+        if (node.isContainerNode()) {
+            if (depth >= 128) throw new SproutException(code, "JSON nesting exceeds 128 containers");
+            if (node.isObject()) node.fieldNames().forEachRemaining(name -> validateText(name, code));
+            node.forEach(child -> validateValue(child, depth + 1, code));
+        }
+    }
+    private static void validateText(String text, String code) {
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == 0) throw new SproutException(code, "Sprout JSON text cannot contain NUL");
+            if (Character.isHighSurrogate(c)) {
+                if (++i >= text.length() || !Character.isLowSurrogate(text.charAt(i))) throw new SproutException(code, "Unpaired JSON surrogate");
+            } else if (Character.isLowSurrogate(c)) throw new SproutException(code, "Unpaired JSON surrogate");
+        }
     }
     private static void closeQuietly(Closeable stream) { try { stream.close(); } catch (IOException ignored) { } }
     @Override public void close() {

@@ -26,6 +26,16 @@ NUL; binary file/HTTP/SQLite operations preserve embedded zero bytes.
 decimal text, and hex respectively. Reserved single-key tag maps are decoded as
 those values. Ordinary `json` retains its existing ordinary JSON map behavior.
 `read_input()` reads up to one MiB of text from standard input for host requests.
+Native JSON writing accepts at most 200 nested wire containers, including exact
+tag maps, and 64 MiB of encoded output. Cycles, excessive nesting, invalid UTF-8
+and non-finite values raise an error before publishing a store. Shared acyclic
+values remain supported. Public serialization consumes the runtime budget.
+Bounded internal checkpoint writing can finish after a deadline so known job
+outcomes are saved before execution stops. A store's
+outer key/value map counts as one container; host SDKs use a lower 128-container
+wire limit. Task values retain the legacy `null` representation.
+See [serialization integrity evidence](serialization-integrity.md) for boundary
+fixtures and sanitizer scope.
 
 Native CLI execution supports `--max-steps N` and `--timeout-ms N` anywhere before
 `--`. A step is an interpreter action; it is not a source line. Exhausting a

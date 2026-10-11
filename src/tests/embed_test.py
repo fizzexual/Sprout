@@ -148,6 +148,16 @@ class NativeSDK(unittest.TestCase):
             result = self.run_worker('show json_encode(42)\n', request=request)
             self.assertEqual(result.returncode, 1, result.stderr)
 
+    def test_extra_blank_lines_are_protocol_errors(self):
+        for wire in ['\n{}', '{}\n', '\r\n{}', '{}\r\n']:
+            with self.subTest(wire=repr(wire)):
+                result = self.run_worker('show ' + json.dumps(wire) + '\n')
+                self.assertEqual(result.returncode, 6, result.stderr)
+        for wire in ['{}', ' \t{}\t '] + (['{}\r'] if os.name != 'nt' else []):
+            # POSIX show appends LF; Windows stdio already appends CRLF.
+            result = self.run_worker('show ' + json.dumps(wire) + '\n')
+            self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_independent_concurrent_hosts(self):
         def invoke(i):
             return self.run_worker('show json_encode(json_decode(read_input()))\n', {'n': i}, name=f'worker-{i}.sprout')

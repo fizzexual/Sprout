@@ -53,7 +53,7 @@ static void workflow_error_cleanup(void) {
   if (g_workflow_lock) workflow_unlock(g_workflow_lock);
 }
 static int workflow_save(const char *path, SMap *state) {
-  char *text = value_to_json(vmap(state));
+  char *text = value_to_json_internal(vmap(state));
   int ok = strlen(text) <= 24u * 1024u * 1024u && runtime_atomic_write(path, text);
   free(text); return ok;
 }

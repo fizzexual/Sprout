@@ -38,12 +38,24 @@ All notable changes to **Sprout**. The format follows
 - Reproducible workload benchmarks, trace profiling, deterministic fuzz probes,
   and a numeric bytecode experiment that remains outside the default runtime
   because its measured performance gate failed.
+- A deployment soak harness with frozen source hashes, independent database
+  oracles, controlled contention, restarts, resource gates and cleanup checks.
+- Private service deployment templates, an explicit writable state directory,
+  graceful request draining, and checksum/provenance release manifests.
 
 These are development features with workload-specific tests. The production
 roadmap records additional release evidence and adapter validation still needed.
 
 ### Fixed
 
+- JSON serialization rejects cycles and excessive nesting before persistence
+  writes, validates a bounded encoded size, and consumes runtime budgets.
+- Host SDK protocol validation rejects ambiguous decoded keys, non-finite
+  numbers, excessive nesting, and text the native worker cannot represent.
+- Node and Python reject oversized shared input expansion during encoding;
+  Node cancellation forcibly terminates a worker that ignores graceful signals.
+- Paper reloads retire unused rule snapshots after in-flight evaluations release
+  them, preserving the last good snapshot for worker restarts.
 - Interpreter `--` forwarding preserves application flags such as `--stdin`
   and `--sandbox` without consuming them as runtime options.
 - Strict host JSON validates UTF-8, duplicate keys and exact-value tags; legacy

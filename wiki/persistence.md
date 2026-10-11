@@ -291,21 +291,21 @@ A few facts worth knowing about the file:
   two separate stores. (Every program run in the *same* folder shares one store.)
 - **It's created lazily.** `remember` and `forget` create/update it; a plain
   `recall` of a fresh folder never writes anything.
-- **A missing or corrupt file reads as an empty store.** If `sprout.data.json`
-  doesn't exist, or has been mangled into invalid JSON, Sprout treats it as if it
-  were empty — `recall` returns `nothing` and the next `remember` writes a clean
-  file. No crash:
+- **A missing file reads as an empty store.** A corrupt file raises a `data`
+  error and preserves its bytes; Sprout also attempts to save a `.bak` copy.
+  Repair or move the file before saving new data. It never silently replaces
+  a corrupt store with an empty one:
 
 ```sprout
 ~ run this after deliberately corrupting sprout.data.json
-show "recall on corrupt file:", recall("anything")
-remember("fresh", 1)
-show "now:", recall("fresh")
+try:
+    show recall("anything")
+caught e:
+    show e.kind
 ```
 
 ```
-recall on corrupt file: nothing
-now: 1
+data
 ```
 
 - **It's gitignored in real projects.** The store is local runtime data, not
@@ -389,9 +389,12 @@ very first time, before anything is saved.)
 
 ## Error cases
 
-The store is forgiving — missing keys and bad files don't error. The only errors
-are using the builtins **wrong**, and those are normal Sprout errors you can
-[catch](errors.md).
+Missing keys return `nothing`. Invalid stores, invalid data and failed writes
+raise normal Sprout errors you can [catch](errors.md). Serialization rejects
+cycles, invalid UTF-8, non-finite numbers, more than 200 nested wire containers
+and more than 64 MiB of encoded JSON before replacing a store. The outer store
+map counts toward nesting, so stored values may use at most 199 containers.
+Exact-value tag maps count too. Runtime budget exhaustion stops execution.
 
 **The key must be text.** Passing a number (or anything non-text) as the key is
 an error:
@@ -479,8 +482,11 @@ the sandbox closes and why.
   `sprout.data.json` files. Run from the same folder to share a store.
 - **`show` rounds, the store doesn't.** A recalled number prints rounded but is
   stored at full precision, so arithmetic on recalled fractions is exact.
-- **A missing/corrupt file is treated as empty** — no crash, just a fresh store
-  on the next `remember`.
+- **A missing file is treated as empty.** A corrupt file raises an error and
+  preserves the original for repair.
+- **Writes replace the file atomically.** This prevents partial JSON but does
+  not provide concurrent read-modify-write isolation; use SQLite transactions
+  when several processes share mutable data.
 - **It's off under `--sandbox`.** Don't rely on persistence in sandboxed/
   playground code.
 

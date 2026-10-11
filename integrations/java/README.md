@@ -14,4 +14,12 @@ Call `run` from a background thread. Interrupt that thread to cancel; `close()` 
 
 Programs read `json_decode(read_input())` and emit exactly one `json_encode(output)` line. Other stdout is a protocol error. UTF-8, JSON syntax, duplicate object keys and extra JSON values are checked. Exact integers and decimals should cross host boundaries as text. Configuring `Options.sandbox=false` explicitly permits trusted I/O/module applications; use `cwd` for their project directory. Cancellation terminates the direct interpreter, not an arbitrary descendant tree launched by trusted code.
 
+The boundary limits JSON nesting to 128 containers before tree allocation,
+rejects non-finite numeric values, and requires Unicode scalar strings/keys
+without NUL. Escaped names are compared after decoding, so `"id"` and
+`"\u0069d"` are duplicate keys. Valid surrogate pairs and ordinary large finite
+numbers are accepted. Requests represented by `JsonNode` receive the same value
+checks before worker launch. Version 1 exact-value tags remain explicit objects
+for the application to interpret; the SDK does not automatically decode them.
+
 `SPROUT_COMMAND` enables the actual native interpreter test. Unit tests use a Java subprocess fixture to verify limits, cancellation, protocol rejection, and argument handling.

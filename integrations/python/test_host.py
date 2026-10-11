@@ -27,6 +27,16 @@ class CodecTests(unittest.TestCase):
     def test_invalid_response(self):
         for text in ('{"a":1,"a":2}', 'NaN', '1e999', '{"$sprout.decimal":"bad"}', '{"$sprout.decimal":23}', '{"$sprout.integer":"1_000"}', '{"$sprout.integer":"9223372036854775808"}', '{"$sprout.bytes":"a x"}'):
             with self.assertRaises((ValueError, TypeError)): decode(text)
+    def test_text_matches_native_representation(self):
+        for text in ('"\\ud800"', '"\\udfff"', '"\\u0000"', '{"\\ud800":1}', '["\\u0000"]'):
+            with self.subTest(text=text):
+                with self.assertRaises(ValueError): decode(text)
+        for value in ('\ud800', '\udfff', '\x00', {'\ud800': 1}, ['\x00']):
+            with self.subTest(value=repr(value)), patch('sprout_host.subprocess.Popen') as launch:
+                with self.assertRaises(ValueError): run('unused.sprout', value)
+                launch.assert_not_called()
+        self.assertEqual(decode('"\\ud83c\\udf31"'), '\U0001f331')
+        self.assertEqual(decode(encode({'\U0001f331': '\U0001f331'})), {'\U0001f331': '\U0001f331'})
     def test_nesting_boundary_and_quoted_brackets(self):
         value = 0
         for _ in range(MAX_JSON_NESTING): value = [value]
@@ -57,6 +67,100 @@ class CodecTests(unittest.TestCase):
     def test_parser_recursion_is_normalized(self):
         with patch('sprout_host.json.loads', side_effect=RecursionError('parser recursion')):
             with self.assertRaisesRegex(ValueError, 'nested too deeply'): decode('[]')
+    def test_optional_encoding_cap_counts_exact_utf8_and_escaping(self):
+        values = [None, True, False, -12, 1.25, -0.0,
+                  {'🌱é': '\\"\b\f\n\r\t\x01\x1f\x7f🌱é'},
+                  2**63 - 1, -(2**63), Decimal('-9.223372036854775808'),
+                  b'\x00\xffa', bytearray(b'\x00\xff'),
+                  [[], {}, {'same': ['🌱', Decimal('19.95'), b'hello']}]]
+        for value in values:
+            with self.subTest(value=repr(value)):
+                wire = encode(value)
+                maximum = len(wire.encode('utf-8'))
+                self.assertEqual(encode(value, max_bytes=maximum), wire)
+                with self.assertRaises(SproutError) as caught:
+                    encode(value, max_bytes=maximum - 1)
+                self.assertEqual(caught.exception.code, 'input-limit')
+        with self.assertRaises(SproutError): encode(None, max_bytes=0)
+        for invalid in (-1, True, 1.5):
+            with self.assertRaises(ValueError): encode(None, max_bytes=invalid)
+    def test_low_cap_stops_exponential_alias_expansion_before_json_or_launch(self):
+        visits = []
+        class CountingList(list):
+            def __iter__(self):
+                visits.append(True)
+                if len(visits) > 128:
+                    raise AssertionError('encoder expanded the shared DAG instead of enforcing its cap')
+                return super().__iter__()
+        value = CountingList([1])
+        for _ in range(24): value = CountingList([value, value])
+        with patch('sprout_host.subprocess.Popen') as launch, patch('sprout_host.json.dumps') as dumps:
+            with self.assertRaises(SproutError) as caught:
+                run('unused.sprout', value, max_input_bytes=64)
+            self.assertEqual(caught.exception.code, 'input-limit')
+            self.assertLess(len(visits), 128)
+            self.assertGreater(len(visits), 0)
+            launch.assert_not_called()
+            dumps.assert_not_called()
+        shared = {'leaf': [1, '🌱']}
+        value = [shared, shared]
+        wire = encode(value)
+        self.assertEqual(encode(value, max_bytes=len(wire.encode('utf-8'))), wire)
+    def test_request_cap_includes_newline_and_native_one_mib_ceiling(self):
+        class RecordingInput(io.BytesIO):
+            def close(self):
+                self.sent = self.getvalue()
+                super().close()
+        for value in ['🌱é', {'x': '\\"\n'}, 2**63 - 1, Decimal('19.95'), b'\x00\xff']:
+            with self.subTest(value=repr(value)):
+                request = (encode(value) + '\n').encode('utf-8')
+                pipe = RecordingInput()
+                child = SimpleNamespace(stdin=pipe, stdout=io.BytesIO(b'null\n'), stderr=io.BytesIO(),
+                                        poll=lambda: 0, wait=lambda timeout: 0)
+                with patch('sprout_host.subprocess.Popen', return_value=child):
+                    self.assertIsNone(run('unused.sprout', value, max_input_bytes=len(request)))
+                self.assertEqual(pipe.sent, request)
+                with patch('sprout_host.subprocess.Popen') as launch:
+                    with self.assertRaises(SproutError) as caught:
+                        run('unused.sprout', value, max_input_bytes=len(request) - 1)
+                    self.assertEqual(caught.exception.code, 'input-limit')
+                    launch.assert_not_called()
+        with patch('sprout_host.subprocess.Popen') as launch:
+            # The binary tag's hex alone is 1 MiB, before framing and tag syntax.
+            with self.assertRaises(SproutError) as caught:
+                run('unused.sprout', b'x' * (1024 * 512), max_input_bytes=2 * 1024 * 1024)
+            self.assertEqual(caught.exception.code, 'input-limit')
+            launch.assert_not_called()
+    def test_already_canceled_request_does_not_traverse_input(self):
+        event = threading.Event(); event.set()
+        with patch('sprout_host.encode', side_effect=AssertionError('input was traversed')) as encoder, \
+             patch('sprout_host.subprocess.Popen') as launch:
+            with self.assertRaises(SproutError) as caught:
+                run('unused.sprout', object(), cancel=event, max_input_bytes=1)
+            self.assertEqual(caught.exception.code, 'canceled')
+            encoder.assert_not_called()
+            launch.assert_not_called()
+    def test_large_decimal_coefficients_and_exponents_reject_before_formatting(self):
+        class UnformattedDecimal(Decimal):
+            def __format__(self, spec):
+                raise AssertionError('invalid decimal was formatted before validation')
+        for text in ['9' * 10000, '1E+100000', '1E-100000', '0E+100000',
+                     '9223372036854775808', '-9223372036854775809']:
+            with self.subTest(text=text[:40]):
+                with self.assertRaisesRegex(ValueError, '64-bit coefficient'):
+                    encode(UnformattedDecimal(text))
+        for text in ['9223372036854775807', '-9223372036854775808',
+                     '9.223372036854775807', '-9.223372036854775808', '-0', '0E+18']:
+            value = Decimal(text)
+            self.assertEqual(decode(encode(value)), value)
+    def test_bounded_encoding_keeps_type_cycle_and_nesting_rejections(self):
+        cycle = []; cycle.append(cycle)
+        nested = 0
+        for _ in range(129): nested = [nested]
+        for value in [cycle, nested, {'bad': '\ud800'}, {'\x00': 1}, {1: 'wrong key'}]:
+            with self.subTest(kind=type(value).__name__):
+                with self.assertRaises((ValueError, TypeError)):
+                    encode(value, max_bytes=4096)
     def test_broken_stdin_close_has_no_thread_exception(self):
         class BrokenPipe:
             def __init__(self, fail_write): self.fail_write, self.closes = fail_write, 0
@@ -90,12 +194,21 @@ class NativeTests(unittest.TestCase):
     def test_request_exact_types(self):
         data = {"money": Decimal("19.95"), "bytes": b"x\x00y", "big": 2**63 - 1}
         self.assertEqual(self.call('show json_encode(json_decode(read_input()))\n', data), data)
+    def test_native_request_exact_byte_boundary(self):
+        data = {'🌱': [2**63 - 1, Decimal('19.95'), b'\x00\xff']}
+        maximum = len((encode(data) + '\n').encode('utf-8'))
+        self.assertEqual(self.call('show json_encode(json_decode(read_input()))\n', data,
+                                   max_input_bytes=maximum), data)
+        with self.assertRaises(SproutError) as caught:
+            self.call('show json_encode(json_decode(read_input()))\n', data,
+                      max_input_bytes=maximum - 1)
+        self.assertEqual(caught.exception.code, 'input-limit')
     def test_protocol_and_sandbox(self):
         for source, code in [('show "debug"\nshow "{}"\n', "protocol"), ('show read("secret")\n', "runtime")]:
             with self.assertRaises(SproutError) as caught: self.call(source)
             self.assertEqual(caught.exception.code, code)
     def test_malformed_protocol_values_recover(self):
-        for text in ('{"$sprout.decimal":"bad"}', '1e999', '[' * 129 + '0' + ']' * 129):
+        for text in ('{"$sprout.decimal":"bad"}', '1e999', '[' * 129 + '0' + ']' * 129, '"\\ud800"', '"\\u0000"'):
             with self.subTest(text=text[:40]):
                 with self.assertRaises(SproutError) as caught:
                     self.call('show ' + json.dumps(text) + '\n')

@@ -379,7 +379,9 @@ static int call_depth = 0;
 static struct { const char *name; int line; } g_frames[MAX_CALL_FRAMES];
 static void workflow_error_cleanup(void);
 static void production_error_cleanup(void);
+static void json_error_cleanup(void);
 static void fail_full(int line, const char *msg, const char *kind, int hard) {
+  json_error_cleanup();
   workflow_error_cleanup();
   production_error_cleanup();
   snprintf(g_err_msg, sizeof g_err_msg, "%s", msg ? msg : "something went wrong.");
@@ -1867,7 +1869,7 @@ static Value jstring(JParse *j) {
   buf[b]=0; return vstr_take(buf);
 }
 static Value jvalue(JParse *j) {
-  if (++j->depth > 256) { j->ok = 0; j->depth--; return vnone(); }   /* guard the C stack; cap sits ABOVE the writer's (200 + the store-map wrap + a truncation null) so written output always re-parses */
+  if (++j->depth > 256) { j->ok = 0; j->depth--; return vnone(); }   /* compatibility parser guard; restored data is limited to 200 containers */
   Value r = jvalue_inner(j);
   j->depth--;
   return r;
@@ -1954,12 +1956,19 @@ static Value parse_json_mode(const char *text, int strict) {
 static Value parse_json(const char *text) { return parse_json_mode(text, 1); }
 
 /* ---- JSON writer: a Sprout value -> valid JSON text (round-trips through parse_json) ---- */
-static int g_json_w_depth = 0;
+#define SPROUT_JSON_CONTAINERS 200
+#define SPROUT_JSON_MAX_BYTES (64u * 1024u * 1024u)
+static void runtime_tick(int line);
+static char *g_json_output = NULL;
+static int g_json_charge = 1;
+static void json_tick(void) { if (g_json_charge) runtime_tick(0); }
+static void json_error_cleanup(void) { free(g_json_output); g_json_output = NULL; g_json_charge = 1; }
 static void json_escape(const char *s, char **o, size_t *c, size_t *l) {
   if (s && !bytes_valid_utf8((const unsigned char *)s, strlen(s)))
     fail_kind(0, "data", "JSON text must be valid UTF-8; use bytes for binary data.");
   sb_add(o, c, l, "\"");
   for (const char *p = s ? s : ""; *p; p++) {
+    if (!((size_t)(p - (s ? s : "")) % 4096)) json_tick();
     unsigned char ch = (unsigned char)*p;
     switch (ch) {
       case '"':  sb_add(o, c, l, "\\\""); break;
@@ -1987,8 +1996,65 @@ static char *num_to_json(double n) {
   return dup_str(buf);
 }
 static Value restore_exact_json(Value v, int depth);
+static void json_size_add(size_t *size, size_t amount) {
+  if (amount > SPROUT_JSON_MAX_BYTES - *size)
+    fail_kind(0, "limit", "encoded JSON exceeds 64 MiB.");
+  *size += amount;
+}
+static void json_text_preflight(const char *text, size_t *size) {
+  if (!text) text = "";
+  if (!bytes_valid_utf8((const unsigned char *)text, strlen(text)))
+    fail_kind(0, "data", "JSON text must be valid UTF-8; use bytes for binary data.");
+  json_size_add(size, 2);
+  for (size_t i = 0; text[i]; i++) {
+    unsigned char ch = (unsigned char)text[i];
+    if (!(i % 4096)) json_tick();
+    json_size_add(size, ch == '"' || ch == '\\' || ch == '\n' || ch == '\t' || ch == '\r' || ch == '\b' || ch == '\f' ? 2 : ch < 32 ? 6 : 1);
+  }
+}
+/* Check the complete wire shape before allocating output or publishing a store.
+   Shared acyclic values are allowed; only pointers on the current path cycle. */
+static void json_preflight(Value v, const void **parents, int depth, size_t *size) {
+  json_tick();
+  if (v.type == V_LIST || v.type == V_MAP || v.type == V_INT || v.type == V_DECIMAL || v.type == V_BYTES) {
+    if (depth >= SPROUT_JSON_CONTAINERS)
+      fail_kind(0, "data", "JSON data exceeds 200 nested containers.");
+  }
+  if (v.type == V_LIST || v.type == V_MAP) {
+    const void *pointer = v.type == V_LIST ? (const void *)v.list : (const void *)v.map;
+    for (int i = 0; pointer && i < depth; i++)
+      if (parents[i] == pointer) fail_kind(0, "data", "JSON data cannot contain cycles.");
+    parents[depth] = pointer;
+    json_size_add(size, 2);
+    if (v.type == V_LIST && v.list) {
+      for (int i = 0; i < v.list->n; i++) {
+        if (i) json_size_add(size, 1);
+        json_preflight(v.list->items[i], parents, depth + 1, size);
+      }
+    } else if (v.type == V_MAP && v.map) {
+      if (v.map->n == 1 && (!strcmp(v.map->keys[0], "$sprout.integer") || !strcmp(v.map->keys[0], "$sprout.decimal") || !strcmp(v.map->keys[0], "$sprout.bytes")))
+        (void)restore_exact_json(v, 0);
+      for (int i = 0; i < v.map->n; i++) {
+        if (i) json_size_add(size, 1);
+        json_text_preflight(v.map->keys[i], size); json_size_add(size, 1);
+        json_preflight(v.map->vals[i], parents, depth + 1, size);
+      }
+    }
+  } else if (v.type == V_STR) json_text_preflight(v.str, size);
+  else if (v.type == V_NUM) {
+    if (!isfinite(v.num)) fail_kind(0, "data", "JSON numbers must be finite.");
+    char *text = num_to_json(v.num); size_t length = strlen(text); free(text); json_size_add(size, length);
+  } else if (v.type == V_INT || v.type == V_DECIMAL) {
+    char *text = exact_to_str(v); size_t length = strlen(text); free(text);
+    json_size_add(size, length + 22);
+  } else if (v.type == V_BYTES) {
+    if (v.length > (SPROUT_JSON_MAX_BYTES - 20) / 2) fail_kind(0, "limit", "encoded JSON exceeds 64 MiB.");
+    json_size_add(size, v.length * 2 + 20);
+  }
+  else json_size_add(size, v.type == V_BOOL && v.boolean ? 4 : v.type == V_BOOL ? 5 : 4);
+}
 static void to_json(Value v, char **o, size_t *c, size_t *l) {
-  if (++g_json_w_depth > 200) { sb_add(o, c, l, "null"); g_json_w_depth--; return; }   /* match parse_json's depth cap (200) so output always round-trips */
+  json_tick();
   switch (v.type) {
     case V_NUM:  { char *t = num_to_json(v.num); sb_add(o, c, l, t); free(t); break; }
     case V_INT: case V_DECIMAL: {
@@ -2000,17 +2066,24 @@ static void to_json(Value v, char **o, size_t *c, size_t *l) {
     case V_BOOL: sb_add(o, c, l, v.boolean ? "true" : "false"); break;
     case V_LIST: sb_add(o, c, l, "["); for (int i = 0; v.list && i < v.list->n; i++) { if (i) sb_add(o, c, l, ","); to_json(v.list->items[i], o, c, l); } sb_add(o, c, l, "]"); break;
     case V_MAP:
-      /* Reserved singleton records must be valid at both sides of the wire.
-         Validating only these shapes cannot mutate an ordinary nested map. */
-      if (v.map && v.map->n == 1 && (!strcmp(v.map->keys[0], "$sprout.integer") || !strcmp(v.map->keys[0], "$sprout.decimal") || !strcmp(v.map->keys[0], "$sprout.bytes")))
-        (void)restore_exact_json(v, 0);
       sb_add(o, c, l, "{"); for (int i = 0; v.map && i < v.map->n; i++) { if (i) sb_add(o, c, l, ","); json_escape(v.map->keys[i], o, c, l); sb_add(o, c, l, ":"); to_json(v.map->vals[i], o, c, l); } sb_add(o, c, l, "}"); break;
     case V_TASK: sb_add(o, c, l, "null"); break;   /* tasks aren't data - they don't persist */
     default:     sb_add(o, c, l, "null"); break;   /* nothing */
   }
-  g_json_w_depth--;
 }
-static char *value_to_json(Value v) { char *o = NULL; size_t c = 0, l = 0; g_json_w_depth = 0; to_json(v, &o, &c, &l); return o ? o : dup_str("null"); }
+static char *value_to_json_mode(Value v, int charge) {
+  g_json_charge = charge;
+  const void *parents[SPROUT_JSON_CONTAINERS]; size_t size = 0;
+  json_preflight(v, parents, 0, &size);
+  size_t c = size + 1, l = 0; g_json_output = malloc(c);
+  if (!g_json_output) fail_kind(0, "memory", "could not allocate JSON output.");
+  g_json_output[0] = 0; to_json(v, &g_json_output, &c, &l); json_tick();
+  char *result = g_json_output; g_json_output = NULL; g_json_charge = 1; return result;
+}
+static char *value_to_json(Value v) { return value_to_json_mode(v, 1); }
+/* Bounded interpreter-owned metadata has its operation's own budget policy.
+   A workflow must persist known outcomes even when its execution deadline ends. */
+static char *value_to_json_internal(Value v) { return value_to_json_mode(v, 0); }
 static Value restore_exact_json(Value v, int depth) {
   if (depth > 200) fail_kind(0, "data", "stored data is nested too deeply.");
   if (v.type == V_MAP && v.map) {

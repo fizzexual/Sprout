@@ -289,7 +289,7 @@ static Value pr_sql_migrations(Value handle, SMap *options, int line) {
   sqlite3 *db = pr_database(handle, line); if (!db) return pr_result(0, "sql_migrations: database handle is closed or unknown", SQLITE_MISUSE);
   Value r = pr_migration_history(db, pr_clock_ms() + (unsigned)timeout, max_rows, (size_t)max_bytes);
   if (pr_option(r.map, "ok").boolean) {
-    char *encoded = value_to_json(r); size_t n = strlen(encoded); free(encoded);
+    char *encoded = value_to_json_internal(r); size_t n = strlen(encoded); free(encoded);
     if (n > (size_t)max_bytes) return pr_result(0, "migration history exceeds max_bytes", SQLITE_TOOBIG);
   }
   return r;
@@ -329,7 +329,7 @@ static Value pr_sql_migrate(Value handle, SList *migrations, SMap *options, int 
       SMap *statement = map_new(); map_set(statement, "sql", sql); map_set(statement, "params", params); list_push(canonical, vmap(statement));
     }
     SMap *content = map_new(); map_set(content, "version", vexact(v, 0, 0)); map_set(content, "name", name.type == V_STR ? name : vstr("")); map_set(content, "statements", vlist(canonical));
-    char *encoded = value_to_json(vmap(content)); size_t n = strlen(encoded);
+    char *encoded = value_to_json_internal(vmap(content)); size_t n = strlen(encoded);
     if (n > PR_MAX_BYTES - input_bytes) { free(encoded); fail(line, "migration canonical input exceeds 16 MiB in total."); }
     input_bytes += n; plan[i].version = v; plan[i].name = pr_option(content, "name").str; plan[i].statements = canonical;
     dist_shahex((const unsigned char *)encoded, n, plan[i].checksum); free(encoded);
@@ -372,7 +372,7 @@ static Value pr_sql_migrate(Value handle, SList *migrations, SMap *options, int 
   }
   Value r = pr_result(1, NULL, 0); map_set(r.map, "applied", vlist(applied)); map_set(r.map, "results", vlist(results));
   map_set(r.map, "current_version", vexact(migrations->n ? plan[migrations->n - 1].version : 0, 0, 0)); map_set(r.map, "bytes", vnum((double)used));
-  char *encoded = value_to_json(r); size_t output = strlen(encoded); free(encoded);
+  char *encoded = value_to_json_internal(r); size_t output = strlen(encoded); free(encoded);
   if (output > (size_t)max_bytes) return pr_migration_failure(db, pr_result(0, "serialized migration result exceeds max_bytes", SQLITE_TOOBIG));
   if (pr_clock_ms() >= deadline) return pr_migration_failure(db, pr_migration_timeout());
   if (g_runtime_max_steps && g_runtime_steps >= g_runtime_max_steps) fail_hard(line, "limit", "migration commit requires remaining --max-steps budget.");

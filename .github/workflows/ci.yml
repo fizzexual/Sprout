@@ -5,6 +5,7 @@ on:
     branches: [ main ]
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 jobs:
   build-test:
@@ -70,12 +71,14 @@ jobs:
           python src/tests/stdlib_production_test.py "$bin"
           python src/tests/distribution_test.py "$bin"
           python src/tests/security_boundary_test.py "$bin"
+          python src/tests/serialization_test.py "$bin"
           python src/tests/runtime_production_test.py "$bin"
           python src/tests/sqlite_migrations_test.py "$bin"
           python src/tests/workflow_tools_test.py "$bin"
           python src/tests/cli_library_test.py "$bin"
           python src/tests/ergonomics_test.py "$bin"
           python src/tests/embed_test.py "$bin"
+          python src/tests/release_manifest_test.py
           python tools/fuzz.py "$bin" --iterations 200 --seed 20261010 --report "$RUNNER_TEMP/fuzz.json" --artifacts "$RUNNER_TEMP/fuzz-artifacts"
           SPROUT_COMMAND="$bin" python -m unittest discover -s integrations/python -p 'test_*.py'
           "$bin" test examples/apps/ui_test.sprout
@@ -84,6 +87,8 @@ jobs:
         run: |
           python tools/soak.py "$SPROUT_BINARY" --cycles 5 --report "$RUNNER_TEMP/soak.json"
           python tools/service_load.py "$SPROUT_BINARY" --contacts 100 --report "$RUNNER_TEMP/service-load.json"
+          python src/tests/deployment_harness_test.py
+          python tools/deployment_soak.py "$SPROUT_BINARY" --duration-seconds 8 --restart-seconds 3 --contention-seconds 3 --rate 4 --workspace "$RUNNER_TEMP/deployment-smoke" --report "$RUNNER_TEMP/deployment-smoke.json" --label ci-smoke
 
       - name: Set up Go
         uses: actions/setup-go@v7
@@ -256,6 +261,7 @@ jobs:
           python src/tests/runtime_production_test.py "$PWD/src/sprout"
           python src/tests/ergonomics_test.py "$PWD/src/sprout"
           python src/tests/security_boundary_test.py "$PWD/src/sprout"
+          python src/tests/serialization_test.py "$PWD/src/sprout"
           python src/tests/sqlite_migrations_test.py "$PWD/src/sprout"
           python src/tests/workflow_tools_test.py "$PWD/src/sprout"
           python src/tests/cli_library_test.py "$PWD/src/sprout"
@@ -274,6 +280,7 @@ jobs:
       - name: Adversarial JSON, numeric, package, and bundle boundaries
         run: |
           python src/tests/security_boundary_test.py "$PWD/src/sprout"
+          python src/tests/serialization_test.py "$PWD/src/sprout"
           python src/tests/sqlite_migrations_test.py "$PWD/src/sprout"
           python src/tests/workflow_tools_test.py "$PWD/src/sprout"
           python src/tests/cli_library_test.py "$PWD/src/sprout"

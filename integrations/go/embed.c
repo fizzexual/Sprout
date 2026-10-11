@@ -60,8 +60,10 @@ static int host_utf8(const unsigned char *p, size_t n) {
 }
 static int host_one_line(const char *text, size_t length) {
   size_t start = 0, end = length;
-  while (start < end && (text[start] == ' ' || text[start] == '\t' || text[start] == '\r' || text[start] == '\n')) start++;
-  while (end > start && (text[end - 1] == ' ' || text[end - 1] == '\t' || text[end - 1] == '\r' || text[end - 1] == '\n')) end--;
+  /* One optional line terminator, never arbitrary blank protocol lines. */
+  if (end && text[end - 1] == '\n') { end--; if (end && text[end - 1] == '\r') end--; }
+  while (start < end && (text[start] == ' ' || text[start] == '\t')) start++;
+  while (end > start && (text[end - 1] == ' ' || text[end - 1] == '\t')) end--;
   if (start == end) return 0;
   for (size_t i = start; i < end; i++) if (text[i] == '\r' || text[i] == '\n') return 0;
   return host_utf8((const unsigned char *)text + start, end - start);

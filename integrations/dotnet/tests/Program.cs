@@ -11,6 +11,8 @@ async Task Test(string name, Func<Task> body) { await body(); passed++; Console.
 try
 {
     var host = new WorkerHost(executable);
+    await Test("strict worker protocol and recovery", () => ProtocolSecurity.WorkerBoundary(host, Source));
+    await Test("ambiguous request rejects before launch", () => ProtocolSecurity.RequestBoundary(host, Source));
     await Test("JSON exact values and Unicode", async () => {
         var r = await host.RunAsync(Source("show json_encode(json_decode(read_input()))\n"), new { name = "🌱 Привіт", id = SproutValues.Integer(long.MaxValue), money = SproutValues.Decimal(0.10m), bytes = SproutValues.Bytes(new byte[] {0,255}) });
         Check(r.Value.GetProperty("name").GetString() == "🌱 Привіт", "Unicode changed");
