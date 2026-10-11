@@ -27,7 +27,7 @@ to the bridge, then the supervisor can kill remaining cgroup processes at the
 test these limits on the actual machine. Windows needs an equivalent supervisor
 and identity/filesystem policy; this Linux unit is not a Windows service.
 
-The bridge has a 32-connection backlog, a 2-second input socket deadline, and
+The bridge has a 32-connection backlog, a shared 2-second header/body read deadline, and
 streamed worker-output bounds. Saturation returns 503; malformed framing/JSON
 returns 400; body limits return 413; worker failures return bounded 502/504.
 The contacts example's short SQLite lock wait returns 503 on contention and 409

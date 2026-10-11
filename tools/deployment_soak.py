@@ -27,6 +27,31 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 
 
+class DeploymentStopped(RuntimeError):
+    """An intentional external stop; never a successful completed workload."""
+
+
+def check_stop_file(path):
+    if path is None:
+        return
+    try:
+        Path(path).lstat()
+    except FileNotFoundError:
+        return
+    except OSError as error:
+        raise DeploymentStopped('stop control path could not be inspected: ' + str(error)) from error
+    raise DeploymentStopped('stop file requested cancellation: ' + str(path))
+
+
+def pause_until(deadline, stop_file):
+    while True:
+        check_stop_file(stop_file)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        time.sleep(min(.25, remaining) if stop_file is not None else remaining)
+
+
 def require(condition, message):
     if not condition:
         raise AssertionError(message)
@@ -386,6 +411,8 @@ def verify(service, folder, expected):
 
 
 def main(args):
+    stop_file = Path(args.stop_file).absolute() if getattr(args, 'stop_file', None) is not None else None
+    args.stop_file = stop_file
     for value, name in [(args.duration_seconds, 'duration'), (args.rate, 'rate'),
                         (args.restart_seconds, 'restart interval'), (args.contention_seconds, 'contention interval')]:
         require(math.isfinite(value) and value > 0, name + ' must be finite and positive')
@@ -461,8 +488,10 @@ def main(args):
             counts['hosts_cleanly_stopped'] += 1
             resource_gate(summary, resource_limits, args.workers)
     try:
+        check_stop_file(stop_file)
         with ThreadPoolExecutor(max_workers=args.clients) as pool:
             while time.monotonic() < until:
+                check_stop_file(stop_file)
                 now = time.monotonic()
                 rotate = service is None or len(expected) + args.burst > args.shard_contacts
                 restart = now >= next_restart
@@ -508,6 +537,7 @@ def main(args):
                     attempt_ms.extend(result['attempt_ms']); logical_ms.append(result['logical_ms'])
                     counts['ambiguous_commits'] += int(result['ambiguous']); counts['contacts'] += 1
                 counts['bursts'] += 1
+                check_stop_file(stop_file)
                 if counts['bursts'] % 15 == 0:
                     verify(service, folder, expected); counts['oracle_checks'] += 1
                     duplicate = dict(values[-1], name='Must not replace the original')
@@ -519,7 +549,8 @@ def main(args):
                     print('Elapsed %.1f s / contacts %d / hosts %d / errors %d' %
                           (time.monotonic()-started, counts['contacts'], counts['hosts_started'], len(report['errors'])), flush=True)
                 next_burst = max(next_burst + len(values) / args.rate, time.monotonic())
-                time.sleep(max(0, min(next_burst, until) - time.monotonic()))
+                pause_until(min(next_burst, until), stop_file)
+            check_stop_file(stop_file)
             report['traffic_duration_seconds'] = time.monotonic() - started
             verify(service, folder, expected); counts['oracle_checks'] += 1
             stop_host()
@@ -529,18 +560,30 @@ def main(args):
         require(oracle.execute('PRAGMA integrity_check').fetchall() == [('ok',)], 'independent oracle integrity failed')
         require(all(sha(frozen / relative) == value for relative, value in hashes.items()), 'frozen input changed during run')
         report['frozen_inputs_unchanged'] = True
+        check_stop_file(stop_file)
         report['workload_completed'] = True
         completion_gate(report)
         persist()
     except BaseException as error:
         report['errors'].append(dict(type=type(error).__name__, message=str(error)))
+        if isinstance(error, (DeploymentStopped, KeyboardInterrupt)):
+            report['stop_requested'] = True
+            report['workload_completed'] = False
         print('Deployment invariant failed: ' + str(error), flush=True)
     finally:
+        if report.get('stop_requested') and service:
+            try:
+                verify(service, folder, expected); counts['oracle_checks'] += 1
+                report['partial_dataset_verified'] = True
+            except Exception as error:
+                report['partial_dataset_verified'] = False
+                report['errors'].append(dict(type=type(error).__name__, message=str(error)))
         if service:
             try: stop_host()
             except Exception as error: report['errors'].append(dict(type=type(error).__name__, message=str(error)))
         oracle.close()
-        report['state'] = 'finished'; report['passed'] = not report['errors']
+        report['state'] = 'interrupted' if report.get('stop_requested') else 'finished'
+        report['passed'] = not report['errors']
         # Preserve the failed report even if a budget check triggered the stop.
         persist(enforce_budget=False)
     print(json.dumps({key: report[key] for key in ('state', 'passed', 'elapsed_seconds', 'counts', 'errors')}, indent=2), flush=True)
@@ -575,6 +618,7 @@ def arguments():
     parser.add_argument('--label', default='76ba445-baseline')
     parser.add_argument('--workspace', type=Path, required=True)
     parser.add_argument('--report', type=Path, required=True)
+    parser.add_argument('--stop-file', type=Path, help='Creating this path requests an interrupted, unsuccessful run with owned host cleanup.')
     return main(parser.parse_args())
 
 

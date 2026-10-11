@@ -20,16 +20,17 @@ The bounded [workload reports](soak-evidence.md) cover 50 lifecycle cycles and
 On 2026-10-11, separate engineering agents resumed sustained deployment testing,
 native data/runtime review, and service/SDK review. A new duration-based harness
 freezes the interpreter, worker source and Python host
-files, restart service processes, induce bounded SQLite contention, measure
-resources, and compare HTTP and database results with an independent oracle.
+files, restarts service processes, induces bounded SQLite contention, measures
+resources, and compares HTTP and database results with an independent oracle.
 The thirty-minute frozen baseline run started at 19:13 UTC, with separately
 recorded SDK/server hashes. It completed in 1,800.188 seconds with 7,168 contacts,
 81 independent oracle checks, 29 contention recoveries, 59 duplicate checks and
 11 cleanly stopped service epochs. Frozen inputs were unchanged and no invariant
 errors were recorded in the [completed report](../benchmarks/deployment-2026-10-11-windows.json).
 Its resource samples are observations; the corrected candidate harness also
-enforces resource ceilings and rejects interrupted/incomplete runs. The overnight
-candidate run is pending. Mutable working-tree tests do not count as a
+enforces resource ceilings and rejects interrupted/incomplete runs. An eight-hour
+candidate run began at 19:51 UTC; a subsequent service startup fix requires a new
+frozen run, so this run will be retained as interrupted evidence. Mutable working-tree tests do not count as a
 single-build soak. See [deployment evidence](deployment-evidence.md).
 
 The review has reproduced these issues and fixes are under validation:
@@ -44,7 +45,9 @@ The review has reproduced these issues and fixes are under validation:
 | Node worker ignores graceful timeout termination | Force termination of the direct worker and recover the next request | Fix passed local test; POSIX CI validation pending |
 | Paper reload snapshots accumulate | Delete inactive snapshots after all in-flight uses release them | Focused offline lifetime tests passed; final CI pending |
 | Service shutdown can wait indefinitely for trickling readers | Bound total header/body read time, drain dispatched workers and separate writable state | Windows host/service 40 passed with one POSIX skip; Linux signal/read-deadline checks passed |
+| Service binding waits on reverse DNS before reporting readiness | Bind using the literal address and retain an actual health/startup probe | Updated Windows suite: 42 tests, one platform skip; seven focused Linux tests passed; macOS CI pending |
 | Release workflow omits newer contract gates | Fail closed on contract failures and publish checksums and provenance | Workflow and thirteen manifest regressions passed locally, including exact installer payload; no release published |
+| Development tags can become a stable Latest release | Mark prerelease tags as prereleases and prevent Latest publication | Workflow classification checked for stable, prerelease and build-metadata tags; no release published |
 
 This is an independent agent review of other agents' code, not an external
 professional audit. Sanitizer results and checks are reported for the exact

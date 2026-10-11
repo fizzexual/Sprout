@@ -4,6 +4,7 @@ from contextlib import closing
 import json
 import os
 import socket
+import signal
 import queue
 import subprocess
 import sys
@@ -19,6 +20,14 @@ from sprout_service import SproutServer, _DeadlineReader
 
 
 class ReaderDeadlineTests(unittest.TestCase):
+    def test_server_bind_does_not_depend_on_reverse_dns(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch('sprout_service.socket.getfqdn', side_effect=AssertionError('unexpected reverse DNS')):
+                with SproutServer(('127.0.0.1', 0), Path(directory) / 'unused.sprout') as server:
+                    self.assertEqual(server.server_name, '127.0.0.1')
+                    self.assertEqual(server.server_port, server.socket.getsockname()[1])
+                    self.assertGreater(server.server_port, 0)
+
     def test_buffered_input_cannot_reset_or_skip_dispatch_deadline(self):
         timeouts = []
         connection = SimpleNamespace(gettimeout=lambda: 2,
@@ -113,7 +122,13 @@ class ServiceTests(unittest.TestCase):
                     sender = threading.Thread(target=trickle, daemon=True); sender.start()
                     started = time.monotonic()
                     try:
-                        while client.recv(4096): pass
+                        try:
+                            while client.recv(4096): pass
+                        except ConnectionResetError:
+                            # Closing with unread trickled bytes may produce RST
+                            # instead of EOF (notably on macOS). The same deadline
+                            # and no-dispatch assertions still apply below.
+                            pass
                         self.assertLess(time.monotonic() - started, .9)
                     finally:
                         stop.set(); sender.join(1)
@@ -174,10 +189,28 @@ class ServiceTests(unittest.TestCase):
     def test_cli_sigterm_drains_a_live_native_worker(self):
         self.path.write_text('write("started.txt", "yes")\nwait(1)\n'
                              'show json_encode({status: 200, body: {finished: yes}})\n', encoding='utf-8')
-        process = subprocess.Popen([sys.executable, str(Path(__file__).with_name('sprout_service.py')),
+        script = str(Path(__file__).with_name('sprout_service.py').resolve())
+        bootstrap_trace = self.path.parent / 'bootstrap.trace'
+        # Preserve ordinary script argv/import lookup while capturing a stuck
+        # bootstrap's Python stack. Readiness cancels the diagnostic timer via
+        # SIGUSR1, keeping it separate from the native worker's drain deadline.
+        bootstrap = ('import faulthandler, os, runpy, signal, sys\n'
+                     'signal.signal(signal.SIGUSR1, lambda *_: faulthandler.cancel_dump_traceback_later())\n'
+                     'trace = open(sys.argv.pop(1), "w")\n'
+                     'faulthandler.dump_traceback_later(5, file=trace)\n'
+                     'script = sys.argv.pop(1)\n'
+                     'sys.argv[0] = script\n'
+                     'sys.path[0] = os.path.dirname(script)\n'
+                     'try:\n'
+                     '    runpy.run_path(script, run_name="__main__")\n'
+                     'finally:\n'
+                     '    faulthandler.cancel_dump_traceback_later()\n'
+                     '    trace.close()\n')
+        command = [sys.executable, '-c', bootstrap, str(bootstrap_trace), script,
                                     str(self.path), '--command', os.environ['SPROUT_COMMAND'],
                                     '--port', '0', '--workers', '1', '--timeout-ms', '2000',
-                                    '--max-body', '1000', '--allow-io'],
+                                    '--max-body', '1000', '--allow-io']
+        process = subprocess.Popen(command,
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         lines = queue.Queue(); results = queue.Queue(); diagnostics = []
         def read_stdout():
@@ -219,8 +252,15 @@ class ServiceTests(unittest.TestCase):
                         last_error = repr(error)
             if not ready and process.poll() is not None:
                 error_reader.join(.5)
+            stack = ''
+            if not ready and bootstrap_trace.exists():
+                with bootstrap_trace.open('rb') as trace:
+                    stack = trace.read(8192).decode('utf-8', errors='replace')
             self.assertTrue(ready, f'service never became ready; exit={process.poll()}, '
-                                  f'stdout={output!r}, stderr={diagnostics!r}, last_error={last_error}')
+                                  f'pid={process.pid}, python={sys.executable!r}, script={script!r}, '
+                                  f'stdout={output!r}, stderr={diagnostics!r}, last_error={last_error}, '
+                                  f'bootstrap_stack={stack!r}')
+            process.send_signal(signal.SIGUSR1)
             def request():
                 try:
                     with closing(http.client.HTTPConnection('127.0.0.1', port, timeout=4)) as connection:

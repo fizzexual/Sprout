@@ -126,7 +126,28 @@ class DeploymentHarnessTests(unittest.TestCase):
             (folder / 'database').write_bytes(b'123')
             self.assertEqual(DEPLOYMENT.workspace_bytes(folder), 10)
 
-    def test_interruption_preserves_failed_report(self):
+    def test_stop_file_presence_and_inaccessible_control_fail_closed(self):
+        with tempfile.TemporaryDirectory() as name:
+            flag = Path(name) / 'STOP'
+            DEPLOYMENT.check_stop_file(flag)
+            flag.write_text('superseded by a newly frozen candidate', encoding='utf-8')
+            with self.assertRaisesRegex(DEPLOYMENT.DeploymentStopped, 'requested cancellation'):
+                DEPLOYMENT.check_stop_file(flag)
+            with patch.object(Path, 'lstat', side_effect=PermissionError('denied')):
+                with self.assertRaisesRegex(DEPLOYMENT.DeploymentStopped, 'could not be inspected'):
+                    DEPLOYMENT.check_stop_file(flag)
+
+    def test_pacing_sleep_checks_stop_file(self):
+        with tempfile.TemporaryDirectory() as name:
+            flag = Path(name) / 'STOP'
+            deadline = DEPLOYMENT.time.monotonic() + 60
+            with patch.object(DEPLOYMENT.time, 'sleep', side_effect=lambda seconds: flag.touch()) as sleeping:
+                with self.assertRaises(DEPLOYMENT.DeploymentStopped):
+                    DEPLOYMENT.pause_until(deadline, flag)
+            self.assertEqual(sleeping.call_count, 1)
+            self.assertLessEqual(sleeping.call_args.args[0], .25)
+
+    def cancelled_fixture(self, use_stop_file=False):
         with tempfile.TemporaryDirectory() as name:
             fixture = Path(name)
             for relative in ('integrations/python/sprout_host.py', 'integrations/python/sprout_service.py',
@@ -140,14 +161,31 @@ class DeploymentHarnessTests(unittest.TestCase):
                                    max_retained_handles_growth=128, max_host_fds=128, max_retained_fds_growth=32,
                                    max_workspace_mib=256, max_report_mib=4,
                                    seed=1, label='interrupt-regression', workspace=fixture / 'run', report=report)
-            with patch.object(DEPLOYMENT, 'ROOT', fixture), patch.object(DEPLOYMENT, 'Service', side_effect=KeyboardInterrupt), redirect_stdout(io.StringIO()):
+            if use_stop_file:
+                args.stop_file = fixture / 'STOP'; args.stop_file.touch()
+            with patch.object(DEPLOYMENT, 'ROOT', fixture), patch.object(DEPLOYMENT, 'Service', side_effect=KeyboardInterrupt) as service, redirect_stdout(io.StringIO()):
                 result = DEPLOYMENT.main(args)
             saved = json.loads(report.read_text(encoding='utf-8'))
-            self.assertEqual(result, 1)
-            self.assertEqual(saved['state'], 'finished')
-            self.assertFalse(saved['passed'])
-            self.assertFalse(saved['workload_completed'])
-            self.assertEqual(saved['errors'][0]['type'], 'KeyboardInterrupt')
+            return result, saved, service.call_count
+
+    def test_interruption_preserves_failed_report(self):
+        result, saved, launched = self.cancelled_fixture()
+        self.assertEqual(result, 1)
+        self.assertEqual(saved['state'], 'interrupted')
+        self.assertFalse(saved['passed'])
+        self.assertFalse(saved['workload_completed'])
+        self.assertTrue(saved['stop_requested'])
+        self.assertEqual(saved['errors'][0]['type'], 'KeyboardInterrupt')
+
+    def test_preexisting_stop_file_never_launches_a_host_or_passes(self):
+        result, saved, launched = self.cancelled_fixture(use_stop_file=True)
+        self.assertEqual(result, 1)
+        self.assertEqual(launched, 0)
+        self.assertEqual(saved['state'], 'interrupted')
+        self.assertFalse(saved['passed'])
+        self.assertFalse(saved['workload_completed'])
+        self.assertTrue(saved['stop_requested'])
+        self.assertEqual(saved['errors'][0]['type'], 'DeploymentStopped')
 
 
 if __name__ == '__main__':

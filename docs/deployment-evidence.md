@@ -70,7 +70,7 @@ fixture writes only inside that workspace.
 
 ```powershell
 python tools/deployment_soak.py src/sprout.exe --duration-seconds 1800 --workspace D:/Codex/Kestrel/work/deployment-30min-NEW --report benchmarks/deployment-NEW.json
-python tools/deployment_soak.py src/sprout.exe --duration-seconds 28800 --workspace D:/Codex/Kestrel/work/deployment-8hr-NEW --report benchmarks/deployment-8hr-NEW.json
+python tools/deployment_soak.py src/sprout.exe --duration-seconds 28800 --workspace D:/Codex/Kestrel/work/deployment-8hr-NEW --report D:/Codex/Kestrel/work/deployment-8hr-NEW.json --stop-file D:/Codex/Kestrel/work/deployment-8hr-NEW/STOP
 ```
 
 On POSIX systems, pass the native binary path instead of `src/sprout.exe`.
@@ -87,6 +87,21 @@ records the controller PID and current service PID so a later monitor can
 collect results. Its state and actual elapsed duration must be checked before
 reporting completion.
 
+For an unattended run, `--stop-file` names an initially absent control path.
+Creating that path requests cancellation; its contents are not interpreted.
+The controller checks it before launching a host, between completed traffic
+bursts and at most every 250 ms while pacing. An already dispatched burst is
+allowed to finish within its logical request budgets before the controller
+verifies the partial dataset and sends `STOP` to its owned host. Host shutdown
+then drains accepted requests and checks native exits and the final thread
+count. Cancellation records `state: interrupted`, `passed: false` and
+`workload_completed: false`; it never becomes completed duration evidence.
+An inaccessible control path also fails closed. Keep the control path outside
+the frozen input tree so cancellation does not alter the tested source hashes.
+Completed and interrupted private reports can be reviewed before publishing
+them as evidence. A controller killed externally cannot perform these gates;
+its partial report requires a separate, explicitly recorded cleanup review.
+
 The current harness also rejects interrupted or incomplete runs, requires the
 requested traffic duration and final snapshot verification, and applies resource
 gates after every service epoch. Host initial/final/maximum RSS and thread
@@ -96,9 +111,11 @@ FD counts. Default sampled host RSS is capped at 128 MiB, retained RSS growth at
 with retained growth of 32. These configurable ceilings are deliberately above
 the observed fixture measurements; they are test limits, not product memory
 guarantees. Maximum observed native worker concurrency must fit `--workers`.
-Twelve independent reporting/resource/deadline/storage regressions include interruption,
+Fifteen independent reporting/resource/deadline/storage/control regressions include interruption,
 missing measurements, exceeded ceilings, incomplete duration, timeout clamping
-and rejection of a late successful response. The Windows sampler caches its
+and rejection of a late successful response, preexisting stop controls that
+prevent host launch, inaccessible controls and cancellation during pacing.
+The Windows sampler caches its
 ctypes API and structure once; a regression checks that repeated sampling does
 not retain new pointer types.
 

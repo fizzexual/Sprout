@@ -6,6 +6,10 @@ and Windows. Its tag must match the executable's `version` output exactly.
 stable language compatibility or production readiness. Review the
 [compatibility policy](compatibility.md) and [readiness gates](production-readiness.md)
 before promoting a workload.
+Tags with a prerelease suffix are explicitly published as prereleases and never
+as GitHub's Latest release. Build metadata after `+` does not change that
+classification. The workflow still requires explicit authorization to push a
+version tag; no release was published during this review.
 
 The workflow fails before asset upload on language, CLI, standard-library,
 distribution, boundary, serialization, runtime, migration, workflow tools,

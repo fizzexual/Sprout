@@ -2,7 +2,7 @@
 
 This is an internal engineering review of repository code and private fixtures,
 not a formal security audit or certification. No public service, release tag,
-Minecraft server, certificate issuance, or system installation was performed.
+Minecraft server, public certificate issuance, or system service installation was performed.
 The production decision remains workload-specific; see
 [production readiness](production-readiness.md), [deployment examples](../deploy/README.md),
 and [release gates](releases.md).
@@ -19,6 +19,9 @@ and [release gates](releases.md).
 | Paper accumulated snapshots after successful reloads. Deleting immediately would instead invalidate queued/running readers. | Snapshot leases now retain immutable files until actual work finishes, including work that ignores interruption. Superseded/rejected/stale preparations and canceled queued work release files. Tests cover 40 reloads, stale ordering, in-flight replacement, close and queued cancellation. |
 | A small shared host graph expanded past its request cap before Go/Java/.NET applied the cap to a completed serialization. | Go applies byte and traversal budgets before ordinary serialization; Java budgets each subtree use and writes to a capped stream; .NET writes through a capped stream and checks ordinary text/DOM values. Regressions observe that an oversized alias request never serializes a trailing callback or materializes the full Java root. Exact ASCII and UTF-8 request boundaries have positive controls. |
 | A supervisor working directory did not override the Python worker's source-directory cwd, preventing relative SQLite writes beside immutable installed source. | The bridge accepts an explicit existing state directory. The unit uses `--cwd /var/lib/sprout`; a live test verifies database data stays outside the source directory. |
+| A client could keep a socket read alive by sending one byte before each timeout. | Header and body reads now share an absolute deadline; buffered bytes cannot bypass the pre-dispatch check. Regression clients trickle headers and bodies, observe bounded closure, and verify the native worker is never launched. Shutdown drains accepted workers. |
+| The inherited HTTP server constructor performs reverse DNS before publishing readiness, outside the worker deadline. | Binding uses the literal address and port. A constructor regression makes any reverse DNS call fail; the POSIX CLI test still requires actual health readiness and SIGTERM drain, with bounded failure stack diagnostics. macOS verification is pending. |
+| A development tag would default to a stable GitHub release and could become Latest. | Publication explicitly marks prerelease tags and excludes them from Latest, distinguishing hyphens in build metadata. No release was published. |
 
 Native C validates UTF-8, line framing and byte/lifecycle limits. Its caller must
 parse JSON and validate the schema. Go/.NET/Java/Node keep version 1 exact-value
@@ -44,7 +47,7 @@ passed the full suite.
 
 | Suite | Observed result |
 | --- | --- |
-| Python host and live HTTP service, Linux/full SQLite/UBSan | Prior suite: 37 passed, including actual CLI SIGTERM drain, lock recovery and explicit state directory. Final optimized Linux suite: 41 passed, including absolute source paths and native input ceiling. Windows final suite: 40 passed, one POSIX-specific skip (reported by the main agent). |
+| Python host and live HTTP service, Linux/full SQLite/UBSan | Prior suite: 37 passed, including actual CLI SIGTERM drain, lock recovery and explicit state directory. Optimized Linux suite before the bind change: 41 passed, including absolute source paths and native input ceiling. Updated Windows suite: 42 tests, one POSIX-specific skip; seven focused Linux startup/signal/read-deadline tests passed. Final macOS CI is pending. |
 | Node host, Windows and Linux/optimized native | Final suite: 24 passed on each platform, no skips; includes the native input ceiling. |
 | Go host, Windows and Linux/optimized native | 11 top-level tests passed on each platform; native source sync, cancellation, concurrency and new alias-boundary tests included. |
 | .NET host, Windows/native ABI | 8 console groups passed, including new ambiguity, text, bounded stream and recovery cases. Cached restore metadata emitted NU1900 because the vulnerability feed was unavailable; it did not skip execution. |

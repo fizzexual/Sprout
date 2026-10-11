@@ -4,8 +4,11 @@
 
 Sprout is under active development. Security fixes are applied to the latest
 release only. You can find it on the
-[Releases page](https://github.com/fizzexual/Sprout/releases/latest)
-(v0.1.22 at the time of writing).
+[Releases page](https://github.com/fizzexual/Sprout/releases/latest).
+The current development candidate is `0.2.0-dev`; its
+[production readiness gates](docs/production-readiness.md) and
+[review evidence](docs/protocol-security-2026-10-11.md) do not designate a stable
+release or certify arbitrary workloads.
 
 | Version | Supported |
 | ------- | --------- |
@@ -50,9 +53,15 @@ Reports about these parts of the project are especially welcome:
   page.
 - **The package manager** (`sprout add`, `sprout install`): for example, writing
   files outside `sprout_packages/`.
+- **Host SDKs and the private HTTP bridge** (`integrations/`): ambiguous or
+  malformed JSON accepted as a decision, request/response limits bypassed, worker
+  cleanup failures, or HTTP framing that dispatches an unintended request.
 
 Out of scope: without `--sandbox`, a Sprout program can read and write files,
 fetch URLs, and (with `use system`) run shell commands. That is by design. Only
 run code you trust without the sandbox. Endless loops and high CPU or memory use
 are also expected; the sandbox does not limit them, so a host must set OS or
 container limits (see [playground/README.md](playground/README.md)).
+Host callbacks and custom serializers are trusted application code. The private
+HTTP bridge requires the deployment's authentication and TLS layer; `/health`
+reports liveness. See [deployment examples and limits](deploy/README.md).

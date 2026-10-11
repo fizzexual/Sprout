@@ -5,6 +5,7 @@ import io
 import json
 import socket
 import signal
+import socketserver
 import threading
 import time
 from pathlib import Path
@@ -68,6 +69,12 @@ class SproutServer(http.server.ThreadingHTTPServer):
         self.timeout_ms, self.max_body = timeout_ms, max_body
         self.capacity = threading.BoundedSemaphore(workers)
         super().__init__(address, SproutHandler)
+    def server_bind(self):
+        # The bridge uses the bound address, never a reverse-DNS server name.
+        # HTTPServer's getfqdn() lookup can otherwise block CLI startup before
+        # readiness is printed, independently of request/worker deadlines.
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
     def get_request(self):
         connection, address = super().get_request()
         connection.settimeout(2)
