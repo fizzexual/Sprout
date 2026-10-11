@@ -67,9 +67,12 @@ Local Windows verification against the unchanged native binary with SHA-256
 - Local shaded JAR SHA-256:
   `8C212AB92FE5D33EE998E738624AF37B9FAE3F3415CC037F4200916E3836ACE6`.
 
-The final committed revision still requires the repository's full CI/release
-gates. Earlier green jobs or an overnight Python/native workload do not
-substitute for testing a later Java dependency change.
+The security candidate `7902a5384a8fb81c74c5a08539cfa26bba1940ca` passed all eight
+jobs in [final CI](https://github.com/fizzexual/Sprout/actions/runs/38171815745),
+including Windows/Linux/macOS SDK checks and the patched Paper adapter.
+Subsequent evidence-only documentation commits preserve the tested source.
+Release publication and sustained deployment evidence remain separate gates;
+the overnight Python/native workload does not substitute for Java verification.
 
 ## Other declared runtime dependencies
 

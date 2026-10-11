@@ -38,26 +38,28 @@ smoke passed with 80 contacts and four cleanly stopped hosts, including all
 completion, snapshot, resource and storage gates. Mutable working-tree tests do not count as a
 single-build soak. See [deployment evidence](deployment-evidence.md).
 
-The service/harness candidate `86ab3b4` passed all eight jobs in
-[cross-platform CI](https://github.com/fizzexual/Sprout/actions/runs/38171134448),
+The final security candidate `7902a5384a8fb81c74c5a08539cfa26bba1940ca` passed all
+eight jobs in [cross-platform CI](https://github.com/fizzexual/Sprout/actions/runs/38171815745),
 including Windows/Linux/macOS native and SDK checks, WASM, sanitizers, Docker
-and Paper. The subsequent Java-only Jackson dependency fix passed local Java,
-Paper and packaged-host checks and requires its own final committed CI run.
+and Paper with the patched Jackson dependency. Its native/Python/harness sources
+match the preceding `86ab3b4` service candidate, whose
+[full CI](https://github.com/fizzexual/Sprout/actions/runs/38171134448) also passed.
 The frozen HTTP/SQLite run retains the separately recorded native/Python inputs.
+Subsequent evidence-only documentation commits do not change these tested inputs.
 
-The review has reproduced these issues and fixes are under validation:
+The review reproduced these issues and verified their fixes:
 
 | Issue | Required behavior | State |
 | --- | --- | --- |
 | Deep/cyclic JSON can silently lose data | Reject before publishing a store; supported-depth values round-trip exactly | 13 Windows and Linux sanitizer regression tests passed |
-| SDKs accept duplicate or non-finite worker JSON | Reject ambiguous keys, non-finite numbers and excessive nesting | Node/Go/.NET/Java local regressions passed; final CI pending |
-| SDK strings differ from native text | Reject malformed wire text; accept valid Unicode pairs | Local SDK regressions passed; final CI pending |
-| Shared input graphs expand before byte limits | Bound ordinary input preparation and serialized output across the SDKs | Node 24, Python 22, Go 11, .NET 8 and Java 31 local test groups passed |
-| Java's pinned Jackson parser has current security advisories | Use the patched 2.21 line and verify early field-name limits and packaged dependencies | Jackson 2.21.7; Java 33 and Paper 20 tests, packaged native smoke and shaded dependency verification passed; [dependency evidence](dependency-security-2026-10-11.md); final CI pending |
+| SDKs accept duplicate or non-finite worker JSON | Reject ambiguous keys, non-finite numbers and excessive nesting | Local regressions and final cross-platform CI passed |
+| SDK strings differ from native text | Reject malformed wire text; accept valid Unicode pairs | Local regressions and final cross-platform CI passed |
+| Shared input graphs expand before byte limits | Bound ordinary input preparation and serialized output across the SDKs | Node 24, Python host 22, Go 11, .NET 8 and Java 33 tests/groups passed; final CI passed |
+| Java's pinned Jackson parser has current security advisories | Use the patched 2.21 line and verify early field-name limits and packaged dependencies | Jackson 2.21.7; Java 33 and Paper 20 tests, packaged native smoke, shaded verification and final CI passed; [dependency evidence](dependency-security-2026-10-11.md) |
 | Native host accepts extra blank response lines | Exactly one JSON line with at most one terminal newline | 10 native ABI tests, with two Windows platform skips, passed |
-| Node worker ignores graceful timeout termination | Force termination of the direct worker and recover the next request | Fix passed local test; POSIX CI validation pending |
-| Paper reload snapshots accumulate | Delete inactive snapshots after all in-flight uses release them | Focused offline lifetime tests passed; final CI pending |
-| Service shutdown can wait indefinitely for trickling readers | Bound total header/body read time, drain dispatched workers and separate writable state | Windows host/service 40 passed with one POSIX skip; Linux signal/read-deadline checks passed |
+| Node worker ignores graceful timeout termination | Force termination of the direct worker and recover the next request | Local and final Windows/POSIX CI passed |
+| Paper reload snapshots accumulate | Delete inactive snapshots after all in-flight uses release them | Focused offline lifetime tests and final Paper CI passed |
+| Service shutdown can wait indefinitely for trickling readers | Bound total header/body read time, drain dispatched workers and separate writable state | Python host/service suite has 42 tests, one Windows POSIX skip; local Linux and final platform CI passed |
 | Service binding waits on reverse DNS before reporting readiness | Bind using the literal address and retain an actual health/startup probe | Updated Windows suite: 42 tests, one platform skip; focused Linux checks and actual macOS CI service/startup/workload checks passed |
 | Release workflow omits newer contract gates | Fail closed on contract failures and publish checksums and provenance | Workflow and thirteen manifest regressions passed locally, including exact installer payload; no release published |
 | Development tags can become a stable Latest release | Mark prerelease tags as prereleases and prevent Latest publication | Workflow classification checked for stable, prerelease and build-metadata tags; no release published |

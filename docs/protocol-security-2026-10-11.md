@@ -69,8 +69,11 @@ python src/tests/embed_test.py /absolute/sprout
 ```
 
 Final-commit native/SDK/sanitizer/container/WASM verification is a required
-release dependency. Local Windows/Linux checks do not substitute for macOS,
-Linux .NET/Java/Paper, packaged deployment or the duration/data-oracle gates.
+release dependency. The candidate `7902a5384a8fb81c74c5a08539cfa26bba1940ca`
+passed all eight jobs in [final CI](https://github.com/fizzexual/Sprout/actions/runs/38171815745),
+including macOS, Linux .NET/Java/Paper and the patched Jackson dependency.
+Subsequent evidence-only documentation commits preserve the tested source.
+These checks do not replace the duration/data-oracle deployment gates.
 The release manifest checks source/version/target/assets before publication;
 checksums alone do not authenticate the release or prove reproducible builds.
 
