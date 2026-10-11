@@ -11,6 +11,30 @@ spec = importlib.util.spec_from_file_location('release_manifest', Path(__file__)
 release = importlib.util.module_from_spec(spec); spec.loader.exec_module(release)
 TAG = 'v0.2.0-dev'; REVISION = 'a' * 40
 
+def installer_fixture(payload):
+    data = bytearray(0x400 + len(payload))
+    data[:2] = b'MZ'; struct.pack_into('<I', data, 60, 64)
+    data[64:68] = b'PE\0\0'; struct.pack_into('<HH', data, 68, 0x8664, 1)
+    struct.pack_into('<H', data, 84, 240)
+    optional = 88; struct.pack_into('<H', data, optional, 0x20b)
+    struct.pack_into('<I', data, optional + 108, 16)
+    struct.pack_into('<II', data, optional + 128, 0x1000, 0x200)
+    section = optional + 240
+    struct.pack_into('<IIII', data, section + 8, 0x200 + len(payload), 0x1000,
+                     0x200 + len(payload), 0x200)
+    base = 0x200
+    for offset, key, child, named in [(0, 10, 0x80000020, False),
+                                      (0x20, 0x80000080, 0x80000040, True),
+                                      (0x40, 1033, 0x60, False)]:
+        struct.pack_into('<HH', data, base + offset + 12, int(named), int(not named))
+        struct.pack_into('<II', data, base + offset + 16, key, child)
+    struct.pack_into('<IIII', data, base + 0x60, 0x1200, len(payload), 0, 0)
+    name = 'SPROUT_EXE'.encode('utf-16-le')
+    struct.pack_into('<H', data, base + 0x80, len(name)//2)
+    data[base + 0x82:base + 0x82 + len(name)] = name
+    data[0x400:] = payload
+    return data
+
 class ReleaseGate(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='sprout-release-gate-'); self.addCleanup(self.temp.cleanup)
@@ -19,7 +43,7 @@ class ReleaseGate(unittest.TestCase):
         macho = b'\xcf\xfa\xed\xfe' + struct.pack('<I',0x0100000c)
         pe = bytearray(128); pe[:2] = b'MZ'; struct.pack_into('<I',pe,60,64); pe[64:68] = b'PE\0\0'; struct.pack_into('<H',pe,68,0x8664)
         for platform, content in [('Linux',elf),('macOS',macho),('Windows',pe)]: (self.root / release.PLATFORMS[platform]).write_bytes(content)
-        (self.root / release.INSTALLER).write_bytes(('asset:' + release.INSTALLER).encode())
+        (self.root / release.INSTALLER).write_bytes(installer_fixture(pe))
         for platform, asset in release.PLATFORMS.items():
             names = [asset, release.INSTALLER] if platform == 'Windows' else [asset]
             record = dict(schema=1, platform=platform, target=release.TARGETS[platform], tag=TAG, revision=REVISION, version='Sprout ' + TAG,
@@ -73,5 +97,36 @@ class ReleaseGate(unittest.TestCase):
         (self.root/'SHA256SUMS').write_text('damaged generated output')
         release.assemble(self.root,TAG,REVISION)
         self.assertEqual(len((self.root/'SHA256SUMS').read_text().splitlines()),8)
+    def test_installer_payload_must_match_even_with_updated_record(self):
+        path = self.root / release.INSTALLER
+        for content in [b'not an installer', installer_fixture(b'stale interpreter')]:
+            with self.subTest(content=content[:20]):
+                path.write_bytes(content)
+                record_path = self.root / (release.PLATFORMS['Windows'] + '.manifest.json')
+                record = json.loads(record_path.read_text())
+                record['assets'][1] = release.file_record(path)
+                record_path.write_text(json.dumps(record))
+                with self.assertRaises(ValueError): release.assemble(self.root, TAG, REVISION)
+                self.assertFalse((self.root / 'release-manifest.json').exists())
+    def test_malformed_resource_addresses_fail_closed(self):
+        payload = (self.root / release.PLATFORMS['Windows']).read_bytes()
+        for offset, value in [(88 + 128, 0xfffffff0), (0x200 + 20, 0x800001f8),
+                               (0x200 + 0x60, 0x7fffffff), (0x200 + 0x64, 0xffffffff)]:
+            with self.subTest(offset=offset):
+                fixture = installer_fixture(payload)
+                struct.pack_into('<I', fixture, offset, value)
+                (self.root / release.INSTALLER).write_bytes(fixture)
+                with self.assertRaises(ValueError): release.installer_payload_digest(self.root / release.INSTALLER)
+    def test_resource_groups_and_language_ids_match_windows_lookup(self):
+        payload = (self.root / release.PLATFORMS['Windows']).read_bytes()
+        for offset, fmt, value in [(0x200 + 12, '<HH', (1, 0)),
+                                   (0x200 + 0x20 + 12, '<HH', (0, 1)),
+                                   (0x200 + 0x40 + 16, '<I', (65536,)),
+                                   (0x200 + 0x40 + 12, '<HH', (1, 0))]:
+            with self.subTest(offset=offset):
+                fixture = installer_fixture(payload)
+                struct.pack_into(fmt, fixture, offset, *value)
+                (self.root / release.INSTALLER).write_bytes(fixture)
+                with self.assertRaises(ValueError): release.installer_payload_digest(self.root / release.INSTALLER)
 
 if __name__ == '__main__': unittest.main()

@@ -1,4 +1,5 @@
 import http.client
+import io
 from contextlib import closing
 import json
 import os
@@ -13,7 +14,33 @@ import tempfile
 import threading
 import unittest
 from unittest.mock import patch
-from sprout_service import SproutServer
+from types import SimpleNamespace
+from sprout_service import SproutServer, _DeadlineReader
+
+
+class ReaderDeadlineTests(unittest.TestCase):
+    def test_buffered_input_cannot_reset_or_skip_dispatch_deadline(self):
+        timeouts = []
+        connection = SimpleNamespace(gettimeout=lambda: 2,
+                                     settimeout=timeouts.append)
+        with patch('sprout_service.time.monotonic', side_effect=[10, 10.1, 11.1]):
+            raw = _DeadlineReader(connection, io.BytesIO(b'header\nbody'), 1)
+            with io.BufferedReader(raw) as reader:
+                self.assertEqual(reader.readline(), b'header\n')
+                self.assertEqual(reader.read(4), b'body')  # Already buffered.
+                with self.assertRaises(socket.timeout): raw.finish_request()
+        self.assertAlmostEqual(timeouts[0], .9)
+
+    def test_valid_input_restores_response_timeout(self):
+        timeouts = []
+        connection = SimpleNamespace(gettimeout=lambda: 2,
+                                     settimeout=timeouts.append)
+        with patch('sprout_service.time.monotonic', side_effect=[10, 10.1, 10.2]):
+            with _DeadlineReader(connection, io.BytesIO(b'x'), 1) as reader:
+                self.assertEqual(reader.read(1), b'x')
+                reader.finish_request()
+        self.assertAlmostEqual(timeouts[0], .9)
+        self.assertEqual(timeouts[-1], 2)
 
 @unittest.skipUnless(os.environ.get("SPROUT_COMMAND"), "set SPROUT_COMMAND")
 class ServiceTests(unittest.TestCase):
@@ -71,6 +98,55 @@ class ServiceTests(unittest.TestCase):
         self.path.write_text('fail "internal detail"\n', encoding='utf-8')
         status, data = self.request('GET', '/')
         self.assertEqual(status, 502); self.assertNotIn('internal detail', json.dumps(data))
+    def test_trickling_headers_and_body_expire_without_worker(self):
+        self.server.request_read_timeout = .3
+        for prefix in [b'GET / HTTP/1.1\r\nX-Slow: ',
+                       b'POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 1000\r\n\r\n']:
+            with self.subTest(prefix=prefix[:12]), patch('sprout_service.run') as worker:
+                with closing(socket.create_connection(('127.0.0.1', self.server.server_port), timeout=1)) as client:
+                    client.sendall(prefix)
+                    stop = threading.Event()
+                    def trickle():
+                        while not stop.wait(.02):
+                            try: client.sendall(b' ')
+                            except OSError: return
+                    sender = threading.Thread(target=trickle, daemon=True); sender.start()
+                    started = time.monotonic()
+                    try:
+                        while client.recv(4096): pass
+                        self.assertLess(time.monotonic() - started, .9)
+                    finally:
+                        stop.set(); sender.join(1)
+                    self.assertFalse(sender.is_alive())
+                worker.assert_not_called()
+        self.assertEqual(self.request('GET', '/health')[0], 200)
+    def test_shutdown_wait_for_trickling_reader_is_bounded(self):
+        self.server.request_read_timeout = .3
+        closed = threading.Event(); stop = threading.Event()
+        with patch('sprout_service.run') as worker:
+            client = socket.create_connection(('127.0.0.1', self.server.server_port), timeout=1)
+            client.sendall(b'GET / HTTP/1.1\r\nX-Slow: ')
+            def trickle():
+                while not stop.wait(.02):
+                    try: client.sendall(b' ')
+                    except OSError: return
+            def close():
+                self.server.shutdown(); self.server.server_close(); closed.set()
+            sender = threading.Thread(target=trickle, daemon=True); sender.start()
+            closer = None
+            try:
+                deadline = time.monotonic() + 1
+                while self.server.capacity._value == 8 and time.monotonic() < deadline:
+                    time.sleep(.01)
+                self.assertLess(self.server.capacity._value, 8, 'request was never accepted')
+                closer = threading.Thread(target=close, daemon=True); closer.start()
+                self.assertTrue(closed.wait(1.5), 'shutdown was held open by a trickling request')
+            finally:
+                stop.set(); client.close(); sender.join(1)
+                if closer: closer.join(2)
+            self.assertFalse(sender.is_alive())
+            self.assertFalse(closer.is_alive())
+            worker.assert_not_called()
     def test_listener_close_drains_an_accepted_worker(self):
         entered = threading.Event(); release = threading.Event(); closed = threading.Event()
         results = []
@@ -103,12 +179,48 @@ class ServiceTests(unittest.TestCase):
                                     '--port', '0', '--workers', '1', '--timeout-ms', '2000',
                                     '--max-body', '1000', '--allow-io'],
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        lines = queue.Queue(); results = queue.Queue()
-        reader = threading.Thread(target=lambda: lines.put(process.stdout.readline()), daemon=True)
-        reader.start(); client = None
+        lines = queue.Queue(); results = queue.Queue(); diagnostics = []
+        def read_stdout():
+            for line in process.stdout:
+                lines.put(line)
+            lines.put('')
+        def read_stderr():
+            while True:
+                chunk = process.stderr.buffer.read1(4096)
+                if not chunk: return
+                diagnostics.append(chunk.decode('utf-8', errors='replace'))
+                # Diagnostics stay bounded even when bootstrap fails noisily.
+                diagnostics[:] = [''.join(diagnostics)[-8192:]]
+        reader = threading.Thread(target=read_stdout, daemon=True)
+        error_reader = threading.Thread(target=read_stderr, daemon=True)
+        reader.start(); error_reader.start(); client = None
         try:
-            line = lines.get(timeout=3)
-            port = int(line.strip().rsplit(':', 1)[1])
+            deadline = time.monotonic() + 15
+            port = None; output = []; ready = False; last_error = None
+            while time.monotonic() < deadline:
+                if process.poll() is not None:
+                    break
+                try:
+                    line = lines.get(timeout=min(.1, max(.001, deadline - time.monotonic())))
+                except queue.Empty:
+                    line = None
+                if line:
+                    output.append(line.strip()); output[:] = output[-8:]
+                    if line.startswith('Sprout worker service at http://'):
+                        port = int(line.strip().rsplit(':', 1)[1])
+                if port is not None:
+                    try:
+                        with closing(http.client.HTTPConnection('127.0.0.1', port, timeout=.5)) as connection:
+                            connection.request('GET', '/health')
+                            response = connection.getresponse()
+                            ready = response.status == 200 and json.loads(response.read()) == {'ok': True, 'protocol': 1}
+                        if ready: break
+                    except (OSError, ValueError, http.client.HTTPException) as error:
+                        last_error = repr(error)
+            if not ready and process.poll() is not None:
+                error_reader.join(.5)
+            self.assertTrue(ready, f'service never became ready; exit={process.poll()}, '
+                                  f'stdout={output!r}, stderr={diagnostics!r}, last_error={last_error}')
             def request():
                 try:
                     with closing(http.client.HTTPConnection('127.0.0.1', port, timeout=4)) as connection:
@@ -124,11 +236,15 @@ class ServiceTests(unittest.TestCase):
             process.terminate()
             self.assertEqual(results.get(timeout=3), (200, {'finished': True}))
             self.assertEqual(process.wait(timeout=3), 0)
-            self.assertEqual(process.stderr.read(), '')
+            error_reader.join(3)
+            self.assertEqual(''.join(diagnostics), '')
         finally:
             if process.poll() is None: process.kill(); process.wait(timeout=3)
             if client: client.join(3)
-            reader.join(3); process.stdout.close(); process.stderr.close()
+            reader.join(3); error_reader.join(3)
+            process.stdout.close(); process.stderr.close()
+        self.assertFalse(reader.is_alive())
+        self.assertFalse(error_reader.is_alive())
     def test_invalid_framing_never_dispatches(self):
         for field in (b'Content-Length: +0', b'Content-Length: -0',
                       b'Content-Length: 0\r\nTransfer-Encoding:',

@@ -20,7 +20,10 @@ Each native asset has a platform record containing the source revision, version,
 compiler, native format/architecture, SQLite source digest, and asset sizes and
 SHA-256 digests. Windows records also pin the installer. The publisher verifies
 the complete expected set, common tag/revision/SQLite source, native target,
-and every digest before it can publish. Missing, extra, renamed, corrupted, or
+and every digest before it can publish. A portable PE resource check requires
+the Windows installer's embedded `SPROUT_EXE` bytes to match the tested native
+Windows asset exactly, both when recording and before publication; it never
+executes the installer. Missing, extra, renamed, corrupted, or
 inconsistent files fail closed. `release-manifest.json` joins the platform
 records, and `SHA256SUMS` covers binaries, installer, records, and that manifest.
 

@@ -102,6 +102,18 @@ jobs:
           go-version: '1.26.x'
           cache: false
 
+      - name: Retain bounded workload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workload-failure-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/soak.json
+            ${{ runner.temp }}/service-load.json
+            ${{ runner.temp }}/deployment-smoke.json
+            soak-artifacts/
+          if-no-files-found: ignore
+
       - name: Go SDK real-worker tests
         working-directory: integrations/go
         env:

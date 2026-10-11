@@ -44,6 +44,81 @@ def native_target(path):
         if at + 6 <= len(header) and header[at:at+4] == b'PE\0\0' and struct.unpack_from('<H', header, at+4)[0] == 0x8664: return 'PE-x86_64'
     raise ValueError('unsupported or mislabeled native executable target')
 
+def installer_payload_digest(path):
+    """Read the named PE resource without loading or executing the installer."""
+    require(path.is_file() and not path.is_symlink() and path.stat().st_size <= 160 * 1048576,
+            'installer must be a bounded regular file')
+    data = path.read_bytes()
+    def unpack(fmt, at):
+        size = struct.calcsize(fmt)
+        require(0 <= at <= len(data) - size, 'truncated installer structure')
+        return struct.unpack_from(fmt, data, at)
+    require(data[:2] == b'MZ', 'installer must be a PE executable')
+    pe, = unpack('<I', 60)
+    require(data[pe:pe+4] == b'PE\0\0', 'invalid installer PE signature')
+    machine, sections = unpack('<HH', pe + 4)
+    optional_size, = unpack('<H', pe + 20)
+    optional = pe + 24
+    magic, = unpack('<H', optional)
+    require(machine == 0x8664 and magic == 0x20b and 1 <= sections <= 96 and optional_size >= 136,
+            'installer must be a PE64 x86_64 executable')
+    count, = unpack('<I', optional + 108)
+    require(count >= 3, 'installer has no resource directory')
+    resource_rva, resource_size = unpack('<II', optional + 128)
+    require(resource_rva and resource_size >= 16, 'installer has no resources')
+    table = optional + optional_size
+    ranges = []
+    for index in range(sections):
+        size, rva, raw_size, offset = unpack('<IIII', table + index * 40 + 8)
+        require(offset + raw_size <= len(data), 'truncated installer section')
+        ranges.append((rva, raw_size, offset))
+    def locate(rva, size):
+        matches = [offset + rva - start for start, length, offset in ranges
+                   if start <= rva and size <= length - (rva - start)]
+        require(len(matches) == 1, 'invalid or ambiguous installer resource address')
+        return matches[0]
+    base = locate(resource_rva, resource_size)
+    def relative(offset, size):
+        require(0 <= offset <= resource_size - size, 'resource structure outside directory')
+        return base + offset
+    def entries(offset):
+        at = relative(offset, 16)
+        named, ids = unpack('<HH', at + 12)
+        require(named + ids <= 4096, 'too many installer resources')
+        relative(offset + 16, (named + ids) * 8)
+        result = []
+        for index in range(named + ids):
+            name, child = unpack('<II', at + 16 + index * 8)
+            require(bool(name & 0x80000000) == (index < named),
+                    'installer resource name does not match its typed directory group')
+            if name & 0x80000000:
+                text = name & 0x7fffffff
+                length, = unpack('<H', relative(text, 2))
+                start = relative(text + 2, length * 2)
+                try: name = data[start:start + length * 2].decode('utf-16-le', errors='strict')
+                except UnicodeError as error: raise ValueError('invalid installer resource name') from error
+            result.append((name, child))
+        return result
+    def directory_child(offset, key):
+        children = [child for name, child in entries(offset) if name == key]
+        require(len(children) == 1 and children[0] & 0x80000000, 'missing or duplicate installer payload resource')
+        return children[0] & 0x7fffffff
+    kind = directory_child(0, 10)  # RT_RCDATA
+    named = directory_child(kind, 'SPROUT_EXE')
+    languages = entries(named)
+    require(len(languages) == 1 and not languages[0][1] & 0x80000000,
+            'installer payload must have one language resource')
+    require(type(languages[0][0]) is int and 0 <= languages[0][0] <= 65535,
+            'installer language must be a numeric WORD identifier')
+    payload_rva, payload_size, _, _ = unpack('<IIII', relative(languages[0][1], 16))
+    require(payload_size > 0, 'empty installer payload')
+    start = locate(payload_rva, payload_size)
+    return hashlib.sha256(memoryview(data)[start:start + payload_size]).hexdigest()
+
+def verify_installer(installer, asset):
+    require(installer_payload_digest(installer) == digest(asset),
+            'installer embedded interpreter differs from tested Windows asset')
+
 def write_platform(asset, platform, tag, revision, *, installer=None, compiler='cc'):
     identity(tag, revision)
     asset = Path(asset)
@@ -57,6 +132,7 @@ def write_platform(asset, platform, tag, revision, *, installer=None, compiler='
     assets = [file_record(asset)]
     if installer is not None:
         require(Path(installer).name == INSTALLER, 'unexpected installer filename')
+        verify_installer(Path(installer), asset)
         assets.append(file_record(Path(installer)))
     compiler_version = subprocess.run([compiler, '--version'], check=True, capture_output=True,
                                       text=True, encoding='utf-8', errors='replace', timeout=15).stdout.splitlines()[0]
@@ -115,6 +191,7 @@ def assemble(directory, tag, revision):
             observed.add(name)
         records.append(record)
     require(observed == expected, 'release asset set is incomplete')
+    verify_installer(directory / INSTALLER, directory / PLATFORMS['Windows'])
     require(len({item.get('sqlite_source_sha256') for item in records}) == 1 and re.fullmatch(r'[0-9a-f]{64}', records[0].get('sqlite_source_sha256', '')), 'SQLite source mismatch')
     manifest = directory / 'release-manifest.json'
     manifest.write_text(json.dumps(dict(schema=1, tag=tag, revision=revision,

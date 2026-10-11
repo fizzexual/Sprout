@@ -18,6 +18,7 @@ if not exist "..\src\sprout.exe" (
 )
 
 copy /Y "..\src\sprout.exe" "sprout.exe" >nul
+if errorlevel 1 ( echo Interpreter copy failed. & popd & exit /b 1 )
 windres sprout.rc -o sprout_rc.o
 if errorlevel 1 ( echo windres failed. & popd & exit /b 1 )
 gcc -O2 -Wall -s -o sprout-installer.exe sprout-installer.c sprout_rc.o -lurlmon -ladvapi32 -luser32 -lole32 -lshell32

@@ -41,7 +41,7 @@ The review has reproduced these issues and fixes are under validation:
 | Node worker ignores graceful timeout termination | Force termination of the direct worker and recover the next request | Fix passed local test; POSIX CI validation pending |
 | Paper reload snapshots accumulate | Delete inactive snapshots after all in-flight uses release them | Focused offline lifetime tests passed; final CI pending |
 | Service code and writable data share a directory | Provide an explicit state directory and drain accepted workers on shutdown | Windows service regressions passed; POSIX signal verification pending |
-| Release workflow omits newer contract gates | Fail closed on contract failures and publish checksums and provenance | Workflow and nine manifest regressions ready; no release published |
+| Release workflow omits newer contract gates | Fail closed on contract failures and publish checksums and provenance | Workflow and twelve manifest regressions passed locally, including exact installer payload; no release published |
 
 This is an independent agent review of other agents' code, not an external
 professional audit. Sanitizer results and checks are reported for the exact

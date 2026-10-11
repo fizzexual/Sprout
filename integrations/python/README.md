@@ -58,6 +58,9 @@ The CLI accepts `--workers`, `--timeout-ms` and `--max-body`; defaults are 8,
 data in an existing writable directory while keeping the source immutable.
 Without `--cwd`, the worker uses the source file's directory.
 Listener shutdown waits for accepted handlers to finish
-within their configured worker/read limits. POSIX SIGTERM and Ctrl+C stop the
+within their configured worker/read/write limits. Headers and body share one
+two-second absolute read deadline; trickling input does not extend it. The
+response write timeout is separate, so dispatched workers can finish while
+the service drains. POSIX SIGTERM and Ctrl+C stop the
 listener and drain those requests; forced process termination does not promise
 graceful drain. `/health` reports listener liveness, not worker/database readiness.

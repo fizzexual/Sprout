@@ -19,7 +19,10 @@ All parameters are bound independently of SQL text. `/health` reports the host's
 protocol; it does not prove database health.
 
 Host concurrency defaults to eight requests, with a 32-connection backlog,
-two-second input socket deadline, 64 KiB body limit, and bounded worker output.
+two-second total request-read deadline, 64 KiB body limit, and bounded worker output.
+The read deadline covers headers and body together; trickling bytes cannot reset
+it. A complete buffered request must still meet the deadline before dispatch.
+Responses have a separate two-second socket write timeout.
 Excess work returns 503. Runtime failures return a short 502/504 response without
 exposing interpreter diagnostics. Content-Length ambiguity, oversized bodies,
 invalid JSON and response header injection are rejected. Response JSON retains
@@ -37,7 +40,7 @@ simple rules; measure latency before choosing it for high-throughput APIs.
 Configure CLI limits with `--workers`, `--timeout-ms` and `--max-body`. Listener
 close waits for accepted requests to finish; POSIX SIGTERM and Ctrl+C drain those
 handlers. Configure a supervisor shutdown grace longer than the worker timeout
-plus the two-second socket read limit and scheduling overhead. Forced termination
+plus the read/write limits and scheduling overhead. Forced termination
 can still interrupt work. See [deployment evidence](deployment-evidence.md) and
 [production readiness gates](production-readiness.md) before promoting a build.
 Use `--cwd /var/lib/sprout` to keep relative SQLite files and stores in a writable

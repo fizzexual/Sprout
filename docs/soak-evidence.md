@@ -15,6 +15,11 @@ The report records the actual completed scope, duration, seed, platform,
 interpreter/harness/SDK/fixture hashes, limits, counts, and errors.
 The current harness snapshots the executable once and verifies its hash again
 after all cycles, so a concurrent rebuild of the original cannot mix runtimes.
+The current whole-workflow deadline is 15 seconds with an 18-second outer
+process bound; individual native fixture jobs still have a two-second limit.
+The earlier five-second whole-workflow budget expired on a hosted Windows CI
+runner during a complete multi-stage DAG. These bounds are recorded in each
+report and do not define a throughput or latency SLA.
 
 Each complete cycle exercises:
 

@@ -164,8 +164,8 @@ class Cycle:
 
     def invoke(self, path):
         self.counts['sprout_cli_starts'] += 1
-        result = subprocess.run([str(self.binary), '--max-steps', '100000', '--timeout-ms', '5000', 'run', str(path)],
-                                cwd=self.folder, capture_output=True, timeout=8)
+        result = subprocess.run([str(self.binary), '--max-steps', '100000', '--timeout-ms', '15000', 'run', str(path)],
+                                cwd=self.folder, capture_output=True, timeout=18)
         require(result.returncode == 0, 'runtime failed: ' + result.stderr.decode(errors='replace'))
         require(len(result.stdout) <= 1048576 and len(result.stderr) <= 65536, 'host result exceeded harness byte budget')
         return json.loads(result.stdout)
@@ -217,7 +217,7 @@ class Cycle:
         jobs = [dict(id='crash', argv=self.argv('crash', 'crash'), idempotent=True, timeout_ms=2000)]
         path, checkpoint = self.source('crash', jobs)
         self.counts['sprout_cli_starts'] += 1
-        child = subprocess.Popen([str(self.binary), '--max-steps', '100000', '--timeout-ms', '5000', 'run', str(path)],
+        child = subprocess.Popen([str(self.binary), '--max-steps', '100000', '--timeout-ms', '15000', 'run', str(path)],
                                  cwd=self.folder, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         try:
             deadline = time.monotonic() + 3
@@ -325,8 +325,8 @@ def main():
                   fixture_sha256=hashlib.sha256(WORKER.encode()).hexdigest(), platform=platform.platform(),
                   python=platform.python_version(), seed=args.seed, requested_cycles=args.cycles,
                   requested_duration_seconds=args.duration_seconds, completed_cycles=0, counts=counts, errors=[],
-                  limits=dict(native_job_timeout_ms=2000, runtime_deadline_ms=5000, runtime_steps=100000,
-                              outer_process_seconds=8, sdk_host_ms=2000, sdk_runtime_ms=1500,
+                  limits=dict(native_job_timeout_ms=2000, runtime_deadline_ms=15000, runtime_steps=100000,
+                              outer_process_seconds=18, sdk_host_ms=2000, sdk_runtime_ms=1500,
                               sdk_output_bytes=65536, fixture_gate_seconds=3),
                   interpretation='Bounded lifecycle evidence, not production certification or an exactly-once engine guarantee. '
                                  'Operation keys and transactions belong to the fixture. Parent-crash fixtures own a bounded '
