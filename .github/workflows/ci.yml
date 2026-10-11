@@ -62,19 +62,28 @@ jobs:
 
       - name: Editor and playground regression tests
         run: |
-          node --test vscode-extension/tests/*.test.js playground/tests/*.test.js integrations/node/tests/*.test.js examples/apps/*.test.js
+          node --test vscode-extension/tests/*.test.js playground/tests/*.test.js integrations/node/tests/*.test.js examples/apps/*.test.js examples/adoption/totalreach/parity.test.js
 
       - name: Native production foundation contracts
         run: |
           bin="$SPROUT_BINARY"
           python src/tests/stdlib_production_test.py "$bin"
           python src/tests/distribution_test.py "$bin"
+          python src/tests/security_boundary_test.py "$bin"
           python src/tests/runtime_production_test.py "$bin"
+          python src/tests/sqlite_migrations_test.py "$bin"
+          python src/tests/workflow_tools_test.py "$bin"
+          python src/tests/cli_library_test.py "$bin"
           python src/tests/ergonomics_test.py "$bin"
           python src/tests/embed_test.py "$bin"
           python tools/fuzz.py "$bin" --iterations 200 --seed 20261010 --report "$RUNNER_TEMP/fuzz.json" --artifacts "$RUNNER_TEMP/fuzz-artifacts"
           SPROUT_COMMAND="$bin" python -m unittest discover -s integrations/python -p 'test_*.py'
           "$bin" test examples/apps/ui_test.sprout
+
+      - name: Bounded workflow and HTTP workload regression
+        run: |
+          python tools/soak.py "$SPROUT_BINARY" --cycles 5 --report "$RUNNER_TEMP/soak.json"
+          python tools/service_load.py "$SPROUT_BINARY" --contacts 100 --report "$RUNNER_TEMP/service-load.json"
 
       - name: Set up Go
         uses: actions/setup-go@v7
@@ -246,7 +255,28 @@ jobs:
           bash src/tests/run.sh
           python src/tests/runtime_production_test.py "$PWD/src/sprout"
           python src/tests/ergonomics_test.py "$PWD/src/sprout"
+          python src/tests/security_boundary_test.py "$PWD/src/sprout"
+          python src/tests/sqlite_migrations_test.py "$PWD/src/sprout"
+          python src/tests/workflow_tools_test.py "$PWD/src/sprout"
+          python src/tests/cli_library_test.py "$PWD/src/sprout"
           python tools/fuzz.py "$PWD/src/sprout" --iterations 100 --seed 20261010 --report "$RUNNER_TEMP/fuzz-asan.json" --artifacts "$RUNNER_TEMP/fuzz-asan-artifacts"
+
+  ubsan:
+    name: numeric and boundary safety (UndefinedBehaviorSanitizer, Linux)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build with checked undefined arithmetic and floating conversions
+        run: cc -O1 -g -DSPROUT_SQLITE -fsanitize=undefined,float-cast-overflow -fno-sanitize-recover=all -fno-omit-frame-pointer -o src/sprout src/sprout.c src/vendor/sqlite/sqlite3.c -lm -pthread -ldl
+      - name: Adversarial JSON, numeric, package, and bundle boundaries
+        run: |
+          python src/tests/security_boundary_test.py "$PWD/src/sprout"
+          python src/tests/sqlite_migrations_test.py "$PWD/src/sprout"
+          python src/tests/workflow_tools_test.py "$PWD/src/sprout"
+          python src/tests/cli_library_test.py "$PWD/src/sprout"
 
   playground:
     name: playground image (Docker)

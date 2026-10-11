@@ -1,0 +1,42 @@
+~ Run from the repository root. Tasks are real native check/test commands.
+use "../../lib/cli.sprout"
+use files
+
+make schema = [
+    {long: "output", short: "o", kind: "text", required: yes, help: "Write the JSON execution report here."},
+    {long: "jobs", short: "j", kind: "number", default: 2, help: "Number of concurrent workers, 1 to 64."},
+    {long: "tag", short: "t", kind: "text", repeat: yes, help: "Attach a metadata tag to the report."},
+    {long: "command", kind: "text", default: "sprout", help: "Sprout interpreter executable or absolute path."},
+    {long: "dry-run", short: "n", kind: "bool", help: "Print the execution plan without starting tasks or writing files."}
+]
+make parsed = cli.parse(args(), schema)
+when not parsed.ok:
+    fail parsed.error
+when parsed.help:
+    show cli.help("task-runner", schema, "Run the repository's check and CLI contract tasks.", "TASK ...")
+    exit(0)
+when length(parsed.positionals) == 0:
+    fail "Choose at least one task: check or test. See --help."
+make flags = parsed.flags
+when flags.output == "" or flags.command == "":
+    fail "--output and --command must not be empty."
+when flags.jobs < 1 or flags.jobs > 64 or floor(flags.jobs) != flags.jobs:
+    fail "--jobs must be a whole number from 1 to 64."
+make commands = []
+for each name in parsed.positionals:
+    when name == "check":
+        add(commands, {argv: [flags.command, "check", "examples/cli/task-runner.sprout"], timeout_ms: 5000})
+    orwhen name == "test":
+        add(commands, {argv: [flags.command, "test", "src/tests/cli_library_test.sprout"], timeout_ms: 5000})
+    otherwise:
+        fail "Unknown task: " + name + ". Choose check or test."
+make report = {tasks: parsed.positionals, tags: flags.tag, workers: flags.jobs, commands: commands, dry_run: flags["dry-run"]}
+when not flags["dry-run"]:
+    set report["results"] = parallel(commands, {workers: flags.jobs, max_output: 65536, fail_fast: yes})
+    make saved = files.write(flags.output, json_encode(report) + "\n")
+    when not saved.ok:
+        fail saved.error
+    for each result in report.results:
+        when not result.ok:
+            fail "A task failed; details were saved to " + flags.output + "."
+show json_encode(report)

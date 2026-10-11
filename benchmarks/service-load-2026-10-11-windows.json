@@ -1,0 +1,75 @@
+{
+  "timestamp_utc": "2026-10-11T18:47:32.915503+00:00",
+  "binary_path": "D:\\Codex\\Kestrel\\sprout\\src\\sprout.exe",
+  "binary_sha256": "b64d4a01864f5d4c4ced0f75155334ecb58d76750df78365bb301b95b308e4a4",
+  "harness_sha256": "d8efc6446cdefa879d92cf085572e0aae090c614a0baa58923b7493435f840ab",
+  "contacts_source_sha256": "0e5ce19d5427241b414c1654b1ae5da06ef013df13d0dbc2659c4327f3867f7b",
+  "sdk_sha256": "5d1bf64fdabeba7fa6b33ac63278362546497367c1a2ab2ac1107dce75548631",
+  "service_sha256": "6ca8dc88a3d08d9d96ef4576c03eb6b467229a9233c95bae518964dfc19957c8",
+  "expected_dataset_sha256": "0f3200ef69750d0646d21d79daaff2667ac023b6c8fef91d3feec313c877492f",
+  "platform": "Windows-10-10.0.19045-SP0",
+  "python": "3.12.10",
+  "sqlite_oracle_version": "3.49.1",
+  "seed": 20261011,
+  "clients": 8,
+  "server_workers": 4,
+  "counts": {
+    "contacts_requested": 200,
+    "contacts_completed": 200,
+    "post_attempts": 435,
+    "capacity_503": 210,
+    "sqlite_503": 0,
+    "ambiguous_commits_reconciled": 0,
+    "deliberate_sqlite_busy_503": 1,
+    "deliberate_duplicate_409": 1,
+    "sqlite_rows_verified": 200,
+    "http_rows_verified": 200,
+    "runtime_failure_502": 1,
+    "recovery_200": 1
+  },
+  "status_counts": {
+    "201": 200,
+    "503": 210
+  },
+  "transport_errors": {
+    "ConnectionAbortedError": 25
+  },
+  "phases": [
+    "empty contacts database and HTTP health verified",
+    "independent exclusive SQLite lock returns application 503 before retrying the same email",
+    "concurrent unique contact writes completed with bounded retries",
+    "independent sqlite3 integrity and exact rows match HTTP GET and expected dataset",
+    "worker runtime 502 suppresses internal details; following GET recovers with identical rows"
+  ],
+  "errors": [],
+  "limits": {
+    "max_attempts_per_contact": 32,
+    "logical_contact_deadline_seconds": 15,
+    "client_timeout_seconds": 6,
+    "service_host_timeout_ms": 5000,
+    "service_runtime_timeout_ms": 4750,
+    "sqlite_statement_timeout_ms": 250,
+    "response_bytes": 1048576,
+    "service_body_bytes": 65536
+  },
+  "interpretation": "Bounded local loopback HTTP/SQLite evidence, not a production capacity or latency guarantee. Each request launches a native Sprout process. Stable unique emails plus exact final rows reconcile ambiguous transport retries; the service does not provide exactly-once request delivery.",
+  "deliberate_sqlite_busy_response_ms": 829.5988000027137,
+  "load_elapsed_seconds": 3.1324898000020767,
+  "sqlite_integrity_check": "ok",
+  "elapsed_seconds": 4.516903099996853,
+  "attempt_latency": {
+    "samples": 435,
+    "p50_ms": 3.2699999937904067,
+    "p95_ms": 77.40199999534525,
+    "max_ms": 108.27599999902304
+  },
+  "logical_contact_latency": {
+    "samples": 200,
+    "p50_ms": 75.86190000438364,
+    "p95_ms": 245.05280000448693,
+    "max_ms": 2470.608900002844
+  },
+  "passed": true,
+  "retryable_post_outcomes": 235,
+  "original_binary_unchanged": true
+}

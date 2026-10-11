@@ -75,16 +75,21 @@ browser playground through WebAssembly. It is an actively developed hobby langua
 The revival branch is building a practical native application foundation. It adds
 [exact data and execution budgets](docs/runtime-data.md),
 [HTTP/files/processes/CSV/SQLite](docs/native-library.md),
+[versioned SQLite migrations](docs/sqlite-migrations.md),
 [complete project bundles and verified packages](docs/distribution.md),
-[restartable workflows](docs/workflows.md),
+[restartable workflows](docs/workflows.md) with [planning and inspection](docs/workflow-tools.md),
 [named arguments and multiline text](docs/ergonomics.md), semantic editor tooling,
-recorded playground debugging, and an [app toolkit](docs/app-toolkit.md).
+recorded playground debugging, an [app toolkit](docs/app-toolkit.md), and a
+[CLI argument library](docs/cli-library.md) with a working task runner.
 [Node](integrations/node/README.md), [Python](integrations/python/README.md), and
 [C hosts](integrations/native/README.md) use bounded JSON workers; see the
 [API integration](docs/services.md) and [production roadmap](PRODUCTION_ROADMAP.md)
 for supported workloads and remaining release gates. Native SQLite builds vendor
 a pinned SQLite source dependency. These features do not constitute a stable 1.0
-or a blanket production-readiness claim.
+or a blanket production-readiness claim. The [compatibility policy](docs/compatibility.md)
+records the current development contracts and the requirements for stable promotion.
+The [TotalReach migration example](examples/adoption/totalreach/README.md) compares
+one existing CRM rule with its pinned TypeScript implementation using native parity tests.
 
 ## Code you can read out loud
 
@@ -209,7 +214,7 @@ winget install --id BrechtSanders.WinLibs.POSIX.UCRT
 # run a program:
 sprout run hello.sprout     # or just: sprout hello.sprout
 sprout --sandbox run x.sprout   # run UNTRUSTED code: no file / shell / network access
-sprout version              # -> Sprout v0.1.22
+sprout version              # -> Sprout v0.2.0-dev
 sprout check hello.sprout    # syntax, declarations, and imports; no program execution
 sprout new myapp            # create a full multi-file project folder
 sprout build                # run the project in the current folder (reads sprout.toml)
@@ -793,8 +798,9 @@ The longer, sequenced plan lives in **[ROADMAP.md](ROADMAP.md)**. I run an adver
 source.sprout → lexer → parser → AST → tree-walking interpreter → output
 ```
 
-The whole interpreter is **one C file** (`src/sprout.c`), compiled to a small
-native executable. Your `.sprout` program is **interpreted** (the AST is walked) —
+The interpreter starts in **`src/sprout.c`**, with native runtime and library
+helpers in adjacent C headers. It compiles to a native executable. Your `.sprout`
+program is **interpreted** (the AST is walked) —
 only the interpreter itself is compiled to machine code.
 
 - **Lexer** — hand-written; turns indentation into `INDENT`/`DEDENT` tokens
@@ -811,11 +817,13 @@ only the interpreter itself is compiled to machine code.
   environments, closures, and strings. It finds roots by scanning the C stack (plus a few
   precise globals), so it can never free a value that's still in use. Recursion runs on a
   64 MB stack with a call-depth guard.
-- **Built-ins, from scratch** — JSON is a hand-written parser; HTTP uses the OS
-  (`urlmon` on Windows); shell via `popen`. No third-party libraries.
+- **Built-ins** — JSON uses a hand-written parser. Native APIs add bounded
+  HTTP requests, argument-vector processes, atomic files and parameterized
+  SQLite. SQLite-enabled builds compile the pinned vendored SQLite source.
 
 Full tour: [`src/README.md`](src/README.md) and **[How Sprout Works](wiki/architecture.md)**.
-There's a **[VS Code extension](vscode-extension)** for syntax highlighting too.
+The **[VS Code extension](vscode-extension)** adds highlighting, semantic
+navigation, completion, diagnostics and formatting.
 
 > Sprout previously had a TypeScript-on-Node implementation with a GUI, a
 > compile-to-JavaScript engine, and libraries. That has been retired so the

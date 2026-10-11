@@ -90,6 +90,33 @@ test('standard namespace members offer checked API documentation', () => {
   assert.match(hover.contents.value, /timed_out/);
 });
 
+test('workflow tools and SQLite migration hints expose their actual boundaries', () => {
+  const h = harness(), text = 'use workflow\nuse sqlite\nuse process\nworkflow.plan(jobs)\nworkflow.inspect("checkpoint.json")\nsqlite.migrate(handle, migrations, )\nworkflow.\nsqlite.\nprocess.\n';
+  const doc = h.document(text);
+  const members = module => h.provider.completion.provideCompletionItems(doc,
+    doc.positionAt(text.lastIndexOf(module + '.') + module.length + 1));
+  assert.deepEqual(Array.from(members('workflow').map(item => item.label)), ['run', 'plan', 'inspect']);
+  assert.equal(members('sqlite').some(item => item.label === 'migrate'), true);
+  assert.equal(members('sqlite').some(item => item.label === 'migrations'), true);
+  assert.equal(members('process').some(item => item.label === 'parallel'), true);
+  const pure = h.provider.hover.provideHover(doc, doc.positionAt(text.indexOf('plan(')));
+  assert.match(pure.contents.value, /Pure DAG validation/);
+  assert.match(pure.contents.value, /permitted in sandbox/);
+  const inspect = h.provider.hover.provideHover(doc, doc.positionAt(text.indexOf('inspect(')));
+  assert.match(inspect.contents.value, /blocked in sandbox/);
+  assert.match(inspect.contents.value, /return process output/);
+  const signature = h.provider.signature.provideSignatureHelp(doc, doc.positionAt(text.indexOf(', )') + 2));
+  assert.equal(signature.signatures[0].label, 'migrate(handle, migrations, options = {})');
+  assert.equal(signature.activeParameter, 2);
+});
+
+test('new namespace members require an import and do not masquerade as local modules', () => {
+  const h = harness(), doc = h.document('workflow.\nsqlite.\n');
+  assert.equal(h.provider.completion.provideCompletionItems(doc, doc.positionAt(9)).length, 0);
+  const local = h.document('make workflow = {}\nworkflow.\n');
+  assert.equal(h.provider.completion.provideCompletionItems(local, local.positionAt(local.getText().length - 1)).length, 0);
+});
+
 test('rename produces isolated edits and refuses changed binding', () => {
   const h = harness(), doc = h.document('make person = "person"\nshow person ~ person\n');
   const result = h.provider.rename.provideRenameEdits(doc, doc.positionAt(6), 'name');

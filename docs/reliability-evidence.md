@@ -57,3 +57,24 @@ numeric-bytecode variants. This does not cover every language feature, establish
 security isolation, or replace long-running/sanitizer/native coverage fuzzing.
 Run the same harness against AddressSanitizer/UndefinedBehaviorSanitizer builds
 for stronger evidence, and extend the corpus whenever a regression is fixed.
+
+## Boundary and workload regressions
+
+`src/tests/security_boundary_test.py` probes malformed exact tags, UTF-8,
+decoded duplicate keys, huge numeric controls, metadata truncation, package
+source consistency, and hostile archive paths. CI runs it on all native targets,
+under GC stress/AddressSanitizer, and in a separate Linux
+UndefinedBehaviorSanitizer build with floating-conversion checks enabled.
+This regression corpus records specific repaired boundaries; it is not a
+security certification or a substitute for ongoing review.
+The [migration review follow-up](security-review-2026-10-11.md) records atomic
+SQLite rollback and history checks on Windows and a fully instrumented Linux
+UndefinedBehaviorSanitizer build.
+
+The [soak evidence](soak-evidence.md) documents repeatable DAG, retry, crash,
+cancellation, SDK recovery, and HTTP/SQLite workloads with independent oracles.
+Reports pin binary and harness hashes and state their actual exercised scope.
+The [TotalReach migration example](../examples/adoption/totalreach/README.md)
+checks a real public application rule against its pinned original TypeScript
+body. A bounded parity example is evidence for that rule, not an application
+migration or a reason to replace its surrounding framework.

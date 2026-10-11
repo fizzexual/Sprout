@@ -1,0 +1,13 @@
+~ Named inputs make call sites readable without requiring declaration order.
+~ Plain triple-quoted text preserves its lines and indentation.
+task order_summary(customer, price, quantity = 1, footer = "Thank you for your order."):
+    make heading = """SPROUT ORDER NOTE
+=================
+"""
+    make total = price * quantity
+    give heading + "Customer: " + customer + "\nTotal: $" + total + "\n" + footer
+
+show order_summary(quantity: 3, customer: "Ada", price: decimal("19.95"))
+show ""
+~ Omitted inputs use their defaults; builtins themselves take positional inputs.
+show order_summary("Sam", decimal("4.50"), footer: "Collected in person.")

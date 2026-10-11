@@ -1,0 +1,2 @@
+# Preserve the pinned reference bytes for the SHA-256 parity check on Windows too.
+upstream/* -text

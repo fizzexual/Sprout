@@ -30,6 +30,8 @@ async function run(source, expectedCode = 0, flags = [], sandbox = true) {
   assert.match(await run('show read("/etc/passwd")\n', 1), /sandbox mode/);
   for (const expression of ['file_read("/etc/passwd")', 'file_write("/marker", "forbidden")',
     'request("https://example.com")', 'process(["echo", "forbidden"])', 'sql_open("/database.sqlite")',
+    'workflow_inspect("/checkpoint.json")', 'workflow_run([], {checkpoint: "/checkpoint.json"})',
+    'sql_migrate(nothing, [])', 'sql_migrations(nothing)',
     'remember("sandbox_probe", 42)']) {
     assert.match(await run('show ' + expression + '\n', 1), /sandbox mode/, expression + ' must be blocked');
   }
@@ -37,6 +39,18 @@ async function run(source, expectedCode = 0, flags = [], sandbox = true) {
   assert.match(await run('make x = 1\nshow x\n', 0, ['--trace-json']), /@sprout-trace .*"variables"/);
   assert.match(await run('task sum(a, b = 2):\n    give a + b\nshow sum(b: 20, a: 22)\n'), /42/);
   assert.match(await run('show """first\nsecond"""\n'), /first\nsecond/);
+  const planned = JSON.parse(await run('use workflow\nshow json_encode(workflow.plan([' +
+    '{id: "build", argv: ["never-execute"]},' +
+    '{id: "lint", argv: ["never-execute"]},' +
+    '{id: "ship", argv: ["never-execute"], after: ["build", "lint"]}]))\n'));
+  assert.equal(planned.ok, true);
+  assert.deepEqual(planned.layers, [['build', 'lint'], ['ship']]);
+  assert.deepEqual(planned.order, ['build', 'lint', 'ship']);
+  assert.match(planned.fingerprint, /^[0-9a-f]{64}$/);
+  assert.match(await run('use workflow\nshow workflow.plan([{id: "one", argv: ["never"], after: ["missing"]}])\n', 1), /dependency does not name a job/);
+  const literalFlags = ['--sandbox', '--max-steps', 'application-value', '--stdin', '--'];
+  assert.deepEqual(JSON.parse(await run('show json_encode(args())\n', 0, ['--', ...literalFlags])), literalFlags);
+  assert.match(await run('show file_read("/program.sprout")\n', 1, ['--', '--sandbox']), /sandbox mode/);
   // Expected failure above must not leave Node's process exit status set to 1.
   process.exitCode = 0;
   console.log('WASM smoke tests passed.');

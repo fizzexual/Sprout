@@ -2,6 +2,8 @@ import http.client
 from contextlib import closing
 import json
 import os
+import socket
+import sqlite3
 from pathlib import Path
 import tempfile
 import threading
@@ -23,6 +25,14 @@ class ServiceTests(unittest.TestCase):
         with closing(http.client.HTTPConnection('127.0.0.1', self.server.server_port, timeout=4)) as client:
             client.request(method, path, body)
             response = client.getresponse(); return response.status, json.loads(response.read())
+    def raw_request(self, wire):
+        with socket.create_connection(('127.0.0.1', self.server.server_port), timeout=4) as client:
+            client.sendall(wire)
+            chunks = []
+            while True:
+                data = client.recv(4096)
+                if not data: return b''.join(chunks)
+                chunks.append(data)
     def test_health_and_request(self):
         self.assertEqual(self.request('GET', '/health'), (200, {'ok': True, 'protocol': 1}))
         status, data = self.request('POST', '/hello?tag=a&tag=b', '{"value":42}')
@@ -57,6 +67,33 @@ class ServiceTests(unittest.TestCase):
         self.path.write_text('fail "internal detail"\n', encoding='utf-8')
         status, data = self.request('GET', '/')
         self.assertEqual(status, 502); self.assertNotIn('internal detail', json.dumps(data))
+    def test_invalid_framing_never_dispatches(self):
+        for field in (b'Content-Length: +0', b'Content-Length: -0',
+                      b'Content-Length: 0\r\nTransfer-Encoding:',
+                      b'Transfer-Encoding:\r\nTransfer-Encoding: chunked'):
+            with self.subTest(field=field), patch('sprout_service.run') as worker:
+                wire = b'POST / HTTP/1.1\r\nHost: localhost\r\n' + field + b'\r\n\r\n'
+                self.assertIn(b' 400 ', self.raw_request(wire).split(b'\r\n')[0])
+                worker.assert_not_called()
+        self.assertEqual(self.request('GET', '/health')[0], 200)
+    def test_malformed_target_returns_400(self):
+        with patch('sprout_service.run') as worker:
+            wire = b'GET http://[ HTTP/1.1\r\nHost: localhost\r\n\r\n'
+            self.assertIn(b' 400 ', self.raw_request(wire).split(b'\r\n')[0])
+            worker.assert_not_called()
+    def test_bodyless_statuses_have_no_wire_body(self):
+        for status in (204, 205, 304):
+            with self.subTest(status=status), patch('sprout_service.run', return_value={'status': status, 'body': {'unexpected': 42}}):
+                headers, body = self.raw_request(b'GET / HTTP/1.1\r\nHost: localhost\r\n\r\n').split(b'\r\n\r\n', 1)
+                self.assertEqual(body, b'')
+                if status in (204, 304): self.assertNotIn(b'Content-Length:', headers)
+    def test_head_reports_length_without_wire_body(self):
+        reply = {'status': 200, 'body': {'value': 42}}
+        with patch('sprout_service.run', return_value=reply):
+            get_head, get_body = self.raw_request(b'GET / HTTP/1.1\r\nHost: localhost\r\n\r\n').split(b'\r\n\r\n', 1)
+            head_head, head_body = self.raw_request(b'HEAD / HTTP/1.1\r\nHost: localhost\r\n\r\n').split(b'\r\n\r\n', 1)
+            self.assertEqual(head_body, b'')
+            self.assertIn(('Content-Length: '+str(len(get_body))).encode(), head_head)
     def test_contacts_sqlite_application(self):
         example = Path(__file__).resolve().parents[2] / 'examples/services/contacts.sprout'
         self.path.write_text(example.read_text(encoding='utf-8'), encoding='utf-8')
@@ -69,5 +106,19 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(status, 200); self.assertEqual(len(result['contacts']), 1)
         self.assertEqual(result['contacts'][0][1], "Robert'); DROP TABLE contacts;--")
         self.assertEqual(self.request('POST', '/contacts', '{}')[0], 400)
+    def test_contacts_database_busy_is_503_then_recovers(self):
+        example = Path(__file__).resolve().parents[2] / 'examples/services/contacts.sprout'
+        self.path.write_text(example.read_text(encoding='utf-8'), encoding='utf-8')
+        self.server.allow_io = True
+        self.assertEqual(self.request('GET', '/contacts')[0], 200)
+        with closing(sqlite3.connect(self.path.parent / 'contacts.sqlite')) as database:
+            database.execute('BEGIN EXCLUSIVE')
+            try:
+                data = json.dumps({'name': 'Busy', 'email': 'busy@example.test'})
+                self.assertEqual(self.request('POST', '/contacts', data)[0], 503)
+            finally:
+                database.rollback()
+        self.assertEqual(self.request('POST', '/contacts', data)[0], 201)
+        self.assertEqual(self.request('GET', '/contacts')[1]['contacts'][0][1], 'Busy')
 
 if __name__ == '__main__': unittest.main()

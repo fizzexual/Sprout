@@ -2,7 +2,7 @@
   "name": "sprout-language",
   "displayName": "Sprout",
   "description": "Language support for Sprout: scope-aware completion, navigation, rename, task signatures, formatting, and live checking.",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "publisher": "fizzexual",
   "license": "MIT",
   "icon": "icon.png",

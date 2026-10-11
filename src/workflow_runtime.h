@@ -3,7 +3,9 @@
 #include <sys/file.h>
 #endif
 static void dist_shahex(const unsigned char *, size_t, char [65]);
-static int workflow_builtin_name(const char *name) { return !strcmp(name, "workflow_run"); }
+static int workflow_builtin_name(const char *name) {
+  return !strcmp(name, "workflow_run") || !strcmp(name, "workflow_plan") || !strcmp(name, "workflow_inspect");
+}
 static int workflow_index(Value jobs, const char *id) {
   for (int i = 0; i < jobs.list->n; i++) {
     Value v = pr_option(jobs.list->items[i].map, "id");
@@ -55,21 +57,11 @@ static int workflow_save(const char *path, SMap *state) {
   int ok = strlen(text) <= 24u * 1024u * 1024u && runtime_atomic_write(path, text);
   free(text); return ok;
 }
-static Value workflow_run(Value jobs, SMap *options, int line) {
-  pr_host_guard("workflow_run", line);
-  const char *const allowed[] = {"checkpoint", "workers", "fail_fast", "max_output", "resume", NULL};
+static int workflow_validate(Value jobs, int output, int retries[128], int idempotent[128], int line) {
   const char *const job_keys[] = {"id", "argv", "after", "cwd", "stdin", "timeout_ms", "max_output", "idempotent", "retries", NULL};
-  pr_options(options, allowed, line);
-  const char *checkpoint = pr_text_option(options, "checkpoint", NULL, line);
-  if (!checkpoint || !*checkpoint) fail(line, "workflow_run requires a checkpoint path.");
-  int workers = pr_int_option(options, "workers", 4, 1, 16, line);
-  int output = pr_int_option(options, "max_output", 1048576, 1, PR_MAX_BYTES, line);
-  Value fast = pr_option(options, "fail_fast"), resume = pr_option(options, "resume");
-  if ((fast.type != V_NONE && fast.type != V_BOOL) || (resume.type != V_NONE && resume.type != V_BOOL))
-    fail(line, "workflow fail_fast and resume must be yes or no.");
   if (jobs.type != V_LIST || !jobs.list || jobs.list->n < 1 || jobs.list->n > 128)
-    fail(line, "workflow_run needs 1..128 job maps.");
-  int count = jobs.list->n, retries[128] = {0}, idempotent[128] = {0}, graph[128] = {0};
+    fail(line, "a workflow needs 1..128 job maps.");
+  int count = jobs.list->n, graph[128] = {0};
   for (int i = 0; i < count; i++) {
     Value job = jobs.list->items[i]; if (job.type != V_MAP || !job.map) fail(line, "workflow jobs must be maps.");
     pr_options(job.map, job_keys, line);
@@ -99,6 +91,8 @@ static Value workflow_run(Value jobs, SMap *options, int line) {
       for (int j = 0; j < after.list->n; j++) {
         if (after.list->items[j].type != V_STR || workflow_index(jobs, after.list->items[j].str) < 0)
           fail(line, "workflow dependency does not name a job.");
+        for (int k = 0; k < j; k++) if (!strcmp(after.list->items[k].str, after.list->items[j].str))
+          fail(line, "workflow dependency ids must not repeat.");
       }
     }
   }
@@ -113,8 +107,126 @@ static Value workflow_run(Value jobs, SMap *options, int line) {
     }
   }
   if (reached != count) fail(line, "workflow dependencies contain a cycle.");
-  char fingerprint[65]; char *serialized = value_to_json(jobs);
+  return count;
+}
+static void workflow_fingerprint(Value jobs, char fingerprint[65]) {
+  char *serialized = value_to_json(jobs);
   dist_shahex((unsigned char *)serialized, strlen(serialized), fingerprint); free(serialized);
+}
+/* Pure planning: layers use the same frontier snapshot, not in-pass admission. */
+static Value workflow_plan(Value jobs, int line) {
+  int retries[128] = {0}, idempotent[128] = {0}, visited[128] = {0};
+  int count = workflow_validate(jobs, 1048576, retries, idempotent, line), reached = 0;
+  SList *layers = list_new(), *order = list_new();
+  while (reached < count) {
+    int frontier[128], selected = 0; SList *layer = list_new();
+    for (int i = 0; i < count; i++) if (!visited[i]) {
+      Value after = pr_option(jobs.list->items[i].map, "after"); int ready = 1;
+      if (after.type == V_LIST) for (int j = 0; j < after.list->n; j++)
+        if (!visited[workflow_index(jobs, after.list->items[j].str)]) ready = 0;
+      if (ready) frontier[selected++] = i;
+    }
+    for (int j = 0; j < selected; j++) {
+      int i = frontier[j]; visited[i] = 1; reached++;
+      Value id = pr_option(jobs.list->items[i].map, "id"); list_push(layer, id); list_push(order, id);
+    }
+    list_push(layers, vlist(layer)); runtime_tick(line);
+  }
+  char fingerprint[65]; workflow_fingerprint(jobs, fingerprint);
+  SMap *result = map_new(); map_set(result, "ok", vbool(1)); map_set(result, "count", vnum(count));
+  map_set(result, "fingerprint", vstr(fingerprint)); map_set(result, "order", vlist(order)); map_set(result, "layers", vlist(layers));
+  return vmap(result);
+}
+static Value workflow_inspect_error(const char *code, const char *message) {
+  Value result = pr_result(0, message, 0); map_set(result.map, "code", vstr(code)); return result;
+}
+static Value workflow_inspect(const char *path, int line) {
+  pr_host_guard("workflow_inspect", line);
+#ifdef __EMSCRIPTEN__
+  (void)path; return workflow_inspect_error("io", "workflow inspection is unavailable in WebAssembly.");
+#else
+  /* Read a regular-file snapshot without taking the workflow lock. On Windows
+     allow atomic replacement while the old file remains open for inspection. */
+  FILE *file = NULL;
+#ifdef _WIN32
+  wchar_t *wide = pr_wide(path);
+  if (!wide) return workflow_inspect_error("io", "could not open workflow checkpoint.");
+  HANDLE handle = CreateFileW(wide, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                             NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_BACKUP_SEMANTICS, NULL);
+  free(wide);
+  if (handle == INVALID_HANDLE_VALUE) {
+    DWORD error = GetLastError();
+    return workflow_inspect_error(error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND ? "not_found" : "io", "could not open workflow checkpoint.");
+  }
+  BY_HANDLE_FILE_INFORMATION info;
+  if (GetFileType(handle) != FILE_TYPE_DISK || !GetFileInformationByHandle(handle, &info) || (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+    CloseHandle(handle); return workflow_inspect_error("io", "workflow checkpoint must be a regular file.");
+  }
+  int fd = _open_osfhandle((intptr_t)handle, _O_RDONLY | _O_BINARY);
+  if (fd < 0) CloseHandle(handle);
+  else { file = _fdopen(fd, "rb"); if (!file) _close(fd); }
+#else
+  int fd = open(path, O_RDONLY | O_NONBLOCK);
+  if (fd < 0) return workflow_inspect_error(errno == ENOENT ? "not_found" : "io", "could not open workflow checkpoint.");
+  struct stat metadata;
+  if (fstat(fd, &metadata) || !S_ISREG(metadata.st_mode)) { close(fd); return workflow_inspect_error("io", "workflow checkpoint must be a regular file."); }
+  file = fdopen(fd, "rb"); if (!file) close(fd);
+#endif
+  if (!file) return workflow_inspect_error("io", "could not read workflow checkpoint.");
+  PRBuffer buf = {0}; char chunk[4096]; size_t got; const char *code = NULL, *error = NULL;
+  while ((got = fread(chunk, 1, sizeof chunk, file))) {
+    if (!pr_append(&buf, chunk, got, 24u * 1024u * 1024u) || buf.truncated) { code = "limit"; error = "workflow checkpoint exceeds 24 MiB."; break; }
+    if (buf.binary) { code = "invalid_checkpoint"; error = "workflow checkpoint contains NUL bytes."; break; }
+  }
+  if (!error && ferror(file)) { code = "io"; error = "could not read workflow checkpoint."; }
+  fclose(file);
+  if (error) { free(buf.p); return workflow_inspect_error(code, error); }
+  Value saved = parse_json(buf.p ? buf.p : ""); free(buf.p);
+  if (saved.type != V_MAP) return workflow_inspect_error("invalid_checkpoint", "workflow checkpoint is not valid JSON data.");
+  Value version = pr_option(saved.map, "version"), hash = pr_option(saved.map, "fingerprint"), entries = pr_option(saved.map, "jobs");
+  if (version.type != V_NUM || version.num != 1 || hash.type != V_STR || strlen(hash.str) != 64 ||
+      entries.type != V_LIST || !entries.list || entries.list->n < 1 || entries.list->n > 128)
+    return workflow_inspect_error("invalid_checkpoint", "workflow checkpoint header is invalid.");
+  for (int i = 0; i < 64; i++) if (!isxdigit((unsigned char)hash.str[i]))
+    return workflow_inspect_error("invalid_checkpoint", "workflow checkpoint fingerprint is invalid.");
+  int counts[4] = {0}; const char *states[] = {"pending", "running", "done", "failed"}; SList *summaries = list_new();
+  for (int i = 0; i < entries.list->n; i++) {
+    Value entry = entries.list->items[i]; if (entry.type != V_MAP) return workflow_inspect_error("invalid_checkpoint", "workflow checkpoint job is invalid.");
+    Value id = pr_option(entry.map, "id"), status = pr_option(entry.map, "status"), tries = pr_option(entry.map, "attempts"), result = pr_option(entry.map, "result");
+    if (id.type != V_STR || !*id.str || strlen(id.str) > 64 || status.type != V_STR || tries.type != V_NUM ||
+        !isfinite(tries.num) || tries.num < 0 || tries.num > 1000000 || floor(tries.num) != tries.num)
+      return workflow_inspect_error("invalid_checkpoint", "workflow checkpoint job fields are invalid.");
+    for (int j = 0; j < i; j++) if (!strcmp(pr_option(entries.list->items[j].map, "id").str, id.str))
+      return workflow_inspect_error("invalid_checkpoint", "workflow checkpoint job ids repeat.");
+    int state = -1; for (int j = 0; j < 4; j++) if (!strcmp(status.str, states[j])) state = j;
+    if (state < 0) return workflow_inspect_error("invalid_checkpoint", "workflow checkpoint status is invalid.");
+    if (state >= 2) {
+      Value ok = result.type == V_MAP ? pr_option(result.map, "ok") : vnone();
+      if (ok.type != V_BOOL || ok.boolean != (state == 2)) return workflow_inspect_error("invalid_checkpoint", "workflow checkpoint terminal result is invalid.");
+    }
+    counts[state]++; SMap *summary = map_new(); map_set(summary, "id", id); map_set(summary, "status", status); map_set(summary, "attempts", tries);
+    list_push(summaries, vmap(summary));
+  }
+  SMap *totals = map_new(); for (int i = 0; i < 4; i++) map_set(totals, states[i], vnum(counts[i]));
+  Value result = pr_result(1, NULL, 0); map_set(result.map, "code", vstr("ok")); map_set(result.map, "version", version);
+  map_set(result.map, "fingerprint", hash); map_set(result.map, "count", vnum(entries.list->n));
+  map_set(result.map, "complete", vbool(counts[2] == entries.list->n)); map_set(result.map, "counts", vmap(totals)); map_set(result.map, "jobs", vlist(summaries));
+  return result;
+#endif
+}
+static Value workflow_run(Value jobs, SMap *options, int line) {
+  pr_host_guard("workflow_run", line);
+  const char *const allowed[] = {"checkpoint", "workers", "fail_fast", "max_output", "resume", NULL};
+  pr_options(options, allowed, line);
+  const char *checkpoint = pr_text_option(options, "checkpoint", NULL, line);
+  if (!checkpoint || !*checkpoint) fail(line, "workflow_run requires a checkpoint path.");
+  int workers = pr_int_option(options, "workers", 4, 1, 16, line);
+  int output = pr_int_option(options, "max_output", 1048576, 1, PR_MAX_BYTES, line);
+  Value fast = pr_option(options, "fail_fast"), resume = pr_option(options, "resume");
+  if ((fast.type != V_NONE && fast.type != V_BOOL) || (resume.type != V_NONE && resume.type != V_BOOL))
+    fail(line, "workflow fail_fast and resume must be yes or no.");
+  int retries[128] = {0}, idempotent[128] = {0}, count = workflow_validate(jobs, output, retries, idempotent, line);
+  char fingerprint[65]; workflow_fingerprint(jobs, fingerprint);
   WorkflowLock lock;
   if (!workflow_lock(checkpoint, &lock)) fail(line, "workflow checkpoint is locked by another run or its directory is unavailable.");
   g_workflow_lock = &lock;
@@ -219,6 +331,14 @@ static Value workflow_run(Value jobs, SMap *options, int line) {
 }
 static int workflow_builtin(const char *name, int n, Value *a, int line, Value *out) {
   if (!workflow_builtin_name(name)) return 0;
+  if (!strcmp(name, "workflow_plan")) {
+    if (n != 1) arity_error(line, name, "one list of workflow jobs", n);
+    *out = workflow_plan(a[0], line); return 1;
+  }
+  if (!strcmp(name, "workflow_inspect")) {
+    want_one_str(line, name, n, a, "workflow.inspect(checkpoint)");
+    *out = workflow_inspect(a[0].str, line); return 1;
+  }
   if (n != 2 || a[1].type != V_MAP) fail(line, "workflow_run(jobs, {checkpoint: path, ...}) needs two inputs.");
   *out = workflow_run(a[0], a[1].map, line); return 1;
 }

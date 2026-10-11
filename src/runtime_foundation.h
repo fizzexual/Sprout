@@ -3,6 +3,30 @@ static uint64_t g_runtime_deadline = 0, g_runtime_steps = 0, g_runtime_max_steps
 static int g_trace_json = 0;
 static unsigned g_trace_events = 0;
 static size_t g_trace_bytes = 0;
+#ifdef _WIN32
+/* Windows 10 supports replacing an open destination while readers retain its
+   old contents. Keep the ABI layout local so older MinGW SDKs can still build. */
+static int runtime_replace_windows(const wchar_t *from, const wchar_t *to) {
+  typedef struct { DWORD flags; HANDLE root; DWORD length; WCHAR name[1]; } RenameInfo;
+  DWORD n = GetFullPathNameW(to, 0, NULL, NULL);
+  if (!n || n > 32768) { if (n) SetLastError(ERROR_FILENAME_EXCED_RANGE); return 0; }
+  size_t size = sizeof(RenameInfo) + (size_t)n * sizeof(WCHAR);
+  RenameInfo *info = (RenameInfo *)calloc(1, size);
+  if (!info) { SetLastError(ERROR_NOT_ENOUGH_MEMORY); return 0; }
+  DWORD length = GetFullPathNameW(to, n, info->name, NULL);
+  if (!length || length >= n) { DWORD error = length ? ERROR_FILENAME_EXCED_RANGE : GetLastError(); free(info); SetLastError(error); return 0; }
+  info->flags = 3; /* FILE_RENAME_FLAG_REPLACE_IF_EXISTS | FILE_RENAME_FLAG_POSIX_SEMANTICS */
+  info->length = length * sizeof(WCHAR);
+  HANDLE handle = CreateFileW(from, DELETE | SYNCHRONIZE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                             NULL, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+  if (handle == INVALID_HANDLE_VALUE) { DWORD error = GetLastError(); free(info); SetLastError(error); return 0; }
+  int ok = SetFileInformationByHandle(handle, (FILE_INFO_BY_HANDLE_CLASS)22 /* FileRenameInfoEx */, info, (DWORD)size) != 0;
+  DWORD error = ok ? ERROR_SUCCESS : GetLastError(); CloseHandle(handle); free(info);
+  if (!ok && (error == ERROR_INVALID_PARAMETER || error == ERROR_INVALID_FUNCTION || error == ERROR_NOT_SUPPORTED))
+    return MoveFileExW(from, to, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+  SetLastError(error); return ok;
+}
+#endif
 static int runtime_atomic_write(const char *path, const char *text) {
   size_t size = strlen(text); char *tmp = malloc(strlen(path) + 96); int ok = 0;
   if (!tmp) return 0;
@@ -24,7 +48,7 @@ static int runtime_atomic_write(const char *path, const char *text) {
     DWORD wrote = 0;
     ok = size <= MAXDWORD && WriteFile(handle, text, (DWORD)size, &wrote, NULL) && wrote == size && FlushFileBuffers(handle);
     if (!CloseHandle(handle)) ok = 0;
-    if (ok) ok = MoveFileExW(wide_tmp, wide_path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+    if (ok) ok = runtime_replace_windows(wide_tmp, wide_path);
     if (!ok) DeleteFileW(wide_tmp);
   }
   free(wide_tmp); free(wide_path);
@@ -139,10 +163,11 @@ static int foundation_builtin(const char *name, int n, Value *a, int line, Value
   if (ferror(stdin)) { free(buf); fail_kind(line, "io", "could not read standard input."); }
   buf[used] = 0; *out = vstr_take(buf); return 1;
 }
+static int g_runtime_end_options = 0;
 static int runtime_cli_flags(int *argc, char **argv) {
   int w = 1; uint64_t timeout = 0;
   for (int r = 1; r < *argc; r++) {
-    if (!strcmp(argv[r], "--")) { while (++r < *argc) argv[w++] = argv[r]; break; }
+    if (!strcmp(argv[r], "--")) { g_runtime_end_options = w; while (++r < *argc) argv[w++] = argv[r]; break; }
     if (!strcmp(argv[r], "--trace-json")) { g_trace_json = 1; continue; }
     if (!strcmp(argv[r], "--max-steps") || !strcmp(argv[r], "--timeout-ms")) {
       const char *flag = argv[r]; char *tail; errno = 0;

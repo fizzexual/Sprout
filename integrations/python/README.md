@@ -34,3 +34,12 @@ owner exit, including nested Sprout workers. Deliberately daemonized descendants
 that create a different process group need a container or external supervisor
 for descendant-wide termination. The host also kills its own POSIX group or
 Windows process tree on cancellation.
+
+`sprout_service.py` is a bounded HTTP bridge with a fixed worker capacity and
+strict request framing. Unsupported transfer encodings, ambiguous or malformed
+content lengths, and malformed request targets return 400 before worker launch.
+HEAD and 204/205/304 responses have no wire body. The contacts SQLite example
+uses prepared parameters and a 250 ms database wait: a duplicate email returns
+409, while schema, busy, and storage failures return 503 and can recover on a
+later request. Deploy the bridge behind your application's HTTP/TLS and
+authentication layer.

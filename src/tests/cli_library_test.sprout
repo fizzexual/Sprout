@@ -1,0 +1,90 @@
+use "../../lib/cli.sprout"
+
+test "long and short aliases, mixed positionals and equals values":
+    make schema = [{long: "output", short: "o", kind: "text", required: yes}, {long: "jobs", short: "j", kind: "number", default: 2}]
+    make result = cli.parse(["build", "-j", "3", "--output=a file.json", "test"], schema)
+    expect result.ok
+    expect result.flags == {output: "a file.json", jobs: 3}
+    expect result.positionals == ["build", "test"]
+    expect result.error == ""
+    expect not result.help
+
+test "bare bool sets yes and explicit booleans are strict":
+    make schema = [{long: "verbose", short: "v", default: yes}]
+    expect cli.parse([], schema).flags.verbose == yes
+    expect cli.parse(["-v"], schema).flags.verbose == yes
+    expect cli.parse(["--verbose=false"], schema).flags.verbose == no
+    expect cli.parse(["--verbose=no"], schema).flags.verbose == no
+    expect cli.parse(["--verbose=yes"], schema).flags.verbose == yes
+    expect not cli.parse(["--verbose=maybe"], schema).ok
+
+test "repeat text preserves order and copies fallback defaults":
+    make schema = [{long: "tag", short: "t", kind: "text", repeat: yes, default: ["fallback"]}]
+    make absent = cli.parse([], schema)
+    add(absent.flags.tag, "only in returned result")
+    expect schema[0]["default"] == ["fallback"]
+    expect cli.parse([], schema).flags.tag == ["fallback"]
+    make present = cli.parse(["-t", "first", "--tag=", "--tag", "third"], schema)
+    expect present.ok
+    expect present.flags.tag == ["first", "", "third"]
+
+test "negative decimal numbers and exponent notation":
+    make schema = [{long: "amount", short: "a", kind: "number"}]
+    expect cli.parse(["-a", "-2.5e2"], schema).flags.amount == -250
+    expect cli.parse(["--amount=-.5"], schema).flags.amount == -0.5
+    expect cli.parse(["--amount", "+3.0"], schema).flags.amount == 3
+    for each value in ["NaN", "Infinity", "1e999", "0x10", "1x", "", " 2", "2 "]:
+        make result = cli.parse(["--amount=" + value], schema)
+        expect not result.ok
+        expect contains(result.error, "finite decimal number")
+
+test "separator, hyphen text, empty text and dash positionals":
+    make schema = [{long: "text", kind: "text"}]
+    make result = cli.parse(["--text=-draft", "-", "--", "--unknown", "-3"], schema)
+    expect result.ok
+    expect result.flags.text == "-draft"
+    expect result.positionals == ["-", "--unknown", "-3"]
+    expect cli.parse(["--text="], schema).flags.text == ""
+    expect cli.parse(["--text", "-"], schema).flags.text == "-"
+    expect not cli.parse(["--text", "--unknown"], schema).ok
+
+test "duplicates across aliases, missing values and unknown flags return no partial state":
+    make schema = [{long: "jobs", short: "j", kind: "number"}, {long: "verbose", short: "v"}]
+    for each argv in [["-j", "2", "--jobs=3"], ["-v", "--verbose=false"], ["--jobs"], ["--jobs", "--"], ["--bogus"], ["-vj"]]:
+        make result = cli.parse(argv, schema)
+        expect not result.ok
+        expect result.flags == {}
+        expect result.positionals == []
+        expect length(result.error) > 0
+    expect contains(cli.parse(["-vj"], schema).error, "clusters")
+    expect contains(cli.parse(["-j", "2", "--jobs=3"], schema).error, "twice")
+
+test "required means explicitly present even with defaults and help bypasses only required":
+    make schema = [{long: "output", kind: "text", required: yes, default: "fallback.json"}]
+    expect not cli.parse([], schema).ok
+    expect cli.parse(["--output=x"], schema).ok
+    expect cli.parse(["--help"], schema).ok
+    expect cli.parse(["-h"], schema).help
+    expect not cli.parse(["--help", "--bogus"], schema).ok
+    expect not cli.parse(["--help", "--output"], schema).ok
+    expect not cli.parse(["-h", "--help"], schema).ok
+
+test "schema and argv errors are structured and generated help is declared":
+    for each schema in [42, [42], [{long: "help"}], [{long: "a", short: "h"}], [{long: "a", short: "xx"}], [{long: "a", kind: "number", repeat: yes}], [{long: "a", kind: "text", default: 3}], [{long: "a", required: "yes"}], [{long: "a", repeat: yes}], [{long: "a", kind: "text", repeat: yes, default: [3]}], [{long: "a"}, {long: "a"}], [{long: "a", short: "x"}, {long: "b", short: "x"}], [{long: "a", requiredness: yes}]]:
+        expect not cli.parse([], schema).ok
+    expect not cli.parse("--help", []).ok
+    expect not cli.parse([42], []).ok
+    for each nonfinite in [sum([1e308, 1e308]), sum([-1e308, -1e308])]:
+        expect not cli.parse([], [{long: "amount", kind: "number", default: nonfinite}]).ok
+    expect cli.parse([], [{long: "amount", kind: "number", default: integer("2")}]).flags.amount == integer("2")
+    expect cli.parse([], [{long: "amount", kind: "number", default: decimal("2.5")}]).flags.amount == decimal("2.5")
+    make schema = [{long: "jobs", short: "j", kind: "number", default: 2, help: "Workers"}, {long: "tag", kind: "text", repeat: yes}, {long: "output", kind: "text", required: yes}]
+    make text = cli.help("runner", schema, "A task runner.", "TASK ...")
+    expect contains(text, "Usage: runner [OPTIONS] TASK ...")
+    expect contains(text, "-h, --help")
+    expect contains(text, "-j, --jobs NUMBER  Workers [default: 2]")
+    expect contains(text, "--tag TEXT   [repeatable]")
+    expect contains(text, "--output TEXT   [required]")
+    expect contains(cli.help("runner", [{long: "amount", kind: "number", default: integer("2")}]), "[default: 2]")
+    expect error:
+        cli.help("runner", [{long: "help"}])

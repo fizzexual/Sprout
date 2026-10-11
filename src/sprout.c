@@ -22,6 +22,7 @@
 #include <stdint.h>
 #include <inttypes.h>
 #include <errno.h>
+#include <limits.h>
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -55,6 +56,27 @@ static char *gc_strdup(const char *s);   /* a GC-tracked copy of s (defined just
 #define C_CYAN  "\x1b[36m"
 
 static void fail(int line, const char *msg);   /* defined below; declared early so allocators can bail out */
+static void fail_kind(int line, const char *kind, const char *msg);
+
+/* Test the half-open floating range BEFORE converting: INT64_MAX itself rounds
+   up to 2^63 as a double, so a <= (double)INT64_MAX check would be unsafe. */
+static int num_fits_i64(double n) {
+  return isfinite(n) && n >= -9223372036854775808.0 && n < 9223372036854775808.0;
+}
+static int num_whole_i64(double n) { return num_fits_i64(n) && n == floor(n); }
+static long long num_trunc_i64(double n, int line) {
+  if (!num_fits_i64(n)) fail_kind(line, "type", "that number is outside the signed 64-bit range.");
+  return (long long)n;
+}
+static int num_trunc_int(double n, int line) {
+  if (!isfinite(n) || n < INT_MIN || n > INT_MAX) fail_kind(line, "value", "that number is outside the platform integer range.");
+  return (int)n;
+}
+static time_t num_timestamp(double n, int line) {
+  if (!num_fits_i64(n) || (sizeof(time_t) < 8 && (n < INT32_MIN || n > INT32_MAX)))
+    fail_kind(line, "math", "that timestamp is out of range.");
+  return (time_t)n;
+}
 
 /* byte-length of the UTF-8 character starting at byte c (1..4; 1 for an invalid byte) */
 static int utf8_clen(unsigned char c) {
@@ -356,8 +378,10 @@ static const char *g_err_kind = "error";  /* ...its category           (the caug
 static int call_depth = 0;
 static struct { const char *name; int line; } g_frames[MAX_CALL_FRAMES];
 static void workflow_error_cleanup(void);
+static void production_error_cleanup(void);
 static void fail_full(int line, const char *msg, const char *kind, int hard) {
   workflow_error_cleanup();
+  production_error_cleanup();
   snprintf(g_err_msg, sizeof g_err_msg, "%s", msg ? msg : "something went wrong.");
   g_err_line = line;
   g_err_kind = kind ? kind : "error";
@@ -404,7 +428,7 @@ static Value current_error_value(void) {
    of a value; arg_error()/arity_error() are the two workhorses the builtins call,
    and want_num()/want_str()/... check-and-extract one expected type in a line. */
 static int snprint_num(char *buf, size_t cap, double d) {   /* a number the way Sprout shows it */
-  if (isfinite(d) && d == (double)(long long)d && d >= -1e15 && d <= 1e15) return snprintf(buf, cap, "%lld", (long long)d);
+  if (isfinite(d) && d >= -1e15 && d <= 1e15 && d == floor(d)) return snprintf(buf, cap, "%lld", (long long)d);
   return snprintf(buf, cap, "%g", d);
 }
 static void val_describe(Value v, char *buf, size_t cap) {  /* a short, human preview: 'a number (5)', 'text ("hi")', 'an empty list' */
@@ -1798,7 +1822,7 @@ static char *http_get(const char *url) {
 }
 
 /* ---- tiny JSON parser: text -> a Sprout value (map / list / text / number / yes-no / nothing) ---- */
-typedef struct { const char *s; int pos, len, ok, depth; } JParse;
+typedef struct { const char *s; int pos, len, ok, depth, strict; } JParse;
 static Value jvalue(JParse *j);
 static Value jvalue_inner(JParse *j);
 static int jhex4(const char *p) {
@@ -1861,7 +1885,9 @@ static Value jvalue_inner(JParse *j) {
       if (j->pos>=j->len || j->s[j->pos]!='"') { j->ok=0; break; }
       Value k = jstring(j); jskip(j);
       if (j->pos<j->len && j->s[j->pos]==':') j->pos++; else { j->ok=0; break; }
-      Value v = jvalue(j); if (!j->ok) break; map_set(m, k.str?k.str:"", v); jskip(j);
+      Value v = jvalue(j); if (!j->ok) break;
+      if (j->strict && map_index(m, k.str ? k.str : "") >= 0) { j->ok = 0; break; }
+      map_set(m, k.str?k.str:"", v); jskip(j);
       if (j->pos<j->len && j->s[j->pos]==',') { j->pos++; continue; }
       if (j->pos<j->len && j->s[j->pos]=='}') { j->pos++; break; }
       j->ok=0; break;
@@ -1916,17 +1942,22 @@ static Value jvalue_inner(JParse *j) {
   }
   j->ok=0; return vnone();
 }
-static Value parse_json(const char *text) {
-  JParse j; j.s=text; j.pos=0; j.len=(int)strlen(text); j.ok=1; j.depth=0;
+static Value parse_json_mode(const char *text, int strict) {
+  size_t length = strlen(text);
+  if (length > INT_MAX || !bytes_valid_utf8((const unsigned char *)text, length)) return vnone();
+  JParse j; j.s=text; j.pos=0; j.len=(int)length; j.ok=1; j.depth=0; j.strict=strict;
   Value v = jvalue(&j);
   jskip(&j);
   if (!j.ok || j.pos != j.len) return vnone();   /* malformed or trailing garbage -> nothing */
   return v;
 }
+static Value parse_json(const char *text) { return parse_json_mode(text, 1); }
 
 /* ---- JSON writer: a Sprout value -> valid JSON text (round-trips through parse_json) ---- */
 static int g_json_w_depth = 0;
 static void json_escape(const char *s, char **o, size_t *c, size_t *l) {
+  if (s && !bytes_valid_utf8((const unsigned char *)s, strlen(s)))
+    fail_kind(0, "data", "JSON text must be valid UTF-8; use bytes for binary data.");
   sb_add(o, c, l, "\"");
   for (const char *p = s ? s : ""; *p; p++) {
     unsigned char ch = (unsigned char)*p;
@@ -1951,10 +1982,11 @@ static void json_escape(const char *s, char **o, size_t *c, size_t *l) {
 static char *num_to_json(double n) {
   char buf[40];
   if (!isfinite(n)) return dup_str("null");                          /* JSON has no nan/inf (unreachable in Sprout) */
-  if (n == (double)(long long)n && fabs(n) < 1e15) { snprintf(buf, sizeof buf, "%lld", (long long)n); return dup_str(buf); }
+  if (fabs(n) < 1e15 && n == floor(n)) { snprintf(buf, sizeof buf, "%lld", (long long)n); return dup_str(buf); }
   for (int prec = 15; prec <= 17; prec++) { snprintf(buf, sizeof buf, "%.*g", prec, n); if (strtod(buf, NULL) == n) break; }
   return dup_str(buf);
 }
+static Value restore_exact_json(Value v, int depth);
 static void to_json(Value v, char **o, size_t *c, size_t *l) {
   if (++g_json_w_depth > 200) { sb_add(o, c, l, "null"); g_json_w_depth--; return; }   /* match parse_json's depth cap (200) so output always round-trips */
   switch (v.type) {
@@ -1967,7 +1999,12 @@ static void to_json(Value v, char **o, size_t *c, size_t *l) {
     case V_STR:  json_escape(v.str ? v.str : "", o, c, l); break;
     case V_BOOL: sb_add(o, c, l, v.boolean ? "true" : "false"); break;
     case V_LIST: sb_add(o, c, l, "["); for (int i = 0; v.list && i < v.list->n; i++) { if (i) sb_add(o, c, l, ","); to_json(v.list->items[i], o, c, l); } sb_add(o, c, l, "]"); break;
-    case V_MAP:  sb_add(o, c, l, "{"); for (int i = 0; v.map && i < v.map->n; i++) { if (i) sb_add(o, c, l, ","); json_escape(v.map->keys[i], o, c, l); sb_add(o, c, l, ":"); to_json(v.map->vals[i], o, c, l); } sb_add(o, c, l, "}"); break;
+    case V_MAP:
+      /* Reserved singleton records must be valid at both sides of the wire.
+         Validating only these shapes cannot mutate an ordinary nested map. */
+      if (v.map && v.map->n == 1 && (!strcmp(v.map->keys[0], "$sprout.integer") || !strcmp(v.map->keys[0], "$sprout.decimal") || !strcmp(v.map->keys[0], "$sprout.bytes")))
+        (void)restore_exact_json(v, 0);
+      sb_add(o, c, l, "{"); for (int i = 0; v.map && i < v.map->n; i++) { if (i) sb_add(o, c, l, ","); json_escape(v.map->keys[i], o, c, l); sb_add(o, c, l, ":"); to_json(v.map->vals[i], o, c, l); } sb_add(o, c, l, "}"); break;
     case V_TASK: sb_add(o, c, l, "null"); break;   /* tasks aren't data - they don't persist */
     default:     sb_add(o, c, l, "null"); break;   /* nothing */
   }
@@ -1978,10 +2015,11 @@ static Value restore_exact_json(Value v, int depth) {
   if (depth > 200) fail_kind(0, "data", "stored data is nested too deeply.");
   if (v.type == V_MAP && v.map) {
     SMap *m = v.map;
-    if (m->n == 1 && m->vals[0].type == V_STR && !strcmp(m->keys[0], "$sprout.bytes")) return bytes_from_hex(m->vals[0].str, 0);
-    if (m->n == 1 && m->vals[0].type == V_STR &&
-        (!strcmp(m->keys[0], "$sprout.integer") || !strcmp(m->keys[0], "$sprout.decimal")))
+    if (m->n == 1 && (!strcmp(m->keys[0], "$sprout.bytes") || !strcmp(m->keys[0], "$sprout.integer") || !strcmp(m->keys[0], "$sprout.decimal"))) {
+      if (m->vals[0].type != V_STR) fail_kind(0, "data", "a reserved Sprout JSON tag requires a text payload.");
+      if (!strcmp(m->keys[0], "$sprout.bytes")) return bytes_from_hex(m->vals[0].str, 0);
       return exact_parse(m->vals[0].str, !strcmp(m->keys[0], "$sprout.decimal"), 0);
+    }
     for (int i = 0; i < m->n; i++) m->vals[i] = restore_exact_json(m->vals[i], depth + 1);
   } else if (v.type == V_LIST && v.list)
     for (int i = 0; i < v.list->n; i++) v.list->items[i] = restore_exact_json(v.list->items[i], depth + 1);
@@ -2337,9 +2375,9 @@ static Value call_builtin(Expr *call, Env *env) {
     if (n != 1 && n != 2) arity_error(call->line, "range", "1 or 2 numbers, like range(5) or range(2, 8)", n);
     want_num(call->line, "range", 1, a[0], "range(5)  or  range(2, 8)");
     if (n == 2) want_num(call->line, "range", 2, a[1], "range(2, 8)");
-    long long start = (n == 2) ? (long long)a[0].num : 0;
-    long long end   = (n == 2) ? (long long)a[1].num : (long long)a[0].num;
-    if (end - start > 100000000LL) fail(call->line, "that range is too big.");
+    long long start = (n == 2) ? num_trunc_i64(a[0].num, call->line) : 0;
+    long long end   = num_trunc_i64(a[n == 2 ? 1 : 0].num, call->line);
+    if (end > start && (uint64_t)end - (uint64_t)start > 100000000ULL) fail(call->line, "that range is too big.");
     SList *l = list_new();
     for (long long i = start; i < end; i++) list_push(l, vnum((double)i));
     return vlist(l);
@@ -2388,7 +2426,7 @@ static Value call_builtin(Expr *call, Env *env) {
     if (n != 2) arity_error(call->line, "remove", "a list + a position, or a map + a key", n);
     if (a[0].type == V_LIST) {
       if (!a[0].list) fail(call->line, "remove's first input must be a list.");
-      if (a[1].type != V_NUM || a[1].num != (double)(long long)a[1].num) arg_error(call->line, "remove", 2, "a whole-number position", a[1], "remove(items, 0)");
+      if (a[1].type != V_NUM || !num_whole_i64(a[1].num)) arg_error(call->line, "remove", 2, "a whole-number position", a[1], "remove(items, 0)");
       long long i = (long long)a[1].num;
       if (i < 0 || i >= a[0].list->n) { char m[180]; if (a[0].list->n == 0) snprintf(m, sizeof m, "remove: the list is empty, so there's no position %lld to remove.", i); else snprintf(m, sizeof m, "remove: position %lld doesn't exist \xE2\x80\x94 the list has %d item%s (valid positions are 0 to %d).", i, a[0].list->n, a[0].list->n == 1 ? "" : "s", a[0].list->n - 1); fail_kind(call->line, "index", m); }
       Value gone = a[0].list->items[i];
@@ -2413,7 +2451,7 @@ static Value call_builtin(Expr *call, Env *env) {
   if (!strcmp(name, "insert")) {
     if (n != 3) arity_error(call->line, "insert", "a list, a position, and a value, like insert(items, 0, x)", n);
     want_list(call->line, "insert", 1, a[0], "insert(items, 0, x)");
-    if (a[1].type != V_NUM || a[1].num != (double)(long long)a[1].num) arg_error(call->line, "insert", 2, "a whole-number position", a[1], "insert(items, 0, x)");
+    if (a[1].type != V_NUM || !num_whole_i64(a[1].num)) arg_error(call->line, "insert", 2, "a whole-number position", a[1], "insert(items, 0, x)");
     long long i = (long long)a[1].num;
     if (i < 0 || i > a[0].list->n) { char m[180]; snprintf(m, sizeof m, "insert: position %lld is out of range \xE2\x80\x94 you can insert at 0 to %d (the list has %d item%s).", i, a[0].list->n, a[0].list->n, a[0].list->n == 1 ? "" : "s"); fail_kind(call->line, "index", m); }
     list_push(a[0].list, vnone());                   /* grow by one, then shift up */
@@ -2570,7 +2608,7 @@ static Value call_builtin(Expr *call, Env *env) {
     if (n != 2) arity_error(call->line, "chunk", "a list and a size, like chunk(items, 3)", n);
     want_list(call->line, "chunk", 1, a[0], "chunk(items, 3)");
     want_num(call->line, "chunk", 2, a[1], "chunk(items, 3)");
-    int size = (int)a[1].num;
+    int size = num_trunc_int(a[1].num, call->line);
     if (size < 1) { char m[120]; snprintf(m, sizeof m, "chunk's size must be at least 1, but you gave %d.", size); fail(call->line, m); }
     SList *out = list_new(); int len = a[0].list ? a[0].list->n : 0; SList *cur = NULL;
     for (int i = 0; i < len; i++) { if (i % size == 0) { cur = list_new(); list_push(out, vlist(cur)); } list_push(cur, a[0].list->items[i]); }
@@ -2616,8 +2654,8 @@ static Value call_builtin(Expr *call, Env *env) {
     if (n != 3) arity_error(call->line, "slice", "a list-or-text and two positions, like slice(xs, 1, 3)", n);
     want_num(call->line, "slice", 2, a[1], "slice(xs, 1, 3)");
     want_num(call->line, "slice", 3, a[2], "slice(xs, 1, 3)");
-    if (a[1].num != (double)(long long)a[1].num) arg_error(call->line, "slice", 2, "a whole number", a[1], "slice(xs, 1, 3)");
-    if (a[2].num != (double)(long long)a[2].num) arg_error(call->line, "slice", 3, "a whole number", a[2], "slice(xs, 1, 3)");
+    if (!num_whole_i64(a[1].num)) arg_error(call->line, "slice", 2, "a whole number", a[1], "slice(xs, 1, 3)");
+    if (!num_whole_i64(a[2].num)) arg_error(call->line, "slice", 3, "a whole number", a[2], "slice(xs, 1, 3)");
     long long s = (long long)a[1].num, e = (long long)a[2].num; if (s < 0) s = 0; if (e < 0) e = 0;
     if (a[0].type == V_LIST) {
       int len = a[0].list ? a[0].list->n : 0; if (e > len) e = len; SList *out = list_new();
@@ -2678,7 +2716,8 @@ static Value call_builtin(Expr *call, Env *env) {
   }
   if (!strcmp(name, "seed")) {      /* make random() reproducible */
     want_one_num(call->line, "seed", n, a, "seed(42)");
-    srand((unsigned)a[0].num);
+    long long seed = num_trunc_i64(a[0].num, call->line);
+    srand((unsigned)seed);
     return vnone();
   }
   if (!strcmp(name, "pow")) {
@@ -2698,6 +2737,8 @@ static Value call_builtin(Expr *call, Env *env) {
     want_num(call->line,"round",1,a[0],"round(3.14159, 2)");
     if (n==2) want_num(call->line,"round",2,a[1],"round(3.14159, 2)");
     if (n==1) return vnum(round(a[0].num));                       /* round half away from zero (no floor(x+0.5) double-rounding) */
+    if (!isfinite(a[1].num)) fail_kind(call->line, "value", "round needs finite decimal places.");
+    if (a[1].num < INT_MIN || a[1].num > INT_MAX) return a[0];
     double m = pow(10.0, (int)a[1].num);
     double r = round(a[0].num * m) / m;
     return vnum(isfinite(r) ? r : a[0].num);                      /* absurd precision (m overflows/underflows) -> a no-op, never nan */
@@ -2729,7 +2770,7 @@ static Value call_builtin(Expr *call, Env *env) {
   }
   if (!strcmp(name, "pi"))    { if (n!=0) arity_error(call->line,"pi","no inputs, like pi()",n); return vnum(3.14159265358979323846); }
   if (!strcmp(name, "args"))  { if (n!=0) arity_error(call->line,"args","no inputs, like args()",n); SList *l=list_new(); for (int i=0;i<g_prog_nargs;i++) list_push(l, vstr(g_prog_args[i])); return vlist(l); }
-  if (!strcmp(name, "exit"))  { if (n>1) arity_error(call->line,"exit","an optional exit code, like exit(0) or exit(1)",n); if (n==1) want_num(call->line,"exit",1,a[0],"exit(0)"); exit(n==1 ? (int)a[0].num : 0); }
+  if (!strcmp(name, "exit"))  { if (n>1) arity_error(call->line,"exit","an optional exit code, like exit(0) or exit(1)",n); if (n==1) want_num(call->line,"exit",1,a[0],"exit(0)"); exit(n==1 ? num_trunc_int(a[0].num, call->line) : 0); }
   if (!strcmp(name, "env"))   {   /* read an environment variable; off in --sandbox (may hold secrets) */
     if (n<1 || n>2) arity_error(call->line,"env","a name and an optional default: env(\"HOME\") or env(\"PORT\", \"8080\")",n);
     want_str(call->line,"env",1,a[0],"env(\"HOME\")");
@@ -2804,8 +2845,14 @@ static Value call_builtin(Expr *call, Env *env) {
   }
   if (!strcmp(name, "random")) {
     if (n==0) return vnum((double)rand()/((double)RAND_MAX+1.0));
-    if (n==1 && a[0].type==V_NUM) { long long hi=(long long)a[0].num; if(hi<=0) return vnum(0); return vnum((double)(rand()%hi)); }
-    if (n==2 && a[0].type==V_NUM && a[1].type==V_NUM) { long long lo=(long long)a[0].num,hi=(long long)a[1].num; if(hi<lo){long long t=lo;lo=hi;hi=t;} return vnum((double)(lo+rand()%(hi-lo+1))); }
+    if (n==1 && a[0].type==V_NUM) { long long hi=num_trunc_i64(a[0].num,call->line); if(hi<=0) return vnum(0); return vnum((double)(rand()%hi)); }
+    if (n==2 && a[0].type==V_NUM && a[1].type==V_NUM) {
+      long long lo=num_trunc_i64(a[0].num,call->line),hi=num_trunc_i64(a[1].num,call->line);
+      if(hi<lo){long long t=lo;lo=hi;hi=t;}
+      uint64_t width=(uint64_t)hi-(uint64_t)lo+1;
+      uint64_t offset=width ? (uint64_t)rand()%width : (uint64_t)rand();
+      return vnum((double)(lo+(long long)offset));
+    }
     fail(call->line,"random() gives 0..1; random(n) or random(a,b) give whole numbers.");
   }
   if (!strcmp(name, "number")) {
@@ -2842,7 +2889,7 @@ static Value call_builtin(Expr *call, Env *env) {
   }
   if (!strcmp(name,"char")) {                        /* char(65) -> "A" — a one-character string from a byte value */
     want_one_num(call->line,"char",n,a,"char(65)");
-    int code=(int)a[0].num;
+    int code=num_trunc_int(a[0].num,call->line);
     if(code<1||code>255) fail_kind(call->line,"value","char needs a number from 1 to 255 (Sprout text can't hold a zero byte).");
     char buf[2]={(char)code,0}; return vstr_take(dup_str(buf));
   }
@@ -2906,7 +2953,7 @@ static Value call_builtin(Expr *call, Env *env) {
   if (!strcmp(name,"minutes")) { want_one_num(call->line,"minutes",n,a,"minutes(30)"); return vnum(a[0].num*60.0); }
   if (!strcmp(name,"time_parts")) {   /* break a timestamp into a map of named parts */
     want_one_num(call->line,"time_parts",n,a,"time_parts(time())");
-    time_t tt=(time_t)a[0].num; struct tm*lt=localtime(&tt);
+    time_t tt=num_timestamp(a[0].num,call->line); struct tm*lt=localtime(&tt);
     if (!lt) fail_kind(call->line,"math","that timestamp is out of range.");
     static const char*const wd[]={"Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"};
     SMap*m=map_new();
@@ -2919,15 +2966,17 @@ static Value call_builtin(Expr *call, Env *env) {
     if (n<3||n>6) arity_error(call->line,"time_make","year, month, day (and optionally hour, minute, second)",n);
     for (int i=0;i<n;i++) if (a[i].type!=V_NUM) arg_error(call->line,"time_make",i+1,"a number",a[i],"time_make(2026, 12, 25)");
     struct tm t; memset(&t,0,sizeof t);
-    t.tm_year=(int)a[0].num-1900; t.tm_mon=(int)a[1].num-1; t.tm_mday=(int)a[2].num;
-    t.tm_hour=n>3?(int)a[3].num:0; t.tm_min=n>4?(int)a[4].num:0; t.tm_sec=n>5?(int)a[5].num:0; t.tm_isdst=-1;
+    int year=num_trunc_int(a[0].num,call->line), month=num_trunc_int(a[1].num,call->line);
+    if (year < INT_MIN + 1900 || month == INT_MIN) fail_kind(call->line,"math","that date is out of range.");
+    t.tm_year=year-1900; t.tm_mon=month-1; t.tm_mday=num_trunc_int(a[2].num,call->line);
+    t.tm_hour=n>3?num_trunc_int(a[3].num,call->line):0; t.tm_min=n>4?num_trunc_int(a[4].num,call->line):0; t.tm_sec=n>5?num_trunc_int(a[5].num,call->line):0; t.tm_isdst=-1;
     time_t tt=mktime(&t);
     if (tt==(time_t)-1) fail_kind(call->line,"math","that date can't be made (check the numbers).");
     return vnum((double)tt);
   }
   if (!strcmp(name,"time_format")) {   /* a timestamp as readable text: YYYY-MM-DD HH:MM:SS */
     want_one_num(call->line,"time_format",n,a,"time_format(time())");
-    time_t tt=(time_t)a[0].num; struct tm*lt=localtime(&tt);
+    time_t tt=num_timestamp(a[0].num,call->line); struct tm*lt=localtime(&tt);
     if (!lt) fail_kind(call->line,"math","that timestamp is out of range.");
     char buf[64]; strftime(buf,sizeof buf,"%Y-%m-%d %H:%M:%S",lt);
     return vstr_take(dup_str(buf));
@@ -3002,7 +3051,7 @@ static Value call_builtin(Expr *call, Env *env) {
   }
   if (!strcmp(name,"json")) {
     want_one_str(call->line, "json", n, a, "json(text)");
-    return parse_json(a[0].str?a[0].str:"");
+    return parse_json_mode(a[0].str?a[0].str:"", 0);
   }
   /* `run` moved into the system module: use system  ->  system.run("...") */
   if (!strcmp(name,"run")) fail(call->line, "run now lives in the system module.\n\n  Put 'use system' at the top, then call:  system.run(\"echo hi\")");
@@ -3010,7 +3059,7 @@ static Value call_builtin(Expr *call, Env *env) {
   if (!strcmp(name,"explore")) {
     if (n!=1) arity_error(call->line, "explore", "one thing, like explore(json(get(url)))", n);
     Value v = a[0];
-    if (v.type == V_STR) { Value parsed = parse_json(v.str?v.str:""); if (parsed.type==V_MAP || parsed.type==V_LIST) v = parsed; }
+    if (v.type == V_STR) { Value parsed = parse_json_mode(v.str?v.str:"", 0); if (parsed.type==V_MAP || parsed.type==V_LIST) v = parsed; }
     SList *out = list_new();
     explore_flatten(v, "", out, 0);
     return vlist(out);
@@ -3371,6 +3420,8 @@ static Value call_module(Expr *e, Env *env) {
     else if (!strcmp(e->module, "process") && !strcmp(e->name, "run")) name = "process";
     else if (!strcmp(e->module, "process") && !strcmp(e->name, "parallel")) name = "parallel";
     else if (!strcmp(e->module, "workflow") && !strcmp(e->name, "run")) name = "workflow_run";
+    else if (!strcmp(e->module, "workflow") && !strcmp(e->name, "plan")) name = "workflow_plan";
+    else if (!strcmp(e->module, "workflow") && !strcmp(e->name, "inspect")) name = "workflow_inspect";
     else if (!strcmp(e->module, "numbers") && exact_builtin_name(e->name)) name = e->name;
     else if (!strcmp(e->module, "data") && (foundation_builtin_name(e->name) || bytes_builtin_name(e->name))) name = e->name;
     char mapped[96];
@@ -3408,9 +3459,9 @@ static Value eval(Expr *e, Env *env) {
     case E_RANGE: {                                    /* a to b — an inclusive list of whole numbers */
       Value a = eval(e->left, env), b = eval(e->right, env);
       if (a.type != V_NUM || b.type != V_NUM) { char buf[220]; snprintf(buf, sizeof buf, "a range (a to b) needs two numbers, but got %s and %s.", type_name(a), type_name(b)); fail_kind(e->line, "type", buf); }
-      if (a.num != (double)(long long)a.num || b.num != (double)(long long)b.num) fail_kind(e->line, "type", "a range (a to b) needs whole numbers.");
+      if (!num_whole_i64(a.num) || !num_whole_i64(b.num)) fail_kind(e->line, "type", "a range (a to b) needs whole numbers within signed 64-bit range.");
       long long lo = (long long)a.num, hi = (long long)b.num;
-      if (hi - lo >= 100000000LL) fail(e->line, "that range is too big.");   /* inclusive: caps at 100M elements, matching range() */
+      if (hi >= lo && (uint64_t)hi - (uint64_t)lo >= 100000000ULL) fail(e->line, "that range is too big.");   /* inclusive: caps at 100M elements, matching range() */
       SList *out = list_new();
       for (long long i = lo; i <= hi; i++) list_push(out, vnum((double)i));  /* inclusive; EMPTY if a > b (use reverse(a to b) to count down) */
       return vlist(out);
@@ -3505,7 +3556,7 @@ static Value eval(Expr *e, Env *env) {
       }
       if (c.type == V_LIST) {
         if (ix.type != V_NUM) { char m[160], d[96]; val_describe(ix, d, sizeof d); snprintf(m, sizeof m, "a list position must be a number, but you used %s.", d); fail_kind(e->line, "type", m); }
-        if (ix.num != (double)(long long)ix.num) { char m[160]; snprintf(m, sizeof m, "a list position must be a whole number, but you used %g.", ix.num); fail_kind(e->line, "type", m); }
+        if (!num_whole_i64(ix.num)) { char m[160]; snprintf(m, sizeof m, "a list position must be a whole number within signed 64-bit range, but you used %g.", ix.num); fail_kind(e->line, "type", m); }
         int len = c.list ? c.list->n : 0; long long i = (long long)ix.num, at = i < 0 ? i + len : i;   /* xs[-1] is the last item */
         if (!c.list || at < 0 || at >= len) { char m[220]; if (len == 0) snprintf(m, sizeof m, "you asked for position %lld, but this list is empty.", i); else snprintf(m, sizeof m, "position %lld doesn't exist \xE2\x80\x94 this list has %d item%s (use 0 to %d, or -1 to -%d from the end).", i, len, len == 1 ? "" : "s", len - 1, len); fail_kind(e->line, "index", m); }
         return c.list->items[at];
@@ -3519,7 +3570,7 @@ static Value eval(Expr *e, Env *env) {
       }
       if (c.type == V_STR) {                              /* text[i] -> the i-th character (UTF-8 aware) */
         if (ix.type != V_NUM) { char m[160], d[96]; val_describe(ix, d, sizeof d); snprintf(m, sizeof m, "a text position must be a number, but you used %s.", d); fail_kind(e->line, "type", m); }
-        if (ix.num != (double)(long long)ix.num) { char m[160]; snprintf(m, sizeof m, "a text position must be a whole number, but you used %g.", ix.num); fail_kind(e->line, "type", m); }
+        if (!num_whole_i64(ix.num)) { char m[160]; snprintf(m, sizeof m, "a text position must be a whole number within signed 64-bit range, but you used %g.", ix.num); fail_kind(e->line, "type", m); }
         long long want = (long long)ix.num, seek = want;   /* keep `want` as the ORIGINAL index for error messages */
         const char *p = c.str ? c.str : "";
         if (want < 0) { long long n = 0; for (int j = 0; p[j]; j += utf8_clen((unsigned char)p[j])) n++; seek = want + n; }   /* "hi"[-1] is the last char */
@@ -3541,8 +3592,8 @@ static Value eval(Expr *e, Env *env) {
       Value c = eval(e->target, env);
       int have_s = e->index != NULL, have_e = e->operand != NULL;
       long long s = 0, en = 0;
-      if (have_s) { Value v = eval(e->index, env); if (v.type != V_NUM || v.num != (double)(long long)v.num) fail_kind(e->line, "type", "a slice start must be a whole number, like xs[1:3]."); s = (long long)v.num; }
-      if (have_e) { Value v = eval(e->operand, env); if (v.type != V_NUM || v.num != (double)(long long)v.num) fail_kind(e->line, "type", "a slice end must be a whole number, like xs[1:3]."); en = (long long)v.num; }
+      if (have_s) { Value v = eval(e->index, env); if (v.type != V_NUM || !num_whole_i64(v.num)) fail_kind(e->line, "type", "a slice start must be a whole number within signed 64-bit range, like xs[1:3]."); s = (long long)v.num; }
+      if (have_e) { Value v = eval(e->operand, env); if (v.type != V_NUM || !num_whole_i64(v.num)) fail_kind(e->line, "type", "a slice end must be a whole number within signed 64-bit range, like xs[1:3]."); en = (long long)v.num; }
       if (c.type == V_BYTES) {
         long long len = (long long)c.length, a = have_s ? (s < 0 ? s + len : s) : 0, b = have_e ? (en < 0 ? en + len : en) : len;
         if (a < 0) a = 0;
@@ -3870,7 +3921,7 @@ static void exec(Stmt *s, Env *env) {
       Value ix = eval(s->index, env), val = eval(s->expr, env);
       if (c.type == V_LIST) {
         if (ix.type != V_NUM) { char m[160], d[96]; val_describe(ix, d, sizeof d); snprintf(m, sizeof m, "a list position must be a number, but you used %s.", d); fail_kind(s->line, "type", m); }
-        if (ix.num != (double)(long long)ix.num) { char m[160]; snprintf(m, sizeof m, "a list position must be a whole number, but you used %g.", ix.num); fail_kind(s->line, "type", m); }
+        if (!num_whole_i64(ix.num)) { char m[160]; snprintf(m, sizeof m, "a list position must be a whole number within signed 64-bit range, but you used %g.", ix.num); fail_kind(s->line, "type", m); }
         int len = c.list ? c.list->n : 0; long long i = (long long)ix.num, at = i < 0 ? i + len : i;   /* set xs[-1] = ... targets the last item */
         if (!c.list || at < 0 || at >= len) { char m[220]; if (len == 0) snprintf(m, sizeof m, "you tried to set position %lld, but this list is empty.", i); else snprintf(m, sizeof m, "position %lld doesn't exist \xE2\x80\x94 this list has %d item%s (use 0 to %d, or -1 to -%d from the end).", i, len, len == 1 ? "" : "s", len - 1, len); fail_kind(s->line, "index", m); }
         if (s->setop) val = apply_arith(s->setop, c.list->items[at], val, s->line);   /* xs[i] += e */
@@ -4722,10 +4773,14 @@ int main(int argc, char **argv) {
   char gc_bottom_marker; gc_stack_bottom = &gc_bottom_marker;   /* the outermost stack address the GC scans up to */
   detect_stack_budget();                                        /* size the deep-recursion guard to the real stack */
   gc_stress = getenv("SPROUT_GC_STRESS") != NULL;               /* aggressive collection for testing */
-  /* --sandbox anywhere on the command line (or SPROUT_SANDBOX in the environment) hardens
-     this run for untrusted code; strip the flag so the normal positional args still line up. */
+  /* Runtime flags before -- harden this run; flags after -- belong to args().
+     The environment still enforces sandboxing regardless of application args. */
   if (getenv("SPROUT_SANDBOX")) g_sandbox = 1;
-  { int w = 1; for (int r = 1; r < argc; r++) { if (!strcmp(argv[r], "--sandbox")) { g_sandbox = 1; continue; } argv[w++] = argv[r]; } argc = w; }
+  { int w = 1, options = 1; for (int r = 1; r < argc; r++) {
+      if (options && !strcmp(argv[r], "--")) options = 0;
+      if (options && !strcmp(argv[r], "--sandbox")) { g_sandbox = 1; continue; }
+      argv[w++] = argv[r];
+    } argc = w; }
   if (!runtime_cli_flags(&argc, argv)) return 2;
   atexit(production_cleanup);
   srand((unsigned)time(NULL));
@@ -4780,7 +4835,7 @@ int main(int argc, char **argv) {
   g_prog_nargs = argc > prog_argstart ? argc - prog_argstart : 0;
 
   int len; char *src;
-  if (argc >= 4 && !strcmp(argv[3], "--stdin")) {
+  if (argc >= 4 && !strcmp(argv[3], "--stdin") && (!g_runtime_end_options || 3 < g_runtime_end_options)) {
     size_t cap = 4096, used = 0; int ch;
     src = (char *)malloc(cap);
     while ((ch = getchar()) != EOF) {

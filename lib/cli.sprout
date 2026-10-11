@@ -1,0 +1,202 @@
+~ Pure command-line parsing. This module reads no environment and never prints or exits.
+
+private task field(entry, name, fallback):
+    when contains(keys(entry), name):
+        give entry[name]
+    give fallback
+
+private task bad(message):
+    give {ok: no, flags: {}, positionals: [], help: no, error: message}
+
+private task numeric(value):
+    when not contains(["number", "integer", "decimal"], kind_of(value)):
+        give no
+    ~ Formatting then parsing also rejects non-finite legacy numeric results.
+    give number("" + value) != nothing
+
+private task schema_error(schema):
+    when kind_of(schema) != "list":
+        give "CLI schema must be a list of flag maps."
+    make long_names = ["help"]
+    make short_names = ["h"]
+    for each flag in schema:
+        when kind_of(flag) != "map":
+            give "Each CLI flag must be a map."
+        for each key in keys(flag):
+            when not contains(["long", "short", "kind", "default", "required", "repeat", "help"], key):
+                give "Unknown CLI schema field: " + key + "."
+        make name = field(flag, "long", "")
+        when kind_of(name) != "text" or not matches(name, "[A-Za-z][A-Za-z0-9-]*"):
+            give "Each CLI flag needs a long name made of letters, digits and hyphens."
+        when contains(long_names, name):
+            give "Duplicate or reserved long flag: --" + name + "."
+        add(long_names, name)
+        make short_name = field(flag, "short", "")
+        when kind_of(short_name) != "text" or (short_name != "" and not matches(short_name, "[A-Za-z0-9]")):
+            give "Short name for --" + name + " must be one ASCII letter or digit."
+        when short_name != "":
+            when contains(short_names, short_name):
+                give "Duplicate or reserved short flag: -" + short_name + "."
+            add(short_names, short_name)
+        make kind = field(flag, "kind", "bool")
+        when not contains(["bool", "text", "number"], kind):
+            give "Kind for --" + name + " must be bool, text or number."
+        make required = field(flag, "required", no)
+        make repeated = field(flag, "repeat", no)
+        when kind_of(required) != "yes-no" or kind_of(repeated) != "yes-no":
+            give "Required and repeat for --" + name + " must be yes or no."
+        when repeated and kind != "text":
+            give "Only text flags can repeat: --" + name + "."
+        when kind_of(field(flag, "help", "")) != "text":
+            give "Help for --" + name + " must be text."
+        when contains(keys(flag), "default"):
+            make value = flag["default"]
+            when repeated:
+                when kind_of(value) != "list":
+                    give "Default for repeatable --" + name + " must be a list of text."
+                for each item in value:
+                    when kind_of(item) != "text":
+                        give "Default for repeatable --" + name + " must be a list of text."
+            orwhen (kind == "bool" and kind_of(value) != "yes-no") or (kind == "text" and kind_of(value) != "text") or (kind == "number" and not numeric(value)):
+                give "Default has the wrong kind for --" + name + "."
+    give ""
+
+private task find_flag(schema, name, short_form):
+    for each flag in schema:
+        when (short_form and field(flag, "short", "") == name) or (not short_form and flag["long"] == name):
+            give flag
+    give nothing
+
+private task initial_value(flag):
+    when contains(keys(flag), "default"):
+        give copy(flag["default"])
+    when field(flag, "repeat", no):
+        give []
+    when field(flag, "kind", "bool") == "bool":
+        give no
+    give nothing
+
+public task parse(argv, schema):
+    make problem = schema_error(schema)
+    when problem != "":
+        give bad(problem)
+    when kind_of(argv) != "list":
+        give bad("CLI arguments must be a list of text.")
+    for each token in argv:
+        when kind_of(token) != "text":
+            give bad("CLI arguments must be a list of text.")
+    make flags = {}
+    for each flag in schema:
+        set flags[flag["long"]] = initial_value(flag)
+    make positionals = []
+    make seen = []
+    make help_requested = no
+    make positional_only = no
+    make index = 0
+    repeat while index < length(argv):
+        make token = argv[index]
+        set index += 1
+        when positional_only or token == "-" or not starts_with(token, "-"):
+            add(positionals, token)
+            skip
+        when token == "--":
+            set positional_only = yes
+            skip
+        when token == "--help" or token == "-h":
+            when help_requested:
+                give bad("Flag --help was supplied twice.")
+            set help_requested = yes
+            skip
+        make short_form = not starts_with(token, "--")
+        make name = slice(token, 2, length(token))
+        when short_form:
+            set name = slice(token, 1, length(token))
+        make raw = ""
+        make attached = no
+        for each at in range(length(name)):
+            when name[at] == "=":
+                set raw = slice(name, at + 1, length(name))
+                set name = slice(name, 0, at)
+                set attached = yes
+                stop
+        when short_form and length(name) != 1:
+            give bad("Short flag clusters are not supported: " + token + ". Use separate flags.")
+        make flag = find_flag(schema, name, short_form)
+        when flag == nothing:
+            give bad("Unknown flag: " + token + ".")
+        make long_name = flag["long"]
+        make kind = field(flag, "kind", "bool")
+        make repeated = field(flag, "repeat", no)
+        when contains(seen, long_name) and not repeated:
+            give bad("Flag --" + long_name + " was supplied twice.")
+        make value = yes
+        when kind == "bool":
+            when attached:
+                when raw == "true" or raw == "yes":
+                    set value = yes
+                orwhen raw == "false" or raw == "no":
+                    set value = no
+                otherwise:
+                    give bad("Flag --" + long_name + " needs true/false or yes/no after '='.")
+        otherwise:
+            when not attached:
+                when index >= length(argv) or argv[index] == "--":
+                    give bad("Flag --" + long_name + " needs a " + kind + " value.")
+                set raw = argv[index]
+                when raw != "-" and starts_with(raw, "-") and (kind != "number" or not matches(raw, "[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)([eE][+-]?[0-9]+)?")):
+                    give bad("Flag --" + long_name + " needs a " + kind + " value. Put leading-hyphen text after '='.")
+                set index += 1
+            set value = raw
+            when kind == "number":
+                when not matches(raw, "[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)([eE][+-]?[0-9]+)?"):
+                    give bad("Flag --" + long_name + " needs a finite decimal number, got '" + raw + "'.")
+                set value = number(raw)
+                when value == nothing:
+                    give bad("Flag --" + long_name + " needs a finite decimal number, got '" + raw + "'.")
+        when repeated:
+            when not contains(seen, long_name):
+                set flags[long_name] = []
+            add(flags[long_name], value)
+        otherwise:
+            set flags[long_name] = value
+        add(seen, long_name)
+    when not help_requested:
+        for each flag in schema:
+            when field(flag, "required", no) and not contains(seen, flag["long"]):
+                give bad("Required flag missing: --" + flag["long"] + ".")
+    give {ok: yes, flags: flags, positionals: positionals, help: help_requested, error: ""}
+
+public task help(program, schema, description = "", positional_help = "ARGS..."):
+    make problem = schema_error(schema)
+    when problem != "":
+        fail problem
+    when kind_of(program) != "text" or kind_of(description) != "text" or kind_of(positional_help) != "text":
+        fail "CLI help program, description and positional_help must be text."
+    make text = "Usage: " + program + " [OPTIONS]"
+    when positional_help != "":
+        set text += " " + positional_help
+    set text += "\n"
+    when description != "":
+        set text += "\n" + description + "\n"
+    set text += "\nOptions:\n  -h, --help  Show this help.\n"
+    for each flag in schema:
+        set text += "  "
+        make short_name = field(flag, "short", "")
+        when short_name != "":
+            set text += "-" + short_name + ", "
+        set text += "--" + flag["long"]
+        make kind = field(flag, "kind", "bool")
+        when kind != "bool":
+            set text += " " + upper(kind)
+        set text += "  " + field(flag, "help", "")
+        when field(flag, "required", no):
+            set text += " [required]"
+        when field(flag, "repeat", no):
+            set text += " [repeatable]"
+        when contains(keys(flag), "default"):
+            make rendered = json_encode(flag["default"])
+            when kind == "number":
+                set rendered = "" + flag["default"]
+            set text += " [default: " + rendered + "]"
+        set text += "\n"
+    give text + "\nUse -- before positional arguments that start with '-'.\n"

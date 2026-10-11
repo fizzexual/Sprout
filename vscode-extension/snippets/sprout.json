@@ -33,5 +33,20 @@
     "prefix": "make",
     "body": ["make ${1:name} = ${0}"],
     "description": "Create a variable"
+  },
+  "Task with a default input": {
+    "prefix": "taskdefault",
+    "body": ["task ${1:greeting}(name, punctuation = \"!\"):", "\tgive \"Hello, \" + name + punctuation", "", "show ${1:greeting}(punctuation: \"?\", name: \"${2:Ada}\")", "${0}"],
+    "description": "Define a user task with a default and call it using named inputs"
+  },
+  "Multiline text": {
+    "prefix": "multiline",
+    "body": ["make ${1:template} = \"\"\"${2:First line}", "${3:Second line}", "\"\"\"", "${0}"],
+    "description": "Plain multiline text; whitespace is preserved"
+  },
+  "Plan a workflow": {
+    "prefix": "workflowplan",
+    "body": ["use workflow", "make jobs = [{id: \"${1:report}\", argv: [\"${2:tool}\"]}]", "make plan = workflow.plan(jobs)", "show plan.layers", "${0}"],
+    "description": "Validate a command DAG and view dependency layers without running commands"
   }
 }

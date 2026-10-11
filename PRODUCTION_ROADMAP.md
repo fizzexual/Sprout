@@ -56,13 +56,19 @@ semantic editor tooling, recorded debugging, named arguments/multiline text,
 bounded native parallelism, checkpointed workflows, an offline app toolkit,
 and isolated host/service protocols with C, Node, Python, Go, .NET and Java
 SDKs. A bounded Paper adapter is packaged and tested against its pinned API.
+Versioned SQLite migrations verify the supplied history and apply pending
+versions atomically. Pure workflow plans, read-only checkpoint inspection,
+and a source CLI parser make these foundations easier to use in application tools.
 The numeric bytecode experiment is
 reproducible but failed its speed gate; it remains experimental. Native host
 adapters have native integration tests, while real server and migration evidence
 remain release gates. [Stack adoption](docs/stack-adoption.md) maps these
 interfaces to the existing GitHub projects.
 
-Production promotion still requires representative migrations, real Paper
-server evidence, extended crash/soak workloads, independent security review,
-published compatibility policy and workload-specific performance budgets.
+The branch includes a [compatibility policy](docs/compatibility.md), an internal
+[boundary review](docs/security-review-2026-10-10.md), and reproducible
+[workflow/HTTP load evidence](docs/soak-evidence.md). Production promotion still
+requires representative application deployments, real Paper server evidence,
+longer operational soak workloads, independent security review,
+and workload-specific performance budgets.
 Completing features and passing CI does not close these operational gates.

@@ -38,16 +38,23 @@ const HELP = {
   sql_execute: ['sql_execute(handle, sql, params = [], options = {})', 'Execute parameterized SQL. Options: timeout_ms, max_rows, max_bytes. Returns a checked result.'],
   sql_transaction: ['sql_transaction(handle, statements, options = {})', 'Execute a list of statements in one transaction and return a checked result.'],
   sql_close: ['sql_close(handle)', 'Close SQLite and return a checked result.'],
+  sql_migrate: ['sql_migrate(handle, migrations, options = {})', 'Atomically apply pending ordered migrations and verify existing history. Each migration has version, optional name, and statements. Options: timeout_ms, max_rows, max_bytes. Native SQLite and host I/O permission required.'],
+  sql_migrations: ['sql_migrations(handle, options = {})', 'Read migration ledger entries and current_version without creating a ledger. Returns a checked result. Native SQLite and host I/O permission required.'],
+  parallel: ['parallel(commands, options = {})', 'Run bounded argv commands concurrently, preserving input result order. Options: workers, timeout_ms, max_output, fail_fast. Native host operation; blocked in sandbox.'],
+  workflow_run: ['workflow_run(jobs, options)', 'Execute a validated command DAG with a checkpoint, bounded workers, and explicit idempotent recovery. Options: checkpoint, workers, fail_fast, max_output, resume. Native host operation; blocked in sandbox.'],
+  workflow_plan: ['workflow_plan(jobs)', 'Pure DAG validation returning {ok, count, fingerprint, order, layers}. Does not run commands or access files; permitted in sandbox.'],
+  workflow_inspect: ['workflow_inspect(path)', 'Read a bounded checkpoint summary with counts and {id, status, attempts} entries. Does not run commands, recover jobs, change files, or return process output. Native read permission required; blocked in sandbox.'],
 };
 for (const name of Object.keys(HELP)) if (name !== 'show' && !BUILTINS.includes(name)) BUILTINS.push(name);
 const NAMESPACES = {
   http: { request: 'request' },
-  process: { run: 'process' },
+  process: { run: 'process', parallel: 'parallel' },
   files: { read: 'file_read', write: 'file_write', info: 'file_info', list: 'file_list', mkdir: 'file_mkdir', remove: 'file_remove', move: 'file_move' },
   csv: { parse: 'csv_parse', write: 'csv_write' },
-  sqlite: { open: 'sql_open', execute: 'sql_execute', transaction: 'sql_transaction', close: 'sql_close' },
+  sqlite: { open: 'sql_open', execute: 'sql_execute', transaction: 'sql_transaction', close: 'sql_close', migrate: 'sql_migrate', migrations: 'sql_migrations' },
   data: { json_encode: 'json_encode', json_decode: 'json_decode', read_input: 'read_input' },
   numbers: { integer: 'integer', decimal: 'decimal', decimal_div: 'decimal_div' },
+  workflow: { run: 'workflow_run', plan: 'workflow_plan', inspect: 'workflow_inspect' },
 };
 
 function tokenize(text) {

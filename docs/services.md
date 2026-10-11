@@ -13,6 +13,8 @@ curl http://127.0.0.1:8080/contacts
 
 The example creates a SQLite database beside its source. POST validates bounded
 text fields; unique email collisions return 409. GET returns column/value rows.
+Database waits are capped at 250 ms per call. Failed schema setup, busy databases,
+and storage errors return 503; they do not masquerade as duplicate emails.
 All parameters are bound independently of SQL text. `/health` reports the host's
 protocol; it does not prove database health.
 
@@ -22,6 +24,8 @@ Excess work returns 503. Runtime failures return a short 502/504 response withou
 exposing interpreter diagnostics. Content-Length ambiguity, oversized bodies,
 invalid JSON and response header injection are rejected. Response JSON retains
 Sprout's exact numeric tags. Native binaries must be built with SQLite support.
+Unsupported transfer encoding and malformed request targets also return 400
+before worker launch. HEAD and 204/205/304 responses carry no wire body.
 
 This is a tested service integration example, not a completed internet hosting
 platform. Deploy behind an HTTP server that provides TLS, authentication,

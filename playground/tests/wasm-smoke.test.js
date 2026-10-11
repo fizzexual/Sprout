@@ -13,9 +13,15 @@ test('WASM smoke isolates persistence and retains sandboxed native capability pr
       callMain(args) {
         const source = files.get('/program.sprout');
         calls.push({ source, args, files });
-        if (/^show (?:read|file_read|file_write|request|process|sql_open|remember)\(/.test(source)) {
+        if (/^show (?:read|file_read|file_write|request|process|sql_open|remember|workflow_inspect|workflow_run|sql_migrate|sql_migrations)\(/.test(source)) {
           options.printErr('native access disabled in sandbox mode'); return 1;
         }
+        if (source.includes('after: ["missing"]')) { options.printErr('workflow dependency does not name a job'); return 1; }
+        if (source.includes('json_encode(workflow.plan(')) {
+          options.print(JSON.stringify({ok: true, layers: [['build', 'lint'], ['ship']],
+            order: ['build', 'lint', 'ship'], fingerprint: 'a'.repeat(64)})); return 0;
+        }
+        if (source.startsWith('show json_encode(args())')) { options.print(JSON.stringify(args.slice(args.indexOf('--') + 1))); return 0; }
         if (source.startsWith('repeat while yes:')) { options.printErr('stopped by --max-steps'); return 1; }
         if (args.includes('--trace-json')) options.printErr('@sprout-trace {"variables":{"x":"1"}}');
         else if (source.startsWith('show """')) options.print('first\nsecond');
@@ -36,10 +42,13 @@ test('WASM smoke isolates persistence and retains sandboxed native capability pr
   assert.equal(persistence[0].args.includes('--sandbox'), false);
   assert.equal(calls.filter(call => !call.args.includes('--sandbox')).length, 1);
   assert.equal(new Set(filesystems).size, calls.length, 'each interpreter owns a fresh filesystem');
-  for (const api of ['file_read', 'file_write', 'request', 'process', 'sql_open', 'remember']) {
+  for (const api of ['file_read', 'file_write', 'request', 'process', 'sql_open', 'remember',
+    'workflow_inspect', 'workflow_run', 'sql_migrate', 'sql_migrations']) {
     const probe = calls.find(call => call.source.startsWith('show ' + api + '('));
     assert.ok(probe, api + ' has a negative capability test');
     assert.ok(probe.args.includes('--sandbox'));
   }
+  assert.ok(calls.some(call => call.source.includes('json_encode(workflow.plan(')), 'pure workflow planning runs in the sandbox');
+  assert.ok(calls.some(call => call.source.startsWith('show json_encode(args())') && call.args.includes('--')), 'application flags reach the interpreter');
   assert.equal(sandbox.process.exitCode, 0);
 });

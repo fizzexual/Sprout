@@ -14,8 +14,10 @@ class SproutServer(http.server.ThreadingHTTPServer):
     request_queue_size = 32
     def __init__(self, address, program, *, command="sprout", workers=8, allow_io=False,
                  timeout_ms=5000, max_body=65536):
-        if not 1 <= workers <= 64 or not 1 <= max_body <= 1048576:
-            raise ValueError("workers must be 1..64 and body limit 1..1048576")
+        for value, label, maximum in ((workers, 'workers', 64), (max_body, 'body limit', 1048576),
+                                      (timeout_ms, 'timeout_ms', 3600000)):
+            if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= maximum:
+                raise ValueError(f'{label} must be an integer from 1 to {maximum}')
         self.program = Path(program).resolve()
         self.command, self.allow_io = command, allow_io
         self.timeout_ms, self.max_body = timeout_ms, max_body
@@ -51,34 +53,47 @@ class SproutHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass
     def respond(self, status, body, headers=None):
-        payload = body if isinstance(body, bytes) else encode(body).encode("utf-8")
+        bodyless = status in (204, 205, 304)
+        payload = b'' if bodyless else body if isinstance(body, bytes) else encode(body).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/octet-stream" if isinstance(body, bytes) else "application/json; charset=utf-8")
         for key, value in (headers or {}).items():
             if key.lower() not in ("content-type", "content-length", "connection", "transfer-encoding"):
                 self.send_header(key, value)
-        self.send_header("Content-Length", str(len(payload)))
+        # RFC 9110 sections 8.6 and 15.3: 204 forbids Content-Length; a 304
+        # length needs a known selected representation, which this bridge lacks.
+        if status not in (204, 304): self.send_header("Content-Length", str(len(payload)))
         self.send_header("Connection", "close")
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(payload)
     def handle_worker(self):
+        try:
+            self.handle_worker_response()
+        except OSError:
+            # A disconnected client cannot receive a response; always release
+            # request capacity through process_request_thread's finally block.
+            self.close_connection = True
+    def handle_worker_response(self):
         self.close_connection = True
-        path = urlsplit(self.path)
-        if path.path == "/health" and self.command in ("GET", "HEAD"):
-            self.respond(200, {"ok": True, "protocol": 1})
-            return
-        if self.headers.get("Transfer-Encoding"):
+        try:
+            path = urlsplit(self.path)
+        except ValueError:
+            self.respond(400, {"error": "invalid request target"}); return
+        if self.headers.get_all("Transfer-Encoding", []):
             self.respond(400, {"error": "Content-Length required"}); return
         lengths = self.headers.get_all("Content-Length", [])
         if len(lengths) > 1:
             self.respond(400, {"error": "ambiguous Content-Length"}); return
         try:
-            length = int(lengths[0]) if lengths else 0
-            if length < 0:
+            field = lengths[0].strip(' \t') if lengths else '0'
+            if not field.isascii() or not field.isdecimal():
                 raise ValueError()
+            length = int(field)
             if length > self.server.max_body:
                 self.respond(413, {"error": "request too large"}); return
+            if path.path == "/health" and self.command in ("GET", "HEAD"):
+                self.respond(200, {"ok": True, "protocol": 1}); return
             raw = self.rfile.read(length)
             if len(raw) != length:
                 raise ValueError()

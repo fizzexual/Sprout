@@ -26,7 +26,9 @@ when you run the program.
   public imported members, and fields/methods for directly constructed or
   annotated objects. Comments and text literals do not contribute suggestions.
 - Hover shows task declarations, adjacent `~` documentation comments, and
-  signatures for common built-ins and the checked I/O namespaces.
+  signatures for common built-ins and the checked I/O namespaces. Workflow
+  planning/inspection, process parallelism, and SQLite migrations include
+  permission and result hints; completion is not a runtime capability check.
 - Signature help tracks nested calls, optional parameters, and named arguments.
 - Go to Definition and Find References resolve lexical names and public imported
   members. Imports follow the project manifest and normal module search folders;
@@ -46,6 +48,12 @@ is bounded to 1 MiB per file and 64 files per graph; larger entry files omit sou
 index features. Multiline declarations, lambdas, comprehensions, destructuring,
 triple-quoted text, named argument labels, and f-string expression references
 are supported.
+
+The `taskdefault`, `multiline`, and `workflowplan` snippets help discover named
+inputs, preserved multiline text, and pure DAG planning. See the runnable
+[named report example](../examples/named-report.sprout),
+[ergonomics guide](../docs/ergonomics.md), and
+[workflow tools guide](../docs/workflow-tools.md) for complete contracts.
 
 ## Formatting
 

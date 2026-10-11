@@ -172,8 +172,8 @@ static Value pr_file_read(const char *path, size_t max, int binary) {
 }
 static int pr_replace(const char *from, const char *to) {
 #ifdef _WIN32
-  wchar_t *f = pr_wide(from), *t = pr_wide(to); int ok = f && t && MoveFileExW(f, t, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
-  free(f); free(t); return ok;
+  wchar_t *f = pr_wide(from), *t = pr_wide(to); int ok = f && t && runtime_replace_windows(f, t);
+  DWORD error = ok ? ERROR_SUCCESS : GetLastError(); free(f); free(t); SetLastError(error); return ok;
 #else
   return rename(from, to) == 0;
 #endif
@@ -514,7 +514,7 @@ static Value pr_request(const char *url, const char *method, SMap *headers, cons
 
 static const char *const PR_BUILTINS[] = {
   "request", "process", "file_read", "file_write", "file_info", "file_list", "file_mkdir", "file_remove", "file_move",
-  "csv_parse", "csv_write", "sql_open", "sql_execute", "sql_transaction", "sql_close", NULL
+  "csv_parse", "csv_write", "sql_open", "sql_execute", "sql_transaction", "sql_close", "sql_migrate", "sql_migrations", NULL
 };
 static int production_builtin_name(const char *name) {
   for (int i = 0; PR_BUILTINS[i]; i++) if (!strcmp(name, PR_BUILTINS[i])) return 1;
@@ -599,6 +599,14 @@ static int production_builtin(const char *name, int n, Value *a, int line, Value
     *out = pr_sql_open(want_str(line, name, 1, a[0], "sql_open(\"app.db\")"), n == 2 ? want_map(line, name, 2, a[1], NULL) : NULL, line); return 1;
   }
   if (!strcmp(name, "sql_close")) { if (n != 1) arity_error(line, name, "a database handle", n); *out = pr_sql_close(a[0], line); return 1; }
+  if (!strcmp(name, "sql_migrations")) {
+    if (n != 1 && n != 2) arity_error(line, name, "a handle and optional options map", n);
+    *out = pr_sql_migrations(a[0], n == 2 ? want_map(line, name, 2, a[1], NULL) : NULL, line); return 1;
+  }
+  if (!strcmp(name, "sql_migrate")) {
+    if (n != 2 && n != 3) arity_error(line, name, "a handle, migration list and optional options map", n);
+    *out = pr_sql_migrate(a[0], want_list(line, name, 2, a[1], NULL), n == 3 ? want_map(line, name, 3, a[2], NULL) : NULL, line); return 1;
+  }
   if (!strcmp(name, "sql_execute")) {
     if (n < 2 || n > 4) arity_error(line, name, "a handle, SQL text, optional params list and options map", n);
     *out = pr_sql_execute(a[0], want_str(line, name, 2, a[1], NULL), n >= 3 ? want_list(line, name, 3, a[2], NULL) : NULL, n == 4 ? want_map(line, name, 4, a[3], NULL) : NULL, line); return 1;

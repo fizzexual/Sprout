@@ -97,9 +97,7 @@ static char *embedded_script(void) {
     char *path=(char *)malloc((size_t)plen+1);memcpy(path,archive+at,(size_t)plen);path[plen]=0;at+=(size_t)plen;
     if(strlen(path)!=(size_t)plen||!dist_safe_path(path))bundle_corrupt("unsafe file path");
     if(i&&strcmp(g_dist_files[i-1].path,path)>=0)bundle_corrupt("duplicate or unsorted file path");
-#ifdef _WIN32
-    for(uint64_t j=0;j<i;j++)if(!_stricmp(g_dist_files[j].path,path))bundle_corrupt("case-colliding file paths");
-#endif
+    for(uint64_t j=0;j<i;j++)if(dist_path_conflict(g_dist_files[j].path,path))bundle_corrupt("colliding file paths");
     if(size>length-at)bundle_corrupt("truncated file data");
     unsigned char hash[32];dist_sha256(archive+at,(size_t)size,hash);
     if(memcmp(hash,sha,32))bundle_corrupt("file checksum mismatch");
@@ -162,7 +160,10 @@ static int bundle_package_files(const char *relative) {
 static int bundle_collect(const char *path,int source) {
   char *relative=dist_project_relative(path);
   if(!relative){fprintf(stderr,"  Bundle input escapes the project or has an unsafe path: %s\n",path);return 0;}
-  for(int i=0;i<g_dist_count;i++)if(!strcmp(g_dist_files[i].path,relative)){free(relative);return 1;}
+  for(int i=0;i<g_dist_count;i++) {
+    if(!strcmp(g_dist_files[i].path,relative)){free(relative);return 1;}
+    if(dist_path_conflict(g_dist_files[i].path,relative)){fprintf(stderr,"  Colliding bundle paths: %s and %s\n",g_dist_files[i].path,relative);free(relative);return 0;}
+  }
   if(g_dist_count>=DIST_MAX_FILES){free(relative);fprintf(stderr,"  Bundle exceeds %d files.\n",DIST_MAX_FILES);return 0;}
   long length;unsigned char *data=read_bytes(path,&length);
   if(!data){fprintf(stderr,"  Couldn't read bundle input: %s\n",path);free(relative);return 0;}

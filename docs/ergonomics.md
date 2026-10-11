@@ -1,5 +1,10 @@
 # Named inputs and multiline text
 
+Run the complete [named report example](../examples/named-report.sprout) with
+`sprout run examples/named-report.sprout`. It combines reordered named inputs,
+optional defaults, exact prices, and a preserved multiline heading. In the
+editor, `taskdefault` and `multiline` snippets provide starting points.
+
 User tasks accept named inputs with `name: value`:
 
 ```sprout

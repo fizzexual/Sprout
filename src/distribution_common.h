@@ -51,7 +51,7 @@ static int dist_safe_path(const char *s) {
   if(!s[0]||strlen(s)>=800||s[0]=='/'||s[0]=='\\')return 0;
   const char *start=s;
   for(const char *p=s;;p++) {
-    if(*p=='\\'||*p==':'||((unsigned char)*p<32&&*p))return 0;
+    if(*p=='\\'||*p==':'||(*p&&strchr("<>\"|?*",*p))||((unsigned char)*p<32&&*p))return 0;
     if(*p=='/'||!*p) {
       size_t n=(size_t)(p-start);if(!n||(n==1&&start[0]=='.')||(n==2&&start[0]=='.'&&start[1]=='.')||start[n-1]=='.'||start[n-1]==' ')return 0;
       char part[16];size_t k=0;while(k<n&&start[k]!='.'&&k<sizeof(part)-1){part[k]=(char)toupper((unsigned char)start[k]);k++;}part[k]=0;
@@ -62,6 +62,15 @@ static int dist_safe_path(const char *s) {
     }
   }
   return 1;
+}
+/* Reject ASCII aliases and file/directory prefix collisions on every host, so an
+   archive that validates on Linux can also be installed on a case-insensitive FS.
+   Unicode normalization and filesystem-specific Unicode case folding are outside
+   this portable check; package names themselves are ASCII. */
+static unsigned char dist_ascii_fold(unsigned char c) {return c>='A'&&c<='Z'?(unsigned char)(c+'a'-'A'):c;}
+static int dist_path_conflict(const char *a,const char *b) {
+  while(*a&&*b&&dist_ascii_fold((unsigned char)*a)==dist_ascii_fold((unsigned char)*b)){a++;b++;}
+  return (!*a&&(!*b||*b=='/'))||(!*b&&*a=='/');
 }
 static int dist_write(const char *path,const unsigned char *data,size_t len) {
   ensure_parent_dirs(path); FILE *f=fopen(path,"wb");if(!f)return 0;

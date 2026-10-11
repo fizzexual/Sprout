@@ -1,4 +1,5 @@
 """CLI regressions; uses only Python's standard library and a built interpreter."""
+import json
 import pathlib
 import subprocess
 import sys
@@ -86,6 +87,31 @@ class CLI(unittest.TestCase):
         result = self.run_sprout('run', entry)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), '36')
+
+    def test_separator_preserves_application_runtime_flag_names(self):
+        entry = self.source('args.sprout', 'show json_encode(args())\n')
+        values = ['--sandbox', '--max-steps', 'not-a-budget', '--timeout-ms', '-1', '--trace-json', '--stdin', '--']
+        for prefix in [('run', entry), (entry,)]:
+            with self.subTest(prefix=prefix):
+                result = self.run_sprout(*prefix, '--', *values)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), values)
+                self.assertEqual(result.stderr, '')
+
+    def test_separator_does_not_enable_stdin_source_or_sandbox(self):
+        entry = self.source('args.sprout', 'show read("marker.txt")\nshow json_encode(args())\n')
+        self.source('marker.txt', 'disk program')
+        result = self.run_sprout('run', entry, '--', '--stdin', '--sandbox', input='fail "wrong source"\n')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines()[0], 'disk program')
+        self.assertEqual(json.loads(result.stdout.splitlines()[1]), ['--stdin', '--sandbox'])
+
+    def test_sandbox_before_separator_remains_enforced(self):
+        entry = self.source('args.sprout', 'show read("marker.txt")\n')
+        self.source('marker.txt', 'private')
+        result = self.run_sprout('--sandbox', 'run', entry, '--', '--sandbox')
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('sandbox mode', result.stderr)
 
 
 if __name__ == '__main__':

@@ -1,0 +1,45 @@
+~ Port of TotalReach's MIT-licensed toNumber form rule; see README.md.
+~ Preserve its floating-point and partial-prefix behavior during migration.
+task to_number(value):
+    when kind_of(value) != "text":
+        give 0
+    make cleaned = ""
+    for each letter in value:
+        when contains("0123456789.-", letter):
+            set cleaned += letter
+
+    make end = 0
+    when length(cleaned) > 0 and cleaned[0] == "-":
+        set end = 1
+    make digits = 0
+    make point_seen = no
+    repeat while end < length(cleaned):
+        make letter = cleaned[end]
+        when contains("0123456789", letter):
+            set digits += 1
+        orwhen letter == "." and not point_seen:
+            set point_seen = yes
+        otherwise:
+            stop
+        set end += 1
+    when digits == 0:
+        give 0
+    make parsed = number(slice(cleaned, 0, end))
+    when parsed == nothing:
+        give 0
+    give parsed
+
+make request = json_decode(read_input())
+when kind_of(request) != "map":
+    fail "Expected a JSON object with a values list."
+when not contains(keys(request), "values"):
+    fail "Expected a values list."
+make values = request["values"]
+when kind_of(values) != "list" or length(values) > 256:
+    fail "values must be a list of at most 256 entries."
+make results = []
+for each value in values:
+    when kind_of(value) == "text" and length(value) > 4096:
+        fail "Each text value must fit in 4096 Unicode characters."
+    add(results, to_number(value))
+show json_encode({values: results})

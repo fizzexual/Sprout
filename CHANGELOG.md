@@ -15,6 +15,12 @@ All notable changes to **Sprout**. The format follows
   and pinned SQLite with parameterized statements and rollback-safe transactions.
 - Bounded process groups and checkpointed dependency workflows with explicit
   idempotent retry/recovery contracts.
+- Pure workflow dependency plans and read-only checkpoint summaries, including
+  concurrent atomic checkpoint replacement on Windows.
+- Atomic, versioned SQLite migrations with checksummed history, bound parameters,
+  rollback on failure, and protected migration metadata.
+- A source CLI parser with typed flags, aliases, repeatable values, required
+  options, generated help, and a parallel task-runner example.
 - Verified package lockfiles, pinned GitHub sources, multi-file packages,
   dependency checks, and deterministic checksum-protected bundles with assets.
 - Scope-aware editor completion, hover, signatures, definitions, references,
@@ -38,6 +44,14 @@ roadmap records additional release evidence and adapter validation still needed.
 
 ### Fixed
 
+- Interpreter `--` forwarding preserves application flags such as `--stdin`
+  and `--sandbox` without consuming them as runtime options.
+- Strict host JSON validates UTF-8, duplicate keys and exact-value tags; legacy
+  `json()` duplicate-key behavior remains documented separately.
+- Package and bundle paths reject portable case collisions, invalid Windows
+  filenames and linked package sources before writing output.
+- HTTP service framing, HEAD/body rules, storage error mapping and capacity
+  recovery have raw-protocol and concurrent SQLite workload checks.
 - Stored task values remain valid when an imported module grows the task registry.
   Type definitions also keep stable addresses as more modules load.
 - Calling an interface now reports a catchable type error instead of crashing.

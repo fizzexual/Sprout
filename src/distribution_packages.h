@@ -3,15 +3,27 @@
 #define PKG_MANIFEST "sprout.packages"
 #define PKG_LOCK "sprout.lock"
 #define PKG_MAX 128
+#define PKG_MAX_METADATA (4u << 20)
 typedef struct { char name[128],source[1024],path[1024],hash[65];unsigned char *data;size_t len; } PkgFile;
 typedef struct { char name[128],source[1024];int visiting,done; } PkgSpec;
 static PkgFile pkg_files[DIST_MAX_FILES],pkg_locked[DIST_MAX_FILES];
 static int pkg_nfiles=0,pkg_nlocked=0,pkg_nspec=0;
 static PkgSpec pkg_specs[PKG_MAX];
 static size_t pkg_bytes=0;
+/* Text metadata is bounded and never silently truncated at an embedded NUL. */
+static char *pkg_read_text(const char *path,int optional,int *ok) {
+  *ok=0;FILE *f=fopen(path,"rb");
+  if(!f){if(optional&&errno==ENOENT)*ok=1;else fprintf(stderr,"  Couldn't read package metadata: %s\n",path);return NULL;}
+  if(fseek(f,0,SEEK_END)!=0){fclose(f);return NULL;}long n=ftell(f);
+  if(n<0||(unsigned long)n>PKG_MAX_METADATA||fseek(f,0,SEEK_SET)!=0){fclose(f);fprintf(stderr,"  Package metadata exceeds 4 MiB: %s\n",path);return NULL;}
+  char *text=(char *)malloc((size_t)n+1);if(!text){fclose(f);return NULL;}
+  size_t got=fread(text,1,(size_t)n,f);int bad=ferror(f);fclose(f);
+  if(bad||got!=(size_t)n||memchr(text,0,(size_t)n)){free(text);fprintf(stderr,"  Invalid package metadata: %s\n",path);return NULL;}
+  text[n]=0;*ok=1;return text;
+}
 static int pkg_name_valid(const char *s) {
   if(!s[0]||strlen(s)>=128||!dist_safe_path(s))return 0;
-  for(const char *p=s;*p;p++)if(!isalnum((unsigned char)*p)&&*p!='_'&&*p!='-')return 0;
+  for(const unsigned char *p=(const unsigned char *)s;*p;p++)if(!(*p>='a'&&*p<='z')&&!(*p>='A'&&*p<='Z')&&!(*p>='0'&&*p<='9')&&*p!='_'&&*p!='-')return 0;
   return 1;
 }
 static char *pkg_next_line(char **cursor) {
@@ -26,6 +38,18 @@ static int pkg_source_valid(const char *s) {
   if(!s[0]||strlen(s)>=1024)return 0;
   for(const char *p=s;*p;p++)if(isspace((unsigned char)*p))return 0;
   return 1;
+}
+static int pkg_manifest_valid(const char *text) {
+  if(!text)return 1;
+  char *copy=dup_str(text),*cursor=copy,*line,names[PKG_MAX][128];int count=0,ok=1;
+  while((line=pkg_next_line(&cursor)))if(*line&&*line!='#') {
+    char name[128],source[1024],extra[2];
+    if(count>=PKG_MAX||sscanf(line,"%127s %1023s %1s",name,source,extra)!=2||!pkg_name_valid(name)||!pkg_source_valid(source)){ok=0;break;}
+    for(int i=0;i<count;i++)if(dist_path_conflict(names[i],name)){ok=0;break;}
+    if(!ok)break;
+    strcpy(names[count++],name);
+  }
+  free(copy);if(!ok)fprintf(stderr,"  Invalid or duplicate sprout.packages record.\n");return ok;
 }
 static int pkg_github_parts(const char *source,char repo[512],char ref[256],char path[800]) {
   const char *spec=source+7,*sep=strchr(spec,':'),*at=strchr(spec,'@');
@@ -67,7 +91,10 @@ static unsigned char *pkg_fetch_bytes(const char *source,size_t *length) {
   if(!strncmp(source,"github:",7)){char repo[512],ref[256],path[800];if(!pkg_github_parts(source,repo,ref,path))return NULL;
     if(snprintf(url,sizeof url,"https://raw.githubusercontent.com/%s/%s/%s",repo,ref,path)>=(int)sizeof url)return NULL;
     remote=url;}
-  if(strncmp(remote,"https://",8)&&strncmp(remote,"http://",7)){long n;unsigned char *b=read_bytes(remote,&n);if(b)*length=(size_t)n;return b;}
+  if(strncmp(remote,"https://",8)&&strncmp(remote,"http://",7)){
+    if(!dist_no_links(remote)){fprintf(stderr,"  Unsafe local package source: %s\n",remote);return NULL;}
+    long n;unsigned char *b=read_bytes(remote,&n);if(b)*length=(size_t)n;return b;
+  }
 #ifdef __EMSCRIPTEN__
   return NULL;
 #elif defined(_WIN32)
@@ -122,6 +149,21 @@ static int pkg_child_source(const char *source,const char *child,char out[1024])
   const char *slash=NULL;for(const char *p=source;*p;p++)if(*p=='/'||*p=='\\')slash=p;
   return snprintf(out,1024,"%.*s%s",slash?(int)(slash-source+1):0,source,child)<1024;
 }
+static int pkg_dependency_source_matches(const char *locked,const char *declared) {
+  if(!strcmp(locked,declared))return 1;
+  if(strncmp(locked,"github:",7)||strncmp(declared,"github:",7))return 0;
+  char repo[512],ref[256],path[800],other_repo[512],other_ref[256],other_path[800];
+  if(!pkg_github_parts(locked,repo,ref,path)||!pkg_github_parts(declared,other_repo,other_ref,other_path))return 0;
+  if(strcmp(repo,other_repo)||strcmp(path,other_path)||strlen(ref)!=40)return 0;
+  for(int i=0;i<40;i++)if(!isxdigit((unsigned char)ref[i]))return 0;
+  /* Branch/tag declarations are preserved in the checksummed package manifest;
+     the selected immutable commit is the lock's authority. No network lookup
+     can prove what a mutable ref pointed to when the lock was created. */
+  if(strlen(other_ref)==40){int commit=1;for(int i=0;i<40;i++)if(!isxdigit((unsigned char)other_ref[i]))commit=0;
+    if(commit)return dist_path_conflict(ref,other_ref);
+  }
+  return 1;
+}
 static int pkg_dest_valid(const char *name,const char *path) {
   if(!pkg_name_valid(name)||!dist_safe_path(path))return 0;
   char single[256],prefix[256];
@@ -129,13 +171,14 @@ static int pkg_dest_valid(const char *name,const char *path) {
   return !strcmp(path,single)||!strncmp(path,prefix,strlen(prefix));
 }
 static int pkg_lock_load(void) {
-  char *text=read_whole_file(PKG_LOCK);pkg_nlocked=0;if(!text)return 1;char *cursor=text,*line=pkg_next_line(&cursor);
+  int ok;char *text=pkg_read_text(PKG_LOCK,1,&ok);pkg_nlocked=0;if(!text)return ok;char *cursor=text,*line=pkg_next_line(&cursor);
   if(!line||strcmp(line,"# sprout.lock v1 sha256")){free(text);fprintf(stderr,"  Unsupported or corrupt sprout.lock.\n");return 0;}
   while((line=pkg_next_line(&cursor)))if(*line&&*line!='#') {
     if(pkg_nlocked>=DIST_MAX_FILES){free(text);return 0;}PkgFile *r=&pkg_locked[pkg_nlocked];char extra[2];
     if(sscanf(line,"%127s %1023s %64s %1023s %1s",r->name,r->source,r->hash,r->path,extra)!=4||
        !pkg_source_valid(r->source)||!dist_hex_digest(r->hash)||!pkg_dest_valid(r->name,r->path)){free(text);fprintf(stderr,"  Invalid lockfile record.\n");return 0;}
-    for(int i=0;i<pkg_nlocked;i++)if(!strcmp(pkg_locked[i].path,r->path)){free(text);fprintf(stderr,"  Duplicate lockfile path.\n");return 0;}
+    for(int i=0;i<pkg_nlocked;i++)if(dist_path_conflict(pkg_locked[i].path,r->path)||
+        (strcmp(pkg_locked[i].name,r->name)&&dist_path_conflict(pkg_locked[i].name,r->name))){free(text);fprintf(stderr,"  Duplicate or colliding lockfile path.\n");return 0;}
     for(int i=0;i<64;i++)r->hash[i]=(char)tolower((unsigned char)r->hash[i]);
     pkg_nlocked++;
   }
@@ -153,7 +196,9 @@ static int pkg_lock_write(int preserve) {
   int ok=dist_atomic_write(PKG_LOCK,(unsigned char *)text,at);free(text);return ok;
 }
 static int pkg_manifest_write(int preserve) {
-  char *old=preserve?read_whole_file(PKG_MANIFEST):NULL;size_t cap=(old?strlen(old):0)+(size_t)pkg_nspec*1200+128;
+  int valid=1;char *old=preserve?pkg_read_text(PKG_MANIFEST,1,&valid):NULL;
+  if(!valid||!pkg_manifest_valid(old)){free(old);return 0;}
+  size_t cap=(old?strlen(old):0)+(size_t)pkg_nspec*1200+128;
   char *text=(char *)malloc(cap);size_t at=(size_t)snprintf(text,cap,"# Sprout packages: commit this manifest and sprout.lock.\n");
   if(old){char *cursor=old,*line;while((line=pkg_next_line(&cursor)))if(*line&&*line!='#') {
     char name[128],src[1024],extra[2];if(sscanf(line,"%127s %1023s %1s",name,src,extra)!=2){free(old);free(text);return 0;}
@@ -166,14 +211,18 @@ static int pkg_manifest_write(int preserve) {
 static void pkg_clear_plan(void){for(int i=0;i<pkg_nfiles;i++)free(pkg_files[i].data);pkg_nfiles=0;pkg_nspec=0;pkg_bytes=0;}
 static int pkg_plan_file(const char *name,const char *source,const char *dest,unsigned char *data,size_t len) {
   if(pkg_nfiles>=DIST_MAX_FILES||pkg_bytes+len>DIST_MAX_ARCHIVE||!pkg_dest_valid(name,dest)){free(data);return 0;}
-  for(int i=0;i<pkg_nfiles;i++)if(!strcmp(pkg_files[i].path,dest)){free(data);fprintf(stderr,"  Duplicate package file: %s\n",dest);return 0;}
+  for(int i=0;i<pkg_nfiles;i++)if(dist_path_conflict(pkg_files[i].path,dest)){free(data);fprintf(stderr,"  Duplicate or colliding package file: %s\n",dest);return 0;}
+  for(int i=0;i<pkg_nlocked;i++)if(strcmp(pkg_locked[i].name,name)&&dist_path_conflict(pkg_locked[i].path,dest)){
+    free(data);fprintf(stderr,"  Package path collides with existing package: %s\n",dest);return 0;
+  }
   PkgFile *r=&pkg_files[pkg_nfiles++];memset(r,0,sizeof *r);snprintf(r->name,sizeof r->name,"%s",name);snprintf(r->source,sizeof r->source,"%s",source);
   snprintf(r->path,sizeof r->path,"%s",dest);r->data=data;r->len=len;dist_shahex(data,len,r->hash);pkg_bytes+=len;return 1;
 }
 static int pkg_plan(const char *name,const char *source,int depth) {
   if(depth>32||!pkg_name_valid(name)||!pkg_source_valid(source)){fprintf(stderr,"  Invalid package name/source or dependency depth exceeded.\n");return 0;}
   char resolved[1024];if(!pkg_pin_source(source,resolved))return 0;
-  for(int i=0;i<pkg_nspec;i++)if(!strcmp(pkg_specs[i].name,name)) {
+  for(int i=0;i<pkg_nspec;i++)if(dist_path_conflict(pkg_specs[i].name,name)) {
+    if(strcmp(pkg_specs[i].name,name)){fprintf(stderr,"  Case-colliding package name: %s\n",name);return 0;}
     if(strcmp(pkg_specs[i].source,resolved)){fprintf(stderr,"  Conflicting dependency sources for '%s'.\n",name);return 0;}
     if(pkg_specs[i].visiting){fprintf(stderr,"  Circular package dependency at '%s'.\n",name);return 0;}return pkg_specs[i].done;
   }
@@ -190,7 +239,7 @@ static int pkg_plan(const char *name,const char *source,int depth) {
     if(!pkg_plan_file(name,resolved,dest,data,len))return 0;
   }else {
     size_t len;unsigned char *data=pkg_fetch_bytes(manifest_source,&len);
-    if(!data||memchr(data,0,len)){free(data);fprintf(stderr,"  Missing or invalid sprout.package for '%s'.\n",name);return 0;}
+    if(!data||len>PKG_MAX_METADATA||memchr(data,0,len)){free(data);fprintf(stderr,"  Missing or invalid sprout.package for '%s'.\n",name);return 0;}
     char dest[1024];snprintf(dest,sizeof dest,"%s/%s/sprout.package",PKG_DIR,name);
     if(!pkg_plan_file(name,manifest_source,dest,data,len))return 0;
     char *text=dup_str((char *)data),*cursor=text,*line;char entry[800]="";int entry_count=0,entry_found=0;
@@ -225,6 +274,10 @@ static int cmd_add(int argc,char **argv) {
   char name[128];if(argc==4){if(!pkg_name_valid(argv[3])){fprintf(stderr,"  Invalid package name; use at most 127 letters, digits, '-' or '_'.\n");return 1;}strcpy(name,argv[3]);}else pkg_name_of(argv[2],name,sizeof name);
   if(!pkg_name_valid(name)||!pkg_source_valid(argv[2])){fprintf(stderr,"  Package names must use letters, digits, '-' or '_'; sources cannot contain whitespace.\n");return 1;}
   if(!pkg_lock_load())return 1;
+  int valid;char *old=pkg_read_text(PKG_MANIFEST,1,&valid);if(!valid||!pkg_manifest_valid(old)){free(old);return 1;}free(old);
+  for(int i=0;i<pkg_nlocked;i++)if(strcmp(pkg_locked[i].name,name)&&dist_path_conflict(pkg_locked[i].name,name)){
+    fprintf(stderr,"  Case-colliding package name: %s\n",name);return 1;
+  }
   int ok=pkg_plan(name,argv[2],0)&&pkg_apply()&&pkg_manifest_write(1)&&pkg_lock_write(1);
   if(ok)printf("  Added and locked package %s. Use it with: use %s\n",name,name);
   pkg_clear_plan();return ok?0:1;
@@ -252,14 +305,25 @@ static int pkg_complete_lock(void) {
       char key[32],file[800],src[1024],extra[2];int fields=sscanf(line,"%31s %799s %1023s %1s",key,file,src,extra);
       if(!strcmp(key,"entry")||!strcmp(key,"file")) {
         if(fields!=2||!dist_safe_path(file)||!strcmp(file,"sprout.package")){ok=0;break;}
-        if(!strcmp(key,"entry"))entries++;
+        if(!strcmp(key,"entry")){size_t n=strlen(file);if(n<7||strcmp(file+n-7,".sprout")){ok=0;break;}entries++;}
         if(snprintf(expected,sizeof expected,"%s/%s/%s",PKG_DIR,manifest->name,file)>=(int)sizeof expected){ok=0;break;}
         char child[1024];if(!pkg_child_source(manifest->source,file,child)){ok=0;break;}int found=0;
         for(int j=0;j<pkg_nfiles;j++)if(!strcmp(pkg_files[j].path,expected)&&!strcmp(pkg_files[j].source,child))found++;
         if(found!=1){ok=0;break;}count++;
       }else if(!strcmp(key,"dependency")) {
-        if(fields!=3||!pkg_name_valid(file)){ok=0;break;}int found=0;
-        for(int j=0;j<pkg_nfiles;j++)if(!strcmp(pkg_files[j].name,file))found=1;
+        if(fields!=3||!pkg_name_valid(file)){ok=0;break;}
+        char dependency[1024];
+        if(!strncmp(src,"github:",7)||!strncmp(src,"https://",8)||!strncmp(src,"http://",7))snprintf(dependency,sizeof dependency,"%s",src);
+        else if(!pkg_child_source(manifest->source,src,dependency)){ok=0;break;}
+        int found=0;
+        for(int j=0;j<pkg_nfiles;j++)if(!strcmp(pkg_files[j].name,file)) {
+          char single[256],tree[256],folder[1100];
+          if(snprintf(single,sizeof single,"%s/%.127s.sprout",PKG_DIR,file)>=(int)sizeof single||
+             snprintf(tree,sizeof tree,"%s/%.127s/sprout.package",PKG_DIR,file)>=(int)sizeof tree){ok=0;break;}
+          snprintf(folder,sizeof folder,"%s/sprout.package",dependency);
+          if((!strcmp(pkg_files[j].path,single)&&pkg_dependency_source_matches(pkg_files[j].source,dependency))||
+             (!strcmp(pkg_files[j].path,tree)&&(pkg_dependency_source_matches(pkg_files[j].source,dependency)||pkg_dependency_source_matches(pkg_files[j].source,folder))))found=1;
+        }
         if(!found){ok=0;break;}
       }else {ok=0;break;}
     }
@@ -277,7 +341,7 @@ static int pkg_complete_lock(void) {
 static int cmd_install(int argc,char **argv) {
   console_setup();int strict=0;for(int i=2;i<argc;i++)if(!strcmp(argv[i],"--locked"))strict=1;else {fprintf(stderr,"  Unknown install argument: %s\n",argv[i]);return 1;}
   int has_lock=path_exists(PKG_LOCK);if(strict&&!has_lock){fprintf(stderr,"  --locked requires sprout.lock. Run sprout install once and commit it.\n");return 1;}
-  char *text=read_whole_file(PKG_MANIFEST);if(!text){fprintf(stderr,"  No sprout.packages; add a package first.\n");return 1;}
+  int valid;char *text=pkg_read_text(PKG_MANIFEST,0,&valid);if(!valid||!pkg_manifest_valid(text)){free(text);return 1;}
   if(!pkg_lock_load()){free(text);return 1;}char *cursor=text,*line;int ok=1,count=0;
   char names[PKG_MAX][128];
   while((line=pkg_next_line(&cursor)))if(*line&&*line!='#') {
@@ -313,7 +377,7 @@ static int cmd_install(int argc,char **argv) {
 static int cmd_remove(int argc,char **argv) {
   console_setup();if(argc!=3||!pkg_name_valid(argv[2])){fprintf(stderr,"  Usage: sprout remove <name>\n");return 1;}
   if(!pkg_lock_load())return 1;
-  const char *name=argv[2];char *old=read_whole_file(PKG_MANIFEST);int found=0;
+  const char *name=argv[2];int valid;char *old=pkg_read_text(PKG_MANIFEST,1,&valid);if(!valid||!pkg_manifest_valid(old)){free(old);return 1;}int found=0;
   size_t cap=(old?strlen(old):0)+128;char *updated=(char *)malloc(cap);size_t at=0;
   if(old){char *cursor=old,*line;while((line=pkg_next_line(&cursor))) {char n[128]="";sscanf(line,"%127s",n);
     if(!strcmp(n,name))found=1;else at+=(size_t)snprintf(updated+at,cap-at,"%s\n",line);}free(old);}
