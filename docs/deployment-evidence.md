@@ -258,6 +258,35 @@ validates harness mechanics; hours-long candidate evidence remains pending.
 
 ## Replacement candidate controls and pending run
 
+The later operational candidate `d5ded754726bfe87ba12517630df9a62d179ba6e`
+passed a separate 20.000-second native/SDK smoke (20.188 seconds through final
+verification): 80 exact contacts, three clean hosts, three lock recoveries and
+six oracles. All 89 native children exited and every host returned to one thread.
+The maximum recorded controller gap was below 3.477 seconds on either clock;
+the maximum host sampler gap was below 0.142 seconds. Completion, cadence,
+resource/storage and independent read-only SQLite value/integrity checks passed.
+Owned process command lines were checked after a numeric PID was reused by the
+older run; no unrelated process was signaled.
+
+| Operational smoke input | SHA256 |
+| --- | --- |
+| Windows native | `066095edef005a511b1e89e0351f2099edcce5ea5fafce1e89425ebc639c725f` |
+| Harness | `3fcb9d093e0ec66f6829aa8ec278f297214d897a21c6c197b292ac3d45898cd7` |
+| Python SDK | `8e6b7f72eb243c91a82537d3dc05fd1b5cdae127d940797b111fc3ae8a154192` |
+| Python HTTP host | `326e5b35929ae1f9340a45612af201dfacf7f339883f391fef6333a75c3aa4e4` |
+| Contacts app | `0e5ce19d5427241b414c1654b1ae5da06ef013df13d0dbc2659c4327f3867f7b` |
+
+All copied source files matched candidate Git blobs and all five frozen inputs
+were unchanged. The native source checkout digest is
+`698ba61085fc9e59eb7e54638ba4df3416e30063d334e4a17cf205fe8b8c4e7b`;
+normalizing its CRLF endings to LF equals the exact Git blob digest
+`fb2a8f8da6d2d2cefc9acc958513f4dfd3efdf85796e32c53bd50e6c86747749`.
+This is source correspondence, not a reproducible-build attestation.
+Private results are `D:/Codex/Kestrel/work/deployment-d5ded75-smoke-20261012.json`
+and its separate `deployment-d5ded75-smoke-20261012-verification.json`.
+These newer native/SDK inputs differ from the active eight-hour run below;
+this short check does not qualify them for eight hours.
+
 The later cadence candidate `fbd795d54eb7bdf829ba23015f048b18096b1f27`
 passed all eight [native/SDK, WASM, sanitizer, Docker and Paper CI jobs](https://github.com/fizzexual/Sprout/actions/runs/38177615020)
 and one real native loopback smoke: 20.000 seconds of traffic, 20.110 seconds

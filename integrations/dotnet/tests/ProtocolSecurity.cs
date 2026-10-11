@@ -1,4 +1,6 @@
 using Sprout.Host;
+using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -30,12 +32,24 @@ internal static class ProtocolSecurity
             try { await host.RunAsync(source("show " + Literal(wire) + "\n"), new {}); throw new Exception("Malformed worker output accepted: " + wire); }
             catch (SproutWorkerException error) when (error.Status == 6) { }
         }
-        foreach (string wire in new[] {
-            "{\"text\":\"\\ud83c\\udf31\",\"literal\":\"\\\\ud800\",\"replacement\":\"�\"}",
-            "{\"value\":100000000000000000000,\"tag\":{\"$sprout.integer\":\"9223372036854775807\"}}",
-            new string('[',128) + "0" + new string(']',128),
-            new string('[',128) + new string(']',128),
-        }) await host.RunAsync(source("show " + Literal(wire) + "\n"), new {});
+        foreach (var control in new (string Name, string Wire)[] {
+            ("paired Unicode", "{\"text\":\"\\ud83c\\udf31\",\"literal\":\"\\\\ud800\",\"replacement\":\"�\"}"),
+            ("finite number and exact tag", "{\"value\":100000000000000000000,\"tag\":{\"$sprout.integer\":\"9223372036854775807\"}}"),
+            ("128 nonempty arrays", new string('[',128) + "0" + new string(']',128)),
+            ("128 empty arrays", new string('[',128) + new string(']',128)),
+        })
+        {
+            Console.WriteLine($"CHECK protocol control: {control.Name}; wire_bytes={Encoding.UTF8.GetByteCount(control.Wire)}; caller_cancellation=none");
+            var clock = Stopwatch.StartNew();
+            try { await host.RunAsync(source("show " + Literal(control.Wire) + "\n"), new {}); }
+            catch (SproutWorkerException error)
+            {
+                string diagnostics = error.Diagnostics.Length <= 1024 ? error.Diagnostics : error.Diagnostics[..1024];
+                throw new InvalidOperationException($"Valid protocol control '{control.Name}' failed after {clock.Elapsed.TotalMilliseconds:F1} ms: " +
+                    $"native_status={error.Status}, exit_code={error.ExitCode}, system_code={error.SystemCode}, " +
+                    $"diagnostics={JsonSerializer.Serialize(diagnostics)}. {error.Message}", error);
+            }
+        }
         var recovered = await host.RunAsync(source("show json_encode({ok:yes})\n"), new {});
         if (!recovered.Value.GetProperty("ok").GetBoolean()) throw new Exception("Protocol rejection stranded host.");
     }

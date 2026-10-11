@@ -67,8 +67,18 @@ could not be read, a leaked Python worker after I/O thread startup failed, and
 a deployment mismatch where Compose fetched moving `main` sources while CI
 tested a local image. The fixes fail closed on store read errors, clean up
 partially started workers, and build the checkout through the actual loopback
-Compose configuration. Focused native, Python and container checks passed;
-fresh integrated candidate CI is pending. The frozen `86ab3b4` eight-hour run
+Compose configuration. The integrated `d5ded754726bfe87ba12517630df9a62d179ba6e`
+candidate passed all eight [CI jobs](https://github.com/fizzexual/Sprout/actions/runs/38181964754),
+after one macOS rerun. The initial macOS .NET positive control failed with an
+unexplained native startup error; a same-commit rerun passed. A separate bounded
+Linux backend control passed 32 launches with complete child reaping. No
+production ordering defect was substantiated and no budgets or statuses were
+waived. Test-only diagnostics now identify the control, native status/system
+code and elapsed time; that diagnostic revision awaits fresh CI.
+
+A 20.000-second integrated native/SDK smoke passed with 80 exact contacts,
+three clean service lifecycles, all 89 native workers exited and independent
+SQLite integrity/value checks. The frozen `86ab3b4` eight-hour run
 continues unchanged and cannot be attributed to these newer native/SDK fixes.
 
 The review reproduced these issues and verified their fixes:
@@ -89,9 +99,9 @@ The review reproduced these issues and verified their fixes:
 | Development tags can become a stable Latest release | Mark prerelease tags as prereleases and prevent Latest publication | Workflow classification checked for stable, prerelease and build-metadata tags; no release published |
 | Elapsed time can falsely satisfy a sustained-run gate | Record bounded dual-clock controller/sampler progress from setup through cleanup | 29 focused local harness regressions, real native smoke and fresh cross-platform CI passed |
 | Short host epochs can evade per-epoch sampling coverage | Require predeclared aggregate traffic, host-time and sample coverage, with exact lifecycle/data accounting | Auditor v2: 17 focused tests, one local Windows symlink skip; Linux and fresh cross-platform CI passed |
-| An unreadable store is treated as empty and overwritten | Only an absent-path open initializes empty; later read errors preserve bytes and raise `io` | Publication and portable read/seek/close fault regressions passed on Windows/Linux; integrated CI pending |
-| Python cannot start I/O threads after launching a worker | Reap the owned worker, close available pipes, preserve interrupts and recover | Five lifecycle regressions and 47 combined Windows checks, one POSIX skip; integrated CI pending |
-| Compose deploys different source and exposes all interfaces | Build the reviewed checkout, publish loopback, and exercise shipped Compose in CI | Actual local Compose limits, output/recovery/cleanup checks passed; integrated CI pending |
+| An unreadable store is treated as empty and overwritten | Only an absent-path open initializes empty; later read errors preserve bytes and raise `io` | Publication and portable read/seek/close fault regressions passed on Windows/Linux; integrated d5 CI passed |
+| Python cannot start I/O threads after launching a worker | Reap the owned worker, close available pipes, preserve interrupts and recover | Five lifecycle regressions and 47 combined Windows checks, one POSIX skip; integrated d5 CI passed |
+| Compose deploys different source and exposes all interfaces | Build the reviewed checkout, publish loopback, and exercise shipped Compose in CI | Actual local Compose limits, output/recovery/cleanup checks and integrated d5 CI passed |
 
 This is an independent agent review of other agents' code, not an external
 professional audit. Sanitizer results and checks are reported for the exact

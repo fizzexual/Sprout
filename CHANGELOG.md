@@ -48,6 +48,16 @@ roadmap records additional release evidence and adapter validation still needed.
 
 ### Fixed
 
+- Key/value store read failures preserve existing data instead of initializing
+  an empty store; only an absent-path open means missing data. Later
+  read/seek/close failures raise `io`, including controlled backend error cases.
+- Python worker startup cleans up after I/O thread creation/start failures,
+  preserves interrupts, and avoids waiting on an externally held buffered pipe.
+- The shipped Compose playground builds the reviewed checkout and vendored
+  SQLite, binds loopback, and is exercised directly by CI. The previous
+  single-file remote-source setup now requires a complete checkout.
+- Sustained deployment evidence checks dual-clock progress gaps; the fixed
+  eight-hour profile has a separate predeclared aggregate coverage audit.
 - JSON serialization rejects cycles and excessive nesting before persistence
   writes, validates a bounded encoded size, and consumes runtime budgets.
 - Host SDK protocol validation rejects ambiguous decoded keys, non-finite
