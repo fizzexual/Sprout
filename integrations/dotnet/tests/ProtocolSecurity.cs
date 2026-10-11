@@ -1,8 +1,16 @@
 using Sprout.Host;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 internal static class ProtocolSecurity
 {
+    [JsonConverter(typeof(ObservedConverter))]
+    public sealed class Observed { public static int Calls; }
+    public sealed class ObservedConverter : JsonConverter<Observed>
+    {
+        public override Observed Read(ref Utf8JsonReader reader, Type type, JsonSerializerOptions options) => throw new NotSupportedException();
+        public override void Write(Utf8JsonWriter writer, Observed value, JsonSerializerOptions options) { Observed.Calls++; writer.WriteStringValue("observed"); }
+    }
     private static string Literal(string text) => "\"" + text.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", "\\r").Replace("\n", "\\n").Replace("\t", "\\t") + "\"";
     public static async Task WorkerBoundary(WorkerHost host, Func<string, string> source)
     {
@@ -33,6 +41,15 @@ internal static class ProtocolSecurity
     }
     public static async Task RequestBoundary(WorkerHost host, Func<string, string> source)
     {
+        object aliased = "leaf";
+        for (int i=0; i<18; i++) aliased = new object[] { aliased, aliased };
+        Observed.Calls = 0;
+        try { await host.RunAsync(source("fail \"must not run\"\n"), new object[] { aliased, new Observed() }); throw new Exception("Oversized alias request accepted."); }
+        catch (ArgumentException) { }
+        if (Observed.Calls != 0) throw new Exception("Oversized request was completely serialized before its cap.");
+        try { await host.RunAsync(source("fail \"must not run\"\n"), new string('x',1_048_577)); throw new Exception("Oversized single text accepted."); }
+        catch (ArgumentException) { }
+        await host.RunAsync(source("show json_encode({ok:yes})\n"), new string('x',1_048_574));
         foreach (object value in new object[] { "\uD800", new { text = "\uDC00" }, new Dictionary<string,object> { ["\uD800"] = true }, new[] { "NUL\0suffix" } })
         {
             try { await host.RunAsync(source("fail \"must not run\"\n"), value); throw new Exception("Malformed host text reached worker."); }

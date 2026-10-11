@@ -109,6 +109,23 @@ class DeploymentHarnessTests(unittest.TestCase):
         else:
             self.assertGreater(DEPLOYMENT.resource(os.getpid())['rss_bytes'], 0)
 
+    def test_workspace_and_report_storage_ceiling_crossings_fail(self):
+        limits = dict(workspace_bytes=256, report_bytes=100)
+        DEPLOYMENT.storage_gate(dict(workspace_bytes=256, report_bytes=100), limits)
+        for key in limits:
+            observation = dict(workspace_bytes=256, report_bytes=100)
+            observation[key] += 1
+            with self.subTest(key=key), self.assertRaisesRegex(AssertionError, 'storage ceiling'):
+                DEPLOYMENT.storage_gate(observation, limits)
+
+    def test_storage_measurement_includes_nested_frozen_and_database_files(self):
+        with tempfile.TemporaryDirectory() as name:
+            folder = Path(name)
+            (folder / 'frozen').mkdir()
+            (folder / 'frozen' / 'binary').write_bytes(b'1234567')
+            (folder / 'database').write_bytes(b'123')
+            self.assertEqual(DEPLOYMENT.workspace_bytes(folder), 10)
+
     def test_interruption_preserves_failed_report(self):
         with tempfile.TemporaryDirectory() as name:
             fixture = Path(name)
@@ -121,6 +138,7 @@ class DeploymentHarnessTests(unittest.TestCase):
                                    workers=4, burst=8, restart_seconds=180, contention_seconds=60, shard_contacts=2000,
                                    max_host_rss_mib=128, max_retained_rss_growth_mib=64, max_host_handles=512,
                                    max_retained_handles_growth=128, max_host_fds=128, max_retained_fds_growth=32,
+                                   max_workspace_mib=256, max_report_mib=4,
                                    seed=1, label='interrupt-regression', workspace=fixture / 'run', report=report)
             with patch.object(DEPLOYMENT, 'ROOT', fixture), patch.object(DEPLOYMENT, 'Service', side_effect=KeyboardInterrupt), redirect_stdout(io.StringIO()):
                 result = DEPLOYMENT.main(args)

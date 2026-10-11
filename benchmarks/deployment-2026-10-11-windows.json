@@ -1,0 +1,567 @@
+{
+  "timestamp_utc": "2026-10-11T19:13:13.653028+00:00",
+  "label": "76ba445-binary-baseline-frozen-sdk",
+  "controller_pid": 59300,
+  "platform": "Windows-10-10.0.19045-SP0",
+  "python": "3.12.10",
+  "sqlite_oracle_version": "3.49.1",
+  "workspace": "D:\\Codex\\Kestrel\\work\\deployment-76ba445-30min-20261011",
+  "frozen_sha256": {
+    "bin/sprout.exe": "b64d4a01864f5d4c4ced0f75155334ecb58d76750df78365bb301b95b308e4a4",
+    "tools/deployment_soak.py": "e9698006dd2724590c24885f6e0db3b12d297dc653258e3222dc3d769a583345",
+    "integrations/python/sprout_host.py": "e6ed319ff4fe021be53a49876ab2df05510d832bedf9545a9a95d5bd86486ed4",
+    "integrations/python/sprout_service.py": "6ca8dc88a3d08d9d96ef4576c03eb6b467229a9233c95bae518964dfc19957c8",
+    "examples/services/contacts.sprout": "0e5ce19d5427241b414c1654b1ae5da06ef013df13d0dbc2659c4327f3867f7b"
+  },
+  "configuration": {
+    "binary": "src\\sprout.exe",
+    "duration_seconds": 1800.0,
+    "rate": 4,
+    "clients": 8,
+    "workers": 4,
+    "burst": 8,
+    "restart_seconds": 180,
+    "contention_seconds": 60,
+    "shard_contacts": 2000,
+    "seed": 20261011,
+    "label": "76ba445-binary-baseline-frozen-sdk",
+    "workspace": "D:\\Codex\\Kestrel\\work\\deployment-76ba445-30min-20261011",
+    "report": "benchmarks\\deployment-2026-10-11-windows.json"
+  },
+  "counts": {
+    "contacts": 7168,
+    "bursts": 896,
+    "health_checks": 172,
+    "oracle_checks": 81,
+    "contention_503": 29,
+    "duplicate_409": 59,
+    "ambiguous_commits": 0,
+    "hosts_started": 11,
+    "hosts_cleanly_stopped": 11
+  },
+  "post_status_counts": {
+    "201": 7168,
+    "503": 11119
+  },
+  "transport_errors": {
+    "ConnectionAbortedError": 835,
+    "ConnectionResetError": 13
+  },
+  "hosts": [
+    {
+      "pid": 64748,
+      "samples": 1693,
+      "initial": {
+        "rss_bytes": 30748672,
+        "peak_rss_bytes": 30801920,
+        "private_bytes": 22904832,
+        "handles": 140,
+        "open_fds": null,
+        "threads": 1
+      },
+      "last": {
+        "rss_bytes": 51150848,
+        "peak_rss_bytes": 51269632,
+        "private_bytes": 41914368,
+        "handles": 193,
+        "open_fds": null,
+        "threads": 1
+      },
+      "host_sampled_maximum": {
+        "rss_bytes": 51265536,
+        "peak_rss_bytes": 51269632,
+        "private_bytes": 42123264,
+        "handles": 288,
+        "threads": 16
+      },
+      "native_sampled_maximum": {
+        "rss_bytes": 7598080,
+        "peak_rss_bytes": 7602176,
+        "private_bytes": 6537216,
+        "handles": 105
+      },
+      "native_started": 745,
+      "native_exited": 745,
+      "native_active_pids": [],
+      "maximum_native_active": 4,
+      "errors": [],
+      "final_threads": 1,
+      "baseline_threads": 1,
+      "clean_shutdown": true,
+      "epoch_seconds": 182.23400000000402,
+      "shard": 0
+    },
+    {
+      "pid": 65868,
+      "samples": 1691,
+      "initial": {
+        "rss_bytes": 30322688,
+        "peak_rss_bytes": 30326784,
+        "private_bytes": 22351872,
+        "handles": 140,
+        "open_fds": null,
+        "threads": 1
+      },
+      "last": {
+        "rss_bytes": 51900416,
+        "peak_rss_bytes": 52023296,
+        "private_bytes": 42164224,
+        "handles": 190,
+        "open_fds": null,
+        "threads": 1
+      },
+      "host_sampled_maximum": {
+        "rss_bytes": 51990528,
+        "peak_rss_bytes": 52023296,
+        "private_bytes": 42938368,
+        "handles": 286,
+        "threads": 15
+      },
+      "native_sampled_maximum": {
+        "rss_bytes": 8474624,
+        "peak_rss_bytes": 8478720,
+        "private_bytes": 8056832,
+        "handles": 99
+      },
+      "native_started": 745,
+      "native_exited": 745,
+      "native_active_pids": [],
+      "maximum_native_active": 4,
+      "errors": [],
+      "final_threads": 1,
+      "baseline_threads": 1,
+      "clean_shutdown": true,
+      "epoch_seconds": 182.03199999999924,
+      "shard": 0
+    },
+    {
+      "pid": 64208,
+      "samples": 1336,
+      "initial": {
+        "rss_bytes": 30097408,
+        "peak_rss_bytes": 30101504,
+        "private_bytes": 22020096,
+        "handles": 140,
+        "open_fds": null,
+        "threads": 1
+      },
+      "last": {
+        "rss_bytes": 49225728,
+        "peak_rss_bytes": 50282496,
+        "private_bytes": 39100416,
+        "handles": 190,
+        "open_fds": null,
+        "threads": 1
+      },
+      "host_sampled_maximum": {
+        "rss_bytes": 49250304,
+        "peak_rss_bytes": 50282496,
+        "private_bytes": 40398848,
+        "handles": 286,
+        "threads": 17
+      },
+      "native_sampled_maximum": {
+        "rss_bytes": 7442432,
+        "peak_rss_bytes": 7462912,
+        "private_bytes": 6520832,
+        "handles": 99
+      },
+      "native_started": 571,
+      "native_exited": 571,
+      "native_active_pids": [],
+      "maximum_native_active": 4,
+      "errors": [],
+      "final_threads": 1,
+      "baseline_threads": 1,
+      "clean_shutdown": true,
+      "epoch_seconds": 144.20300000000134,
+      "shard": 0
+    },
+    {
+      "pid": 12480,
+      "samples": 1691,
+      "initial": {
+        "rss_bytes": 30150656,
+        "peak_rss_bytes": 30154752,
+        "private_bytes": 22102016,
+        "handles": 140,
+        "open_fds": null,
+        "threads": 1
+      },
+      "last": {
+        "rss_bytes": 50458624,
+        "peak_rss_bytes": 50581504,
+        "private_bytes": 40431616,
+        "handles": 190,
+        "open_fds": null,
+        "threads": 1
+      },
+      "host_sampled_maximum": {
+        "rss_bytes": 50552832,
+        "peak_rss_bytes": 50581504,
+        "private_bytes": 40644608,
+        "handles": 286,
+        "threads": 15
+      },
+      "native_sampled_maximum": {
+        "rss_bytes": 7450624,
+        "peak_rss_bytes": 7454720,
+        "private_bytes": 6529024,
+        "handles": 99
+      },
+      "native_started": 745,
+      "native_exited": 745,
+      "native_active_pids": [],
+      "maximum_native_active": 4,
+      "errors": [],
+      "final_threads": 1,
+      "baseline_threads": 1,
+      "clean_shutdown": true,
+      "epoch_seconds": 181.93699999999808,
+      "shard": 1
+    },
+    {
+      "pid": 63000,
+      "samples": 1693,
+      "initial": {
+        "rss_bytes": 30244864,
+        "peak_rss_bytes": 30248960,
+        "private_bytes": 22286336,
+        "handles": 140,
+        "open_fds": null,
+        "threads": 1
+      },
+      "last": {
+        "rss_bytes": 50872320,
+        "peak_rss_bytes": 50995200,
+        "private_bytes": 41623552,
+        "handles": 190,
+        "open_fds": null,
+        "threads": 1
+      },
+      "host_sampled_maximum": {
+        "rss_bytes": 50991104,
+        "peak_rss_bytes": 50995200,
+        "private_bytes": 41832448,
+        "handles": 286,
+        "threads": 17
+      },
+      "native_sampled_maximum": {
+        "rss_bytes": 7442432,
+        "peak_rss_bytes": 7450624,
+        "private_bytes": 6516736,
+        "handles": 99
+      },
+      "native_started": 745,
+      "native_exited": 745,
+      "native_active_pids": [],
+      "maximum_native_active": 4,
+      "errors": [],
+      "final_threads": 1,
+      "baseline_threads": 1,
+      "clean_shutdown": true,
+      "epoch_seconds": 182.01600000000326,
+      "shard": 1
+    },
+    {
+      "pid": 66740,
+      "samples": 1263,
+      "initial": {
+        "rss_bytes": 30359552,
+        "peak_rss_bytes": 30363648,
+        "private_bytes": 22446080,
+        "handles": 140,
+        "open_fds": null,
+        "threads": 1
+      },
+      "last": {
+        "rss_bytes": 47611904,
+        "peak_rss_bytes": 48041984,
+        "private_bytes": 38645760,
+        "handles": 190,
+        "open_fds": null,
+        "threads": 1
+      },
+      "host_sampled_maximum": {
+        "rss_bytes": 47730688,
+        "peak_rss_bytes": 48041984,
+        "private_bytes": 38854656,
+        "handles": 285,
+        "threads": 15
+      },
+      "native_sampled_maximum": {
+        "rss_bytes": 9068544,
+        "peak_rss_bytes": 9072640,
+        "private_bytes": 8716288,
+        "handles": 99
+      },
+      "native_started": 558,
+      "native_exited": 558,
+      "native_active_pids": [],
+      "maximum_native_active": 4,
+      "errors": [],
+      "final_threads": 1,
+      "baseline_threads": 1,
+      "clean_shutdown": true,
+      "epoch_seconds": 136.04699999999866,
+      "shard": 1
+    },
+    {
+      "pid": 46100,
+      "samples": 1688,
+      "initial": {
+        "rss_bytes": 30007296,
+        "peak_rss_bytes": 30011392,
+        "private_bytes": 21905408,
+        "handles": 140,
+        "open_fds": null,
+        "threads": 1
+      },
+      "last": {
+        "rss_bytes": 50163712,
+        "peak_rss_bytes": 50286592,
+        "private_bytes": 41140224,
+        "handles": 190,
+        "open_fds": null,
+        "threads": 1
+      },
+      "host_sampled_maximum": {
+        "rss_bytes": 50163712,
+        "peak_rss_bytes": 50286592,
+        "private_bytes": 41140224,
+        "handles": 285,
+        "threads": 15
+      },
+      "native_sampled_maximum": {
+        "rss_bytes": 7450624,
+        "peak_rss_bytes": 7454720,
+        "private_bytes": 6520832,
+        "handles": 99
+      },
+      "native_started": 745,
+      "native_exited": 745,
+      "native_active_pids": [],
+      "maximum_native_active": 4,
+      "errors": [],
+      "final_threads": 1,
+      "baseline_threads": 1,
+      "clean_shutdown": true,
+      "epoch_seconds": 182.0,
+      "shard": 2
+    },
+    {
+      "pid": 64228,
+      "samples": 1690,
+      "initial": {
+        "rss_bytes": 29945856,
+        "peak_rss_bytes": 29949952,
+        "private_bytes": 21860352,
+        "handles": 140,
+        "open_fds": null,
+        "threads": 1
+      },
+      "last": {
+        "rss_bytes": 51224576,
+        "peak_rss_bytes": 51343360,
+        "private_bytes": 41684992,
+        "handles": 190,
+        "open_fds": null,
+        "threads": 1
+      },
+      "host_sampled_maximum": {
+        "rss_bytes": 51339264,
+        "peak_rss_bytes": 51343360,
+        "private_bytes": 41889792,
+        "handles": 286,
+        "threads": 15
+      },
+      "native_sampled_maximum": {
+        "rss_bytes": 7454720,
+        "peak_rss_bytes": 7458816,
+        "private_bytes": 6520832,
+        "handles": 99
+      },
+      "native_started": 745,
+      "native_exited": 745,
+      "native_active_pids": [],
+      "maximum_native_active": 4,
+      "errors": [],
+      "final_threads": 1,
+      "baseline_threads": 1,
+      "clean_shutdown": true,
+      "epoch_seconds": 182.01499999999942,
+      "shard": 2
+    },
+    {
+      "pid": 56556,
+      "samples": 1261,
+      "initial": {
+        "rss_bytes": 30212096,
+        "peak_rss_bytes": 30216192,
+        "private_bytes": 22233088,
+        "handles": 140,
+        "open_fds": null,
+        "threads": 1
+      },
+      "last": {
+        "rss_bytes": 47734784,
+        "peak_rss_bytes": 47853568,
+        "private_bytes": 38289408,
+        "handles": 190,
+        "open_fds": null,
+        "threads": 1
+      },
+      "host_sampled_maximum": {
+        "rss_bytes": 47824896,
+        "peak_rss_bytes": 47853568,
+        "private_bytes": 38436864,
+        "handles": 286,
+        "threads": 16
+      },
+      "native_sampled_maximum": {
+        "rss_bytes": 7446528,
+        "peak_rss_bytes": 7458816,
+        "private_bytes": 6516736,
+        "handles": 99
+      },
+      "native_started": 558,
+      "native_exited": 558,
+      "native_active_pids": [],
+      "maximum_native_active": 4,
+      "errors": [],
+      "final_threads": 1,
+      "baseline_threads": 1,
+      "clean_shutdown": true,
+      "epoch_seconds": 135.93800000000192,
+      "shard": 2
+    },
+    {
+      "pid": 64976,
+      "samples": 1691,
+      "initial": {
+        "rss_bytes": 29913088,
+        "peak_rss_bytes": 29917184,
+        "private_bytes": 21897216,
+        "handles": 140,
+        "open_fds": null,
+        "threads": 1
+      },
+      "last": {
+        "rss_bytes": 50520064,
+        "peak_rss_bytes": 50638848,
+        "private_bytes": 41500672,
+        "handles": 190,
+        "open_fds": null,
+        "threads": 1
+      },
+      "host_sampled_maximum": {
+        "rss_bytes": 50634752,
+        "peak_rss_bytes": 50638848,
+        "private_bytes": 41705472,
+        "handles": 286,
+        "threads": 19
+      },
+      "native_sampled_maximum": {
+        "rss_bytes": 7438336,
+        "peak_rss_bytes": 7450624,
+        "private_bytes": 6873088,
+        "handles": 99
+      },
+      "native_started": 745,
+      "native_exited": 745,
+      "native_active_pids": [],
+      "maximum_native_active": 4,
+      "errors": [],
+      "final_threads": 1,
+      "baseline_threads": 1,
+      "clean_shutdown": true,
+      "epoch_seconds": 182.01499999999942,
+      "shard": 3
+    },
+    {
+      "pid": 62884,
+      "samples": 1019,
+      "initial": {
+        "rss_bytes": 30478336,
+        "peak_rss_bytes": 30482432,
+        "private_bytes": 22466560,
+        "handles": 140,
+        "open_fds": null,
+        "threads": 1
+      },
+      "last": {
+        "rss_bytes": 44052480,
+        "peak_rss_bytes": 44171264,
+        "private_bytes": 34086912,
+        "handles": 192,
+        "open_fds": null,
+        "threads": 1
+      },
+      "host_sampled_maximum": {
+        "rss_bytes": 44052480,
+        "peak_rss_bytes": 44171264,
+        "private_bytes": 34291712,
+        "handles": 285,
+        "threads": 16
+      },
+      "native_sampled_maximum": {
+        "rss_bytes": 7438336,
+        "peak_rss_bytes": 7450624,
+        "private_bytes": 6516736,
+        "handles": 99
+      },
+      "native_started": 449,
+      "native_exited": 449,
+      "native_active_pids": [],
+      "maximum_native_active": 4,
+      "errors": [],
+      "final_threads": 1,
+      "baseline_threads": 1,
+      "clean_shutdown": true,
+      "epoch_seconds": 109.73500000000058,
+      "shard": 3
+    }
+  ],
+  "shards": [
+    {
+      "shard": 0,
+      "verified_contacts": 2000,
+      "integrity": "ok"
+    },
+    {
+      "shard": 1,
+      "verified_contacts": 2000,
+      "integrity": "ok"
+    },
+    {
+      "shard": 2,
+      "verified_contacts": 2000,
+      "integrity": "ok"
+    },
+    {
+      "shard": 3,
+      "verified_contacts": 1168,
+      "integrity": "ok"
+    }
+  ],
+  "errors": [],
+  "resource_scope": "Service host sampled every 100 ms; native children observed at launch and sampled while alive. Sampled maxima can miss short-lived peaks. Windows threads count Python threads; Windows handles and POSIX open_fds have different meanings. POSIX FD enumeration may include its probe descriptor.",
+  "state": "finished",
+  "passed": true,
+  "interpretation": "Bounded local HTTP/SQLite deployment exercise with graceful process restarts, not uptime certification or proof of crash/high-availability behavior. SQLite shards rotate before the all-rows GET output cap. Independent expected records and unique email keys reconcile transport retries; not exactly-once delivery.",
+  "elapsed_seconds": 1800.188000000002,
+  "logical_contact_latency_ms": {
+    "samples": 7168,
+    "p50": 110.00000000058208,
+    "p95": 235.00000000058208,
+    "maximum": 7093.999999997322
+  },
+  "post_attempt_latency_ms": {
+    "samples": 19135,
+    "p50": 0.0,
+    "p95": 94.0000000045984,
+    "maximum": 2093.9999999973224
+  },
+  "active_host_pid": null,
+  "frozen_inputs_unchanged": true
+}

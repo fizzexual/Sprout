@@ -45,6 +45,12 @@ unpaired UTF-16 surrogates. Serialized wire data is checked again. One optional
 final LF or CRLF and horizontal whitespace are allowed; additional blank lines
 are protocol errors. Ordinary large finite JSON numbers remain ordinary numbers;
 the int64 contract applies to explicit exact-integer tags.
+Requests serialize into a byte-capped stream rather than an unlimited final
+string. Ordinary large text and JSON DOM values receive checks before writing;
+alias expansion stops as the stream reaches its cap. Serializer buffers and
+escaping can use additional bounded memory beyond the wire cap. Property
+getters, enumerators and custom converters remain trusted application code;
+their allocations and execution time are not covered by worker OS limits.
 
 Exact integers, decimals, and bytes use `SproutValues` to encode the version 1
 JSON tags. Returned tags remain explicit JSON objects. A Sprout decimal has a

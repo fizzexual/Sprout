@@ -4,11 +4,19 @@ import static org.junit.jupiter.api.Assertions.*;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 final class ProtocolSecurityTest {
+    private static final class ObservedArray extends ArrayNode {
+        private int calls;
+        ObservedArray() { super(JsonNodeFactory.instance); }
+        @Override public String toString() { calls++; return super.toString(); }
+    }
     private SproutHost.Options options() {
         return new SproutHost.Options(List.of(Path.of(System.getProperty("java.home"), "bin", "java").toString(),
             "-cp", System.getProperty("java.class.path"), ProtocolWorker.class.getName()), Path.of(".").toAbsolutePath(),
@@ -48,6 +56,29 @@ final class ProtocolSecurityTest {
             var root = factory.arrayNode(); var child = root;
             for (int depth=1; depth<129; depth++) child = child.addArray();
             assertEquals("input", assertThrows(SproutException.class, () -> host.run(Path.of("unused"), root)).code());
+        }
+    }
+    @Test void aliasGraphRejectsBeforeAnySerializationAndExactUtf8CapStillWorks() {
+        var factory = SproutHost.json().getNodeFactory();
+        JsonNode aliased = factory.textNode("leaf");
+        for (int i=0; i<18; i++) aliased = factory.arrayNode().add(aliased).add(aliased);
+        var root = new ObservedArray(); root.add(aliased).add("observed");
+        try (var host = new SproutHost(options())) {
+            assertEquals("input_limit", assertThrows(SproutException.class, () -> host.run(Path.of("healthy"), root)).code());
+            assertEquals(0, root.calls);
+            assertTrue(host.run(Path.of("healthy"), factory.textNode("x".repeat(4093))).get("ok").booleanValue());
+            assertTrue(host.run(Path.of("healthy"), factory.textNode("🌱".repeat(1023))).get("ok").booleanValue());
+            assertEquals("input_limit", assertThrows(SproutException.class, () -> host.run(Path.of("healthy"), factory.textNode("x".repeat(4094)))).code());
+            assertEquals("input_limit", assertThrows(SproutException.class, () -> host.run(Path.of("healthy"), factory.textNode("🌱".repeat(1024)))).code());
+        }
+    }
+    @Test void configuredLargeInputCapCannotExceedNativeOneMiBCeiling() {
+        var base = options();
+        var large = new SproutHost.Options(List.of("missing-sprout-executable"), base.cwd(), true, base.maxSteps(),
+            base.runtimeTimeout(), base.hostTimeout(), 2_097_152, base.maxOutputBytes(), base.maxErrorBytes(), 1);
+        try (var host = new SproutHost(large)) {
+            var value = SproutHost.json().getNodeFactory().textNode("x".repeat(1_048_574));
+            assertEquals("input_limit", assertThrows(SproutException.class, () -> host.run(Path.of("unused"), value)).code());
         }
     }
 }

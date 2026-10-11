@@ -181,3 +181,11 @@ test('input caps and already-canceled requests stop before alias expansion', asy
   assert.equal(reads, 0);
   assert.equal(host.launches(), 0);
 });
+
+test('larger configured input limits retain native reader ceiling and newline accounting', async () => {
+  const host = transport(); host.wire('{"ok":true}\n');
+  const cap = 1024 * 1024;
+  assert.deepEqual(await host.call('x'.repeat(cap - 3), { maxInputBytes: cap * 2 }), { ok: true });
+  await assert.rejects(host.call('x'.repeat(cap - 2), { maxInputBytes: cap * 2 }), { code: 'input-limit' });
+  assert.equal(host.launches(), 1);
+});

@@ -128,5 +128,14 @@ class ReleaseGate(unittest.TestCase):
                 struct.pack_into(fmt, fixture, offset, *value)
                 (self.root / release.INSTALLER).write_bytes(fixture)
                 with self.assertRaises(ValueError): release.installer_payload_digest(self.root / release.INSTALLER)
+    def test_boolean_schema_and_overflowing_metadata_fail_closed(self):
+        path = self.root / (release.PLATFORMS['Linux'] + '.manifest.json')
+        original = path.read_text()
+        for content in [original.replace('"schema": 1', '"schema": true'),
+                        original[:-1] + ', "unrecognized": 1e999}']:
+            with self.subTest(content=content[-35:]):
+                path.write_text(content)
+                with self.assertRaises(ValueError): release.assemble(self.root, TAG, REVISION)
+                self.assertFalse((self.root / 'release-manifest.json').exists())
 
 if __name__ == '__main__': unittest.main()

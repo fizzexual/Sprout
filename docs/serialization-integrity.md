@@ -99,13 +99,13 @@ leak audit, coverage of every runtime operation, or macOS verification.
 ## Node codec cross-check
 
 The separate [generated codec tests](../integrations/node/tests/codec-generated.test.js)
-exercise the public Node adapter with a controlled process transport. Eight
+exercise the public Node adapter with a controlled process transport. Nine
 tests cover 96 fixed-seed JSON values, differently escaped duplicate keys,
 mixed/empty containers at 128 and 129 levels, malformed lexical variants,
 Unicode and invalid UTF-8 split across byte chunks, exact input/output byte
 limits including the line terminator, rejection of accessors and serialization
 hooks, and early rejection of exponentially expanding shared collections.
-The complete Node suite passed all 23 tests on Windows,
+The complete Node suite passed all 24 tests on Windows,
 including a request against the current native interpreter. Existing host
 tests separately exercise actual child processes.
 
@@ -120,7 +120,8 @@ shared-collection expansion before building the complete JSON representation.
 Already-canceled requests skip input traversal. Python also checks exact decimal
 size before large conversions and binary size before creating hex text. Its
 22 host tests passed on Windows and Linux; the combined Windows host/service
-suite passed 36 tests with one POSIX signal test skipped.
+suite passed 40 tests with one POSIX signal test skipped after the service's
+absolute read deadline and shutdown regressions were added.
 
 Input and output byte limits bound the wire request and captured response.
 They do not establish an OS memory limit or interrupt arbitrary application

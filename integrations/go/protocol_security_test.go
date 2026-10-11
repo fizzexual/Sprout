@@ -63,6 +63,30 @@ type rawRequest string
 
 func (r rawRequest) MarshalJSON() ([]byte, error) { return []byte(r), nil }
 
+type observedRequest struct{ calls *int }
+
+func (r observedRequest) MarshalJSON() ([]byte, error) { *r.calls++; return []byte(`"observed"`), nil }
+
+func TestOrdinaryAliasGraphRejectsBeforeSerialization(t *testing.T) {
+	h := testHost(t, Options{})
+	var aliased any = "leaf"
+	for i := 0; i < 18; i++ {
+		aliased = []any{aliased, aliased}
+	}
+	calls := 0
+	_, err := h.Run(context.Background(), source(t, "fail \"must not run\"\n"), []any{aliased, observedRequest{&calls}})
+	if err == nil || !strings.Contains(err.Error(), "1 MiB") || calls != 0 {
+		t.Fatalf("oversized graph was fully serialized: err=%v custom calls=%d", err, calls)
+	}
+	// A legal request right at the byte boundary still reaches an actual worker.
+	if _, err := h.Run(context.Background(), source(t, "show json_encode({ok:yes})\n"), strings.Repeat("x", 1024*1024-2)); err != nil {
+		t.Fatalf("exact ASCII request cap rejected: %v", err)
+	}
+	if _, err := h.Run(context.Background(), source(t, "show json_encode({ok:yes})\n"), strings.Repeat("🌱", (1024*1024-2)/4)); err != nil {
+		t.Fatalf("UTF-8 request boundary rejected: %v", err)
+	}
+}
+
 func TestCustomRequestAndPublicDecodeUseTheSameBoundary(t *testing.T) {
 	h := testHost(t, Options{})
 	for _, wire := range []string{`{"allow":false,"allow":true}`, `{"text":"\ud800"}`, `{"text":"\u0000"}`, `1e999`, strings.Repeat("[", 129) + "0" + strings.Repeat("]", 129)} {

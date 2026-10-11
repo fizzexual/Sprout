@@ -39,6 +39,8 @@ visiting input. Host execution deadlines begin after this synchronous preparatio
 Options are `command`, `cwd`, `sandbox`, `signal` (an AbortSignal), `timeoutMs`
 (host wall time, default 5000), `runtimeTimeoutMs` (default 4000), `maxSteps`
 (100000), `maxInputBytes`/`maxOutputBytes` (1 MiB), and `maxErrorBytes` (64 KiB).
+The effective input cap includes the newline and never exceeds the native
+reader's 1 MiB ceiling, even when a larger `maxInputBytes` is configured.
 Output bounds apply while streams arrive. Timeout or cancellation kills the
 direct interpreter forcibly. The adapter does not promise to kill arbitrary descendants
 started by trusted, unsandboxed programs. Keep exact identifiers and decimals as

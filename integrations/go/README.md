@@ -34,6 +34,13 @@ remain `json.Number`. Plain Go request strings and keys are checked before
 serialization can replace invalid UTF-8. Custom `json.Marshaler` implementations
 own their transformations; their resulting wire bytes receive the same checks.
 `Result.Decode` also applies these checks before decoding a stored response.
+Ordinary request graphs receive byte and traversal budgets before `json.Marshal`,
+so repeated aliases cannot expand without a bound. Struct-field estimation is
+conservative around embedded fields and serialization tags. Custom
+`json.Marshaler`/`encoding.TextMarshaler` callbacks remain trusted application
+code: their allocations, transformations and execution time are outside this
+preflight, and their resulting wire is checked after encoding. Worker deadlines
+do not impose a hard CPU deadline on host serialization.
 
 `Integer`, `Decimal`, and `Bytes` encode version 1 exact-value tags. Decode uses
 `json.Number`; tags stay explicit maps unless the application defines a custom

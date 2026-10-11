@@ -21,5 +21,14 @@ without NUL. Escaped names are compared after decoding, so `"id"` and
 numbers are accepted. Requests represented by `JsonNode` receive the same value
 checks before worker launch. Version 1 exact-value tags remain explicit objects
 for the application to interpret; the SDK does not automatically decode them.
+Ordinary request trees receive a byte budget during validation, including each
+use of a shared subtree, before encoding into a capped stream. The cap includes
+the final newline and counts UTF-8/JSON escaping. This prevents a small alias
+graph from being fully expanded before rejection. Custom `JsonNode` behavior
+is trusted application code; its time and allocations cannot receive a hard
+host CPU limit, although emitted bytes are capped and parsed again. Native
+worker deadlines begin after host-side input preparation.
+The effective input cap is `min(maxInputBytes, 1 MiB)`, including the newline;
+configuring a larger cap cannot bypass the native request ceiling.
 
 `SPROUT_COMMAND` enables the actual native interpreter test. Unit tests use a Java subprocess fixture to verify limits, cancellation, protocol rejection, and argument handling.

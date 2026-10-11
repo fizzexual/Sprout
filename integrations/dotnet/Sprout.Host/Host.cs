@@ -27,6 +27,7 @@ public sealed class SproutWorkerException(int status, int exitCode, int systemCo
 /// <summary>Immutable, process-isolated JSON worker host. Safe for concurrent calls.</summary>
 public sealed class WorkerHost
 {
+    private const int MaxRequestBytes = 1_048_576;
     private readonly string executable;
     private readonly HostOptions options;
     private static readonly JsonSerializerOptions RequestJson = CreateRequestOptions();
@@ -46,8 +47,9 @@ public sealed class WorkerHost
     {
         RequireAbsolute(program, nameof(program));
         cancellationToken.ThrowIfCancellationRequested();
-        var payload = JsonSerializer.Serialize(request, RequestJson);
-        if (Encoding.UTF8.GetByteCount(payload) > 1_048_576) throw new ArgumentException("Request JSON exceeds 1 MiB.", nameof(request));
+        using var encoded = new BoundedRequestStream(cancellationToken);
+        JsonSerializer.Serialize(encoded, request, RequestJson);
+        var payload = Encoding.UTF8.GetString(encoded.ToArray());
         using (var document = JsonDocument.Parse(payload, new JsonDocumentOptions { MaxDepth = 128 }))
             ValidateWireValue(document.RootElement);
         return Task.Run(() => Run(program, payload, cancellationToken), CancellationToken.None);
@@ -100,16 +102,87 @@ public sealed class WorkerHost
     {
         var options = new JsonSerializerOptions { MaxDepth = 128 };
         options.Converters.Add(new StrictTextConverter());
+        options.Converters.Add(new StrictElementConverter());
+        options.Converters.Add(new StrictDocumentConverter());
         return options;
+    }
+    private sealed class BoundedRequestStream(CancellationToken token) : Stream
+    {
+        private readonly MemoryStream bytes = new();
+        public byte[] ToArray() => bytes.ToArray();
+        public override void Write(byte[] buffer, int offset, int count) => Write(buffer.AsSpan(offset, count));
+        public override void Write(ReadOnlySpan<byte> buffer)
+        {
+            token.ThrowIfCancellationRequested();
+            if (buffer.Length > MaxRequestBytes - bytes.Length) throw new ArgumentException("Request JSON exceeds 1 MiB.");
+            bytes.Write(buffer);
+        }
+        public override void Flush() => token.ThrowIfCancellationRequested();
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => bytes.Length;
+        public override long Position { get => bytes.Position; set => throw new NotSupportedException(); }
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        protected override void Dispose(bool disposing) { if (disposing) bytes.Dispose(); base.Dispose(disposing); }
     }
     private sealed class StrictTextConverter : JsonConverter<string>
     {
         public override string? Read(ref Utf8JsonReader reader, Type type, JsonSerializerOptions options)
         { var text = reader.GetString(); if (text is not null) ValidateWireText(text); return text; }
         public override void Write(Utf8JsonWriter writer, string text, JsonSerializerOptions options)
-        { ValidateWireText(text); writer.WriteStringValue(text); }
+        { ValidateRequestText(text); writer.WriteStringValue(text); }
         public override void WriteAsPropertyName(Utf8JsonWriter writer, string text, JsonSerializerOptions options)
-        { ValidateWireText(text); writer.WritePropertyName(text); }
+        { ValidateRequestText(text); writer.WritePropertyName(text); }
+    }
+    private sealed class StrictElementConverter : JsonConverter<JsonElement>
+    {
+        public override JsonElement Read(ref Utf8JsonReader reader, Type type, JsonSerializerOptions options)
+        { using var value = JsonDocument.ParseValue(ref reader); return value.RootElement.Clone(); }
+        public override void Write(Utf8JsonWriter writer, JsonElement value, JsonSerializerOptions options)
+        { int budget = MaxRequestBytes; ValidateRequestElement(value, ref budget); value.WriteTo(writer); }
+    }
+    private sealed class StrictDocumentConverter : JsonConverter<JsonDocument>
+    {
+        public override JsonDocument Read(ref Utf8JsonReader reader, Type type, JsonSerializerOptions options) => JsonDocument.ParseValue(ref reader);
+        public override void Write(Utf8JsonWriter writer, JsonDocument value, JsonSerializerOptions options)
+        { int budget = MaxRequestBytes; ValidateRequestElement(value.RootElement, ref budget); value.WriteTo(writer); }
+    }
+    private static void ValidateRequestText(string text)
+    {
+        if (text.Length > MaxRequestBytes) throw new ArgumentException("Request JSON exceeds 1 MiB.");
+        ValidateWireText(text);
+    }
+    private static void ChargeRequest(ref int budget, int count)
+    {
+        if (count > budget) throw new ArgumentException("Request JSON exceeds 1 MiB.");
+        budget -= count;
+    }
+    private static void ValidateRequestElement(JsonElement value, ref int budget, int depth = 0)
+    {
+        if ((value.ValueKind is JsonValueKind.Array or JsonValueKind.Object) && depth >= 128) throw new JsonException("JSON nesting exceeds 128 containers.");
+        ChargeRequest(ref budget, 1);
+        switch (value.ValueKind)
+        {
+            case JsonValueKind.Object:
+                foreach (var property in value.EnumerateObject())
+                {
+                    ChargeRequest(ref budget, property.Name.Length + 2);
+                    ValidateRequestText(property.Name);
+                    ValidateRequestElement(property.Value, ref budget, depth + 1);
+                }
+                break;
+            case JsonValueKind.Array:
+                foreach (var item in value.EnumerateArray()) ValidateRequestElement(item, ref budget, depth + 1);
+                break;
+            case JsonValueKind.String:
+                string text = value.GetString()!;
+                ChargeRequest(ref budget, text.Length);
+                ValidateRequestText(text);
+                break;
+        }
     }
     private static void ValidateWireValue(JsonElement value)
     {

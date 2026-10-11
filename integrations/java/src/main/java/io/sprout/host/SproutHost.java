@@ -3,6 +3,7 @@ package io.sprout.host;
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.StreamReadFeature;
 import com.fasterxml.jackson.core.StreamReadConstraints;
+import com.fasterxml.jackson.core.json.JsonWriteFeature;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -19,6 +20,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class SproutHost implements AutoCloseable {
     private static final ObjectMapper JSON = new ObjectMapper(JsonFactory.builder()
         .streamReadConstraints(StreamReadConstraints.builder().maxNestingDepth(128).build())
+        .enable(JsonWriteFeature.COMBINE_UNICODE_SURROGATES_IN_UTF8)
         .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION).build())
         .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
 
@@ -53,10 +55,23 @@ public final class SproutHost implements AutoCloseable {
 
     public JsonNode run(Path program, JsonNode input) {
         Objects.requireNonNull(program); Objects.requireNonNull(input);
-        validateValue(input, 0, "input");
-        byte[] request = (input.toString() + "\n").getBytes(StandardCharsets.UTF_8);
-        if (request.length > options.maxInputBytes()) throw new SproutException("input_limit", "JSON input exceeds byte limit");
         if (closed.get()) throw new SproutException("closed", "Sprout host is closed");
+        if (Thread.currentThread().isInterrupted()) throw new SproutException("canceled", "Sprout call was interrupted");
+        int inputLimit = Math.min(options.maxInputBytes(), 1_048_576);
+        validateValue(input, 0, "input", new InputBudget(inputLimit - 1));
+        byte[] request;
+        try (var encoded = new BoundedInput(inputLimit)) {
+            JSON.writeValue(encoded, input);
+            encoded.write('\n');
+            request = encoded.toByteArray();
+            // Custom JsonNode serializers are application code. Their emitted
+            // bytes still cross the ordinary strict data boundary.
+            validateValue(JSON.readTree(request), 0, "input");
+        } catch (IOException failure) {
+            for (Throwable cause = failure; cause != null; cause = cause.getCause())
+                if (cause instanceof InputLimit) throw new SproutException("input_limit", "JSON input exceeds byte limit", failure);
+            throw new SproutException("input", "Could not encode strict JSON input", failure);
+        }
         if (!permits.tryAcquire()) throw new SproutException("busy", "Sprout concurrency limit reached");
         Process process = null;
         List<Future<?>> tasks = new ArrayList<>();
@@ -134,16 +149,68 @@ public final class SproutHost implements AutoCloseable {
             return bytes.toByteArray();
         }
     }
-    private static void validateValue(JsonNode node, int depth, String code) {
+    private static final class InputLimit extends IOException { }
+    private static final class BoundedInput extends OutputStream {
+        private final int limit;
+        private final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        BoundedInput(int limit) { this.limit = limit; }
+        @Override public void write(int value) throws IOException {
+            if (bytes.size() >= limit) throw new InputLimit();
+            bytes.write(value);
+        }
+        @Override public void write(byte[] value, int offset, int length) throws IOException {
+            if (length > limit - bytes.size()) throw new InputLimit();
+            bytes.write(value, offset, length);
+        }
+        byte[] toByteArray() { return bytes.toByteArray(); }
+    }
+    private static final class InputBudget {
+        private int remaining;
+        InputBudget(int limit) { remaining = limit; }
+        void charge(int count) {
+            if (count > remaining) throw new SproutException("input_limit", "JSON input exceeds byte limit");
+            remaining -= count;
+        }
+        void text(String text) {
+            if (text.length() > remaining) throw new SproutException("input_limit", "JSON input exceeds byte limit");
+            charge(2);
+            for (int i = 0; i < text.length(); i++) {
+                char ch = text.charAt(i);
+                if (ch == 0) throw new SproutException("input", "Sprout JSON text cannot contain NUL");
+                if (Character.isHighSurrogate(ch)) {
+                    if (++i >= text.length() || !Character.isLowSurrogate(text.charAt(i))) throw new SproutException("input", "Unpaired JSON surrogate");
+                    charge(4);
+                } else if (Character.isLowSurrogate(ch)) throw new SproutException("input", "Unpaired JSON surrogate");
+                else if (ch == '"' || ch == '\\' || ch == '\b' || ch == '\f' || ch == '\n' || ch == '\r' || ch == '\t') charge(2);
+                else if (ch < 0x20) charge(6);
+                else charge(ch < 0x80 ? 1 : ch < 0x800 ? 2 : 3);
+            }
+        }
+    }
+    private static void validateValue(JsonNode node, int depth, String code) { validateValue(node, depth, code, null); }
+    private static void validateValue(JsonNode node, int depth, String code, InputBudget budget) {
         if (node.isNumber() && !Double.isFinite(node.doubleValue()))
             throw new SproutException(code, "JSON numbers must be finite");
         if (node.isMissingNode() || node.isPojo() || node.isBinary()) throw new SproutException(code, "Expected plain JSON values");
-        if (node.isTextual()) validateText(node.textValue(), code);
+        if (node.isTextual()) { if (budget == null) validateText(node.textValue(), code); else budget.text(node.textValue()); }
         if (node.isContainerNode()) {
             if (depth >= 128) throw new SproutException(code, "JSON nesting exceeds 128 containers");
-            if (node.isObject()) node.fieldNames().forEachRemaining(name -> validateText(name, code));
-            node.forEach(child -> validateValue(child, depth + 1, code));
-        }
+            if (budget != null) budget.charge(2);
+            int index = 0;
+            if (node.isObject()) {
+                for (var fields = node.fields(); fields.hasNext();) {
+                    var field = fields.next();
+                    if (budget == null) validateText(field.getKey(), code);
+                    else { if (index > 0) budget.charge(1); budget.text(field.getKey()); budget.charge(1); }
+                    index++;
+                    validateValue(field.getValue(), depth + 1, code, budget);
+                }
+            } else for (JsonNode child : node) {
+                if (budget != null && index > 0) budget.charge(1);
+                index++;
+                validateValue(child, depth + 1, code, budget);
+            }
+        } else if (budget != null && !node.isTextual()) budget.charge(node.toString().length());
     }
     private static void validateText(String text, String code) {
         for (int i = 0; i < text.length(); i++) {

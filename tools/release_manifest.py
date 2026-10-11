@@ -4,6 +4,7 @@ import argparse
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -144,7 +145,7 @@ def write_platform(asset, platform, tag, revision, *, installer=None, compiler='
                   sqlite_source_sha256=digest(sqlite), build_profile='O2 native SPROUT_SQLITE',
                   workflow=os.environ.get('GITHUB_WORKFLOW'), run_id=os.environ.get('GITHUB_RUN_ID'))
     output = asset.with_name(asset.name + '.manifest.json')
-    output.write_text(json.dumps(record, indent=2) + '\n', encoding='utf-8')
+    output.write_text(json.dumps(record, indent=2, allow_nan=False) + '\n', encoding='utf-8')
     return output
 
 def strict_object(pairs):
@@ -172,9 +173,14 @@ def assemble(directory, tag, revision):
         path = directory / (asset + '.manifest.json')
         require(path.is_file() and not path.is_symlink() and path.stat().st_size <= 1048576, 'invalid platform manifest file')
         def invalid_constant(value): raise ValueError('non-finite release metadata')
-        try: record = json.loads(path.read_text(encoding='utf-8'), object_pairs_hook=strict_object, parse_constant=invalid_constant)
+        def finite_number(value):
+            number = float(value)
+            require(math.isfinite(number), 'non-finite release metadata')
+            return number
+        try: record = json.loads(path.read_text(encoding='utf-8'), object_pairs_hook=strict_object,
+                                 parse_constant=invalid_constant, parse_float=finite_number)
         except RecursionError as error: raise ValueError('release metadata is nested too deeply') from error
-        require(isinstance(record, dict) and record.get('schema') == 1 and record.get('platform') == platform, 'invalid platform manifest identity')
+        require(isinstance(record, dict) and type(record.get('schema')) is int and record['schema'] == 1 and record.get('platform') == platform, 'invalid platform manifest identity')
         require(record.get('tag') == tag and record.get('revision') == revision and record.get('version') == 'Sprout ' + tag, 'platform version/source mismatch')
         require(record.get('target') == TARGETS[platform], 'platform target mismatch')
         items = record.get('assets')
@@ -195,7 +201,7 @@ def assemble(directory, tag, revision):
     require(len({item.get('sqlite_source_sha256') for item in records}) == 1 and re.fullmatch(r'[0-9a-f]{64}', records[0].get('sqlite_source_sha256', '')), 'SQLite source mismatch')
     manifest = directory / 'release-manifest.json'
     manifest.write_text(json.dumps(dict(schema=1, tag=tag, revision=revision,
-        platforms=records, records=[file_record(directory / name) for name in sorted(manifests)]), indent=2) + '\n', encoding='utf-8')
+        platforms=records, records=[file_record(directory / name) for name in sorted(manifests)]), indent=2, allow_nan=False) + '\n', encoding='utf-8')
     checksums = directory / 'SHA256SUMS'
     checksums.write_text(''.join(f'{digest(directory / name)}  {name}\n' for name in sorted(allowed | {manifest.name})), encoding='ascii')
     return manifest

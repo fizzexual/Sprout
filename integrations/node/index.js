@@ -138,7 +138,7 @@ function runSprout(program, input, options = {}) {
     if (options.cwd !== undefined && (typeof options.cwd !== 'string' || !options.cwd)) throw new TypeError('cwd must be a nonempty directory path.');
     if (options.signal != null && (typeof options.signal.aborted !== 'boolean' || typeof options.signal.addEventListener !== 'function' || typeof options.signal.removeEventListener !== 'function')) throw new TypeError('signal must be an AbortSignal.');
     limits = {
-      input: positive(options.maxInputBytes, 1024 * 1024, 'maxInputBytes', 64 * 1024 * 1024),
+      input: Math.min(positive(options.maxInputBytes, 1024 * 1024, 'maxInputBytes', 64 * 1024 * 1024), 1024 * 1024),
       output: positive(options.maxOutputBytes, 1024 * 1024, 'maxOutputBytes', 64 * 1024 * 1024),
       error: positive(options.maxErrorBytes, 64 * 1024, 'maxErrorBytes', 64 * 1024 * 1024),
       time: positive(options.timeoutMs, 5000, 'timeoutMs'),

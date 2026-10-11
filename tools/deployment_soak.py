@@ -91,6 +91,22 @@ def completion_gate(report):
     require(report.get('frozen_inputs_unchanged') is True, 'frozen deployment inputs were not verified at completion')
 
 
+def workspace_bytes(workspace):
+    total = 0
+    for path in Path(workspace).rglob('*'):
+        try:
+            if path.is_file(): total += path.stat().st_size
+        except FileNotFoundError:
+            # The sampler atomically replaces its tiny temporary metrics file.
+            pass
+    return total
+
+
+def storage_gate(observation, limits):
+    require(observation['workspace_bytes'] <= limits['workspace_bytes'], 'deployment workspace exceeded its storage ceiling')
+    require(observation['report_bytes'] <= limits['report_bytes'], 'deployment report exceeded its storage ceiling')
+
+
 @lru_cache(maxsize=1)
 def windows_resource_api():
     # ctypes retains pointer types globally; defining Memory for every sample
@@ -377,12 +393,15 @@ def main(args):
             'clients/workers must be1..64 and burst must fit clients')
     require(args.shard_contacts >= args.burst and args.shard_contacts <= 5000, 'shard contacts must be burst..5000')
     for value in (args.max_host_rss_mib, args.max_retained_rss_growth_mib, args.max_host_handles,
-                  args.max_retained_handles_growth, args.max_host_fds, args.max_retained_fds_growth):
+                  args.max_retained_handles_growth, args.max_host_fds, args.max_retained_fds_growth,
+                  args.max_workspace_mib, args.max_report_mib):
         require(math.isfinite(value) and value > 0, 'resource ceilings must be finite and positive')
     resource_limits = dict(rss_peak_bytes=round(args.max_host_rss_mib * 1048576),
                            rss_retained_growth_bytes=round(args.max_retained_rss_growth_mib * 1048576),
                            handles_peak=args.max_host_handles, handles_retained_growth=args.max_retained_handles_growth,
                            open_fds_peak=args.max_host_fds, open_fds_retained_growth=args.max_retained_fds_growth)
+    storage_limits = dict(workspace_bytes=round(args.max_workspace_mib * 1048576),
+                          report_bytes=round(args.max_report_mib * 1048576))
     workspace = args.workspace.resolve(); require(not workspace.exists(), 'workspace must be a new directory')
     frozen = workspace / 'frozen'; frozen.mkdir(parents=True)
     source_files = {'bin/' + ('sprout.exe' if os.name == 'nt' else 'sprout'): args.binary.resolve(),
@@ -408,6 +427,7 @@ def main(args):
                                  'Sampled maxima can miss short-lived peaks. Windows threads count Python threads; '
                                  'Windows handles and POSIX open_fds have different meanings. POSIX FD enumeration may include its probe descriptor.',
                   resource_limits=resource_limits, resource_gates='Required host metrics and sampled ceilings checked after every epoch.',
+                  storage_limits=storage_limits,
                   workload_completed=False, state='running', passed=None)
     report['configuration'] = {key: str(value) if isinstance(value, Path) else value for key, value in report['configuration'].items()}
     report['interpretation'] = (
@@ -423,9 +443,14 @@ def main(args):
     oracle.execute('CREATE TABLE expected(shard INTEGER, email TEXT PRIMARY KEY, name TEXT NOT NULL)')
     baseline_threads = threading.active_count()
     print('Deployment run PID %d; frozen binary %s; report %s' % (os.getpid(), hashes[next(iter(hashes))], args.report), flush=True)
-    def persist():
+    def persist(enforce_budget=True):
         report.update(elapsed_seconds=time.monotonic()-started, logical_contact_latency_ms=percentiles(logical_ms),
                       post_attempt_latency_ms=percentiles(attempt_ms), active_host_pid=service.process.pid if service else None)
+        observation = dict(workspace_bytes=workspace_bytes(workspace), report_bytes=0)
+        report['storage_observation'] = observation
+        # Recompute after adding the length field until its own digit count settles.
+        for _ in range(3): observation['report_bytes'] = len((json.dumps(report, indent=2) + '\n').encode('utf-8'))
+        if enforce_budget: storage_gate(observation, storage_limits)
         save(args.report, report); save(workspace / 'progress.json', report)
     def stop_host():
         nonlocal service
@@ -506,6 +531,7 @@ def main(args):
         report['frozen_inputs_unchanged'] = True
         report['workload_completed'] = True
         completion_gate(report)
+        persist()
     except BaseException as error:
         report['errors'].append(dict(type=type(error).__name__, message=str(error)))
         print('Deployment invariant failed: ' + str(error), flush=True)
@@ -514,7 +540,9 @@ def main(args):
             try: stop_host()
             except Exception as error: report['errors'].append(dict(type=type(error).__name__, message=str(error)))
         oracle.close()
-        report['state'] = 'finished'; report['passed'] = not report['errors']; persist()
+        report['state'] = 'finished'; report['passed'] = not report['errors']
+        # Preserve the failed report even if a budget check triggered the stop.
+        persist(enforce_budget=False)
     print(json.dumps({key: report[key] for key in ('state', 'passed', 'elapsed_seconds', 'counts', 'errors')}, indent=2), flush=True)
     return 0 if report['passed'] else 1
 
@@ -541,6 +569,8 @@ def arguments():
     parser.add_argument('--max-retained-handles-growth', type=int, default=128)
     parser.add_argument('--max-host-fds', type=int, default=128)
     parser.add_argument('--max-retained-fds-growth', type=int, default=32)
+    parser.add_argument('--max-workspace-mib', type=float, default=256)
+    parser.add_argument('--max-report-mib', type=float, default=4)
     parser.add_argument('--seed', type=int, default=20261011)
     parser.add_argument('--label', default='76ba445-baseline')
     parser.add_argument('--workspace', type=Path, required=True)

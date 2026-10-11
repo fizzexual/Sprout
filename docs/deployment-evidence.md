@@ -96,11 +96,23 @@ FD counts. Default sampled host RSS is capped at 128 MiB, retained RSS growth at
 with retained growth of 32. These configurable ceilings are deliberately above
 the observed fixture measurements; they are test limits, not product memory
 guarantees. Maximum observed native worker concurrency must fit `--workers`.
-Ten independent reporting/resource/deadline regressions include interruption,
+Twelve independent reporting/resource/deadline/storage regressions include interruption,
 missing measurements, exceeded ceilings, incomplete duration, timeout clamping
 and rejection of a late successful response. The Windows sampler caches its
 ctypes API and structure once; a regression checks that repeated sampling does
 not retain new pointer types.
+
+Storage is measured on progress saves and at successful completion. Defaults
+are 256 MiB for the workspace and 4 MiB for one report; `--max-workspace-mib`
+and `--max-report-mib` configure these limits. Crossing a threshold stops the
+test and preserves a failed report. These are periodic detection thresholds,
+not filesystem allocation quotas: traffic between checks and the final failure
+report can cause bounded overshoot. Shard databases, the expected-data oracle,
+frozen files and host metrics are all counted. At 28 minutes, the baseline
+workspace occupied about 3.2 MB and its report about 14.6 kB. The default
+eight-hour workload has about 115,000 contacts, 58 shards and 160 process epochs;
+the 256 MiB workspace limit leaves substantial room above that measured rate
+of growth.
 
 ## October 11 baseline run
 
@@ -143,10 +155,50 @@ solely to the SDK/application or used as leak-free evidence.
 | Python HTTP host | `6ca8dc88a3d08d9d96ef4576c03eb6b467229a9233c95bae518964dfc19957c8` |
 | Contacts app | `0e5ce19d5427241b414c1654b1ae5da06ef013df13d0dbc2659c4327f3867f7b` |
 
-The report is `benchmarks/deployment-2026-10-11-windows.json`. The run is in
-progress; completed duration, latency and resource observations will be added
-after its final oracle and cleanup gates. Its workspace is
-`D:/Codex/Kestrel/work/deployment-76ba445-30min-20261011`.
+The completed report is `benchmarks/deployment-2026-10-11-windows.json`. The run
+finished successfully in **1,800.188 seconds**, with **zero invariant failures**.
+It completed 7,168 exact contacts in 896 bursts, 172 health checks, 81 independent
+database/HTTP checks, 29 exclusive-lock 503/recovery probes and 59 duplicate-email
+409 checks. Eleven independent service processes started and stopped cleanly;
+7,351 native interpreter starts matched 7,351 exits, with at most four active
+native workers. Every service returned to one Python thread.
+
+All four retained databases matched the independent expected-data oracle again
+after completion: 2,000, 2,000, 2,000 and 1,168 rows respectively, each with
+`integrity_check: ok`. The final frozen hashes matched the initial snapshot.
+The workspace is `D:/Codex/Kestrel/work/deployment-76ba445-30min-20261011`.
+
+Concurrent contact traffic made 19,135 POST attempts: 7,168 successful 201s,
+11,119 retryable 503s and 848 transport failures (835 connection aborts and 13
+resets). All contacts recovered within the retry bounds, with no ambiguous
+committed-write 409 observed. The 503 total combines capacity and application
+database-busy responses; forced lock probes are counted separately.
+
+Logical-contact p50/p95/maximum latency was **110/235/7,094 ms**, including retries
+and backoff. POST-attempt p50/p95/maximum was **0/94/2,094 ms**, including fast
+rejections and transport failures. The baseline clock limitation above applies
+to those figures; zero means below its tick resolution.
+
+There were 16,716 resource samples. Sampled host RSS reached 51,990,528 bytes
+(49.6 MiB), and maximum retained RSS growth in one epoch was 21,577,728 bytes
+(20.6 MiB), including the disclosed observer allocation. Sampled native child
+RSS reached 9,068,544 bytes (8.65 MiB). Host handles peaked at 288 and ended at
+190–193 per epoch, compared with 140 initially. Python threads peaked at 19 and
+returned to one. These observations were not produced under the newer
+resource-ceiling gate and do not establish uninterrupted process memory
+stability.
+
+## Corrected candidate smoke
+
+After the baseline exited, a 20.141-second local smoke exercised the corrected
+harness against the `1cb378b` candidate binary beginning `b387bdbc62da7ac7` and
+its frozen SDK/server. It passed with 80 contacts, five clean service processes,
+three lock recoveries and ten independent data checks. Completion-duration,
+snapshot, native/thread cleanup, required resource measurements and configured
+resource/storage ceilings all passed. Its report is retained outside published
+long-run evidence at
+`D:/Codex/Kestrel/work/deployment-candidate-smoke-20261011-final.json`. This smoke
+validates harness mechanics; hours-long candidate evidence remains pending.
 
 This exercise covers sustained local traffic, controlled SQLite contention,
 data preservation across graceful restarts and worker cleanup. It does not

@@ -11,6 +11,7 @@ import "C"
 import (
 	"bytes"
 	"context"
+	"encoding"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -102,7 +103,8 @@ func (h *Host) Run(ctx context.Context, program string, request any) (Result, er
 	if !filepath.IsAbs(program) || strings.IndexByte(program, 0) >= 0 {
 		return Result{}, errors.New("Sprout program must have an absolute path without NUL")
 	}
-	if err := validateRequestText(reflect.ValueOf(request), make(map[inputVisit]bool), 0); err != nil {
+	budget := inputBudget{remaining: 1024 * 1024, nodes: 1024 * 1024, ctx: ctx}
+	if err := validateRequestText(reflect.ValueOf(request), make(map[inputVisit]bool), 0, &budget); err != nil {
 		return Result{}, fmt.Errorf("invalid request text: %w", err)
 	}
 	payload, err := json.Marshal(request)
@@ -181,32 +183,82 @@ type inputVisit struct {
 	pointer uintptr
 }
 
+type inputBudget struct {
+	remaining int
+	nodes     int
+	ctx       context.Context
+}
+
+func (b *inputBudget) charge(size int) error {
+	if size < 0 || size > b.remaining {
+		return errors.New("Sprout request exceeds 1 MiB")
+	}
+	b.remaining -= size
+	return nil
+}
+
+func (b *inputBudget) text(value string) error {
+	// Check the cheap lower bound before scanning or allocating escaped text.
+	if len(value) > b.remaining {
+		return errors.New("Sprout request exceeds 1 MiB")
+	}
+	if !utf8.ValidString(value) || strings.IndexByte(value, 0) >= 0 {
+		return errors.New("text must be UTF-8 without NUL")
+	}
+	size := len(value) + 2
+	for _, ch := range value {
+		switch {
+		case ch == '"' || ch == '\\' || ch == '\b' || ch == '\f' || ch == '\n' || ch == '\r' || ch == '\t':
+			size++
+		case ch < 0x20 || ch == '<' || ch == '>' || ch == '&':
+			size += 5
+		case ch == '\u2028' || ch == '\u2029':
+			size += 3
+		}
+		if size > b.remaining {
+			return errors.New("Sprout request exceeds 1 MiB")
+		}
+	}
+	return b.charge(size)
+}
+
 // Check plain host text before encoding/json can replace malformed UTF-8. Custom
 // marshalers own their transformations; their resulting wire is checked below.
-func validateRequestText(value reflect.Value, active map[inputVisit]bool, depth int) error {
+func validateRequestText(value reflect.Value, active map[inputVisit]bool, depth int, budget *inputBudget) error {
+	budget.nodes--
+	if budget.nodes < 0 {
+		return errors.New("host object graph exceeds traversal limit")
+	}
+	if budget.nodes%1024 == 0 {
+		if err := budget.ctx.Err(); err != nil {
+			return err
+		}
+	}
 	if !value.IsValid() {
-		return nil
+		return budget.charge(4)
 	}
 	if depth > 1024 {
 		return errors.New("host object graph is nested too deeply")
 	}
 	if value.CanInterface() {
 		if _, custom := value.Interface().(json.Marshaler); custom {
-			return nil
+			return budget.charge(1)
+		}
+		if _, custom := value.Interface().(encoding.TextMarshaler); custom {
+			return budget.charge(1)
 		}
 	}
 	switch value.Kind() {
 	case reflect.String:
-		if !utf8.ValidString(value.String()) || strings.IndexByte(value.String(), 0) >= 0 {
-			return errors.New("text must be UTF-8 without NUL")
-		}
+		return budget.text(value.String())
 	case reflect.Interface:
 		if !value.IsNil() {
-			return validateRequestText(value.Elem(), active, depth+1)
+			return validateRequestText(value.Elem(), active, depth+1, budget)
 		}
+		return budget.charge(4)
 	case reflect.Pointer, reflect.Map, reflect.Slice:
 		if value.IsNil() {
-			return nil
+			return budget.charge(4)
 		}
 		visit := inputVisit{value.Kind(), value.Type(), uintptr(value.UnsafePointer())}
 		if active[visit] {
@@ -215,42 +267,136 @@ func validateRequestText(value reflect.Value, active map[inputVisit]bool, depth 
 		active[visit] = true
 		defer delete(active, visit)
 		if value.Kind() == reflect.Pointer {
-			return validateRequestText(value.Elem(), active, depth+1)
+			return validateRequestText(value.Elem(), active, depth+1, budget)
+		}
+		if value.Kind() == reflect.Slice && value.Type().Elem().Kind() == reflect.Uint8 {
+			if value.Len() > budget.remaining {
+				return errors.New("Sprout request exceeds 1 MiB")
+			}
+			return budget.charge(2 + 4*((value.Len()+2)/3))
+		}
+		if err := budget.charge(2); err != nil {
+			return err
 		}
 		if value.Kind() == reflect.Map {
 			items := value.MapRange()
+			index := 0
 			for items.Next() {
-				if err := validateRequestText(items.Key(), active, depth+1); err != nil {
+				if index > 0 {
+					if err := budget.charge(1); err != nil {
+						return err
+					}
+				}
+				index++
+				if err := budget.charge(1); err != nil {
 					return err
 				}
-				if err := validateRequestText(items.Value(), active, depth+1); err != nil {
+				if items.Key().Kind() != reflect.String {
+					if err := budget.charge(2); err != nil {
+						return err
+					}
+				}
+				if err := validateRequestText(items.Key(), active, depth+1, budget); err != nil {
+					return err
+				}
+				if err := validateRequestText(items.Value(), active, depth+1, budget); err != nil {
 					return err
 				}
 			}
 		} else {
 			for i := 0; i < value.Len(); i++ {
-				if err := validateRequestText(value.Index(i), active, depth+1); err != nil {
+				if i > 0 {
+					if err := budget.charge(1); err != nil {
+						return err
+					}
+				}
+				if err := validateRequestText(value.Index(i), active, depth+1, budget); err != nil {
 					return err
 				}
 			}
 		}
 	case reflect.Array:
+		if err := budget.charge(2); err != nil {
+			return err
+		}
 		for i := 0; i < value.Len(); i++ {
-			if err := validateRequestText(value.Index(i), active, depth+1); err != nil {
+			if i > 0 {
+				if err := budget.charge(1); err != nil {
+					return err
+				}
+			}
+			if err := validateRequestText(value.Index(i), active, depth+1, budget); err != nil {
 				return err
 			}
 		}
 	case reflect.Struct:
+		if err := budget.charge(2); err != nil {
+			return err
+		}
+		fields := 0
 		for i := 0; i < value.NumField(); i++ {
 			field := value.Type().Field(i)
 			if field.PkgPath == "" && field.Tag.Get("json") != "-" {
-				if err := validateRequestText(value.Field(i), active, depth+1); err != nil {
+				tag := strings.Split(field.Tag.Get("json"), ",")
+				omit := false
+				for _, option := range tag[1:] {
+					if option == "omitempty" && isEmptyInputValue(value.Field(i)) || option == "omitzero" && value.Field(i).IsZero() {
+						omit = true
+					}
+				}
+				if omit {
+					continue
+				}
+				name := field.Name
+				if tag[0] != "" {
+					name = tag[0]
+				}
+				if fields > 0 {
+					if err := budget.charge(1); err != nil {
+						return err
+					}
+				}
+				fields++
+				if err := budget.text(name); err != nil {
+					return err
+				}
+				if err := budget.charge(1); err != nil {
+					return err
+				}
+				if err := validateRequestText(value.Field(i), active, depth+1, budget); err != nil {
 					return err
 				}
 			}
 		}
+	case reflect.Bool:
+		if value.Bool() {
+			return budget.charge(4)
+		}
+		return budget.charge(5)
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return budget.charge(len(strconv.FormatInt(value.Int(), 10)))
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return budget.charge(len(strconv.FormatUint(value.Uint(), 10)))
+	case reflect.Float32, reflect.Float64:
+		encoded, err := json.Marshal(value.Interface())
+		if err != nil {
+			return err
+		}
+		return budget.charge(len(encoded))
 	}
 	return nil
+}
+
+func isEmptyInputValue(value reflect.Value) bool {
+	switch value.Kind() {
+	case reflect.Array, reflect.Map, reflect.Slice, reflect.String:
+		return value.Len() == 0
+	case reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
+		reflect.Float32, reflect.Float64, reflect.Interface, reflect.Pointer:
+		return value.IsZero()
+	}
+	return false
 }
 
 // Decode keeps JSON numbers as json.Number when target is an interface/map.

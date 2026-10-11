@@ -23,7 +23,10 @@ freezes the interpreter, worker source and Python host
 files, restart service processes, induce bounded SQLite contention, measure
 resources, and compare HTTP and database results with an independent oracle.
 The thirty-minute frozen baseline run started at 19:13 UTC, with separately
-recorded SDK/server hashes. It remains pending until its complete report passes.
+recorded SDK/server hashes. It completed in 1,800.188 seconds with 7,168 contacts,
+81 independent oracle checks, 29 contention recoveries, 59 duplicate checks and
+11 cleanly stopped service epochs. Frozen inputs were unchanged and no invariant
+errors were recorded in the [completed report](../benchmarks/deployment-2026-10-11-windows.json).
 Its resource samples are observations; the corrected candidate harness also
 enforces resource ceilings and rejects interrupted/incomplete runs. The overnight
 candidate run is pending. Mutable working-tree tests do not count as a
@@ -36,12 +39,12 @@ The review has reproduced these issues and fixes are under validation:
 | Deep/cyclic JSON can silently lose data | Reject before publishing a store; supported-depth values round-trip exactly | 13 Windows and Linux sanitizer regression tests passed |
 | SDKs accept duplicate or non-finite worker JSON | Reject ambiguous keys, non-finite numbers and excessive nesting | Node/Go/.NET/Java local regressions passed; final CI pending |
 | SDK strings differ from native text | Reject malformed wire text; accept valid Unicode pairs | Local SDK regressions passed; final CI pending |
-| Shared input graphs expand before byte limits | Count encoded bytes while preparing Node/Python input, before building complete JSON | Node 23 and Python 22 host tests passed |
+| Shared input graphs expand before byte limits | Bound ordinary input preparation and serialized output across the SDKs | Node 24, Python 22, Go 11, .NET 8 and Java 31 local test groups passed |
 | Native host accepts extra blank response lines | Exactly one JSON line with at most one terminal newline | 10 native ABI tests, with two Windows platform skips, passed |
 | Node worker ignores graceful timeout termination | Force termination of the direct worker and recover the next request | Fix passed local test; POSIX CI validation pending |
 | Paper reload snapshots accumulate | Delete inactive snapshots after all in-flight uses release them | Focused offline lifetime tests passed; final CI pending |
-| Service code and writable data share a directory | Provide an explicit state directory and drain accepted workers on shutdown | Windows service regressions passed; POSIX signal verification pending |
-| Release workflow omits newer contract gates | Fail closed on contract failures and publish checksums and provenance | Workflow and twelve manifest regressions passed locally, including exact installer payload; no release published |
+| Service shutdown can wait indefinitely for trickling readers | Bound total header/body read time, drain dispatched workers and separate writable state | Windows host/service 40 passed with one POSIX skip; Linux signal/read-deadline checks passed |
+| Release workflow omits newer contract gates | Fail closed on contract failures and publish checksums and provenance | Workflow and thirteen manifest regressions passed locally, including exact installer payload; no release published |
 
 This is an independent agent review of other agents' code, not an external
 professional audit. Sanitizer results and checks are reported for the exact
