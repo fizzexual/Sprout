@@ -1,0 +1,121 @@
+~ Semantic recovery/data controls; native counters own allocation evidence.
+task buffer_failure():
+    fail "buffer primary"
+task buffer_pair(first, second):
+    give {first: first, second: second}
+task buffer_default(first, second = buffer_failure()):
+    give first
+task buffer_typed(value: number):
+    give value
+task buffer_typed_default(value: number = "wrong"):
+    give value
+task buffer_local():
+    try:
+        buffer_typed("wrong")
+    caught issue:
+        give "recovered"
+task buffer_rethrow():
+    try:
+        buffer_default("left")
+    caught issue:
+        fail issue
+type BufferPayload:
+    make first = "left"
+    make second = buffer_failure()
+    task action(self, value = buffer_failure()):
+        give value
+make buffer_effects = 0
+task buffer_effect():
+    set buffer_effects = buffer_effects + 1
+    give "effect"
+
+test "positional and named success outputs":
+    make first = buffer_pair("left", "right")
+    make second = buffer_pair(second: "right", first: "left")
+    make item = BufferPayload(second: "right", first: "left")
+    expect first.first == "left"
+    expect first.second == "right"
+    expect second.first == "left"
+    expect second.second == "right"
+    expect item.first == "left"
+    expect item.second == "right"
+
+test "nested catch preserves both suspended inputs":
+    repeat 32 times:
+        make values = buffer_pair("left", buffer_local())
+        expect values.first == "left"
+        expect values.second == "recovered"
+
+test "later inputs and defaults preserve primary errors":
+    make seen = 0
+    repeat 32 times:
+        try:
+            buffer_pair("left", buffer_failure())
+        caught issue:
+            expect issue.message == "buffer primary"
+            set seen = seen + 1
+        try:
+            buffer_default("left")
+        caught issue:
+            expect issue.message == "buffer primary"
+            set seen = seen + 1
+        try:
+            BufferPayload(first: "left")
+        caught issue:
+            expect issue.message == "buffer primary"
+            set seen = seen + 1
+        try:
+            BufferPayload(first: "left", second: buffer_failure())
+        caught issue:
+            expect issue.message == "buffer primary"
+            set seen = seen + 1
+    expect seen == 128
+
+test "typed inputs defaults and method recovery":
+    make item = BufferPayload(first: "left", second: "right")
+    make seen = 0
+    repeat 32 times:
+        try:
+            buffer_typed("wrong")
+        caught issue:
+            expect issue.kind == "type"
+            set seen = seen + 1
+        try:
+            buffer_typed_default()
+        caught issue:
+            expect issue.kind == "type"
+            set seen = seen + 1
+        try:
+            item.action()
+        caught issue:
+            expect issue.message == "buffer primary"
+            set seen = seen + 1
+    expect seen == 96
+
+test "validation guards effects before explicit inputs":
+    make seen = 0
+    try:
+        buffer_pair(unknown: buffer_effect())
+    caught issue:
+        expect issue.kind == "argument"
+        set seen = seen + 1
+    try:
+        BufferPayload(unknown: buffer_effect())
+    caught issue:
+        expect issue.kind == "argument"
+        set seen = seen + 1
+    expect seen == 2
+    expect buffer_effects == 0
+
+test "rethrow permits following successful work":
+    make seen = 0
+    repeat 32 times:
+        try:
+            buffer_rethrow()
+        caught issue:
+            expect issue.message == "buffer primary"
+            set seen = seen + 1
+        make values = buffer_pair("left", "after")
+        expect values.first == "left"
+        expect values.second == "after"
+    expect seen == 32

@@ -9,7 +9,8 @@ what comes next, and what remains blocked. Planned work is not delivered work.
 Current verified code: `241f68f`, all eight jobs passed on the first attempt in
 [CI 38297387716](https://github.com/fizzexual/Sprout/actions/runs/38297387716).
 The installed normal Windows binary is `b3f6c79a` (`0.2.0-dev`). The allocation
-cleanup and performance tooling below are private work in progress. Earlier
+cleanup is integrated for fresh qualification; performance tooling and compiled
+capability metadata are private work in progress. Earlier
 batch sections retain the status at that time; their pending claims do not
 override this current status. The eight-hour gate remains held by the human.
 
@@ -232,7 +233,7 @@ the failed cohort or explain its bundle signal flood. No shipping code is being
 edited while root freezes the reviewed integrated revision.
 
 This corrective batch subsequently passed all eight jobs on `241f68f` in its
-first CI attempt. That run rebuilt actual WebAssembly and passed the shared GC7,
+first CI attempt. That run rebuilt actual WebAssembly and passed the shared scope7,
 API10 and progress6 corpora, plus native/SDK, ASan, UBSan, Docker and compiled
 Paper checks. The separate canonical full-SQLite Windows build took 61.829 seconds
 within its declared 180-second profile, with no warnings. Its GC16, API22 and
@@ -244,8 +245,9 @@ remain separate; later passes do not establish their causes.
 
 | ID | Owner / isolated files | Acceptance / current state |
 | --- | --- | --- |
-| N011 | `/root/distribution`: private `241f68f` core/header snapshot and dedicated allocation fixtures; `/root/editor_tooling` independent counters and peer | Confirmed raw argument-position leaks: successful controls balanced, while caught argument/default failures retained 32 arrays (256 bytes) and typed-parameter failures retained 32 arrays (128 bytes). Constructor-array ownership is also under review. Candidate uses admitted temporary-buffer checkpoints, preserving evaluation order and primary errors. Original private fixture/parser and sandbox-denial observations remain failed evidence. Freeze, peer-review and require new native/WebAssembly/full CI and a normal build before integration or installation. |
+| N011 | Root: reviewed core/header integration and required native/sanitizer/release/WASM wiring; `/root/distribution` source/regression author; `/root/editor_tooling` independent peer | Confirmed raw argument-position leaks: caught argument/default failures retained 32 arrays (256 bytes), typed-parameter failures retained 32 arrays (128 bytes), and separately scoped constructor observations retained name/default arrays. Reviewed source uses admitted temporary-buffer checkpoints, preserving evaluation order and primary errors. One fresh correctly generated UTF-8 Windows cohort passed all 11 controls; two WASM mocks passed with exact six-case semantic wiring and wrong-count negatives. Original private parser/sandbox/diagnostic-transcoding and peer EOL-checker observations remain separate. Fresh full CI and exact-Git normal build still required before installation. See [ownership contract](docs/argument-preparation.md). |
 | N007 | `/root/stdlib`: private measurement-tool preparation, synthetic workloads, strict oracles and fake transport controls | Bounded paired target/control plan: at most 208 worker starts, integer monotonic timing, per-stream caps, exact outputs and explicit unsupported resource fields. No Sprout measurements or speed claims yet. Implementation/peer review and sealed inputs must precede one agreed finite measurement. |
+| N009 | `/root/distribution`: private compiled-capability query plan/prototype, following the saved design | Runtime-query-only batch selected; doctor consumer deferred. Fixed bounded read-only JSON before bundle/runtime execution, compile-derived target/SQLite/native availability, separate interpreter/host-library claims and unchanged application arguments. No builds, shipping edits or execution until frozen plan/implementation review; future exact native/WebAssembly gates required. |
 | Integration | Root: Markdown queue, private evidence, source/build binding and CI/release wiring | Current `241f68f` gates and installation complete. Collect the private handoffs above, preserve every failure, integrate only reviewed changes and replenish the next queue. No active sustained test or clock changes. |
 
 Root owns this file. Agents own only their assigned private inputs until the
@@ -259,7 +261,7 @@ ownership before implementation; keep each item independently reviewable.
 
 | ID | Work | Why it helps / acceptance |
 | --- | --- | --- |
-| N009 | Runtime capability metadata and explicit adoption preflight | Design a bounded read-only command exposing compiled capabilities/host ABI so a development version string cannot be mistaken for intrinsic/SQLite support; no project execution, permission guarantee or network; native/WASM/profile parity and independent review required before implementation |
+| N014 | Explicit adoption preflight consuming verified N009 metadata | Extend the existing read-only doctor only after N009's command/schema is qualified. No default or per-request spawn; strict bounded metadata and required-feature checks, source identity/cleanup diagnostics, no version inference or permission/provenance guarantee. Native/consumer parity and independent negatives required. |
 | N012 | Explicit registered-type environment reachability | Normal files/modules have existing home roots. A type-only wizard file has a structural registry-home concern; bounded ordinary/stress probes passed and have not reproduced a runtime failure. Require a controlled collector reachability negative before proposing a shipping correction; nested task-local methods remain unsupported by the parser |
 
 As items complete, record their exact evidence below, move them to Done, and
@@ -290,6 +292,12 @@ order. Do not silently broaden an item into a public deployment or stable releas
   smoke-fixture errors are preserved without relabeling their failed reports.
   N011 confirmed allocation leaks and N007 private tool preparation continue
   with existing agents. No sustained run or clock setting changed.
+- 2026-10-12: N011 source and required regression/wiring peers approved the
+  exact UTF-8 correction. One fresh Windows cohort passed all 11 controls on
+  correctly reconstructed source; the old observer profile's non-ASCII
+  transcoding remains explicitly disclosed. Two changed WASM mocks passed.
+  Fresh full CI/normal build remain required; installed B3 is unchanged. N009
+  private runtime-query preparation was selected while N007 preparation continues.
 
 - 2026-10-12: Continuing development resumed by the human; existing agent team
   assigned F001–F003. Baseline Git state was clean on documentation `a93739d`.

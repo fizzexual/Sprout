@@ -421,11 +421,14 @@ records; corrections only changed the fixture, not shipping SDK/runtime code.
 The prior `94a468c8` binary is preserved for rollback; no stable release was made.
 
 Independent counted fixtures also confirmed a separate raw argument-buffer
-leak on caught preparation errors. N011's private cleanup patch and N007's
-private finite performance tool are now active in
+leak on caught preparation errors. N011's reviewed cleanup patch is now
+integrated for fresh qualification. Its correctly generated Windows cohort
+passed all 11 controls; exact-revision full CI and a normal build remain required
+before installation. See [the ownership contract](argument-preparation.md).
+N007's private finite performance tool and N009's private capability query are active in
 [the work queue](../SPROUT_WORK_PLAN.md). Neither is qualified by `241f68f` CI.
 Keep their future evidence separate and require reviewed regressions and fresh
-full CI before integration. The eight-hour gate remains held by the human.
+full CI before declaring future functionality verified. The eight-hour gate remains held by the human.
 
 - Cross-platform native, SDK, WASM, sanitizer and hardened Docker checks pass
   against the final commit. New regressions belong in CI and release checks.

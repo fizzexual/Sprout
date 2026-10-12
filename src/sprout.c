@@ -1375,6 +1375,46 @@ static void gc_env_root_restore(size_t depth) {
   SPROUT_GC_ENV_ROOT_EVENT("restore", NULL);
 }
 
+/* Own only argument-preparation pointer arrays across error recovery. A release
+ * leaves a tombstone so saved depths of suspended callers remain unchanged. */
+static void **temporary_buffers = NULL;
+static size_t temporary_buffer_count = 0, temporary_buffer_capacity = 0;
+static void *temporary_buffer_alloc(size_t count, size_t item_size, int line, const char *message) {
+  if (!item_size || count > SIZE_MAX / item_size)
+    fail_kind(line, "memory", "argument preparation storage is too large.");
+  if (temporary_buffer_count == temporary_buffer_capacity) {
+    size_t next = temporary_buffer_capacity ? temporary_buffer_capacity * 2 : 64;
+    if (next < temporary_buffer_capacity || next > SIZE_MAX / sizeof(void *))
+      fail_kind(line, "memory", "couldn't preserve argument preparation storage.");
+    void **grown = (void **)realloc(temporary_buffers, next * sizeof(void *));
+    if (!grown) fail_kind(line, "memory", "couldn't preserve argument preparation storage.");
+    temporary_buffers = grown; temporary_buffer_capacity = next;
+  }
+  size_t bytes = count * item_size;
+  void *pointer = malloc(bytes);
+  if (!pointer) fail(line, message);
+  temporary_buffers[temporary_buffer_count++] = pointer;
+  return pointer;
+}
+static void temporary_buffer_release(void *pointer) {
+  for (size_t i = temporary_buffer_count; i > 0; i--) {
+    if (temporary_buffers[i - 1] == pointer && pointer) {
+      free(pointer); temporary_buffers[i - 1] = NULL; return;
+    }
+  }
+  fputs("internal error: argument preparation owner was lost.\n", stderr); exit(2);
+}
+static void temporary_buffer_restore(size_t depth) {
+  if (depth > temporary_buffer_count) {
+    fputs("internal error: argument preparation depth was lost.\n", stderr); exit(2);
+  }
+  while (temporary_buffer_count > depth) {
+    void *pointer = temporary_buffers[--temporary_buffer_count];
+    temporary_buffers[temporary_buffer_count] = NULL;
+    free(pointer);
+  }
+}
+
 static Env *env_new(Env *parent) { Env *e = (Env *)gc_alloc(GC_ENV, sizeof(Env)); e->parent = parent; return e; }
 static Value *env_local(Env *e, const char *name) { for (int i = 0; i < e->n; i++) if (!strcmp(e->vars[i].name, name)) return &e->vars[i].val; return NULL; }
 static Value *env_find(Env *e, const char *name) { for (; e; e = e->parent) { Value *v = env_local(e, name); if (v) return v; } return NULL; }
@@ -1639,7 +1679,7 @@ static int block_binds_names(Stmt **list, int n) { for (int i = 0; i < n; i++) i
 /* run a task body in a prepared frame (the params are already bound). Shared by the Expr-based
    caller and the Value-based one (which higher-order builtins like map/filter use). */
 static Value run_task(TaskDef *t, Env *frame, int line) {
-  size_t root_depth = gc_env_root_count;
+  size_t root_depth = gc_env_root_count; size_t buffer_depth = temporary_buffer_count;
   gc_env_root_push(frame); SPROUT_GC_ENV_ROOT_EVENT("task", frame);
   if (++call_depth > MAX_DEPTH) fail(line, "this went too deep — a task may be calling itself with no way to stop.");
   g_frames[call_depth].name = t->name; g_frames[call_depth].line = line;   /* record this frame for tracebacks */
@@ -1662,7 +1702,7 @@ static Value run_task(TaskDef *t, Env *frame, int line) {
   cur_fileid = saved_fid; cur_file_env = saved_fe;
   g_current_file = saved_source;
   call_depth--;
-  gc_env_root_restore(root_depth);
+  gc_env_root_restore(root_depth); temporary_buffer_restore(buffer_depth);
   return result;
 }
 static void task_arity_check(TaskDef *t, int got, int line) {
@@ -1678,14 +1718,14 @@ static Value call_task_def(TaskDef *t, Expr *call, Env *env) { return call_task_
 /* call a task VALUE with already-evaluated args (used by map/filter/reduce/each) */
 static Value call_task_v(TaskDef *t, Value *argv, int argc, int line) {
   task_arity_check(t, argc, line);
-  size_t root_depth = gc_env_root_count;
+  size_t root_depth = gc_env_root_count; size_t buffer_depth = temporary_buffer_count;
   Env *frame = env_new(t->home);
   gc_env_root_push(frame); SPROUT_GC_ENV_ROOT_EVENT("prepared-value", frame);
   for (int i = 0; i < argc; i++) { if (t->ptypes && t->ptypes[i]) { char w[96]; snprintf(w, sizeof w, "the input '%s'", t->params[i]); check_type(argv[i], t->ptypes[i], line, w); } env_define(frame, t->params[i], argv[i]); }
   for (int i = argc; i < t->nparams; i++) { Value av = eval(t->defaults[i], frame); if (t->ptypes && t->ptypes[i]) { char w[96]; snprintf(w, sizeof w, "the input '%s'", t->params[i]); check_type(av, t->ptypes[i], line, w); } env_define(frame, t->params[i], av); }   /* fill trailing defaults */
   if (t->owner_type) env_define(frame, "__class__", vstr(t->owner_type));   /* so `super` inside a method finds the defining type's parent */
   Value result = run_task(t, frame, line);
-  gc_env_root_restore(root_depth); return result;
+  gc_env_root_restore(root_depth); temporary_buffer_restore(buffer_depth); return result;
 }
 static Value call_task(Expr *call, Env *env) {
   TaskDef *t = task_find(call->name);
@@ -3482,16 +3522,16 @@ static void type_collect_fields(TypeReg *type, char **names, Expr **defaults, in
 }
 static Value type_instantiate_named(TypeReg *type, Expr *call, Env *env) {
   int n = type_field_count(type), at = 0;
-  char **names = (char **)malloc((size_t)(n ? n : 1) * sizeof(char *));
-  Expr **defaults = (Expr **)malloc((size_t)(n ? n : 1) * sizeof(Expr *));
-  if (!names || !defaults) fail(call->line, "couldn't allocate constructor inputs.");
+  size_t buffer_depth = temporary_buffer_count;
+  char **names = (char **)temporary_buffer_alloc((size_t)(n ? n : 1), sizeof(char *), call->line, "couldn't allocate constructor inputs.");
+  Expr **defaults = (Expr **)temporary_buffer_alloc((size_t)(n ? n : 1), sizeof(Expr *), call->line, "couldn't allocate constructor inputs.");
   type_collect_fields(type, names, defaults, &at, call->line);
   int *slots = argument_positions(type->name, names, defaults, n, 0, call);
   SList *provided = list_new();
   for (int i = 0; i < call->nargs; i++) list_push(provided, eval(call->args[i], env));
   SMap *object = map_new(); object->classname = type->name;
   for (int i = 0; i < n; i++) map_set(object, names[i], slots[i] >= 0 ? provided->items[slots[i]] : eval(defaults[i], env));
-  free(names); free(defaults); free(slots); return vmap(object);
+  temporary_buffer_restore(buffer_depth); return vmap(object);
 }
 static Value type_instantiate(TypeReg *t, Expr *call, Env *env) {
   if (t->is_interface) fail_kind(call->line, "type", "an interface describes methods, but can't create an object — call a type that does the interface instead.");
@@ -3868,10 +3908,10 @@ static void learn_loop(Env *be, const char *n1, const char *n2) {
 
 static void exec_statement(Stmt *s, Env *env);
 static void exec(Stmt *s, Env *env) {
-  size_t root_depth = gc_env_root_count;
+  size_t root_depth = gc_env_root_count; size_t buffer_depth = temporary_buffer_count;
   gc_env_root_push(env); SPROUT_GC_ENV_ROOT_EVENT("statement", env);
   exec_statement(s, env);
-  gc_env_root_restore(root_depth);
+  gc_env_root_restore(root_depth); temporary_buffer_restore(buffer_depth);
 }
 static void exec_statement(Stmt *s, Env *env) {
   runtime_tick(s->line);
@@ -3930,16 +3970,16 @@ static void exec_statement(Stmt *s, Env *env) {
       sjmp_buf tb; sjmp_buf * volatile saved = err_jmp; sjmp_buf * volatile saved_top = g_top_jmp;
       err_jmp = &tb; g_top_jmp = &tb;
       volatile int sdepth = call_depth, sret = returning, sq = g_quiet_fail;
-      volatile size_t root_depth = gc_env_root_count;
+      volatile size_t root_depth = gc_env_root_count; volatile size_t buffer_depth = temporary_buffer_count;
       volatile int sfid = cur_fileid; Env * volatile sfe = cur_file_env;   /* restore file context if a cross-file task failed */
       if (SJSET(tb) == 0) {
         exec_block(s->body, s->nbody, env_new(env));   /* each test runs in its own scope */
       } else {                                          /* a runtime error stopped the test */
-        gc_env_root_restore(root_depth);
+        gc_env_root_restore(root_depth); temporary_buffer_restore(buffer_depth);
         call_depth = sdepth; returning = sret; g_loopctl = 0; g_quiet_fail = sq; g_have_fail_override = 0; cur_fileid = sfid; cur_file_env = sfe;
         if (!g_test_failed) { g_test_failed = 1; printf("  " C_RED "x" C_RESET "  %s " C_DIM "(stopped by an error)" C_RESET "\n", s->name); }
       }
-      gc_env_root_restore(root_depth);
+      gc_env_root_restore(root_depth); temporary_buffer_restore(buffer_depth);
       err_jmp = saved; g_top_jmp = saved_top; g_quiet_fail = sq; g_have_fail_override = 0;
       if (g_test_failed) g_tfail++; else { g_tpass++; printf("  " C_GREEN "ok" C_RESET "  %s\n", s->name); }
       g_cur_test = prevn; g_test_failed = prevf;
@@ -3961,13 +4001,13 @@ static void exec_statement(Stmt *s, Env *env) {
       volatile int sfid = cur_fileid; Env * volatile sfe = cur_file_env;
       err_jmp = &tb; g_quiet_fail = 1;                  /* catch SOFT errors; a hard error (typo) still aborts the test */
       volatile int errored = 0;
-      volatile size_t root_depth = gc_env_root_count;
+      volatile size_t root_depth = gc_env_root_count; volatile size_t buffer_depth = temporary_buffer_count;
       if (SJSET(tb) == 0) {
         exec_block(s->body, s->nbody, env_new(env));    /* ran clean -> the assertion will fail */
-        gc_env_root_restore(root_depth);
+        gc_env_root_restore(root_depth); temporary_buffer_restore(buffer_depth);
         err_jmp = saved; g_quiet_fail = sq; g_have_fail_override = 0;
       } else {
-        gc_env_root_restore(root_depth);
+        gc_env_root_restore(root_depth); temporary_buffer_restore(buffer_depth);
         err_jmp = saved; g_quiet_fail = sq; call_depth = sdepth; returning = 0; g_loopctl = 0; cur_fileid = sfid; cur_file_env = sfe;
         errored = 1;
       }
@@ -4134,13 +4174,13 @@ static void exec_statement(Stmt *s, Env *env) {
       volatile int sdepth = call_depth;                   /* read after the longjmp -> volatile (-O2 safety) */
       volatile int sfid = cur_fileid; Env * volatile sfe = cur_file_env;  /* a failing cross-file task value leaves these in ITS file; restore on catch */
       const char * volatile ssource = g_current_file;
-      volatile size_t root_depth = gc_env_root_count;
+      volatile size_t root_depth = gc_env_root_count; volatile size_t buffer_depth = temporary_buffer_count;
       if (SJSET(tb) == 0) {
         exec_scoped(s->body, s->nbody, env);              /* the protected steps */
-        gc_env_root_restore(root_depth);
+        gc_env_root_restore(root_depth); temporary_buffer_restore(buffer_depth);
         err_jmp = saved; g_quiet_fail = sq;               /* clean exit: give/stop/skip flags pass through, caught does NOT run */
       } else {                                            /* a soft error was caught (a hard one would have skipped to g_top_jmp) */
-        gc_env_root_restore(root_depth);
+        gc_env_root_restore(root_depth); temporary_buffer_restore(buffer_depth);
         err_jmp = saved; g_quiet_fail = sq;
         call_depth = sdepth; returning = 0; g_loopctl = 0; cur_fileid = sfid; cur_file_env = sfe;   /* unwind the half-done try cleanly */
         g_current_file = ssource;
@@ -4238,7 +4278,7 @@ static void repl(void) {
   printf("\n  " C_GREEN "Try Sprout live" C_RESET " " C_DIM "- type code, press Enter. 'back' returns to the menu." C_RESET "\n\n");
   sjmp_buf jb; err_jmp = &jb; g_top_jmp = &jb; repl_echo = 1; g_repl_active = 1;   /* allow re-`make` while experimenting */
   volatile int repl_fid = cur_fileid; Env * volatile repl_env = cur_file_env;   /* the session scope to restore after an error (read post-longjmp -> volatile) */
-  volatile size_t root_depth = gc_env_root_count;
+  volatile size_t root_depth = gc_env_root_count; volatile size_t buffer_depth = temporary_buffer_count;
   char buf[8192]; buf[0] = 0; int inblock = 0; char line[1024];
   printf(PROMPT); fflush(stdout);
   while (fgets(line, sizeof line, stdin)) {
@@ -4247,12 +4287,12 @@ static void repl(void) {
       if (!strcmp(line, "back") || !strcmp(line, "quit") || !strcmp(line, "exit")) break;
       if (L == 0) { printf(PROMPT); fflush(stdout); continue; }
       if (opens_block(line)) { snprintf(buf, sizeof buf, "%s\n", line); inblock = 1; printf("  " C_DIM "...... " C_RESET); fflush(stdout); continue; }
-      if (SJSET(jb) == 0) run_snippet(line); else { gc_env_root_restore(root_depth); call_depth = 0; returning = 0; g_loopctl = 0; g_quiet_fail = 0; g_have_fail_override = 0; g_current_file = NULL; cur_fileid = repl_fid; cur_file_env = repl_env; }
-      gc_env_root_restore(root_depth);
+      if (SJSET(jb) == 0) run_snippet(line); else { gc_env_root_restore(root_depth); temporary_buffer_restore(buffer_depth); call_depth = 0; returning = 0; g_loopctl = 0; g_quiet_fail = 0; g_have_fail_override = 0; g_current_file = NULL; cur_fileid = repl_fid; cur_file_env = repl_env; }
+      gc_env_root_restore(root_depth); temporary_buffer_restore(buffer_depth);
       printf(PROMPT); fflush(stdout);
     } else if (L == 0) {                                        /* blank line ends the block */
-      if (SJSET(jb) == 0) run_snippet(buf); else { gc_env_root_restore(root_depth); call_depth = 0; returning = 0; g_loopctl = 0; g_quiet_fail = 0; g_have_fail_override = 0; g_current_file = NULL; cur_fileid = repl_fid; cur_file_env = repl_env; }
-      gc_env_root_restore(root_depth);
+      if (SJSET(jb) == 0) run_snippet(buf); else { gc_env_root_restore(root_depth); temporary_buffer_restore(buffer_depth); call_depth = 0; returning = 0; g_loopctl = 0; g_quiet_fail = 0; g_have_fail_override = 0; g_current_file = NULL; cur_fileid = repl_fid; cur_file_env = repl_env; }
+      gc_env_root_restore(root_depth); temporary_buffer_restore(buffer_depth);
       buf[0] = 0; inblock = 0; printf(PROMPT); fflush(stdout);
     } else {
       size_t cur = strlen(buf); snprintf(buf + cur, sizeof buf - cur, "%s\n", line);
@@ -4274,15 +4314,15 @@ static void run_file_prompt(void) {
   printf("\n");
   sjmp_buf jb; err_jmp = &jb; g_top_jmp = &jb; g_current_file = path;
   volatile int save_fid = cur_fileid; Env * volatile save_env = cur_file_env;   /* read after the longjmp -> volatile */
-  volatile size_t root_depth = gc_env_root_count;
-  if (SJSET(jb) != 0) { gc_env_root_restore(root_depth); call_depth = 0; returning = 0; g_loopctl = 0; g_quiet_fail = 0; g_have_fail_override = 0; }
+  volatile size_t root_depth = gc_env_root_count; volatile size_t buffer_depth = temporary_buffer_count;
+  if (SJSET(jb) != 0) { gc_env_root_restore(root_depth); temporary_buffer_restore(buffer_depth); call_depth = 0; returning = 0; g_loopctl = 0; g_quiet_fail = 0; g_have_fail_override = 0; }
   else {
     gc_env_root_push(cur_file_env);
     cur_file_env = env_new(global_env); cur_fileid = ++g_next_fileid;   /* each run gets a fresh scope, so re-running works */
     run_snippet(src);
   }
   cur_fileid = save_fid; cur_file_env = save_env;                     /* restore the session scope */
-  gc_env_root_restore(root_depth);
+  gc_env_root_restore(root_depth); temporary_buffer_restore(buffer_depth);
   err_jmp = NULL; g_top_jmp = NULL; g_current_file = NULL;
   free(src);
 }
@@ -4795,7 +4835,7 @@ static void load_module(const char *name) {
   if (!path) { char m[400]; snprintf(m, sizeof m, "I couldn't find a module called '%s' to use. (looked in sprout.toml, modules/, src/, lib/)", name); fail(0, m); return; }
   char *c = canon_path(path);
   if (loaded_has(c)) { free(path); free(c); return; }
-  size_t root_depth = gc_env_root_count;
+  size_t root_depth = gc_env_root_count; size_t buffer_depth = temporary_buffer_count;
   gc_env_root_push(cur_file_env);
   const char *prev = g_current_file; g_current_file = path;
   int n; Stmt **prog = parse_file(path, &n);   /* parse first: a parse error here must NOT poison the dedup set */
@@ -4811,7 +4851,7 @@ static void load_module(const char *name) {
   returning = 0;                 /* a module's top-level `give` (if any) doesn't return to the user */
   cur_fileid = prevfid; cur_file_env = prevfe;
   g_current_file = prev;
-  gc_env_root_restore(root_depth);
+  gc_env_root_restore(root_depth); temporary_buffer_restore(buffer_depth);
 }
 
 /* sprout build - read sprout.toml, load every file, run the main file last */
@@ -4825,9 +4865,9 @@ static int cmd_build(void) {
   const char *mainf = g_main_file ? g_main_file : "app.sprout";
   printf("\n  " C_GREEN C_BOLD "Building %s" C_RESET "\n\n", g_project_name ? g_project_name : "project");
   global_env = env_new(NULL);
-  volatile size_t root_depth = gc_env_root_count;
+  volatile size_t root_depth = gc_env_root_count; volatile size_t buffer_depth = temporary_buffer_count;
   sjmp_buf jb; err_jmp = &jb; g_top_jmp = &jb;
-  if (SJSET(jb) != 0) { gc_env_root_restore(root_depth); err_jmp = NULL; g_top_jmp = NULL; g_current_file = NULL; call_depth = 0; returning = 0; g_loopctl = 0; g_quiet_fail = 0; g_have_fail_override = 0; return 1; }
+  if (SJSET(jb) != 0) { gc_env_root_restore(root_depth); temporary_buffer_restore(buffer_depth); err_jmp = NULL; g_top_jmp = NULL; g_current_file = NULL; call_depth = 0; returning = 0; g_loopctl = 0; g_quiet_fail = 0; g_have_fail_override = 0; return 1; }
   char *mainc = canon_path(mainf);
   for (int i = 0; i < g_ninc; i++) {                            /* libraries first... */
     char *ic = canon_path(g_incpath[i]); int is_main = !strcmp(ic, mainc); free(ic);
@@ -4836,7 +4876,7 @@ static int cmd_build(void) {
   }
   free(mainc);
   load_module(mainf);                                           /* entry point genuinely last */
-  gc_env_root_restore(root_depth);
+  gc_env_root_restore(root_depth); temporary_buffer_restore(buffer_depth);
   err_jmp = NULL; g_top_jmp = NULL;
   return test_report();   /* if the project ran any tests, report + set the exit code */
 }
@@ -4860,7 +4900,7 @@ static void run_test_file(const char *path) {
   int n; Stmt **prog = parse_program(&n);
   free(src);
   const char *prev = g_current_file; g_current_file = path;
-  size_t root_depth = gc_env_root_count;
+  size_t root_depth = gc_env_root_count; size_t buffer_depth = temporary_buffer_count;
   gc_env_root_push(cur_file_env);
   Env *fe = env_new(global_env);
   gc_env_root_push(fe); SPROUT_GC_ENV_ROOT_EVENT("test-file", fe);
@@ -4871,7 +4911,7 @@ static void run_test_file(const char *path) {
   exec_block(prog, n, fe);
   returning = 0;
   cur_fileid = pf; cur_file_env = pe; g_current_file = prev;
-  gc_env_root_restore(root_depth);
+  gc_env_root_restore(root_depth); temporary_buffer_restore(buffer_depth);
 }
 
 /* sprout test [file] - run a test file, or every .sprout in the tests folder */
@@ -4880,9 +4920,9 @@ static int cmd_test(int argc, char **argv) {
   toml_load();
   global_env = env_new(NULL);
   cur_file_env = env_new(global_env); cur_fileid = ++g_next_fileid;
-  volatile size_t root_depth = gc_env_root_count;
+  volatile size_t root_depth = gc_env_root_count; volatile size_t buffer_depth = temporary_buffer_count;
   sjmp_buf jb; err_jmp = &jb; g_top_jmp = &jb;
-  if (SJSET(jb) != 0) { gc_env_root_restore(root_depth); err_jmp = NULL; g_top_jmp = NULL; g_current_file = NULL; call_depth = 0; returning = 0; g_loopctl = 0; g_quiet_fail = 0; g_have_fail_override = 0; test_report(); return 1; }
+  if (SJSET(jb) != 0) { gc_env_root_restore(root_depth); temporary_buffer_restore(buffer_depth); err_jmp = NULL; g_top_jmp = NULL; g_current_file = NULL; call_depth = 0; returning = 0; g_loopctl = 0; g_quiet_fail = 0; g_have_fail_override = 0; test_report(); return 1; }
   if (argc >= 3) {
     run_test_file(argv[2]);
   } else {
@@ -4897,10 +4937,10 @@ static int cmd_test(int argc, char **argv) {
     DIR *d = opendir("tests");
     if (d) { struct dirent *e; while ((e = readdir(d))) { size_t L = strlen(e->d_name); if (L > 7 && !strcmp(e->d_name + L - 7, ".sprout")) { char p[600]; snprintf(p, sizeof p, "tests/%s", e->d_name); run_test_file(p); found = 1; } } closedir(d); }
 #endif
-    if (!found) { fprintf(stderr, "\n  No tests found. Put them in a tests/ folder, or run one:  sprout test mytests.sprout\n\n"); gc_env_root_restore(root_depth); err_jmp = NULL; g_top_jmp = NULL; return 1; }
+    if (!found) { fprintf(stderr, "\n  No tests found. Put them in a tests/ folder, or run one:  sprout test mytests.sprout\n\n"); gc_env_root_restore(root_depth); temporary_buffer_restore(buffer_depth); err_jmp = NULL; g_top_jmp = NULL; return 1; }
   }
   err_jmp = NULL; g_top_jmp = NULL;
-  gc_env_root_restore(root_depth);
+  gc_env_root_restore(root_depth); temporary_buffer_restore(buffer_depth);
   return test_report();
 }
 
@@ -5031,15 +5071,15 @@ int main(int argc, char **argv) {
       g_prog_args = argv + 1; g_prog_nargs = argc - 1;   /* every arg goes straight to the program */
       g_current_file = g_bundle_entry ? g_bundle_entry : "<bundled>";
       global_env = env_new(NULL); cur_file_env = env_new(global_env); cur_fileid = ++g_next_fileid;
-      volatile size_t root_depth = gc_env_root_count;
+      volatile size_t root_depth = gc_env_root_count; volatile size_t buffer_depth = temporary_buffer_count;
       sjmp_buf jb; err_jmp = &jb; g_top_jmp = &jb;
-      if (SJSET(jb) != 0) { gc_env_root_restore(root_depth); return 1; }
+      if (SJSET(jb) != 0) { gc_env_root_restore(root_depth); temporary_buffer_restore(buffer_depth); return 1; }
       tokenize(baked, (int)strlen(baked));
       int ncount; Stmt **program = parse_program(&ncount);
       modns_register("main", cur_fileid, cur_file_env);
       for (int i = 0; i < ncount; i++) register_top(program[i], cur_fileid, cur_file_env);
       exec_block(program, ncount, cur_file_env);
-      gc_env_root_restore(root_depth);
+      gc_env_root_restore(root_depth); temporary_buffer_restore(buffer_depth);
       err_jmp = NULL; g_top_jmp = NULL;
       return test_report();
     }
@@ -5094,16 +5134,16 @@ int main(int argc, char **argv) {
   cur_fileid = ++g_next_fileid;
   /* the top-level SYSTEM boundary: an uncaught error prints + stops cleanly here, and it's the
      landing point for hard errors (typos) that skip every `try:`. */
-  volatile size_t root_depth = gc_env_root_count;
+  volatile size_t root_depth = gc_env_root_count; volatile size_t buffer_depth = temporary_buffer_count;
   sjmp_buf jb; err_jmp = &jb; g_top_jmp = &jb;
-  if (SJSET(jb) != 0) { gc_env_root_restore(root_depth); err_jmp = NULL; g_top_jmp = NULL; g_current_file = NULL; call_depth = 0; returning = 0; g_loopctl = 0; g_quiet_fail = 0; g_have_fail_override = 0; return 1; }
+  if (SJSET(jb) != 0) { gc_env_root_restore(root_depth); temporary_buffer_restore(buffer_depth); err_jmp = NULL; g_top_jmp = NULL; g_current_file = NULL; call_depth = 0; returning = 0; g_loopctl = 0; g_quiet_fail = 0; g_have_fail_override = 0; return 1; }
   tokenize(src, len);
   int ncount; Stmt **program = parse_program(&ncount);
   { char *base = module_basename(file); modns_register(base, cur_fileid, cur_file_env); free(base); }  /* same as `sprout build` */
   for (int i = 0; i < ncount; i++) register_top(program[i], cur_fileid, cur_file_env);
-  if (check_only) { check_imports(program, ncount, cur_file_env); printf("ok: %s — no syntax or load errors.\n", file); gc_env_root_restore(root_depth); err_jmp = NULL; g_top_jmp = NULL; return 0; }
+  if (check_only) { check_imports(program, ncount, cur_file_env); printf("ok: %s — no syntax or load errors.\n", file); gc_env_root_restore(root_depth); temporary_buffer_restore(buffer_depth); err_jmp = NULL; g_top_jmp = NULL; return 0; }
   exec_block(program, ncount, cur_file_env);
-  gc_env_root_restore(root_depth);
+  gc_env_root_restore(root_depth); temporary_buffer_restore(buffer_depth);
   err_jmp = NULL; g_top_jmp = NULL;
   return test_report();   /* if the file had tests, report + set the exit code */
 }

@@ -14,11 +14,16 @@ slots are cleared so completed scopes do not remain registered accidentally.
 Growing the registry must succeed before execution proceeds. An allocation
 failure follows the existing error path through an initialized recovery boundary.
 
-This change leaves the language's values and host ABI unchanged. Collection
+This change leaves the language's values and host ABI unchanged. Native collection
 still happens at statement safe points; `SPROUT_GC_STRESS=1` selects the existing
 collect-on-every-statement mode. Conservative scanning remains part of the
 collector, and the scope registry is not a general memory quota or ownership
 system for every native allocation.
+
+The WebAssembly interpreter disables the conservative collector at statement
+safe points and uses a fresh instance for each playground run. Its shared
+scope/recovery corpus establishes semantic behavior; it supplies no collector
+marks, allocation counts or evidence for a long-lived WebAssembly instance.
 
 The dedicated include harness checks required scope admission, actual pre-sweep
 environment marks, discarded-slot clearing and depth recovery. Bounded fixtures

@@ -4,7 +4,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
 
-async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7) {
+async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7, bufferCount = 6) {
   const calls = [], filesystems = [];
   const validationLibrary = fs.readFileSync(path.join(__dirname, '..', '..', 'lib', 'validate.sprout'), 'utf8');
   const validationContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'validation_library_test.sprout'), 'utf8');
@@ -16,6 +16,7 @@ async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7) {
   const progressLibrary = fs.readFileSync(path.join(__dirname, '..', '..', 'lib', 'workflow_progress.sprout'), 'utf8');
   const progressContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'workflow_progress_test.sprout'), 'utf8');
   const rootContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'gc_env_roots_test.sprout'), 'utf8');
+  const bufferContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'argument_buffers_test.sprout'), 'utf8');
   const factory = async options => {
     const files = new Map(); filesystems.push(files);
     return {
@@ -44,6 +45,9 @@ async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7) {
           }
           if (source === rootContracts) {
             options.print('\x1b[1m' + rootCount + ' passed, 0 failed\x1b[0m'); return 0;
+          }
+          if (source === bufferContracts) {
+            options.print('\x1b[1m' + bufferCount + ' passed, 0 failed\x1b[0m'); return 0;
           }
           assert.equal(source, intrinsicContracts, 'actual shared intrinsic contracts reach the interpreter');
           options.print('10 passed, 0 failed'); return 0;
@@ -93,6 +97,10 @@ async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7) {
   assert.equal(roots.length, 1, 'shared environment scope corpus runs exactly once');
   assert.ok(roots[0].args.includes('--sandbox'), 'scope corpus needs no filesystem capability');
   assert.deepEqual(Array.from(roots[0].args.slice(-4)), ['--max-steps', '5000000', '--timeout-ms', '5000']);
+  const buffers = calls.filter(call => call.args[0] === 'test' && call.source === bufferContracts);
+  assert.equal(buffers.length, 1, 'shared argument recovery corpus runs exactly once');
+  assert.ok(buffers[0].args.includes('--sandbox'), 'recovery corpus needs no filesystem capability');
+  assert.deepEqual(Array.from(buffers[0].args.slice(-4)), ['--max-steps', '200000', '--timeout-ms', '1000']);
   const config = calls.filter(call => call.args[0] === 'test' && call.source === configContracts);
   assert.equal(config.length, 1, 'shared configuration corpus runs exactly once');
   assert.equal(config[0].args.includes('--sandbox'), false, 'file-backed configuration imports need normal mode');
@@ -122,4 +130,5 @@ test('WASM summaries retain exact corpus counts with CLI colors', async () => {
   for (const wrong of [1, 9, 11, 110]) await assert.rejects(exerciseSmoke(wrong, 6), assert.AssertionError);
   for (const wrong of [1, 5, 7, 60]) await assert.rejects(exerciseSmoke(10, wrong), assert.AssertionError);
   for (const wrong of [1, 6, 8, 70]) await assert.rejects(exerciseSmoke(10, 6, wrong), assert.AssertionError);
+  for (const wrong of [1, 5, 7, 60]) await assert.rejects(exerciseSmoke(10, 6, 7, wrong), assert.AssertionError);
 });

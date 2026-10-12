@@ -102,7 +102,12 @@ async function run(source, expectedCode = 0, flags = [], sandbox = true, files =
   const rootOutput = await run(rootContracts, 0, ['--max-steps', '5000000', '--timeout-ms', '5000'], true, {}, 'test');
   assert.match(unstyled(rootOutput), /^\s*7 passed(?:,\s*0 failed)?\s*$/m);
   assert.doesNotMatch(unstyled(rootOutput), /[1-9][0-9]* failed/);
-  console.log('ok: WASM environment scope contracts (ordinary collection)');
+  console.log('ok: WASM environment scope contracts (ordinary runtime; semantic recovery only)');
+  const bufferContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'argument_buffers_test.sprout'), 'utf8');
+  const bufferOutput = await run(bufferContracts, 0, ['--max-steps', '200000', '--timeout-ms', '1000'], true, {}, 'test');
+  assert.match(unstyled(bufferOutput), /^\s*6 passed(?:,\s*0 failed)?\s*$/m);
+  assert.doesNotMatch(unstyled(bufferOutput), /[1-9][0-9]* failed/);
+  console.log('ok: WASM argument recovery contracts (ordinary runtime; semantic recovery only, no allocation counters)');
   for (const expression of nativeExpressions) {
     assert.match(await run('show builtin::' + expression + '\n', 1), /sandbox mode/, expression + ' must stay blocked with explicit lookup');
   }
