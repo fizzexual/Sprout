@@ -71,6 +71,7 @@ jobs:
           python src/tests/validation_library_test.py "$bin"
           python src/tests/intrinsic_builtin_test.py "$bin"
           python src/tests/csv_import_example_test.py "$bin"
+          python src/tests/config_library_test.py "$bin"
           python src/tests/ergonomics_test.py "$bin"
           python src/tests/embed_test.py "$bin"
           python src/tests/release_manifest_test.py

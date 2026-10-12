@@ -1,0 +1,171 @@
+~ Pure layered configuration: explicit inputs, detached values, no ambient I/O.
+use "validate.sprout"
+private make cfg_validate = validate.check
+
+private task cfg_plain(value, kind):
+    give builtin::kind_of(value) == kind and not builtin::is_a(value, kind)
+
+private task cfg_segment(name):
+    when builtin::length(name) > 128:
+        give "<field name exceeds 128 characters>"
+    give name
+
+private task cfg_error(state, source, index, path, code, message):
+    when builtin::length(state.errors) < 64:
+        builtin::add(state.errors, {source: source, index: index, path: path, code: code, message: message})
+    otherwise:
+        set state.truncated = yes
+        set state.stopped = yes
+
+private task cfg_text_budget(size, state, source, index, path):
+    set state.text += size
+    when state.text > 262144:
+        cfg_error(state, source, index, path, "limit", "Layer names, keys and text exceed 262144 characters in total.")
+        set state.truncated = yes
+        set state.stopped = yes
+        give no
+    give yes
+
+private task cfg_copy(value, state, source, index, path, depth):
+    when state.stopped:
+        give nothing
+    when depth > 16:
+        cfg_error(state, source, index, path, "limit", "Configuration exceeds 16 nesting levels; recursive values are not supported.")
+        set state.truncated = yes
+        set state.stopped = yes
+        give nothing
+    when state.nodes >= 20000:
+        cfg_error(state, source, index, path, "limit", "Configuration exceeds 20000 visited value occurrences.")
+        set state.truncated = yes
+        set state.stopped = yes
+        give nothing
+    set state.nodes += 1
+    make kind = builtin::kind_of(value)
+    when builtin::is_a(value, kind) or not builtin::contains(["nothing", "text", "yes-no", "number", "integer", "decimal", "list", "map"], kind):
+        cfg_error(state, source, index, path, "kind", "Configuration values must be supported plain values.")
+        give nothing
+    when kind == "number":
+        try:
+            when value - value != 0:
+                cfg_error(state, source, index, path, "number", "Ordinary configuration numbers must be finite.")
+                give nothing
+        caught issue:
+            when issue.kind != "math":
+                fail issue
+            cfg_error(state, source, index, path, "number", "Ordinary configuration numbers must be finite.")
+            give nothing
+    when kind == "text":
+        make size = builtin::length(value)
+        when size > 65536:
+            cfg_error(state, source, index, path, "limit", "A configuration text value may contain at most 65536 characters.")
+            give nothing
+        when not cfg_text_budget(size, state, source, index, path):
+            give nothing
+    when kind == "list":
+        when builtin::length(value) > 10000:
+            cfg_error(state, source, index, path, "limit", "A configuration list may contain at most 10000 items.")
+            give nothing
+        make result = []
+        make item = 0
+        for each child in value:
+            when state.stopped:
+                give nothing
+            builtin::add(result, cfg_copy(child, state, source, index, path + [item], depth + 1))
+            set item += 1
+        give result
+    when kind == "map":
+        when builtin::length(value) > 128:
+            cfg_error(state, source, index, path, "limit", "A configuration map may contain at most 128 keys.")
+            give nothing
+        make result = {}
+        for each name in builtin::keys(value):
+            when state.stopped:
+                give nothing
+            make size = builtin::length(name)
+            when size < 1 or size > 128:
+                cfg_error(state, source, index, path + [cfg_segment(name)], "key", "Configuration key names must contain from 1 to 128 characters.")
+            otherwise:
+                when not cfg_text_budget(size, state, source, index, path + [name]):
+                    give nothing
+                set result[name] = cfg_copy(value[name], state, source, index, path + [name], depth + 1)
+        give result
+    give value
+
+private task cfg_layer(values, state, source, index):
+    when not cfg_plain(values, "map"):
+        cfg_error(state, source, index, [], "layer", "Each configuration layer must be a plain root map.")
+        give nothing
+    give cfg_copy(values, state, source, index, [], 0)
+
+private task cfg_overlay(values, provenance, layer, source, index, name):
+    for each key in builtin::keys(layer):
+        set values[key] = layer[key]
+        set provenance[key] = {source: source, index: index, name: name}
+    give nothing
+
+private task cfg_failure(state):
+    give {ok: no, values: nothing, provenance: nothing, errors: state.errors, truncated: state.truncated}
+
+public task resolve(defaults, schema, files = [], cli = {}):
+    make state = {errors: [], truncated: no, stopped: no, nodes: 0, text: 0}
+    make checked = cfg_validate({}, schema)
+    when checked.schema_error != nothing:
+        cfg_error(state, "schema", nothing, checked.schema_error.path, "schema", checked.schema_error.message)
+        give cfg_failure(state)
+    when schema.kind != "map":
+        cfg_error(state, "schema", nothing, ["kind"], "schema", "Configuration requires a valid root-map schema.")
+        give cfg_failure(state)
+    when not cfg_plain(files, "list") or builtin::length(files) > 16:
+        cfg_error(state, "files", nothing, [], "layers", "Files must be a plain list containing at most 16 named layers.")
+        give cfg_failure(state)
+    make values = {}
+    make provenance = {}
+    make base = cfg_layer(defaults, state, "defaults", nothing)
+    when base != nothing:
+        cfg_overlay(values, provenance, base, "defaults", nothing, nothing)
+    make index = 0
+    for each layer in files:
+        when state.stopped:
+            give cfg_failure(state)
+        when not cfg_plain(layer, "map") or builtin::length(layer) != 2 or not builtin::contains(layer, "name") or not builtin::contains(layer, "values"):
+            cfg_error(state, "file", index, [], "layer", "Each file layer must contain exactly name and values.")
+        otherwise:
+            when not cfg_plain(layer.name, "text") or builtin::length(layer.name) < 1 or builtin::length(layer.name) > 64:
+                cfg_error(state, "file", index, ["name"], "name", "A file layer name must contain from 1 to 64 characters.")
+            otherwise:
+                when not cfg_text_budget(builtin::length(layer.name), state, "file", index, ["name"]):
+                    give cfg_failure(state)
+                make copied = cfg_layer(layer.values, state, "file", index)
+                when copied != nothing:
+                    cfg_overlay(values, provenance, copied, "file", index, layer.name)
+        set index += 1
+    when state.stopped:
+        give cfg_failure(state)
+    make top = cfg_layer(cli, state, "cli", nothing)
+    when top != nothing:
+        cfg_overlay(values, provenance, top, "cli", nothing, nothing)
+    when builtin::length(state.errors) > 0 or state.truncated:
+        give cfg_failure(state)
+    when builtin::length(values) > 128:
+        cfg_error(state, "resolved", nothing, [], "limit", "The resolved configuration may contain at most 128 root keys.")
+        give cfg_failure(state)
+    make validated = cfg_validate(values, schema)
+    when validated.schema_error != nothing:
+        cfg_error(state, "schema", nothing, validated.schema_error.path, "schema", validated.schema_error.message)
+        give cfg_failure(state)
+    for each error in validated.errors:
+        cfg_error(state, "resolved", nothing, error.path, error.code, error.message)
+    set state.truncated = state.truncated or validated.truncated
+    when not validated.ok:
+        give cfg_failure(state)
+    give {ok: yes, values: values, provenance: provenance, errors: [], truncated: no}
+
+private make cfg_plain = cfg_plain
+private make cfg_segment = cfg_segment
+private make cfg_error = cfg_error
+private make cfg_text_budget = cfg_text_budget
+private make cfg_copy = cfg_copy
+private make cfg_layer = cfg_layer
+private make cfg_overlay = cfg_overlay
+private make cfg_failure = cfg_failure
+public make resolve = resolve

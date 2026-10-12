@@ -1,0 +1,96 @@
+~ Shared native/WebAssembly pure configuration corpus. No host operations.
+use "../../lib/config.sprout"
+
+private task configuration_must_not_run(value):
+    fail "Do not execute input tasks."
+
+test "ordered layers and CLI preserve winning root provenance":
+    make schema = {kind: "map", fields: {name: {kind: "text"}, enabled: {kind: "yes-no"}}}
+    make result = config.resolve({name: "default", enabled: no}, schema, [{name: "first", values: {name: "one"}}, {name: "second", values: {name: "two"}}], {enabled: yes})
+    expect result.ok
+    expect result.values == {name: "two", enabled: yes}
+    expect result.provenance.name == {source: "file", index: 1, name: "second"}
+    expect result.provenance.enabled.source == "cli"
+
+test "nested replacement and explicit nothing do not perform a deep merge":
+    make schema = {kind: "map", fields: {pair: {kind: "map", fields: {a: {kind: "number"}, b: {kind: "number"}}}}}
+    make result = config.resolve({pair: {a: 1, b: 2}}, schema, [], {pair: {a: 3}})
+    expect not result.ok
+    expect result.values == nothing
+    expect result.provenance == nothing
+    expect result.errors[0].path == ["pair", "b"]
+    expect config.resolve({note: "old"}, {kind: "map", fields: {note: {kind: "text", nullable: yes}}}, [], {note: nothing}).values.note == nothing
+
+test "detached results expand shared occurrences without changing source or schema":
+    make shared = [{name: "original"}]
+    make defaults = {first: shared, second: shared}
+    make schema = {kind: "map", allow_unknown: yes}
+    make before = builtin::json_encode([defaults, schema])
+    make result = config.resolve(defaults, schema)
+    set result.values.first[0].name = "changed"
+    expect result.values.second[0].name == "original"
+    expect shared[0].name == "original"
+    expect before == builtin::json_encode([defaults, schema])
+
+test "exact identifiers money and Unicode retain their native kinds":
+    make schema = {kind: "map", fields: {id: {kind: "integer"}, cost: {kind: "decimal"}, name: {kind: "text", min_length: 4, max_length: 4}}}
+    make result = config.resolve({id: builtin::integer("9223372036854775807"), cost: builtin::decimal("19.95"), name: "a🌱é中"}, schema)
+    expect result.ok
+    expect builtin::kind_of(result.values.id) == "integer"
+    expect builtin::kind_of(result.values.cost) == "decimal"
+    expect result.values.id == builtin::integer("9223372036854775807")
+
+test "superseded unsupported values and recursive graphs cannot escape inspection":
+    make callback = configuration_must_not_run
+    make bad = config.resolve({extra: callback}, {kind: "map", allow_unknown: yes}, [], {extra: "replacement"})
+    expect not bad.ok
+    expect bad.values == nothing
+    expect bad.errors[0].source == "defaults"
+    make loop = []
+    builtin::add(loop, loop)
+    make cyclic = config.resolve({loop: loop}, {kind: "map", allow_unknown: yes})
+    expect not cyclic.ok
+    expect cyclic.truncated
+    expect builtin::length(loop) == 1
+
+test "schema and envelopes are validated without partial results":
+    make wrong_schema = config.resolve(nothing, {kind: "text"})
+    expect not wrong_schema.ok
+    expect wrong_schema.errors[0].source == "schema"
+    make wrong_layer = config.resolve({}, {kind: "map"}, [{name: "secret label", values: [], extra: yes}])
+    expect not wrong_layer.ok
+    expect wrong_layer.values == nothing
+    expect not builtin::contains(builtin::json_encode(wrong_layer), "secret label")
+
+test "unknown field errors and diagnostic paths remain bounded":
+    make defaults = {}
+    for each index in builtin::range(128):
+        set defaults["field" + index] = index
+    make result = config.resolve(defaults, {kind: "map"})
+    expect not result.ok
+    expect result.truncated
+    expect builtin::length(result.errors) == 64
+    make large = {}
+    set large["private-" + "x" * 20000] = "not echoed"
+    make rejected = config.resolve(large, {kind: "map", allow_unknown: yes})
+    expect rejected.errors[0].path == ["<field name exceeds 128 characters>"]
+    expect not builtin::contains(builtin::json_encode(rejected), "private-")
+
+test "captured helpers and explicit native calls survive constructor collisions":
+    make calls = []
+    make callback = task(value): builtin::add(calls, value)
+    type cfg_copy:
+        make value
+        make state
+        make source
+        make index
+        make path
+        make depth
+        make observed = callback("constructor")
+    type length:
+        make value
+        make observed = callback("constructor")
+    make length = task(value): callback("task")
+    make result = config.resolve({name: "Ada"}, {kind: "map", fields: {name: {kind: "text"}}})
+    expect result.ok
+    expect calls == []

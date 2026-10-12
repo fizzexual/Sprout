@@ -97,6 +97,8 @@ and start from the [paginated contacts API with durable retry keys](docs/contact
 The [CSV dry-run example](docs/csv-import.md) validates exact identifiers and
 money before any import. [Explicit builtin calls](docs/intrinsics.md) preserve
 native operation identity when application names collide, with editor support.
+[Layered configuration](docs/configuration.md) combines explicit defaults, file
+maps and CLI values with validation and winning-key provenance.
 The [ongoing work ledger](SPROUT_WORK_PLAN.md) records completed evidence,
 active feature owners, the next queue and remaining release gates.
 The [TotalReach migration example](examples/adoption/totalreach/README.md) compares

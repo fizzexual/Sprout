@@ -76,6 +76,13 @@ async function run(source, expectedCode = 0, flags = [], sandbox = true, files =
   assert.match(intrinsicOutput, /[1-9][0-9]* passed/);
   assert.doesNotMatch(intrinsicOutput, /[1-9][0-9]* failed/);
   console.log('ok: WASM explicit builtin contracts');
+  const configLibrary = fs.readFileSync(path.join(__dirname, '..', '..', 'lib', 'config.sprout'), 'utf8');
+  const configContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'config_library_test.sprout'), 'utf8');
+  const configOutput = await run(configContracts, 0, ['--max-steps', '3000000'], false,
+    {'/lib/validate.sprout': validationLibrary, '/lib/config.sprout': configLibrary}, 'test');
+  assert.match(configOutput, /[1-9][0-9]* passed/);
+  assert.doesNotMatch(configOutput, /[1-9][0-9]* failed/);
+  console.log('ok: WASM layered configuration contracts');
   for (const expression of nativeExpressions) {
     assert.match(await run('show builtin::' + expression + '\n', 1), /sandbox mode/, expression + ' must stay blocked with explicit lookup');
   }

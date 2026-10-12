@@ -86,6 +86,15 @@ occurs after the snapshot is taken. The monitoring endpoint shares the normal
 admission limit and can itself return 503 at capacity. Readiness and database
 health still require an application probe and an independent data check.
 
+At capacity the bridge attempts an empty 503, half-closes its write side and
+discards up to 64 KiB of incoming bytes under one total 0.2-second send/drain
+deadline before closing. This lets a timely request arriving after the response
+be consumed before full close, reducing response-loss TCP resets described
+in [RFC 9112 section 9.6](https://www.rfc-editor.org/rfc/rfc9112.html#section-9.6).
+The rejected connection gets no handler, worker or application parsing. An idle,
+late or flooding peer can still see a transport failure when the time/byte bound
+ends; the capacity counter records the rejection attempt, not delivery.
+
 Labels are fixed; request paths, queries, headers, bodies, program paths and
 worker diagnostics are never retained in the metrics. There is no logging sink,
 extra collector thread, per-user identity or persistent audit trail. Protect the

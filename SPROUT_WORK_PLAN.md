@@ -88,8 +88,30 @@ those local results. The next integrated revision still needs all eight jobs.
 | N008 editor | `/root/editor_tooling`: editor indexing/help/navigation/rename and controls | Peer approved: 52 controls, preserved/fixed newline diagnostic observation, exact native registry parity, ordinary lexical names retained. New complete CI pending |
 | R001 | Root: Windows installer regression driver; `/root/distribution` read-only peer | Corrected confirmed case contamination and retained failure diagnostics; initial CI timeout cause unknown; 19 local controls and final5 diagnostic controls on Windows/Linux passed, next full CI pending |
 
-N002 remains a design proposal until separately selected. Next-batch edits do
-not change the exact frozen Git revision used by the current batch's CI.
+N002 was subsequently selected and implemented in the separate integration
+below. Later edits do not change the exact revision used by an earlier CI run.
+
+The `b39afb6` [candidate CI 38277853794](https://github.com/fizzexual/Sprout/actions/runs/38277853794)
+also finished seven of eight jobs. New native/intrinsic/validation/CSV/editor,
+rebuilt WASM and sanitizer contracts passed; Windows stopped at an existing
+metrics-capacity test with a lost overload response (`10053`). All failed reports
+remain immutable. Separate bounded loopback fixtures reproduced complete 503
+loss when a client sent its request after full close, matching the observed
+error class without claiming the exact remote cause. R002 now half-closes then
+discards bounded bytes using the remaining original deadline; it admits no new
+handler/worker and keeps attempted-response counters honest.
+
+## Current active integration: configuration and overload teardown
+
+| Item | Owner and exact scope | Evidence / next action |
+| --- | --- | --- |
+| N002 | `/root/stdlib`: five new pure configuration module/docs/example/test files; `/root/editor_tooling` peer | 16 owner controls/eight GC corpus on A394 and 16 root controls on canonical94 passed; seven focused peer controls and a separate 24-case exact-type oracle approved. Explicit layers, detached values, provenance, bounded errors, no ambient I/O; fresh actual WASM/full CI pending |
+| R002 | Root: Python service capacity teardown + dedicated controls; `/root/distribution` peer | Preserved old late-write response loss; six corrected controls passed on Windows/offline Linux, full Python88 completed with one POSIX skip. Final remaining-send-deadline delta and integration wiring peer approved. Exact503, original total0.2s/64KiB cap, no new handler/worker; fresh full CI pending |
+| Installation provenance | Root: exact Git-byte normal build | Canonical b39 binary94 built from all19 Git inputs with no warnings; intrinsic22/validation19/CSV18 passed. Prior A394/raw-Git binding false and separate CRLF-only diagnostic preserved. Installed4CD remains until final complete CI and source/build verification |
+
+N003 Node queue and N004 application-contract designs are ready, with explicit
+acceptance gates. Implement only the next approved scope; do not mistake design
+or the current configuration code for coverage by earlier CI.
 
 ## Next unblocked work
 
@@ -99,7 +121,7 @@ ownership before implementation; keep each item independently reviewable.
 | ID | Work | Why it helps / acceptance |
 | --- | --- | --- |
 | N001 | CSV import validation example using F001 | Turn dirty application data into accepted rows and bounded row/field errors; preserve exact identifiers/money and demonstrate dry-run behavior with synthetic CSV |
-| N002 | Pure layered configuration module | Merge explicit defaults, file maps and CLI overrides with schema validation and provenance; no ambient environment access, mutation or secret logging |
+| N002 | Pure layered configuration module (active) | Merge explicit defaults, file maps and CLI overrides with schema validation and provenance; no ambient environment access, mutation or secret logging |
 | N003 | Node SDK bounded request queue | Add useful concurrency/backpressure/cancellation without sharing VM state; test queued cancellation, overflow, timeout and complete owned-worker cleanup |
 | N004 | Reusable application request/result contracts | Small source module for method/route/field validation and bounded response errors; test against the contacts example and current Python/Node host contracts |
 | N005 | Workflow progress tooling | Make partial/failed/uncertain job state easier to inspect and explain without replaying effects; read-only exact checkpoint fixtures and concise actionable output |
@@ -120,6 +142,7 @@ order. Do not silently broaden an item into a public deployment or stable releas
 | New agreed sustained run | Freeze final native/source/header/SDK/harness inputs and fresh trusted review inputs before launch. Preserve v2 policy SHA256 `e0fa18931226ba2c181d2700dea0da3e91fc9cba878c551232298cb9342bd0ee`; independently verify exact clocks/raw duration, actual SQLite data, lifecycle/thread baselines, cadence and resource/storage limits. Never reuse the failed candidate's sealed trust. |
 | Actual supervisor/crash recovery and representative deployment | Finite cold recovery and compiled/adapter tests do not establish these platform-specific behaviors. Keep limits explicit and scope any future rehearsal separately. |
 | Windows installer CI observation | `437af0a` healthy PowerShell upgrade timed out at 15 seconds; original cause unknown. Correct driver isolation/diagnostics with unchanged deadlines, preserve the failure and require fresh complete CI before promotion. |
+| HTTP capacity teardown | `b39afb6` observed10053. Local late-write fixtures independently reproduce lost503; correct bounded teardown and require new complete CI before promotion, retaining the exact remote-cause uncertainty and bounded delivery limits. |
 | Independent external security audit | Agent peer review and sanitizers are evidence for tested cases; external professional review remains separate. |
 | Live Paper and stable release | Live server use awaits the owner's EULA decision. No stable tag/public service/paid infrastructure is authorized. |
 
@@ -173,3 +196,12 @@ order. Do not silently broaden an item into a public deployment or stable releas
   six explicit native operations and passed19 boundary/ten GC tests; the archived
   FF485 negative control remains. Native installation is still4CD pending new
   candidate full CI. All source owners are frozen for one integrated commit.
+- 2026-10-12: b39's first CI remained7/8; no installation promotion. Root built
+  canonical native94 directly from19 committed Git-byte inputs after preserving
+  the old three-file raw EOL binding mismatch. All59 intrinsic/validation/CSV
+  controls passed on94. R002 fixes the reproduced TCP close response loss within
+  the original0.2s and64KiB limits; Python88/one POSIX skip passed. N00216 native
+  controls passed separately on94. Both additions subsequently passed peer
+  review, including configuration's independent exact-type oracle and the
+  service's remaining-send-deadline guard. Fresh actual WASM/full CI remains;
+  the original eight-hour gate is still held by the human.

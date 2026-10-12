@@ -9,6 +9,8 @@ test('WASM smoke isolates persistence and retains sandboxed native capability pr
   const validationLibrary = fs.readFileSync(path.join(__dirname, '..', '..', 'lib', 'validate.sprout'), 'utf8');
   const validationContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'validation_library_test.sprout'), 'utf8');
   const intrinsicContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'intrinsic_builtin_test.sprout'), 'utf8');
+  const configLibrary = fs.readFileSync(path.join(__dirname, '..', '..', 'lib', 'config.sprout'), 'utf8');
+  const configContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'config_library_test.sprout'), 'utf8');
   const factory = async options => {
     const files = new Map(); filesystems.push(files);
     return {
@@ -20,6 +22,11 @@ test('WASM smoke isolates persistence and retains sandboxed native capability pr
           if (source === validationContracts) {
             assert.equal(files.get('/lib/validate.sprout'), validationLibrary, 'actual library is mounted');
             options.print('10 passed, 0 failed'); return 0;
+          }
+          if (source === configContracts) {
+            assert.equal(files.get('/lib/validate.sprout'), validationLibrary, 'actual validation dependency is mounted');
+            assert.equal(files.get('/lib/config.sprout'), configLibrary, 'actual configuration library is mounted');
+            options.print('8 passed, 0 failed'); return 0;
           }
           assert.equal(source, intrinsicContracts, 'actual shared intrinsic contracts reach the interpreter');
           options.print('10 passed, 0 failed'); return 0;
@@ -57,7 +64,7 @@ test('WASM smoke isolates persistence and retains sandboxed native capability pr
   const importedValidation = calls.filter(call => call.args[0] === 'test' && call.source === validationContracts);
   assert.equal(importedValidation.length, 1, 'one shared validation corpus runs');
   assert.equal(importedValidation[0].args.includes('--sandbox'), false, 'filesystem imports need normal mode');
-  assert.equal(calls.filter(call => !call.args.includes('--sandbox')).length, 2);
+  assert.equal(calls.filter(call => !call.args.includes('--sandbox')).length, 3);
   const suppliedValidation = calls.filter(call => call.source.startsWith(validationLibrary + '\n'));
   assert.equal(suppliedValidation.length, 1, 'host-supplied pure validation source runs');
   assert.ok(suppliedValidation[0].args.includes('--sandbox'), 'supplied source retains sandbox restrictions');
@@ -65,6 +72,9 @@ test('WASM smoke isolates persistence and retains sandboxed native capability pr
   const intrinsic = calls.filter(call => call.args[0] === 'test' && call.source === intrinsicContracts);
   assert.equal(intrinsic.length, 1, 'shared intrinsic corpus runs exactly once');
   assert.ok(intrinsic[0].args.includes('--sandbox'), 'intrinsic corpus keeps sandbox restrictions');
+  const config = calls.filter(call => call.args[0] === 'test' && call.source === configContracts);
+  assert.equal(config.length, 1, 'shared configuration corpus runs exactly once');
+  assert.equal(config[0].args.includes('--sandbox'), false, 'file-backed configuration imports need normal mode');
   assert.equal(new Set(filesystems).size, calls.length, 'each interpreter owns a fresh filesystem');
   for (const api of ['file_read', 'file_write', 'request', 'process', 'sql_open', 'remember',
     'workflow_inspect', 'workflow_run', 'sql_migrate', 'sql_migrations']) {

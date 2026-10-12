@@ -1,0 +1,14 @@
+~ Synthetic application settings. Inputs have already been loaded by the caller.
+use "../../lib/config.sprout"
+
+make schema = {kind: "map", fields: {
+    mode: {kind: "text", allowed: ["preview", "apply"]},
+    account: {kind: "integer"},
+    budget: {kind: "decimal"},
+    notify: {kind: "yes-no"},
+    note: {kind: "text", required: no, nullable: yes, max_length: 80}
+}}
+make defaults = {mode: "preview", account: builtin::integer("9007199254740993"), budget: builtin::decimal("19.95"), notify: no}
+make files = [{name: "synthetic-local", values: {budget: builtin::decimal("25.00"), note: "Example only"}}]
+make cli = {notify: yes, note: nothing}
+show builtin::json_encode(config.resolve(defaults, schema, files, cli))

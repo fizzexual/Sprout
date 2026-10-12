@@ -165,12 +165,7 @@ class SproutServer(http.server.ThreadingHTTPServer):
     def process_request(self, request, address):
         if not self.capacity.acquire(blocking=False):
             if self.metrics: self.metrics.reject_capacity()
-            try:
-                request.settimeout(.2)
-                request.sendall(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
-            except OSError:
-                pass
-            self.shutdown_request(request)
+            self.reject_capacity(request)
             return
         metrics_accepted = False
         try:
@@ -184,6 +179,31 @@ class SproutServer(http.server.ThreadingHTTPServer):
             finally:
                 self.capacity.release()
             raise
+    def reject_capacity(self, request):
+        # A full close while the client is still sending can erase the 503 at
+        # its TCP parser. Half-close, then discard bounded input (RFC9112 9.6).
+        # Keep the original aggregate .2s I/O budget and allocate no handler.
+        try:
+            deadline = time.monotonic() + .2
+            remaining = deadline - time.monotonic()
+            if not math.isfinite(remaining) or remaining <= 0:
+                return
+            request.settimeout(remaining)
+            request.sendall(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            request.shutdown(socket.SHUT_WR)
+            discarded = 0
+            while discarded < 65536:
+                remaining = deadline - time.monotonic()
+                if not math.isfinite(remaining) or remaining <= 0:
+                    break
+                request.settimeout(remaining)
+                chunk = request.recv(min(4096, 65536 - discarded))
+                if not chunk: break
+                discarded += len(chunk)
+        except OSError:
+            pass
+        finally:
+            self.shutdown_request(request)
     def process_request_thread(self, request, address):
         started = None
         delegated = False
