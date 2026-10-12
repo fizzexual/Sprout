@@ -56,6 +56,27 @@ Root integrates and commits verified work. Feature owners hand off exact file
 hashes, test results and limitations before peer review. Root owns this ledger;
 agents report updates rather than editing it concurrently.
 
+`e19787a` was pushed and [CI 38272445193](https://github.com/fizzexual/Sprout/actions/runs/38272445193)
+finished with five of eight jobs passing. Actual WebAssembly, ASan, UBSan, Docker
+and Paper passed. All three native jobs stopped at the old mocked WebAssembly
+harness: its fake filesystem lacked `mkdirTree` and still expected only one
+normal-mode invocation. Root reproduced the failure and updated the mock to
+assert the real mounted library/shared corpus plus the separate sandboxed
+supplied-source invocation. All 82 editor/playground/Node/application tests now
+pass locally. The original failed run is preserved; a fresh corrected-revision
+CI run remains required before marking F001–F003 Done.
+
+## Next batch active while integration completes
+
+| Item | Owner and scope | State |
+| --- | --- | --- |
+| N001 | `/root/stdlib`: five new CSV dry-run example/docs/test files | Approved for implementation: bounded synthetic input, exact IDs/money, field errors and no persistence; existing validation files frozen |
+| N008 runtime | `/root/distribution`: native parser/evaluator/formatter, dedicated intrinsic controls and documentation | Approved additive contextual `builtin::name(...)` syntax; preserve current dispatch and permissions, build only a private candidate; no installation promotion |
+| N008 editor | `/root/editor_tooling`: editor indexing/help/navigation/rename and controls | Coordinate contextual intrinsic handling with the runtime owner; ordinary names remain lexical; fresh native/WASM/SDK CI required before promotion |
+
+N002 remains a design proposal until separately selected. Next-batch edits do
+not change the exact frozen Git revision used by the current batch's CI.
+
 ## Next unblocked work
 
 Choose the first item whose dependencies are verified. Scope its API and file
@@ -116,3 +137,8 @@ order. Do not silently broaden an item into a public deployment or stable releas
   record it correctly reports SQLite capability as unknown. No interpreter,
   SDK, original contacts fixture, installation or sustained policy changed.
   F001–F003 await one fresh integrated cross-platform CI run.
+- 2026-10-12: Preserve the `e19787a` five-of-eight CI failure and local mock
+  reproduction. Its actual WASM validation corpus and both sanitizer jobs
+  passed; mock-only correction keeps capability negatives and fresh-filesystem
+  assertions and adds shared-source/mount/sandbox wiring checks. Start N001/N008
+  as the next isolated feature batch while corrected CI is prepared.

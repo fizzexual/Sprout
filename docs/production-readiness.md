@@ -277,6 +277,16 @@ not a fresh build of this feature revision. New complete native/WebAssembly CI
 is still required. These source-library/tool/example additions do not change
 the installed interpreter or qualify the pending eight-hour deployment profile.
 
+The first feature revision `e19787a` passed five jobs in
+[CI 38272445193](https://github.com/fizzexual/Sprout/actions/runs/38272445193):
+actual WebAssembly, both sanitizer jobs, Docker and Paper. Three native jobs
+stopped at an outdated fake WebAssembly filesystem in the harness unit test.
+The failure was reproduced locally. A test-only correction models the mounted
+validation library and checks both the normal-mode shared corpus and sandboxed
+supplied source, retaining capability negatives and isolated filesystem checks.
+All 82 editor/playground/Node/application tests passed locally after correction;
+fresh corrected-revision CI remains required. The original failure stays recorded.
+
 - Cross-platform native, SDK, WASM, sanitizer and hardened Docker checks pass
   against the final commit. New regressions belong in CI and release checks.
 - Immutable sustained-run reports record build/source/host hashes, duration,
