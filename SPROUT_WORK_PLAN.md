@@ -14,8 +14,13 @@ cleanup is verified and installed. Capability-query candidate `89654a9` is pushe
 seven jobs and failed the Windows bounded workflow fixture. Its existing two-second
 seed job timed out; cause is under review. The new query passed actual WASM and
 native metadata checks, but this candidate is not installed or fully qualified.
-Performance tools are integrated for fresh CI; their numeric export remains
-private. Explicit doctor preflight remains a private reviewed proposal.
+Performance-tool candidate `74eaef8` is pushed. Its first
+[CI 38314978798](https://github.com/fizzexual/Sprout/actions/runs/38314978798)
+finished six of eight jobs passing: Windows/macOS rejected a fixture's lexical
+temporary-root spelling, while the tool returned its canonical root. One bounded
+preimage reproduced that assertion; a test-only correction and new alias/escape
+regression passed two controls. Fresh corrected-revision CI is required. The
+numeric export and explicit doctor proposal remain private.
 Earlier
 batch sections retain the status at that time; their pending claims do not
 override this current status. The eight-hour gate remains held by the human.
@@ -254,10 +259,10 @@ remain separate; later passes do not establish their causes.
 
 | ID | Owner / isolated files | Acceptance / current state |
 | --- | --- | --- |
-| N007 publication | Root integration; `/root/stdlib` implementation, `/root/distribution` independent peer | Twelve reviewed tool/spec/doc/control files integrated; numeric export remains private. First Windows28 controls, five original cap passes plus one corrected fixture, and four new growth/identity controls remain separately attributed. One fixture failure and five unnecessary pure repeats are retained. Final peer approved streaming role caps, credited inventory sizes, aggregate growth checks and primary-error preservation. Fresh three-platform control/full CI pending; no new measurement or prior local worker repetition. |
+| N007 publication | Root integration; `/root/stdlib` implementation, `/root/distribution` independent peer | Twelve reviewed files pushed in74ea; numeric export remains private. Fresh CI6/8 failed a canonical-root spelling assertion on Windows/macOS; Linux completed all38 controls. One pure preimage confirmed the fixture assumption; two corrected/new alias/escape controls passed separately. Tool runtime code, bounds, timing and cleanup behavior are unchanged by that test correction. Peer/fresh corrected-revision CI pending; prior first28/cap4/fixture failure/five unnecessary pure repeats retain separate attribution. No new measurement. |
 | N009 | Root integrated and pushed `89654a9`; source/checker/wiring peers complete | Actual WASM, sanitizer, Docker, Paper, Linux and macOS jobs passed; Windows passed metadata/foundation controls, then failed the existing bounded DAG seed at its unchanged 2000ms deadline. Preserve the first-attempt 7/8 result and investigate without retries/retuning. The private separator/version-analysis failures also remain failed. Normal1544 was built without warnings and all19 inputs match Git, but installed4FF stays in place until the candidate's required gates pass. |
 | Windows workflow diagnosis | Root/editor private observation complete; remote cause remains open | Original journal byte reviews verified seven before-image checksums and changed database pages, without SQLite recovery. One separately frozen instrumented local seed completed once under unchanged2000ms/15000ms/18s limits. Root read-only verification confirmed one exact effect, one application and two events in the new fixture. Local1544 differs from remote243; markers perturb timing, and this is not a failed-CI replacement or independent descendant-stop proof. No further seed/whole-soak run authorized. |
-| Integration | Root: queue, evidence, source/build binding and CI/release wiring | `89654a9` CI remains7/8 with an unexplained Windows seed timeout. N007 is a distinct tooling batch needing one fresh full CI with bounded fake/oracle/Python lifecycle controls on all three platforms. Native19 inputs are unchanged from896; no redundant local compile or prior measurement repeat. Keep installed6b/4FF until required gates pass; no sustained test or clock changes. |
+| Integration | Root: queue, evidence, source/build binding and CI/release wiring | Preserve896 CI7/8 unknown seed cause and74ea CI6/8 fixture spelling failures. Corrected N007 test source requires a distinct fresh full CI after peer review. Native19 inputs remain unchanged from896; no redundant local compile or prior measurement repeat. Keep installed6b/4FF until required gates pass; no sustained test or clock changes. |
 | N014 private proposal | Root source/test/doc peer complete; producer/integration gates pending | New24 fake/three-owned-Python controls passed, then one separate fake clock regression passed after root reproduced a backward reading missed above the origin. The correction tracks the previous reading while retaining the original deadline and primary/cleanup errors. These are separate24+1 profiles, not a fresh combined25 pass. Default schema1/no probe stays unchanged; explicit schema2 and six feature requirements remain private. No real Sprout consumer query, shared edits or installation. |
 | N015 implementation | `/root/editor_tooling`: six new private pure-quote batch files | Final design approved: at most8 requests/128 aggregate raw lines, exact existing per-item envelopes, bounded compatible trees/bytes/steps/time and no partial results. Private implementation/static/fake controls authorized. Freeze candidate and exact bounded launch schedule for independent review/root seal before any native/SDK call. Future correctness uses verified6b/4FF; no pool/retry/effects, benchmark or speed claim. |
 | N016 design | `/root/stdlib`: private timestamp/UTC contract | First check existing operations for overlap, then design strict explicit-offset application timestamp parsing and canonical UTC output. Pin the primary RFC semantics; specify leap seconds, unknown offsets, fractional precision, exact types and bounds. No ambient clock/timezone/IANA lookup or native launch; independent design review precedes implementation. |
@@ -299,6 +304,14 @@ order. Do not silently broaden an item into a public deployment or stable releas
 | Live Paper and stable release | Live server use awaits the owner's EULA decision. No stable tag/public service/paid infrastructure is authorized. |
 
 ## Batch evidence log
+
+- 2026-10-13: N007 tooling74ea was pushed and fresh CI38314978798 finished6/8.
+  Both Windows and macOS failed the same assertion comparing lexical temporary
+  paths with the tool's canonical root. Linux's38 controls and the other five
+  jobs passed. A controlled alias/.. preimage reproduced the assertion without
+  any child. The corrected assertion plus a new canonical-root/five-escape
+  regression passed two controls in0.038s; production tool code and deadlines
+  are unchanged. Preserve this failed CI; peer and a new revision's CI follow.
 
 - 2026-10-13: Private publication and doctor reviews found reproducible input
   and clock guard gaps. N014's previous-reading correction passed one new fake

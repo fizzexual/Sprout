@@ -466,9 +466,24 @@ class Controls(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); (root / 'native').mkdir(); (root / 'native' / 'runtime').write_bytes(b'inert ordinary bytes')
             (root / 'manifest.json').write_bytes(w.compact({'native': 'native/runtime'}))
-            self.assertEqual(m.runtime_path(root), root / 'native' / 'runtime')
+            self.assertEqual(m.runtime_path(root), root.resolve() / 'native' / 'runtime')
             (root / 'manifest.json').write_bytes(w.compact({'native': '../outside'}))
             with self.assertRaises(m.ContractError): m.runtime_path(root)
+
+    def test_runtime_path_canonical_root_preserves_escape_checks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); (root / 'alias').mkdir()
+            (root / 'native').mkdir(); (root / 'native' / 'runtime').write_bytes(b'inert ordinary bytes')
+            aliased_root = root / 'alias' / '..'
+            (root / 'manifest.json').write_bytes(w.compact({'native': 'native/runtime'}))
+            expected = root.resolve() / 'native' / 'runtime'
+            self.assertNotEqual(expected, aliased_root / 'native' / 'runtime')
+            self.assertEqual(m.runtime_path(aliased_root), expected)
+            for invalid in ('../outside', 'native/../../outside', '/native/runtime', 'native\\runtime', 'C:/native/runtime'):
+                with self.subTest(invalid=invalid):
+                    (root / 'manifest.json').write_bytes(w.compact({'native': invalid}))
+                    with self.assertRaises(m.ContractError) as caught: m.runtime_path(aliased_root)
+                    self.assertEqual(caught.exception.code, 'inventory_path')
 
     def test_public_copy_preserves_all_samples_warmups_and_negative_differences(self):
         with tempfile.TemporaryDirectory() as directory:
