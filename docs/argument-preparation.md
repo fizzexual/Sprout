@@ -2,7 +2,7 @@
 
 An argument or default can fail while a task or named constructor is preparing
 its inputs. Sprout uses temporary pointer arrays during that preparation.
-The N011 candidate gives those arrays an explicit owner so error recovery can
+The N011 change gives those arrays an explicit owner so error recovery can
 free them even when the error jumps over the ordinary C return path.
 
 Only argument positions and named-constructor field-name/default-expression
@@ -29,6 +29,11 @@ observer profiles and failed fixture/checker observations remain preserved.
 
 This is ownership evidence for these arrays, not a whole-heap leak result,
 memory quota, collector proof, effect rollback or production certification.
-Fresh exact-revision full CI and a normal native build remain required before
-installation promotion. Current status is in
+`6b8c724` subsequently passed all eight jobs on the first attempt in
+[CI 38303471847](https://github.com/fizzexual/Sprout/actions/runs/38303471847).
+The separate normal full-SQLite Windows build compared all 19 inputs with exact
+Git bytes and passed verification alongside separately compiled minimal invariant
+harnesses. Installed native recovery/GC and Python/Node smoke checks passed;
+the prior executable is preserved. This development build and these fixtures
+do not qualify sustained deployment. Current status is in
 [the work queue](../SPROUT_WORK_PLAN.md).

@@ -412,7 +412,7 @@ profile, and passed GC16/API22/quote9 controls. Neither the green CI nor this
 distinct build explains the preserved earlier macOS, local sanitizer or compile
 failures.
 
-The existing Windows installation now contains native SHA256
+At that point the Windows installation contained native SHA256
 `b3f6c79acba05f85937ad663e766e4ba2552f90796adb34464afeae612169cda`,
 still `0.2.0-dev`. Native actual-GC7, Python exact quote and Node queued exact
 quote/clean-close smoke checks completed across separate records. Root's two
@@ -429,6 +429,21 @@ N007's private finite performance tool and N009's private capability query are a
 [the work queue](../SPROUT_WORK_PLAN.md). Neither is qualified by `241f68f` CI.
 Keep their future evidence separate and require reviewed regressions and fresh
 full CI before declaring future functionality verified. The eight-hour gate remains held by the human.
+
+N011 subsequently passed all eight jobs on the first attempt in `6b8c724`
+[CI 38303471847](https://github.com/fizzexual/Sprout/actions/runs/38303471847).
+Its normal full-SQLite Windows build compared all 19 inputs with exact Git
+bytes, compiled in 37.531 seconds without warnings, and completed 58 verification
+controls across that binary and separately compiled minimal invariant harnesses.
+Those helpers have separate raw source/CRLF bindings; they are not relabeled as
+the same full-SQLite executable or as the old transcoded observer profile.
+
+The current installed native SHA256 is
+`4ffec927c66a1237c796257b2120fa638e246736d1c52337ecfa87c8fd3821bf`,
+still `0.2.0-dev`. Installed scope7/recovery6 under actual native GC stress,
+Python exact quote and Node queued exact quote/clean close passed. B3 is preserved
+for rollback. N007's fresh final-candidate snapshot and N009's private capability
+command remain in preparation; neither is delivered or a performance result.
 
 - Cross-platform native, SDK, WASM, sanitizer and hardened Docker checks pass
   against the final commit. New regressions belong in CI and release checks.
