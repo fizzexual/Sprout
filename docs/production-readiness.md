@@ -343,7 +343,7 @@ revision `8dd5d4c` passed all eight jobs on its first attempt in
 using the unchanged native inputs and shipping SDK framework targets. This
 passing result does not explain the earlier macOS observation.
 
-The installed Windows native is now `94a468c8`; prior `4cd9f4aa` remains available
+At that point the installed Windows native was `94a468c8`; prior `4cd9f4aa` remained available
 for rollback. Installed intrinsic22/configuration16/Python88 controls completed,
 with one POSIX-only skip. Thirteen Unicode controls passed, while the remaining
 compiler control first stopped at setup because GCC was absent from PATH. That
@@ -400,6 +400,32 @@ with an unknown cause. A separate bounded producer captured a continuous
 does not explain the earlier controller exit or establish a GC cause. The
 dedicated test supervisor must cap capture and reap owned children while keeping
 its existing15-second deadline and reporting sanitizer/capture failure honestly.
+
+The corrected integrated revision `241f68f` subsequently passed all eight jobs
+on its first attempt in
+[CI 38297387716](https://github.com/fizzexual/Sprout/actions/runs/38297387716).
+This includes native/SDK checks on all three platforms, actual WebAssembly,
+ASan, UBSan, hardened Docker and compiled Paper. The separate normal Windows
+full-SQLite build compared all 19 native inputs with exact committed Git bytes,
+compiled without warnings in 61.829 seconds under its declared 180-second
+profile, and passed GC16/API22/quote9 controls. Neither the green CI nor this
+distinct build explains the preserved earlier macOS, local sanitizer or compile
+failures.
+
+The existing Windows installation now contains native SHA256
+`b3f6c79acba05f85937ad663e766e4ba2552f90796adb34464afeae612169cda`,
+still `0.2.0-dev`. Native actual-GC7, Python exact quote and Node queued exact
+quote/clean-close smoke checks completed across separate records. Root's two
+Node smoke-fixture signature and decimal-spelling mistakes remain failed
+records; corrections only changed the fixture, not shipping SDK/runtime code.
+The prior `94a468c8` binary is preserved for rollback; no stable release was made.
+
+Independent counted fixtures also confirmed a separate raw argument-buffer
+leak on caught preparation errors. N011's private cleanup patch and N007's
+private finite performance tool are now active in
+[the work queue](../SPROUT_WORK_PLAN.md). Neither is qualified by `241f68f` CI.
+Keep their future evidence separate and require reviewed regressions and fresh
+full CI before integration. The eight-hour gate remains held by the human.
 
 - Cross-platform native, SDK, WASM, sanitizer and hardened Docker checks pass
   against the final commit. New regressions belong in CI and release checks.

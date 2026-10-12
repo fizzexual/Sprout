@@ -40,3 +40,11 @@ cause. This reachability contract is a separately attributed hardening change;
 passing local checks or a later CI run does not establish that original cause.
 Source hashes, build profiles, peer review and exact CI status are recorded in
 the [work queue](../SPROUT_WORK_PLAN.md) and [readiness gates](production-readiness.md).
+
+`241f68f` subsequently passed all eight jobs on the first attempt in
+[CI 38297387716](https://github.com/fizzexual/Sprout/actions/runs/38297387716),
+including actual WebAssembly and both sanitizers. Its separate normal
+full-SQLite Windows build passed all 16 dedicated controls before installation.
+Earlier failed local sanitizer and compiler profiles remain separately recorded.
+Temporary native argument buffers are a distinct ownership issue under N011;
+this environment registry does not claim to fix those allocations.

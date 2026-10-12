@@ -209,13 +209,18 @@ The initial Windows reference on 2026-10-12 was native SHA-256
 pin controls passed after the newline portability correction. Detachment,
 private errors, cyclic/typed input rejection, constructor collisions, physical
 maximum-response size and unchanged sandbox behavior also have bounded controls.
-Collection was ordinary mode. This new example awaits its own fresh integrated
-CI; independent root source/parity review approved the bounded contract.
-Existing foundation CI does not verify it. These results
-are correctness evidence for this corpus, with no benchmark or deployment claim.
+Collection was ordinary mode. Independent root source/parity review approved
+the bounded contract. The example subsequently passed all eight jobs on
+`241f68f` in [CI 38297387716](https://github.com/fizzexual/Sprout/actions/runs/38297387716)
+on the first attempt, including rebuilt WebAssembly and sanitizer controls.
+These results are correctness evidence for this corpus, with no benchmark or
+representative deployment claim.
 Root's additional14 synthetic baskets also passed an independent rational-money
 oracle, including half-up carry, exact host types and further threshold pairs.
-Fresh integrated CI remains pending.
+The separate normal full-SQLite Windows binary `b3f6c79a` passed all nine Python
+groups before installation; installed Python and queued Node exact-value smoke
+checks completed separately. See [the work queue](../SPROUT_WORK_PLAN.md) for
+current native provenance and the preserved earlier failures.
 
 ## Code-only rollout and rollback
 

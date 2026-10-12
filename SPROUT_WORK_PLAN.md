@@ -6,6 +6,13 @@ while the eight-hour qualification is pending. Keep this file current at every
 handoff: record what changed, what was actually verified, who owns active files,
 what comes next, and what remains blocked. Planned work is not delivered work.
 
+Current verified code: `241f68f`, all eight jobs passed on the first attempt in
+[CI 38297387716](https://github.com/fizzexual/Sprout/actions/runs/38297387716).
+The installed normal Windows binary is `b3f6c79a` (`0.2.0-dev`). The allocation
+cleanup and performance tooling below are private work in progress. Earlier
+batch sections retain the status at that time; their pending claims do not
+override this current status. The eight-hour gate remains held by the human.
+
 ## Current rules
 
 - Work in the existing `codex/revive-sprout` branch. Read this ledger, the latest
@@ -40,7 +47,11 @@ what comes next, and what remains blocked. Planned work is not delivered work.
 | Integrated candidate and existing installation | `db6b598` passed all eight jobs in [CI 38234599062](https://github.com/fizzexual/Sprout/actions/runs/38234599062) on its first attempt; installed native SHA256 `4cd9f4aa893808ee10cc9fed128bddfc1ef980364977f0be265eb7817157d24f`; remains `0.2.0-dev` |
 | Ongoing Markdown queue and scheduled continuation (F000) | Work ledger saved in `31f33c6`; the existing scheduled task is active every 15 minutes and reads this file before choosing active/unblocked work; later stop/pause still overrides it |
 | Validation, project doctor, paginated retry-safe contacts, CSV dry-run, explicit builtins/editor, layered configuration, overload teardown and diagnostic controls | `8dd5d4c` passed all eight jobs in [CI 38284544805](https://github.com/fizzexual/Sprout/actions/runs/38284544805) on its first attempt. Earlier failed revisions remain below; these development contracts do not qualify the pending sustained deployment. |
-| Current Windows installation | Normal native SHA256 `94a468c820833b1f0fb26af329e9aed5b07bd892964922254f5e293261a7fbf6`, built from all19 exact Git inputs. Installed intrinsic22/configuration16/Python88 controls completed (one POSIX skip); Unicode13 passed then its missing-compiler setup control completed separately with pinned GCC. Initial failed invocation retained;4CD rollback preserved; still `0.2.0-dev`. |
+| Prior Windows installation | Normal native SHA256 `94a468c820833b1f0fb26af329e9aed5b07bd892964922254f5e293261a7fbf6`, built from all 19 exact Git inputs. Installed intrinsic22/configuration16/Python88 controls completed (one POSIX skip); Unicode13 passed then its missing-compiler setup control completed separately with pinned GCC. Initial failed invocation retained; 94 and 4CD rollbacks preserved. |
+| Worker queue, API contracts and recorded workflow progress (N003–N005) | Bounded Node FIFO admission/cancellation/cleanup; literal routes and exact response values; pure recorded-state summaries. Their corrected integrated sources passed all eight jobs on `241f68f`, including actual rebuilt WebAssembly and sanitizers. Recorded progress does not establish live activity or permission to retry effects. |
+| Scoped interpreter environment reachability (N010) | `241f68f` full CI passed; a separate normal full-SQLite build passed all 16 dedicated controls. Active/prepared/suspended scopes and recovery checkpoints have explicit roots; this does not establish the cause of the earlier macOS failure or ownership of every native allocation. |
+| Exact USD quote migration example (N006) | Separate Python Decimal and Node BigInt baselines, 58 fixture cases and 14 independent rational-money checks; `241f68f` full CI passed. Fixed ties, half-up rounding, shipping and private-safe failures; no performance or representative deployment claim. |
+| Current Windows installation | Normal native SHA256 `b3f6c79acba05f85937ad663e766e4ba2552f90796adb34464afeae612169cda`, built from all 19 exact Git inputs on `241f68f`. Canonical GC16/API22/quote9 controls passed; installed actual-GC7, Python exact quote and Node queued exact quote/clean close passed across separate records. Two root smoke-fixture signature/decimal-format failures are retained. No SDK/runtime correction followed from those fixture errors. Still `0.2.0-dev`; prior 94 preserved. |
 
 The earlier `eac6d5b` run [38233671926](https://github.com/fizzexual/Sprout/actions/runs/38233671926)
 failed its Windows link-spelling fixture, with seven jobs passing. The corrected
@@ -162,7 +173,7 @@ preparation reservation. Both corrections/regressions passed; independent root
 replay confirms no post-close launch and recovered admission. Earlier41/44
 results stay separate. No OS process was started by the peer models.
 
-## Current corrective batch and active owners
+## Completed corrective batch (original observations retained)
 
 `3e0238e` [CI 38287634384](https://github.com/fizzexual/Sprout/actions/runs/38287634384)
 finished with three of eight jobs passing on its first attempt. Windows, Docker
@@ -220,9 +231,26 @@ version and scalar complements passed without diagnostics, but do not relabel
 the failed cohort or explain its bundle signal flood. No shipping code is being
 edited while root freezes the reviewed integrated revision.
 
-N007 performance and N009 capability metadata remain saved designs, with no
-measurements or shipping implementation yet. Select them after this corrective
-batch; do not repeat completed tests merely to populate the queue.
+This corrective batch subsequently passed all eight jobs on `241f68f` in its
+first CI attempt. That run rebuilt actual WebAssembly and passed the shared GC7,
+API10 and progress6 corpora, plus native/SDK, ASan, UBSan, Docker and compiled
+Paper checks. The separate canonical full-SQLite Windows build took 61.829 seconds
+within its declared 180-second profile, with no warnings. Its GC16, API22 and
+quote9 controls passed before atomic installation publication. The earlier
+150-second compile failure, failed private sanitizer cohort and macOS observations
+remain separate; later passes do not establish their causes.
+
+## Active work and owners
+
+| ID | Owner / isolated files | Acceptance / current state |
+| --- | --- | --- |
+| N011 | `/root/distribution`: private `241f68f` core/header snapshot and dedicated allocation fixtures; `/root/editor_tooling` independent counters and peer | Confirmed raw argument-position leaks: successful controls balanced, while caught argument/default failures retained 32 arrays (256 bytes) and typed-parameter failures retained 32 arrays (128 bytes). Constructor-array ownership is also under review. Candidate uses admitted temporary-buffer checkpoints, preserving evaluation order and primary errors. Original private fixture/parser and sandbox-denial observations remain failed evidence. Freeze, peer-review and require new native/WebAssembly/full CI and a normal build before integration or installation. |
+| N007 | `/root/stdlib`: private measurement-tool preparation, synthetic workloads, strict oracles and fake transport controls | Bounded paired target/control plan: at most 208 worker starts, integer monotonic timing, per-stream caps, exact outputs and explicit unsupported resource fields. No Sprout measurements or speed claims yet. Implementation/peer review and sealed inputs must precede one agreed finite measurement. |
+| Integration | Root: Markdown queue, private evidence, source/build binding and CI/release wiring | Current `241f68f` gates and installation complete. Collect the private handoffs above, preserve every failure, integrate only reviewed changes and replenish the next queue. No active sustained test or clock changes. |
+
+Root owns this file. Agents own only their assigned private inputs until the
+reviewed patch is accepted for shared integration. Current passing CI does not
+qualify either future patch.
 
 ## Next unblocked work after the current batch
 
@@ -231,9 +259,7 @@ ownership before implementation; keep each item independently reviewable.
 
 | ID | Work | Why it helps / acceptance |
 | --- | --- | --- |
-| N007 | Performance measurements for new libraries/services | Publish workload-specific cost/limits with frozen inputs and bounded synthetic data; performance claims require measured comparisons, not syntax or test counts |
 | N009 | Runtime capability metadata and explicit adoption preflight | Design a bounded read-only command exposing compiled capabilities/host ABI so a development version string cannot be mistaken for intrinsic/SQLite support; no project execution, permission guarantee or network; native/WASM/profile parity and independent review required before implementation |
-| N011 | Error-safe argument-preparation allocation ownership | Peer source review found raw argument-position storage bypassed by a later argument/default error. First pin one bounded allocation-count reproduction with successful-call controls, then fix confirmed leaks with peer review and fresh CI; no whole-heap claim from ENV-root counts |
 | N012 | Explicit registered-type environment reachability | Normal files/modules have existing home roots. A type-only wizard file has a structural registry-home concern; bounded ordinary/stress probes passed and have not reproduced a runtime failure. Require a controlled collector reachability negative before proposing a shipping correction; nested task-local methods remain unsupported by the parser |
 
 As items complete, record their exact evidence below, move them to Done, and
@@ -248,13 +274,22 @@ order. Do not silently broaden an item into a public deployment or stable releas
 | Original frozen eight-hour evidence | Original `86` failed duration/health qualification; separate data/cleanup diagnostic observed 115,200 contacts and 117,933 exits. Final `d9` stopped after 1,115.532 seconds on a confirmed 2.5843477-second backward clock step; 4,464 contacts and 4,570 exits are diagnostic observations. Both remain unqualified and immutable. |
 | New agreed sustained run | Freeze final native/source/header/SDK/harness inputs and fresh trusted review inputs before launch. Preserve v2 policy SHA256 `e0fa18931226ba2c181d2700dea0da3e91fc9cba878c551232298cb9342bd0ee`; independently verify exact clocks/raw duration, actual SQLite data, lifecycle/thread baselines, cadence and resource/storage limits. Never reuse the failed candidate's sealed trust. |
 | Actual supervisor/crash recovery and representative deployment | Finite cold recovery and compiled/adapter tests do not establish these platform-specific behaviors. Keep limits explicit and scope any future rehearsal separately. |
-| Windows installer CI observation | `437af0a` healthy PowerShell upgrade timed out at 15 seconds; original cause unknown. Correct driver isolation/diagnostics with unchanged deadlines, preserve the failure and require fresh complete CI before promotion. |
-| HTTP capacity teardown | `b39afb6` observed10053. Local late-write fixtures independently reproduce lost503; correct bounded teardown and require new complete CI before promotion, retaining the exact remote-cause uncertainty and bounded delivery limits. |
-| macOS concurrent .NET worker startup | `479c59e` failed with Operation canceled in the existing eight-worker control after earlier cancellation/recovery passed. Prior unexplained macOS startup observation stays recorded. Linux24 synchronized ABI launches passed; no macOS root-cause claim. Add bounded test diagnostics while retaining exact errors/deadlines and require fresh complete CI; repeated clean results alone do not explain this observation. |
+| Native error cleanup | N011 has measured allocation leaks and a private candidate. Require peer-reviewed counted success/error/fault controls and fresh complete CI before calling the defect fixed. ENV root counts do not establish whole-heap cleanup. |
+| Windows installer CI observation | `437af0a` healthy PowerShell upgrade timed out at 15 seconds; original cause unknown. Driver isolation/diagnostics were corrected, with unchanged deadlines, and later full CI passed. Preserve the original failure. |
+| HTTP capacity teardown | `b39afb6` observed10053. Local late-write fixtures reproduced lost503; bounded teardown corrections and later full CI passed. Exact remote cause and bounded delivery limits remain explicit. |
+| macOS concurrent .NET worker startup | `479c59e` failed with Operation canceled after earlier cancellation/recovery passed. Bounded diagnostics and subsequent fresh full CI passed; the prior startup cause remains unknown. No repeated clean-result explanation or descendant cleanup claim. |
 | Independent external security audit | Agent peer review and sanitizers are evidence for tested cases; external professional review remains separate. |
 | Live Paper and stable release | Live server use awaits the owner's EULA decision. No stable tag/public service/paid infrastructure is authorized. |
 
 ## Batch evidence log
+
+- 2026-10-12: `241f68f` passed all eight fresh CI jobs on the first attempt.
+  Exact Git-byte normal Windows build `b3f6c79a` passed 47 canonical controls,
+  then replaced the existing development installation atomically. Its installed
+  native/Python/Node smoke checks completed across separate records; two root
+  smoke-fixture errors are preserved without relabeling their failed reports.
+  N011 confirmed allocation leaks and N007 private tool preparation continue
+  with existing agents. No sustained run or clock setting changed.
 
 - 2026-10-12: Continuing development resumed by the human; existing agent team
   assigned F001–F003. Baseline Git state was clean on documentation `a93739d`.
