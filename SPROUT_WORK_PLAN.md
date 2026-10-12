@@ -38,6 +38,7 @@ what comes next, and what remains blocked. Planned work is not delivered work.
 | Staged installer publication and truthful cleanup/PATH status | 15 controls, PowerShell 5.1 checks and peer review; OS cleanup refusals remain explicit |
 | Finite SQLite backup/restore/upgrade rollback exercise | Five exact restored contacts, six clean hosts and 12/12 worker exits; point-in-time recovery, not crash/supervisor/eight-hour qualification |
 | Integrated candidate and existing installation | `db6b598` passed all eight jobs in [CI 38234599062](https://github.com/fizzexual/Sprout/actions/runs/38234599062) on its first attempt; installed native SHA256 `4cd9f4aa893808ee10cc9fed128bddfc1ef980364977f0be265eb7817157d24f`; remains `0.2.0-dev` |
+| Ongoing Markdown queue and scheduled continuation (F000) | Work ledger saved in `31f33c6`; the existing scheduled task is active every 15 minutes and reads this file before choosing active/unblocked work; later stop/pause still overrides it |
 
 The earlier `eac6d5b` run [38233671926](https://github.com/fizzexual/Sprout/actions/runs/38233671926)
 failed its Windows link-spelling fixture, with seven jobs passing. The corrected
@@ -47,10 +48,9 @@ fixture compares the observed link target exactly. That failure remains recorded
 
 | ID | Deliverable | Owner and files | Acceptance / current state |
 | --- | --- | --- | --- |
-| F000 | Markdown work queue and recurring continuation | Root: this file, automation prompt, private state, CI integration | In progress: task must read this file and continue unblocked work after each verified batch |
-| F001 | Pure declarative input validation | `/root/stdlib`: `lib/validate.sprout`, `src/tests/validation_library_test.py`, `docs/validation.md`, `examples/validation/order-input.sprout` | In progress: nested schema, aggregated bounded field paths, strict exact kinds, missing/null policy, invalid-schema rejection, no input mutation or I/O; native and WASM evidence required |
-| F002 | Read-only project doctor | `/root/distribution`: `tools/project_doctor.py`, `src/tests/project_doctor_test.py`, `docs/project-doctor.md` | In progress: bounded project/package/native diagnostics and structured JSON; no project execution, repair or network; identity/profile uncertainty and optional bounded trusted version probe must be explicit |
-| F003 | Contacts API with pagination and durable request keys | `/root/editor_tooling`: `examples/services/contacts_api.sprout`, `integrations/python/test_contacts_api.py`, `docs/contacts-api.md` | In progress: bounded keyset pages, transactional POST idempotency, changed-payload conflict, concurrent same-key consistency, restart persistence and bounded real native SQLite tests; original contacts/recovery fixtures stay untouched |
+| F001 | Pure declarative input validation | `/root/stdlib`: `lib/validate.sprout`, `src/tests/validation_library_test.py`, shared `src/tests/validation_library_test.sprout`, `docs/validation.md`, `examples/validation/order-input.sprout` | Peer approved after preserving and fixing two name-collision false passes: final 18 native controls passed on Windows and separately attributed cached Linux UBSan; shared nine-test corpus passed forced GC. Module task bindings and guarded primitive numeric checks fixed; fresh WASM/complete CI pending. |
+| F002 | Read-only project doctor | `/root/distribution`: `tools/project_doctor.py`, `src/tests/project_doctor_test.py`, `docs/project-doctor.md` | Ready for integration: Windows 26 passed/two platform skips; independent offline Linux 28/28 passed including real symlink/FIFO controls. Read-only bounded diagnostics and optional trusted version-only probe; fresh CI pending. |
+| F003 | Contacts API with pagination and durable request keys | `/root/editor_tooling`: `examples/services/contacts_api.sprout`, `integrations/python/test_contacts_api.py`, `docs/contacts-api.md` | Peer approved: owner/peer each passed 14 real native controls; additional independent SQLite oracle verified retry/conflict/rollback semantics. Original contacts/recovery fixtures untouched; fresh complete CI pending. |
 
 Root integrates and commits verified work. Feature owners hand off exact file
 hashes, test results and limitations before peer review. Root owns this ledger;
@@ -70,6 +70,7 @@ ownership before implementation; keep each item independently reviewable.
 | N005 | Workflow progress tooling | Make partial/failed/uncertain job state easier to inspect and explain without replaying effects; read-only exact checkpoint fixtures and concise actionable output |
 | N006 | Representative rules migration example | Add a second synthetic pricing/validation workflow with pinned host-language parity, exact-value cases and rollback instructions; never read private application source |
 | N007 | Performance measurements for new libraries/services | Publish workload-specific cost/limits with frozen inputs and bounded synthetic data; performance claims require measured comparisons, not syntax or test counts |
+| N008 | Stable callable and builtin namespace contracts | Investigate legal task/type-name collisions and provide explicit standard-library access or clarified lexical dispatch without breaking constructor/overload/source compatibility; preserve real collision cases and require native/WASM/host parity before any runtime promotion |
 
 As items complete, record their exact evidence below, move them to Done, and
 add the next useful scoped item. New priorities from the human supersede this
@@ -92,3 +93,26 @@ order. Do not silently broaden an item into a public deployment or stable releas
   assigned F001–F003. Baseline Git state was clean on documentation `a93739d`.
   Both original frozen reports/inputs were rechecked unchanged. New features
   above are planned/in progress and have not yet passed integrated CI.
+- 2026-10-12: F001 local controls passed on native `4cd9f4aa`; its offline
+  Linux UBSan controls use a separately identified cached prefeature runtime.
+  The shared eight-test corpus also passed Windows GC stress. F003 passed
+  14 real native controls. Its first maximum-int64 fixture demonstrated a new
+  lower random row ID; the append-only example now uses checked AUTOINCREMENT
+  behavior, retains replay at exhaustion, and documents sequence gaps/overhead.
+  The failed pre-fix observation remains in private evidence. Independent peer
+  review and exact final integrated CI remain pending for these new files.
+- 2026-10-12: Independent review reproduced two F001 false passes under legal
+  global types named `number` and `visit`, on exact native `4cd9f4aa` and the
+  original F001 source. The old source/outputs are preserved. Library-only
+  corrections are active; generic builtin-name interference remains a trusted
+  source boundary until separately addressed by N008. F002 passed all 28 offline
+  Linux controls. F003 peer review also verified exact rows/rollback through an
+  independent read-only SQLite oracle.
+- 2026-10-12: Final F001 corrections passed the original two collision bodies
+  in separately preserved post-fix evidence and two new independent controls.
+  All 82 combined Python host/service tests completed on installed native
+  `4cd9f4aa`, with one POSIX-only skip. F002 also passed an explicit trusted
+  version-only probe against that installation; without a matching profile
+  record it correctly reports SQLite capability as unknown. No interpreter,
+  SDK, original contacts fixture, installation or sustained policy changed.
+  F001–F003 await one fresh integrated cross-platform CI run.

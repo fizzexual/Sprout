@@ -91,6 +91,11 @@ records the current development contracts and the requirements for stable promot
 The service bridge offers opt-in [aggregate metrics](docs/services.md), and a
 bounded [backup, restore and upgrade rollback exercise](docs/service-recovery.md)
 checks exact SQLite data in private restored copies.
+Application projects can use [declarative input validation](docs/validation.md),
+inspect declared files and locked packages with the [project doctor](docs/project-doctor.md),
+and start from the [paginated contacts API with durable retry keys](docs/contacts-api.md).
+The [ongoing work ledger](SPROUT_WORK_PLAN.md) records completed evidence,
+active feature owners, the next queue and remaining release gates.
 The [TotalReach migration example](examples/adoption/totalreach/README.md) compares
 one existing CRM rule with its pinned TypeScript implementation using native parity tests.
 

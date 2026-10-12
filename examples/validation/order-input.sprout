@@ -1,0 +1,15 @@
+~ Synthetic application input. Validation has no side effects or coercions.
+use "../../lib/validate.sprout"
+
+make order_schema = {kind: "map", fields: {
+    customer: {kind: "map", fields: {
+        name: {kind: "text", min_length: 1, max_length: 80},
+        note: {kind: "text", required: no, nullable: yes, max_length: 300}
+    }},
+    id: {kind: "integer"},
+    amount: {kind: "decimal"},
+    tags: {kind: "list", required: no, max_length: 8, items: {kind: "text", allowed: ["new", "priority"]}}
+}}
+
+make order = {customer: {name: "Ada", note: nothing}, id: integer("9007199254740993"), amount: decimal("19.95"), tags: ["new"]}
+show json_encode(validate.check(order, order_schema))

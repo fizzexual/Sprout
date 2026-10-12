@@ -80,3 +80,11 @@ and makes installer and owned-process cleanup failures explicit. Exact final
 integration and CI evidence belongs in [readiness](docs/production-readiness.md).
 The failed sustained runs remain failed; a fresh eight-hour qualification still
 requires an agreed stable-clock environment.
+
+Ongoing development now follows [SPROUT_WORK_PLAN.md](SPROUT_WORK_PLAN.md).
+The maintained queue tracks verified work, current ownership, next useful
+features and remaining release gates. The current application batch adds a pure
+input validation module, read-only project diagnostics, and a separate paginated
+contacts API with durable transactional retry keys. Each batch requires its own
+peer and CI evidence; the pending eight-hour environment gate does not stop
+independent feature development.

@@ -1,0 +1,151 @@
+~ Separate append-only API; see docs/contacts-api.md for storage/wire contracts.
+~ Run with the Python bridge --allow-io and a dedicated existing --cwd.
+use sqlite
+
+task reply(status, body):
+    give {status: status, headers: {"Cache-Control": "no-store"}, body: body}
+
+task bad_input():
+    give reply(400, {error: "invalid_request"})
+
+task has_exact_fields(value, fields):
+    when kind_of(value) != "map" or length(keys(value)) != length(fields):
+        give no
+    for each field in fields:
+        when not contains(keys(value), field):
+            give no
+    give yes
+
+task valid_key(value):
+    when kind_of(value) != "text" or length(value) < 1 or length(value) > 64:
+        give no
+    for each letter in value:
+        when not contains("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-", letter):
+            give no
+    give yes
+
+task valid_name(value):
+    when kind_of(value) != "text" or length(value) < 1 or length(value) > 100 or trim(value) == "":
+        give no
+    for each letter in value:
+        when code(letter) < 32 or code(letter) == 127:
+            give no
+    give yes
+
+task valid_email(value):
+    when kind_of(value) != "text" or length(value) < 3 or length(value) > 254:
+        give no
+    for each letter in value:
+        when code(letter) < 33 or code(letter) > 126:
+            give no
+    make parts = split(value, "@")
+    give length(parts) == 2 and parts[0] != "" and parts[1] != ""
+
+task decimal_query(value):
+    when kind_of(value) != "list" or length(value) != 1 or kind_of(value[0]) != "text":
+        give nothing
+    make digits = value[0]
+    when length(digits) < 1 or length(digits) > 19:
+        give nothing
+    when length(digits) > 1 and digits[0] == "0":
+        give nothing
+    for each digit in digits:
+        when not contains("0123456789", digit):
+            give nothing
+    when length(digits) == 19 and digits > "9223372036854775807":
+        give nothing
+    give integer(digits)
+
+task contact(row):
+    give {id: f"{row[0]}", name: row[1], email: row[2]}
+
+task use_database(db, method, query, body):
+    make options = {timeout_ms: 500, max_rows: 51, max_bytes: 65536}
+    ~ Keep this exact migration immutable. Future versions append history.
+    make definition = "CREATE TABLE contacts_api (id INTEGER PRIMARY KEY AUTOINCREMENT, request_key TEXT COLLATE BINARY NOT NULL UNIQUE CHECK(length(request_key) BETWEEN 1 AND 64), name TEXT NOT NULL CHECK(length(name) BETWEEN 1 AND 100), email TEXT COLLATE BINARY NOT NULL UNIQUE CHECK(length(email) BETWEEN 3 AND 254))"
+    make expected = [["index", "sqlite_autoindex_contacts_api_1", nothing], ["index", "sqlite_autoindex_contacts_api_2", nothing], ["table", "contacts_api", definition], ["table", "sqlite_sequence", "CREATE TABLE sqlite_sequence(name,seq)"]]
+    ~ Refuse foreign objects before initializing an empty application schema.
+    make before = sqlite.execute(db, "SELECT type,name,sql FROM sqlite_master WHERE tbl_name != ? ORDER BY type,name", ["_sprout_migrations"], options)
+    when not before.ok or (length(before.rows) != 0 and before.rows != expected):
+        give reply(503, {error: "storage_unavailable"})
+    make history = [{version: 1, name: "contacts API append-only v1", statements: [{sql: definition}]}]
+    make migrated = sqlite.migrate(db, history, options)
+    when not migrated.ok:
+        give reply(503, {error: "storage_unavailable"})
+    ~ Exact objects also detect out-of-band table/index/trigger drift. This
+    ~ checks consistency, not protection against an owner editing the database.
+    make schema = sqlite.execute(db, "SELECT type,name,sql FROM sqlite_master WHERE tbl_name != ? ORDER BY type,name", ["_sprout_migrations"], options)
+    when not schema.ok or schema.rows != expected:
+        give reply(503, {error: "storage_unavailable"})
+    when method == "GET":
+        make after = integer("0")
+        make limit = 25
+        when contains(keys(query), "after"):
+            set after = decimal_query(query.after)
+        when contains(keys(query), "limit"):
+            set limit = number(query.limit[0])
+        when after == nothing or limit == nothing or limit < 1 or limit > 50:
+            give bad_input()
+        make page = sqlite.execute(db, "SELECT id,name,email FROM contacts_api WHERE id > ? ORDER BY id LIMIT ?", [after, limit + 1], options)
+        when not page.ok:
+            give reply(503, {error: "storage_unavailable"})
+        make has_more = length(page.rows) > limit
+        make contacts = []
+        for each row in slice(page.rows, 0, limit):
+            add(contacts, contact(row))
+        make next_after = nothing
+        when has_more:
+            set next_after = contacts[length(contacts) - 1].id
+        give reply(200, {contacts: contacts, has_more: has_more, next_after: next_after})
+    ~ BEGIN IMMEDIATE serializes the absence test and insert. A retry never
+    ~ updates a row, and a rejected insert cannot consume its request key.
+    make saved = sqlite.transaction(db, [
+        {sql: "INSERT INTO contacts_api(request_key,name,email) SELECT ?,?,? WHERE NOT EXISTS (SELECT 1 FROM contacts_api WHERE request_key = ?)", params: [body.request_key, body.name, body.email, body.request_key]},
+        {sql: "SELECT id,name,email FROM contacts_api WHERE request_key = ?", params: [body.request_key]}
+    ], options)
+    when not saved.ok:
+        when saved.code == 2067:
+            give reply(409, {error: "email_conflict"})
+        give reply(503, {error: "storage_unavailable"})
+    when length(saved.results[1].rows) != 1:
+        give reply(503, {error: "storage_unavailable"})
+    make existing = saved.results[1].rows[0]
+    when existing[1] != body.name or existing[2] != body.email:
+        give reply(409, {error: "request_key_conflict"})
+    when saved.results[0].changed == 1:
+        give reply(201, {contact: contact(existing), replayed: no})
+    give reply(200, {contact: contact(existing), replayed: yes})
+
+task handle(request):
+    when not has_exact_fields(request, ["method", "path", "query", "body"]):
+        give bad_input()
+    when kind_of(request.method) != "text" or kind_of(request.path) != "text" or kind_of(request.query) != "map":
+        give bad_input()
+    when request.path != "/contacts":
+        give reply(404, {error: "route_not_found"})
+    when request.method != "GET" and request.method != "POST":
+        give reply(405, {error: "method_not_supported"})
+    when request.method == "GET":
+        when request.body != nothing:
+            give bad_input()
+        for each field in keys(request.query):
+            when field != "after" and field != "limit":
+                give bad_input()
+        ~ Validate before opening or creating storage.
+        for each field in keys(request.query):
+            make parsed = decimal_query(request.query[field])
+            when parsed == nothing or (field == "limit" and (parsed < 1 or parsed > 50)):
+                give bad_input()
+    otherwise:
+        when length(keys(request.query)) != 0 or not has_exact_fields(request.body, ["request_key", "name", "email"]):
+            give bad_input()
+        when not valid_key(request.body.request_key) or not valid_name(request.body.name) or not valid_email(request.body.email):
+            give bad_input()
+    make opened = sqlite.open("contacts-api.sqlite", {timeout_ms: 500})
+    when not opened.ok:
+        give reply(503, {error: "storage_unavailable"})
+    make result = use_database(opened.handle, request.method, request.query, request.body)
+    make closed = sqlite.close(opened.handle)
+    give result
+
+show json_encode(handle(json_decode(read_input())))

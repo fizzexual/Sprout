@@ -264,6 +264,19 @@ jobs that ran. A crash must never count as an expected input rejection.
 
 ## Release gates
 
+The application-foundation batch adds pure declarative validation, a read-only
+project doctor and a separate contacts API with bounded keyset pagination and
+transactional request keys. The validation module passed 18 native controls and
+a shared nine-test forced-GC corpus; independent review preserved and fixed two
+constructor-name false passes. The doctor passed 26 Windows controls with two
+platform skips and all 28 offline Linux controls. The contacts API passed 14
+native controls plus an independent exact-data SQLite review. All 82 combined
+Python host/service tests completed with one POSIX-only skip on installed native
+`4cd9f4aa`. The cached Linux UBSan executable is separately attributed and is
+not a fresh build of this feature revision. New complete native/WebAssembly CI
+is still required. These source-library/tool/example additions do not change
+the installed interpreter or qualify the pending eight-hour deployment profile.
+
 - Cross-platform native, SDK, WASM, sanitizer and hardened Docker checks pass
   against the final commit. New regressions belong in CI and release checks.
 - Immutable sustained-run reports record build/source/host hashes, duration,
@@ -288,7 +301,10 @@ acceptance. Compiled adapter/JAR tests do not establish live server readiness.
 Public hosting, paid infrastructure and a production release are separate
 deployment decisions.
 
-An hourly follow-up in the current chat checks active tests and this ledger,
-continues authorized fixes, and reports meaningful changes. Stop requests take
-precedence. Host-local run manifests and logs live under the workspace `work`
-directory; they must be checked before starting duplicate long-running tests.
+A follow-up every 15 minutes in the current chat reads
+[the ongoing work queue](../SPROUT_WORK_PLAN.md), checks active owners/tests and
+continues authorized feature development while recording done, next and remaining
+work. Stop requests take precedence. Host-local run manifests and logs live under
+the workspace `work` directory; check them before starting duplicate workloads.
+The eight-hour gate stays pending until the owner confirms a reviewed test
+environment is ready.

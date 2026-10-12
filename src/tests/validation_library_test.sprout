@@ -1,0 +1,125 @@
+~ Shared native/WebAssembly contract corpus. No files, network or host operations.
+use "../../lib/validate.sprout"
+
+private make validation_constructor_calls = []
+private task validation_constructor_noted():
+    add(validation_constructor_calls, "constructor")
+    give 0
+
+type number:
+    make value
+    make observed = validation_constructor_noted()
+type field:
+    make record
+    make name
+    make fallback
+    make observed = validation_constructor_noted()
+type matches_kind:
+    make value
+    make kind
+    make observed = validation_constructor_noted()
+type visit:
+    make value
+    make schema
+    make path
+    make depth
+    make result
+    make observed = validation_constructor_noted()
+type check:
+    make value
+    make schema
+    make observed = validation_constructor_noted()
+
+test "nested data and caller aliases are unchanged":
+    make shared = {kind: "text", allowed: ["a", "b"]}
+    make schema = {kind: "map", fields: {name: shared, label: shared, contact: {kind: "map", fields: {active: {kind: "yes-no"}}}, tags: {kind: "list", max_length: 2, items: {kind: "text"}}}}
+    make input = {name: "a", label: "b", contact: {active: yes}, tags: ["🌱", "café"]}
+    make before = json_encode([schema, input])
+    make result = validate.check(input, schema)
+    expect result.ok
+    expect result.errors == []
+    expect result.schema_error == nothing
+    expect not result.truncated
+    expect before == json_encode([schema, input])
+
+test "missing and explicit nothing obey separate required and nullable rules":
+    make schema = {kind: "map", fields: {optional: {kind: "text", required: no}, required: {kind: "text", nullable: yes}}}
+    expect validate.check({required: nothing}, schema).ok
+    make absent = validate.check({}, schema)
+    expect absent.errors[0].path == ["required"]
+    expect absent.errors[0].code == "required"
+    make null = validate.check({required: nothing, optional: nothing}, schema)
+    expect null.errors[0].path == ["optional"]
+    expect null.errors[0].code == "null"
+
+test "ordinary numbers and exact types remain distinct":
+    expect validate.check(1, {kind: "number"}).ok
+    expect not validate.check(1, {kind: "integer"}).ok
+    expect validate.check(integer("9223372036854775807"), {kind: "integer", allowed: [integer("9223372036854775807")]}).ok
+    expect not validate.check(integer("9223372036854775806"), {kind: "integer", allowed: [integer("9223372036854775807")]}).ok
+    expect validate.check(decimal("19.95"), {kind: "decimal"}).ok
+    expect not validate.check(decimal("19.95"), {kind: "number"}).ok
+    expect not validate.check(sum([1e308, 1e308]), {kind: "number"}).ok
+
+test "text lengths count characters and nested list paths are zero based":
+    expect validate.check("café", {kind: "text", min_length: 4, max_length: 4}).ok
+    expect validate.check("a🌱é中", {kind: "text", min_length: 4, max_length: 4}).ok
+    expect not validate.check("🌱任务", {kind: "text", min_length: 4}).ok
+    make result = validate.check(["ok", 3], {kind: "list", items: {kind: "text"}})
+    expect result.errors[0].path == [1]
+    expect result.errors[0].code == "kind"
+
+test "errors aggregate missing nested invalid and unknown fields":
+    make schema = {kind: "map", fields: {name: {kind: "text", min_length: 2}, contact: {kind: "map", fields: {email: {kind: "text"}}}, missing: {kind: "integer"}}}
+    make result = validate.check({name: "", contact: {email: nothing}, extra: yes}, schema)
+    expect not result.ok
+    expect length(result.errors) == 4
+    expect result.errors[0].path == ["name"]
+    expect result.errors[1].path == ["contact", "email"]
+    expect result.errors[2].code == "required"
+    expect result.errors[3].code == "unknown"
+    expect not result.truncated
+
+test "malformed schemas are separate from input failures":
+    for each schema in [{}, {kind: "bytes"}, {kind: "list"}, {kind: "text", min_length: -1}, {kind: "text", allowed: [3]}, {kind: "map", fields: []}, {kind: "text", required: yes}]:
+        make result = validate.check(nothing, schema)
+        expect not result.ok
+        expect result.errors == []
+        expect result.schema_error != nothing
+        expect length(result.schema_error.message) > 0
+        expect not result.truncated
+
+test "recursive schemas and recursive data stop without mutation":
+    make recursive = {kind: "list"}
+    set recursive.items = recursive
+    make result = validate.check(nothing, recursive)
+    expect result.schema_error != nothing
+    expect length(result.schema_error.path) == 17
+    make data = []
+    add(data, data)
+    make checked = validate.check(data, {kind: "list", items: {kind: "text"}})
+    expect checked.errors[0].path == [0]
+    expect length(data) == 1
+    expect recursive.kind == "list"
+
+test "diagnostic count and field paths stay bounded":
+    make input = {}
+    for each index in range(128):
+        set input["field" + index] = no
+    make result = validate.check(input, {kind: "map"})
+    expect length(result.errors) == 64
+    expect result.truncated
+    expect not result.ok
+    make large = {}
+    set large["private-" + "x" * 20000] = "not echoed"
+    make diagnostic = validate.check(large, {kind: "map"})
+    expect diagnostic.errors[0].path == ["<field name exceeds 128 characters>"]
+    expect not contains(json_encode(diagnostic), "private-")
+
+test "caller constructors cannot replace validator tasks or numeric checks":
+    expect not validate.check(sum([1e308, 1e308]), {kind: "number"}).ok
+    expect validate.check(1.5, {kind: "number"}).ok
+    expect validate.check("ab", {kind: "text", min_length: 1, max_length: integer("2")}).ok
+    expect not validate.check(42, {kind: "text"}).ok
+    expect validate.check({name: "Ada"}, {kind: "map", fields: {name: {kind: "text"}}}).ok
+    expect validation_constructor_calls == []

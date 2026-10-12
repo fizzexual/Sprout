@@ -68,9 +68,11 @@ jobs:
           python src/tests/sqlite_migrations_test.py "$bin"
           python src/tests/workflow_tools_test.py "$bin"
           python src/tests/cli_library_test.py "$bin"
+          python src/tests/validation_library_test.py "$bin"
           python src/tests/ergonomics_test.py "$bin"
           python src/tests/embed_test.py "$bin"
           python src/tests/release_manifest_test.py
+          python src/tests/project_doctor_test.py
           python src/tests/deployment_harness_test.py
           python src/tests/deployment_coverage_test.py
           python src/tests/service_recovery_test.py

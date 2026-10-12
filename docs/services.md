@@ -92,3 +92,15 @@ extra collector thread, per-user identity or persistent audit trail. Protect the
 endpoint through the same authenticated proxy as the application. This snapshot
 supports operational monitoring; it does not establish uptime, resource ceilings,
 or successful sustained-test qualification.
+
+## Pagination and durable application retry keys
+
+The separate [contacts API](contacts-api.md) example provides bounded keyset
+pages and transactional request-key idempotency for append-only SQLite contacts.
+An identical retry returns its original contact; changed payloads conflict.
+It uses its own database and versioned schema, and keeps IDs as decimal text.
+This is an application storage contract, with explicit limits and rollback
+tests; it does not change the original contacts example or qualify a sustained
+deployment. Use the [validation library](validation.md) for other application
+input schemas and the [project doctor](project-doctor.md) for read-only project,
+locked-content and intended environment diagnostics.

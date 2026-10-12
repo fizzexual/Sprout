@@ -4,13 +4,17 @@ const fs = require('node:fs');
 const path = require('node:path');
 const createSprout = require(path.resolve(process.argv[2]));
 
-async function run(source, expectedCode = 0, flags = [], sandbox = true) {
+async function run(source, expectedCode = 0, flags = [], sandbox = true, files = {}, command = null) {
   const output = [];
   const module = await createSprout({ print: text => output.push(text), printErr: text => output.push(text),
     stdin: () => null, noInitialRun: true });
   module.FS.writeFile('/program.sprout', source);
+  for (const [name, contents] of Object.entries(files)) {
+    module.FS.mkdirTree(path.posix.dirname(name));
+    module.FS.writeFile(name, contents);
+  }
   let code = 0;
-  try { code = module.callMain(['/program.sprout', ...(sandbox ? ['--sandbox'] : []), ...flags]) || 0; }
+  try { code = module.callMain([...(command ? [command] : []), '/program.sprout', ...(sandbox ? ['--sandbox'] : []), ...flags]) || 0; }
   catch (error) {
     if (error && (error.name === 'ExitStatus' || error.status !== undefined)) code = error.status || 0;
     else throw error;
@@ -51,6 +55,21 @@ async function run(source, expectedCode = 0, flags = [], sandbox = true) {
   const literalFlags = ['--sandbox', '--max-steps', 'application-value', '--stdin', '--'];
   assert.deepEqual(JSON.parse(await run('show json_encode(args())\n', 0, ['--', ...literalFlags])), literalFlags);
   assert.match(await run('show file_read("/program.sprout")\n', 1, ['--', '--sandbox']), /sandbox mode/);
+  const validationLibrary = fs.readFileSync(path.join(__dirname, '..', '..', 'lib', 'validate.sprout'), 'utf8');
+  const validationContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'validation_library_test.sprout'), 'utf8');
+  // File-backed module imports need normal mode; the files stay inside MEMFS.
+  const validationOutput = await run(validationContracts, 0, ['--max-steps', '3000000'], false,
+    {'/lib/validate.sprout': validationLibrary}, 'test');
+  assert.match(validationOutput, /[1-9][0-9]* passed/);
+  assert.doesNotMatch(validationOutput, /[1-9][0-9]* failed/);
+  console.log('ok: WASM validation source-library contracts');
+  // A host can supply the pure library source with a sandboxed program. This
+  // does not grant sandboxed scripts permission to import filesystem modules.
+  const suppliedValidation = JSON.parse(await run(validationLibrary + '\n' +
+    'show json_encode(check({name: "🌱"}, {kind: "map", fields: {name: {kind: "text", max_length: 2}}}))\n',
+    0, ['--max-steps', '3000000']));
+  assert.equal(suppliedValidation.ok, true);
+  assert.deepEqual(suppliedValidation.errors, []);
   // Expected failure above must not leave Node's process exit status set to 1.
   process.exitCode = 0;
   console.log('WASM smoke tests passed.');

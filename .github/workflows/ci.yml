@@ -85,9 +85,11 @@ jobs:
           python src/tests/sqlite_migrations_test.py "$bin"
           python src/tests/workflow_tools_test.py "$bin"
           python src/tests/cli_library_test.py "$bin"
+          python src/tests/validation_library_test.py "$bin"
           python src/tests/ergonomics_test.py "$bin"
           python src/tests/embed_test.py "$bin"
           python src/tests/release_manifest_test.py
+          python src/tests/project_doctor_test.py
           python tools/fuzz.py "$bin" --iterations 200 --seed 20261010 --report "$RUNNER_TEMP/fuzz.json" --artifacts "$RUNNER_TEMP/fuzz-artifacts"
           SPROUT_COMMAND="$bin" python -m unittest discover -s integrations/python -p 'test_*.py'
           "$bin" test examples/apps/ui_test.sprout
@@ -297,6 +299,10 @@ jobs:
           python src/tests/sqlite_migrations_test.py "$PWD/src/sprout"
           python src/tests/workflow_tools_test.py "$PWD/src/sprout"
           python src/tests/cli_library_test.py "$PWD/src/sprout"
+          # The full boundary suite uses ASan with ordinary collection; the
+          # small shared corpus additionally collects after every statement.
+          env -u SPROUT_GC_STRESS python src/tests/validation_library_test.py "$PWD/src/sprout"
+          "$PWD/src/sprout" test src/tests/validation_library_test.sprout --max-steps 3000000 --timeout-ms 5000
           python tools/fuzz.py "$PWD/src/sprout" --iterations 100 --seed 20261010 --report "$RUNNER_TEMP/fuzz-asan.json" --artifacts "$RUNNER_TEMP/fuzz-asan-artifacts"
 
   ubsan:
@@ -317,6 +323,7 @@ jobs:
           python src/tests/sqlite_migrations_test.py "$PWD/src/sprout"
           python src/tests/workflow_tools_test.py "$PWD/src/sprout"
           python src/tests/cli_library_test.py "$PWD/src/sprout"
+          python src/tests/validation_library_test.py "$PWD/src/sprout"
 
   playground:
     name: playground image (Docker)
