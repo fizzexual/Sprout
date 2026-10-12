@@ -403,6 +403,45 @@ successful eight-hour coverage, maximum-gap evidence or uptime certification.
 The separate private record is
 `D:/Codex/Kestrel/work/deployment-86ab3b4-8h-20261011-failure-independent-review.json`.
 
+## Final changed candidate: running
+
+The corrected `d9c869895f34bed0d25bc1fed583570a7c187736` revision passed all
+eight [native/SDK, WASM, sanitizer, Docker and Paper CI jobs](https://github.com/fizzexual/Sprout/actions/runs/38207716585)
+on its first attempt. Its runtime, SDK and harness inputs are byte-identical to
+the earlier `5d55dc8` smoke: that completed 20.000 seconds of traffic with 80
+exact contacts, seven actual lock probes, two periodic health checks, five clean
+hosts and all 97 native workers exited. Independent exact-value SQLite, timer,
+cadence, resource and storage checks passed. The smoke retains its original
+`5d55dc8` identity; a test-only HTTP reason-phrase correction changed no measured
+inputs. It does not establish eight-hour readiness.
+
+One separate bounded final run started at **2026-10-12 05:31:52 UTC**, targeting
+**13:31:52 UTC**. Its workspace is
+`D:/Codex/Kestrel/work/deployment-final-8h-20261012`, with a private `.json`
+sibling report. The supported Windows profile remains 28,800 seconds, four
+contacts/second, eight clients, four workers, eight-contact bursts, 180-second
+graceful restarts, 60-second contention probes and 2,000-contact shards. Maximum
+recorded controller/sampler gaps remain 60 seconds in both clocks, with the
+existing resource/storage ceilings and unchanged v2 aggregate policy.
+
+| Final frozen input | SHA256 |
+| --- | --- |
+| Windows native | `066095edef005a511b1e89e0351f2099edcce5ea5fafce1e89425ebc639c725f` |
+| Harness | `8875be7a5848ba0ffa47c57ba43df81a5e50463b5129fc1f9fa8551571c40c69` |
+| Python SDK | `704f2b610fcfff64cffbe8ff98ea027bfec82e6c991e7433a51111d88bb4daa5` |
+| Python HTTP host | `326e5b35929ae1f9340a45612af201dfacf7f339883f391fef6333a75c3aa4e4` |
+| Contacts app | `0e5ce19d5427241b414c1654b1ae5da06ef013df13d0dbc2659c4327f3867f7b` |
+
+Source Git blobs and reviewed native/source/installed hashes were checked before
+launch. A caller-sealed private trust record binds those inputs to the original
+manifest and controller identity. After completion the independent checker
+requires the fixed v2 qualification for the exact original report, then checks
+absolute timer endpoints, raw duration, dual-clock cadence, retained SQLite rows,
+source/build hashes, native exits/thread baselines and actual resource/storage
+limits. Its live invocation returned pending before any final database/process
+review or output. **This new eight-hour outcome remains pending.** No running
+report is a completed pass, and the original failed evidence remains unchanged.
+
 This exercise covers sustained local traffic, controlled SQLite contention,
 data preservation across graceful restarts and worker cleanup. It does not
 certify public deployment security, uninterrupted uptime, network conditions,

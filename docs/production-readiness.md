@@ -153,6 +153,17 @@ reliable protocol field. [RFC 9112, section 4](https://www.rfc-editor.org/rfc/rf
 describes the status-line contract. Runtime, SDK and harness inputs are unchanged
 by this test-only correction; final full CI remains required.
 
+The final test revision `d9c869895f34bed0d25bc1fed583570a7c187736` passed all
+eight [fresh CI jobs](https://github.com/fizzexual/Sprout/actions/runs/38207716585)
+on its first attempt. Its five measured deployment inputs match the passed
+`5d55dc8` smoke exactly; that report retains its original commit attribution.
+The separate final eight-hour run started at **2026-10-12 05:31:52 UTC**, targeting
+**13:31:52 UTC (16:31 Kyiv)**. It remains running evidence, with frozen inputs
+and caller-sealed build/source/manifest identity. Final qualification still
+requires the unchanged v2 coverage audit and the independent exact-clock,
+read-only database, process and resource review. The original failed runs are
+not reclassified by these newer results.
+
 The review reproduced these issues and verified their fixes:
 
 | Issue | Required behavior | State |
