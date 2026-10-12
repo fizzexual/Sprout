@@ -55,6 +55,7 @@ override this current status. The eight-hour gate remains held by the human.
 | Prior B3 Windows installation | Normal native SHA256 `b3f6c79acba05f85937ad663e766e4ba2552f90796adb34464afeae612169cda`, built from all 19 exact Git inputs on `241f68f`. GC16/API22/quote9 verification controls passed; installed actual-GC7/Python/Node controls completed across separate records. Two root smoke-fixture failures remain preserved; no SDK/runtime correction followed from them. B3 and 94 rollbacks preserved. |
 | Error-safe temporary argument ownership (N011) | Confirmed argument/default/type and named-constructor array leaks fixed with admitted-buffer checkpoints. Source/regression peers, a fresh correctly generated Windows11 cohort and all eight fresh `6b8c724` CI jobs passed. Earlier failed/transcoded profiles, parser/sandbox and checker mistakes remain separate; no whole-heap or earlier macOS-cause claim. |
 | Current Windows installation | Normal native SHA256 `4ffec927c66a1237c796257b2120fa638e246736d1c52337ecfa87c8fd3821bf`, compiled in 37.531 seconds without warnings from all 19 exact `6b8c724` Git inputs. 58 verification controls passed across the normal binary and separately compiled invariant harnesses (GC16/argument11/API22/quote9). Installed actual-GC scope7/recovery6, Python exact quote and Node queued exact quote/clean close passed. B3 rollback preserved; still `0.2.0-dev`, no stable release. |
+| Finite library/SDK observations (N007 evidence) | Exactly one root-sealed synthetic Windows4FF/6b run: 204 observations, 34 retained warmups, 204/208 reservations, 156 direct exits and 48 SDK-level completions. Owner and independent root reviews checked all 518 raw artifacts/204 exact outputs and recomputed 21 five-sample summaries. Report SHA256 `b5aeafe9e266375355f7940a5577f255827b7b0134e9cb0234aeb98e0855c36e`. SDK native-child peaks remain unavailable. This is evidence for the frozen workload, with no ranking/SLA/eight-hour claim; publication/tool portability is still active work. |
 
 The earlier `eac6d5b` run [38233671926](https://github.com/fizzexual/Sprout/actions/runs/38233671926)
 failed its Windows link-spelling fixture, with seven jobs passing. The corrected
@@ -247,9 +248,9 @@ remain separate; later passes do not establish their causes.
 
 | ID | Owner / isolated files | Acceptance / current state |
 | --- | --- | --- |
-| N007 | `/root/stdlib`: private measurement tool/snapshot; `/root/editor_tooling` independent supervisor/identity peer | Controller corrections passed 20 private groups; peer reproduced/fixed post-READY constructor cleanup with pure fake-child controls. Overflow/checker failures and historical B3 snapshots remain immutable. A new snapshot is being bound to verified `6b8c724`/4FF/full CI. Planned 204 native starts, ceiling208, integer-monotonic 90-second supervision, stream/resource/report limits; OS creation/cleanup boundaries explicit. No measurements or speed claims yet; root seal must precede one finite measurement. |
-| N009 | `/root/distribution`: private compiled-capability query plan/prototype, following the saved design | Runtime-query-only batch selected; doctor consumer deferred. Fixed bounded read-only JSON before bundle/runtime execution, compile-derived target/SQLite/native availability, separate interpreter/host-library claims and unchanged application arguments. No builds, shipping edits or execution until frozen plan/implementation review; future exact native/WebAssembly gates required. |
-| Integration | Root: queue, evidence, source/build binding and CI/release wiring | Current `6b8c724` CI/build/verification and installation complete. Collect N007/N009 handoffs, seal/review the next bounded scope, preserve failures and replenish the queue. No active sustained test or clock changes. |
+| N007 publication | `/root/stdlib`: private public-doc/portable-tool design | The one finite run is complete and independently reviewed; do not rerun it. Propose replayable trusted/pinned inputs, portable paths, check-only default, explicit bounded measurement and truthful unsupported metrics. Keep all samples and historical failures; require root/peer review and appropriate fake/CI controls before shipping tool code. |
+| N009 | `/root/distribution`: frozen private compiled-capability query and bounded qualification; `/root/editor_tooling` independent peer | Producer/checker/doc peers approved. Eight invalid private checker admissions were reproduced and corrected; original proposal/evidence preserved. Required helper is now pinned. One private full-SQLite/minimal qualification is authorized: full build180s, minimal90s, models30s/native5s with capped capture, one full10-method cohort and one minimal reply comparison; stop on failure. Compiled JSON is availability only; no shipping edits, installation, new CI or actual-WASM qualification yet. |
+| Integration | Root: queue, evidence, source/build binding and CI/release wiring | Current `6b8c724` installation complete and N007's one finite report independently reviewed. Collect N009 private qualification/N007 publication/N014 design handoffs, review the next scope and replenish the queue. No active sustained test or clock changes. |
 
 Root owns this file. Agents own only their assigned private inputs until the
 reviewed patch is accepted for shared integration. Current passing CI does not
@@ -262,6 +263,7 @@ ownership before implementation; keep each item independently reviewable.
 
 | ID | Work | Why it helps / acceptance |
 | --- | --- | --- |
+| N015 | Bounded batching for pure quote/rule calls | Let hosts request multiple pure evaluations in one fresh worker call to reduce worker launches. First fix the interface and aggregate item/byte/time/step caps; preserve exact per-item Python/Node parity and private-safe errors, no hidden pool/retry/effects. Verify launch counts and mixed invalid/valid boundaries; make no speed claim without separately frozen measurements. |
 | N014 | Explicit adoption preflight consuming verified N009 metadata | Extend the existing read-only doctor only after N009's command/schema is qualified. No default or per-request spawn; strict bounded metadata and required-feature checks, source identity/cleanup diagnostics, no version inference or permission/provenance guarantee. Native/consumer parity and independent negatives required. |
 | N012 | Explicit registered-type environment reachability | Normal files/modules have existing home roots. A type-only wizard file has a structural registry-home concern; bounded ordinary/stress probes passed and have not reproduced a runtime failure. Require a controlled collector reachability negative before proposing a shipping correction; nested task-local methods remain unsupported by the parser |
 
@@ -285,6 +287,14 @@ order. Do not silently broaden an item into a public deployment or stable releas
 | Live Paper and stable release | Live server use awaits the owner's EULA decision. No stable tag/public service/paid infrastructure is authorized. |
 
 ## Batch evidence log
+
+- 2026-10-12: The sealed N007 run completed once with 204 observations and no
+  retries. Independent root review checked all 518 raw artifacts, exact outputs,
+  integer timing endpoints, cleanup scopes and five-sample summaries. A root
+  checker first compared the Node transport envelope with its result; that
+  checker/preimage is preserved and only the analysis was corrected. No workload
+  was repeated. Native-child SDK peaks remain unknown; the eight-hour gate is
+  unchanged. N007 publication and N009 private qualification continue.
 
 - 2026-10-12: `6b8c724` passed all eight fresh CI jobs on its first attempt.
   Exact-Git normal4FF build/58 aggregate verification controls completed;
