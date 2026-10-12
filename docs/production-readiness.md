@@ -219,6 +219,23 @@ Windows passed nine with its existing symlink-privilege skip. Fresh complete CI
 remains required. This does not change recovery behavior or relax the
 output-preservation requirement.
 
+The corrected `db6b59824c8255e045139146d5829c12222aa85b` revision passed all
+eight jobs in [fresh CI](https://github.com/fizzexual/Sprout/actions/runs/38234599062)
+on its first attempt. This includes Windows/Linux/macOS native and SDK checks,
+the actual recovery exercise, installer boundary controls, WebAssembly, both
+sanitizer jobs, Docker and the Paper adapter. The earlier `eac6d5b` failure is
+retained. The correction changed the fixture and evidence documentation only.
+
+The existing Windows installation now contains normal native binary SHA256
+`4cd9f4aa893808ee10cc9fed128bddfc1ef980364977f0be265eb7817157d24f`, built
+from the reviewed source and full vendored SQLite with all 19 tracked native
+source/header/include hashes checked against Git. It still reports `0.2.0-dev`;
+the preceding `066095...` executable was preserved for rollback. This installed
+copy passed 14 Unicode controls and all 68 host/service controls completed with
+one POSIX-only skip. Source installation and those checks used the same verified
+binary checksum; no stable release was published.
+This new native/SDK/service candidate has no qualified eight-hour result.
+
 The review reproduced these issues and verified their fixes:
 
 | Issue | Required behavior | State |

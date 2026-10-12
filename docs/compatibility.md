@@ -71,7 +71,7 @@ test restoration with the runtime selected for rollback as well as the new one.
 
 ## Changes during development
 
-Windows CLI arguments and native file paths now use UTF-8 with the operating
+The interpreter's Windows CLI arguments and file paths now use UTF-8 with the operating
 system's Unicode APIs. This fixes filenames and arguments containing characters
 outside the active Windows code page, including Chinese text and emoji. Existing
 ASCII commands keep their encoding. The bounded bundle path scanner rejects
