@@ -253,7 +253,8 @@ show builtin::json_encode([cyclic, nonfinite, workflow_progress.summarize(snapsh
         path.write_bytes(versions[0])
         lock = Path(str(path) + '.lock'); lock.write_bytes(b'preserve lock fixture')
         source = self.root / 'observe.sprout'
-        source.write_text('use ' + json.dumps(LIBRARY.as_posix()) + '\nshow "READY"\n'
+        source.write_text('use ' + json.dumps(LIBRARY.as_posix()) + '\n'
+            'make command = builtin::ask("READY\\n")\nwhen command != "GO":\n    builtin::exit(5)\n'
             'repeat 16 times:\n    builtin::wait(0.005)\n    show builtin::json_encode(workflow_progress.summarize('
             'builtin::workflow_inspect(' + json.dumps(path.as_posix()) + ')))\n', encoding='utf-8')
         errors = []
@@ -268,7 +269,8 @@ show builtin::json_encode([cyclic, nonfinite, workflow_progress.summarize(snapsh
             except Exception as error:
                 errors.append(error)
         child = subprocess.Popen([str(BINARY), 'run', str(source), '--max-steps', '1000000', '--timeout-ms', '3000'],
-                                 cwd=self.root, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                                 cwd=self.root, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                 stderr=subprocess.PIPE, bufsize=0)
         thread = None
         ready = queue.Queue()
         reader = threading.Thread(target=lambda: ready.put(child.stdout.readline()), daemon=True)
@@ -277,7 +279,7 @@ show builtin::json_encode([cyclic, nonfinite, workflow_progress.summarize(snapsh
             self.assertEqual(ready.get(timeout=3), b'READY\r\n' if os.name == 'nt' else b'READY\n')
             self.assertIsNone(child.poll(), 'Concurrent fixture started after the observer exited')
             thread = threading.Thread(target=writer); thread.start()
-            stdout, stderr = child.communicate(timeout=8)
+            stdout, stderr = child.communicate(input=b'GO\n', timeout=8)
             self.checked(subprocess.CompletedProcess(child.args, child.returncode, stdout, stderr))
             self.assertEqual(child.returncode, 0)
             rows = [json.loads(line) for line in stdout.splitlines()]
@@ -290,6 +292,7 @@ show builtin::json_encode([cyclic, nonfinite, workflow_progress.summarize(snapsh
             if child.poll() is None: child.kill(); child.wait(timeout=3)
             if thread is not None: thread.join(timeout=3)
             reader.join(timeout=3)
+            child.stdin.close()
             child.stdout.close()
             child.stderr.close()
         self.assertFalse(thread.is_alive())

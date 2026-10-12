@@ -361,6 +361,46 @@ now reserves two bytes uniformly. Original failures and the workflow test's
 corrected GC-mode setup are retained; new actual WebAssembly and full CI are
 required for this batch. No later source is qualified by the preceding run.
 
+That exact `3e0238e` [CI 38287634384](https://github.com/fizzexual/Sprout/actions/runs/38287634384)
+finished three of eight jobs successfully on its first attempt. Windows, Docker
+and Paper passed. Linux and both sanitizer jobs stopped at a POSIX test-driver
+stdout framing defect, independently reproduced with an exit-zero worker and
+fragmented buffered output. The test-only correction retains the original
+deadlines and data/lock assertions while using unbuffered owned pipes and a
+flushed READY/GO handshake. Owner Linux/Windows and independent peer controls
+passed; the failed logs remain separate evidence.
+
+Actual rebuilt WebAssembly passed all ten API assertions, then its summary
+checker rejected ANSI-colored output. The corrected checker strips CSI codes
+only for exact summary checks and retains negative count controls. A new actual
+WASM run still needs to reach and complete the six-case progress corpus.
+
+macOS failed the actual environment-enabled GC API corpus on the unknown-body
+validation path. Bounded Windows and optimized offline Linux probes passed
+without reproducing its cause. A separately reviewed precise-environment-root
+hardening candidate is in progress: active and partially prepared task scopes
+must remain reachable independently of optimized conservative stack sightings,
+and normal/error recovery must balance the root stack. Do not claim this is the
+confirmed macOS mechanism. All three corrections require fresh complete CI and
+new native provenance before installation promotion.
+
+The new synthetic USD order-quote migration example has separate Python Decimal
+and Node BigInt oracles,58 hand-calculated fixtures and14 additional root peer
+checks using exact rational amounts. Local checks use the separately identified
+native94; they do not qualify the changed core. Source pin tests distinguish
+portable canonical UTF-8/LF text from the preserved raw input/build evidence.
+New source still requires fresh full CI. See [the quote contract](order-quote.md).
+
+Core verification also retained a full-SQLite Windows compile timeout without
+a binary, a separate minimal-core Windows11-control pass, and two corrected
+test-only fixture errors. Linux sanitizer setup first refused execution from a
+noexec temporary mount; the corrected setup later lost its controller to SIGKILL
+with an unknown cause. A separate bounded producer captured a continuous
+`AddressSanitizer:DEADLYSIGNAL` stream without new OOM-counter events. That result
+does not explain the earlier controller exit or establish a GC cause. The
+dedicated test supervisor must cap capture and reap owned children while keeping
+its existing15-second deadline and reporting sanitizer/capture failure honestly.
+
 - Cross-platform native, SDK, WASM, sanitizer and hardened Docker checks pass
   against the final commit. New regressions belong in CI and release checks.
 - Immutable sustained-run reports record build/source/host hashes, duration,

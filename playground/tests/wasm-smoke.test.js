@@ -4,7 +4,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
 
-test('WASM smoke isolates persistence and retains sandboxed native capability probes', async () => {
+async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7) {
   const calls = [], filesystems = [];
   const validationLibrary = fs.readFileSync(path.join(__dirname, '..', '..', 'lib', 'validate.sprout'), 'utf8');
   const validationContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'validation_library_test.sprout'), 'utf8');
@@ -15,6 +15,7 @@ test('WASM smoke isolates persistence and retains sandboxed native capability pr
   const apiContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'api_contract_test.sprout'), 'utf8');
   const progressLibrary = fs.readFileSync(path.join(__dirname, '..', '..', 'lib', 'workflow_progress.sprout'), 'utf8');
   const progressContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'workflow_progress_test.sprout'), 'utf8');
+  const rootContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'gc_env_roots_test.sprout'), 'utf8');
   const factory = async options => {
     const files = new Map(); filesystems.push(files);
     return {
@@ -35,11 +36,14 @@ test('WASM smoke isolates persistence and retains sandboxed native capability pr
           if (source === apiContracts) {
             assert.equal(files.get('/lib/validate.sprout'), validationLibrary, 'actual API validation dependency is mounted');
             assert.equal(files.get('/lib/api.sprout'), apiLibrary, 'actual API library is mounted');
-            options.print('10 passed, 0 failed'); return 0;
+            options.print('\x1b[1m' + apiCount + ' passed, 0 failed\x1b[0m'); return 0;
           }
           if (source === progressContracts) {
             assert.equal(files.get('/lib/workflow_progress.sprout'), progressLibrary, 'actual workflow-progress library is mounted');
-            options.print('6 passed, 0 failed'); return 0;
+            options.print('\x1b[1m' + progressCount + ' passed, 0 failed\x1b[0m'); return 0;
+          }
+          if (source === rootContracts) {
+            options.print('\x1b[1m' + rootCount + ' passed, 0 failed\x1b[0m'); return 0;
           }
           assert.equal(source, intrinsicContracts, 'actual shared intrinsic contracts reach the interpreter');
           options.print('10 passed, 0 failed'); return 0;
@@ -85,6 +89,10 @@ test('WASM smoke isolates persistence and retains sandboxed native capability pr
   const intrinsic = calls.filter(call => call.args[0] === 'test' && call.source === intrinsicContracts);
   assert.equal(intrinsic.length, 1, 'shared intrinsic corpus runs exactly once');
   assert.ok(intrinsic[0].args.includes('--sandbox'), 'intrinsic corpus keeps sandbox restrictions');
+  const roots = calls.filter(call => call.args[0] === 'test' && call.source === rootContracts);
+  assert.equal(roots.length, 1, 'shared environment scope corpus runs exactly once');
+  assert.ok(roots[0].args.includes('--sandbox'), 'scope corpus needs no filesystem capability');
+  assert.deepEqual(Array.from(roots[0].args.slice(-4)), ['--max-steps', '5000000', '--timeout-ms', '5000']);
   const config = calls.filter(call => call.args[0] === 'test' && call.source === configContracts);
   assert.equal(config.length, 1, 'shared configuration corpus runs exactly once');
   assert.equal(config[0].args.includes('--sandbox'), false, 'file-backed configuration imports need normal mode');
@@ -106,4 +114,12 @@ test('WASM smoke isolates persistence and retains sandboxed native capability pr
   assert.ok(calls.some(call => call.source.includes('json_encode(workflow.plan(')), 'pure workflow planning runs in the sandbox');
   assert.ok(calls.some(call => call.source.startsWith('show json_encode(args())') && call.args.includes('--')), 'application flags reach the interpreter');
   assert.equal(sandbox.process.exitCode, 0);
+}
+
+test('WASM smoke isolates persistence and retains sandboxed native capability probes', () => exerciseSmoke());
+
+test('WASM summaries retain exact corpus counts with CLI colors', async () => {
+  for (const wrong of [1, 9, 11, 110]) await assert.rejects(exerciseSmoke(wrong, 6), assert.AssertionError);
+  for (const wrong of [1, 5, 7, 60]) await assert.rejects(exerciseSmoke(10, wrong), assert.AssertionError);
+  for (const wrong of [1, 6, 8, 70]) await assert.rejects(exerciseSmoke(10, 6, wrong), assert.AssertionError);
 });

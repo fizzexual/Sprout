@@ -1,0 +1,4 @@
+~ Trusted code-only quote worker: one JSON request, one JSON result, no effects.
+use "rules.sprout"
+make request = builtin::json_decode(builtin::read_input())
+show builtin::json_encode(rules.evaluate(request))

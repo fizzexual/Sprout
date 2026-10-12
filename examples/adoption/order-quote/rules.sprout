@@ -1,0 +1,146 @@
+~ Entirely synthetic USD basket rules. No payments, storage, network or effects.
+use "../../../lib/validate.sprout"
+
+private task oq_failure():
+    give {ok: no, quote: nothing, decisions: [], errors: [], truncated: no}
+
+private task oq_error(result, path, code, message):
+    when builtin::length(result.errors) < 16:
+        builtin::add(result.errors, {path: path, code: code, message: message})
+    otherwise:
+        set result.truncated = yes
+
+private task oq_digits(value):
+    when value == "":
+        give no
+    for each letter in value:
+        when not builtin::contains("0123456789", letter):
+            give no
+    give yes
+
+private task oq_id(value, path, result):
+    when not oq_digits(value) or value[0] == "0":
+        oq_error(result, path, "id_format", "ID requires canonical positive decimal digits without a sign or leading zeros.")
+        give nothing
+    when builtin::length(value) == 19 and value > "9223372036854775807":
+        oq_error(result, path, "id_range", "ID exceeds the positive signed-int64 range.")
+        give nothing
+    give builtin::integer(value)
+
+private task oq_price(value, path, result):
+    make parts = builtin::split(value, ".")
+    when builtin::length(parts) != 2:
+        oq_error(result, path, "price_format", "Price requires canonical nonnegative decimal text with exactly two fractional digits.")
+        give nothing
+    when not oq_digits(parts[0]) or not oq_digits(parts[1]) or builtin::length(parts[1]) != 2:
+        oq_error(result, path, "price_format", "Price requires canonical nonnegative decimal text with exactly two fractional digits.")
+        give nothing
+    when builtin::length(parts[0]) > 1 and parts[0][0] == "0":
+        oq_error(result, path, "price_format", "Price requires canonical nonnegative decimal text with exactly two fractional digits.")
+        give nothing
+    make cents = builtin::integer(parts[0] + parts[1])
+    when cents > builtin::integer("100000000"):
+        oq_error(result, path, "price_range", "Unit price exceeds 1000000.00 USD.")
+        give nothing
+    give cents
+
+private task oq_money(cents):
+    give builtin::decimal_div(cents, builtin::integer("100"), 2)
+
+public task evaluate(request):
+    make result = oq_failure()
+    make schema = {kind: "map", fields: {
+        order_id: {kind: "text", min_length: 1, max_length: 19},
+        currency: {kind: "text", allowed: ["USD"]},
+        member: {kind: "yes-no"},
+        shipping: {kind: "text", allowed: ["standard", "express"]},
+        lines: {kind: "list", min_length: 1, max_length: 32, items: {kind: "map", fields: {
+            sku_id: {kind: "text", min_length: 1, max_length: 19},
+            quantity: {kind: "number"},
+            unit_price: {kind: "text", min_length: 4, max_length: 10}
+        }}}
+    }}
+    make checked = validate.check(request, schema)
+    when checked.schema_error != nothing:
+        fail "The order quote example's fixed validation schema is invalid."
+    when not checked.ok:
+        for each issue in checked.errors:
+            make path = issue.path
+            when issue.code == "unknown":
+                set path = builtin::slice(path, 0, builtin::length(path) - 1) + ["<unknown>"]
+            oq_error(result, path, "validation", "Input does not match the declared field schema.")
+        set result.truncated = result.truncated or checked.truncated
+        give result
+
+    make order_id = oq_id(request.order_id, ["order_id"], result)
+    make seen = {}
+    make lines = []
+    make units = builtin::integer("0")
+    make gross = builtin::integer("0")
+    make index = 0
+    for each line in request.lines:
+        make sku = oq_id(line.sku_id, ["lines", index, "sku_id"], result)
+        when sku != nothing:
+            when builtin::contains(seen, line.sku_id):
+                oq_error(result, ["lines", index, "sku_id"], "duplicate_sku", "SKU must be unique within the basket.")
+            otherwise:
+                set seen[line.sku_id] = yes
+        make quantity = nothing
+        when line.quantity < 1 or line.quantity > 1000 or line.quantity % 1 != 0:
+            oq_error(result, ["lines", index, "quantity"], "quantity_range", "Quantity requires a whole ordinary number from 1 to 1000.")
+        otherwise:
+            set quantity = builtin::integer(line.quantity)
+        make cents = oq_price(line.unit_price, ["lines", index, "unit_price"], result)
+        when sku != nothing and quantity != nothing and cents != nothing:
+            make amount = cents * quantity
+            set units += quantity
+            set gross += amount
+            builtin::add(lines, {sku_id: sku, quantity: quantity, unit_price: oq_money(cents), gross: oq_money(amount)})
+        set index += 1
+    when builtin::length(result.errors) > 0:
+        give result
+
+    ~ Descending rate and fixed tie priority: high_value, value, bulk, member.
+    make candidates = [
+        {rule: "high_value", eligible: gross >= builtin::integer("50000"), rate_bps: builtin::integer("1000")},
+        {rule: "value", eligible: gross >= builtin::integer("20000"), rate_bps: builtin::integer("750")},
+        {rule: "bulk", eligible: units >= builtin::integer("20"), rate_bps: builtin::integer("750")},
+        {rule: "member", eligible: request.member, rate_bps: builtin::integer("500")}
+    ]
+    make selected = "none"
+    make rate = builtin::integer("0")
+    make decisions = []
+    for each candidate in candidates:
+        make winner = candidate.eligible and selected == "none"
+        when winner:
+            set selected = candidate.rule
+            set rate = candidate.rate_bps
+        builtin::add(decisions, {rule: candidate.rule, eligible: candidate.eligible, rate_bps: candidate.rate_bps, selected: winner})
+    ~ All operands are exact integers; subtract remainder before integral division.
+    make scaled = gross * rate + builtin::integer("5000")
+    make divisor = builtin::integer("10000")
+    make discount = (scaled - scaled % divisor) / divisor
+    make net = gross - discount
+    make shipping = builtin::integer("499")
+    make shipping_rule = "standard_paid"
+    when request.shipping == "express":
+        set shipping = builtin::integer("1499")
+        set shipping_rule = "express_fixed"
+    orwhen net >= builtin::integer("10000"):
+        set shipping = builtin::integer("0")
+        set shipping_rule = "standard_free"
+    builtin::add(decisions, {rule: "discount", code: selected, rate_bps: rate, rounding: "half_up_once"})
+    builtin::add(decisions, {rule: "shipping", code: shipping_rule})
+    give {ok: yes, quote: {order_id: order_id, currency: "USD", lines: lines, units: units,
+        gross: oq_money(gross), discount: oq_money(discount), net: oq_money(net),
+        shipping: oq_money(shipping), total: oq_money(net + shipping)},
+        decisions: decisions, errors: [], truncated: no}
+
+~ Caller-defined constructors cannot intercept private/public task dispatch.
+private make oq_failure = oq_failure
+private make oq_error = oq_error
+private make oq_digits = oq_digits
+private make oq_id = oq_id
+private make oq_price = oq_price
+private make oq_money = oq_money
+public make evaluate = evaluate

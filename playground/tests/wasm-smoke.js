@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const createSprout = require(path.resolve(process.argv[2]));
+const unstyled = text => text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
 
 async function run(source, expectedCode = 0, flags = [], sandbox = true, files = {}, command = null) {
   const output = [];
@@ -87,16 +88,21 @@ async function run(source, expectedCode = 0, flags = [], sandbox = true, files =
   const apiContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'api_contract_test.sprout'), 'utf8');
   const apiOutput = await run(apiContracts, 0, ['--max-steps', '5000000'], false,
     {'/lib/validate.sprout': validationLibrary, '/lib/api.sprout': apiLibrary}, 'test');
-  assert.match(apiOutput, /\b10 passed\b/);
-  assert.doesNotMatch(apiOutput, /[1-9][0-9]* failed/);
+  assert.match(unstyled(apiOutput), /^\s*10 passed(?:,\s*0 failed)?\s*$/m);
+  assert.doesNotMatch(unstyled(apiOutput), /[1-9][0-9]* failed/);
   console.log('ok: WASM pure API contracts');
   const progressLibrary = fs.readFileSync(path.join(__dirname, '..', '..', 'lib', 'workflow_progress.sprout'), 'utf8');
   const progressContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'workflow_progress_test.sprout'), 'utf8');
   const progressOutput = await run(progressContracts, 0, ['--max-steps', '1000000'], false,
     {'/lib/workflow_progress.sprout': progressLibrary}, 'test');
-  assert.match(progressOutput, /\b6 passed\b/);
-  assert.doesNotMatch(progressOutput, /[1-9][0-9]* failed/);
+  assert.match(unstyled(progressOutput), /^\s*6 passed(?:,\s*0 failed)?\s*$/m);
+  assert.doesNotMatch(unstyled(progressOutput), /[1-9][0-9]* failed/);
   console.log('ok: WASM recorded workflow progress contracts');
+  const rootContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'gc_env_roots_test.sprout'), 'utf8');
+  const rootOutput = await run(rootContracts, 0, ['--max-steps', '5000000', '--timeout-ms', '5000'], true, {}, 'test');
+  assert.match(unstyled(rootOutput), /^\s*7 passed(?:,\s*0 failed)?\s*$/m);
+  assert.doesNotMatch(unstyled(rootOutput), /[1-9][0-9]* failed/);
+  console.log('ok: WASM environment scope contracts (ordinary collection)');
   for (const expression of nativeExpressions) {
     assert.match(await run('show builtin::' + expression + '\n', 1), /sandbox mode/, expression + ' must stay blocked with explicit lookup');
   }

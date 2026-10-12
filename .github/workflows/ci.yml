@@ -70,11 +70,14 @@ jobs:
 
       - name: Editor and playground regression tests
         run: |
-          node --test vscode-extension/tests/*.test.js playground/tests/*.test.js integrations/node/tests/*.test.js examples/apps/*.test.js examples/adoption/totalreach/parity.test.js
+          node --test vscode-extension/tests/*.test.js playground/tests/*.test.js integrations/node/tests/*.test.js examples/apps/*.test.js examples/adoption/totalreach/parity.test.js examples/adoption/order-quote/parity.test.js
 
       - name: Native production foundation contracts
         run: |
           bin="$SPROUT_BINARY"
+          compiler=cc; if [ "$RUNNER_OS" = "Windows" ]; then compiler=gcc; fi
+          export SPROUT_GC_ROOT_CC="$compiler"
+          python src/tests/gc_env_roots_test.py "$bin"
           python src/tests/stdlib_production_test.py "$bin"
           python src/tests/distribution_test.py "$bin"
           python src/tests/security_boundary_test.py "$bin"
@@ -91,6 +94,7 @@ jobs:
           python src/tests/config_library_test.py "$bin"
           python src/tests/api_contract_test.py "$bin"
           python src/tests/workflow_progress_test.py "$bin"
+          python examples/adoption/order-quote/test_parity.py "$bin"
           python src/tests/ergonomics_test.py "$bin"
           python src/tests/embed_test.py "$bin"
           python src/tests/release_manifest_test.py
@@ -297,8 +301,11 @@ jobs:
         env:
           ASAN_OPTIONS: detect_leaks=0:detect_stack_use_after_return=0:halt_on_error=1:abort_on_error=1
           SPROUT_GC_STRESS: "1"
+          SPROUT_GC_ROOT_CC: cc
+          SPROUT_GC_ROOT_CFLAGS: -O1 -g -fsanitize=address -fno-omit-frame-pointer
         run: |
           bash src/tests/run.sh
+          python src/tests/gc_env_roots_test.py "$PWD/src/sprout"
           python src/tests/runtime_production_test.py "$PWD/src/sprout"
           python src/tests/ergonomics_test.py "$PWD/src/sprout"
           python src/tests/security_boundary_test.py "$PWD/src/sprout"
@@ -316,6 +323,7 @@ jobs:
           env -u SPROUT_GC_STRESS python src/tests/config_library_test.py "$PWD/src/sprout"
           env -u SPROUT_GC_STRESS python src/tests/api_contract_test.py "$PWD/src/sprout"
           env -u SPROUT_GC_STRESS python src/tests/workflow_progress_test.py "$PWD/src/sprout"
+          env -u SPROUT_GC_STRESS python examples/adoption/order-quote/test_parity.py "$PWD/src/sprout"
           "$PWD/src/sprout" test src/tests/validation_library_test.sprout --max-steps 3000000 --timeout-ms 5000
           "$PWD/src/sprout" test src/tests/intrinsic_builtin_test.sprout --max-steps 3000000 --timeout-ms 5000
           "$PWD/src/sprout" test src/tests/config_library_test.sprout --max-steps 3000000 --timeout-ms 5000
@@ -334,7 +342,11 @@ jobs:
       - name: Build with checked undefined arithmetic and floating conversions
         run: cc -O1 -g -DSPROUT_SQLITE -fsanitize=undefined,float-cast-overflow -fno-sanitize-recover=all -fno-omit-frame-pointer -o src/sprout src/sprout.c src/vendor/sqlite/sqlite3.c -lm -pthread -ldl
       - name: Adversarial JSON, numeric, package, and bundle boundaries
+        env:
+          SPROUT_GC_ROOT_CC: cc
+          SPROUT_GC_ROOT_CFLAGS: -O1 -g -fsanitize=undefined,float-cast-overflow -fno-sanitize-recover=all -fno-omit-frame-pointer
         run: |
+          python src/tests/gc_env_roots_test.py "$PWD/src/sprout"
           python src/tests/security_boundary_test.py "$PWD/src/sprout"
           python src/tests/serialization_test.py "$PWD/src/sprout"
           python src/tests/store_publication_test.py "$PWD/src/sprout"
@@ -347,6 +359,7 @@ jobs:
           python src/tests/config_library_test.py "$PWD/src/sprout"
           python src/tests/api_contract_test.py "$PWD/src/sprout"
           python src/tests/workflow_progress_test.py "$PWD/src/sprout"
+          python examples/adoption/order-quote/test_parity.py "$PWD/src/sprout"
 
   playground:
     name: playground image (Docker)

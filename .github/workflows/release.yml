@@ -56,6 +56,9 @@ jobs:
           bash src/tests/run.sh          # never ship a binary that fails its tests
           bin="$(python -c 'import os; from pathlib import Path; print((Path.cwd() / "${{ matrix.asset }}").resolve())')"
           export SPROUT_BINARY="$bin" SPROUT_COMMAND="$bin"
+          compiler=cc; if [ "$RUNNER_OS" = "Windows" ]; then compiler=gcc; fi
+          export SPROUT_GC_ROOT_CC="$compiler"
+          python src/tests/gc_env_roots_test.py "$bin"
           python src/tests/cli_test.py "$bin"
           python src/tests/unicode_boundary_test.py "$bin"
           python src/tests/stdlib_production_test.py "$bin"
@@ -74,6 +77,7 @@ jobs:
           python src/tests/config_library_test.py "$bin"
           python src/tests/api_contract_test.py "$bin"
           python src/tests/workflow_progress_test.py "$bin"
+          python examples/adoption/order-quote/test_parity.py "$bin"
           python src/tests/ergonomics_test.py "$bin"
           python src/tests/embed_test.py "$bin"
           python src/tests/release_manifest_test.py
@@ -83,6 +87,7 @@ jobs:
           python src/tests/deployment_coverage_test.py
           python src/tests/service_recovery_test.py
           node --test integrations/node/tests/*.test.js
+          node --test examples/adoption/order-quote/parity.test.js
           python tools/soak.py "$bin" --cycles 5 --report "$RUNNER_TEMP/release-soak.json"
           python tools/service_load.py "$bin" --contacts 100 --report "$RUNNER_TEMP/release-service-load.json"
           python tools/service_recovery.py "$bin" --workspace "$RUNNER_TEMP/release-service-recovery" --report "$RUNNER_TEMP/release-service-recovery.json" --label "$GITHUB_SHA"

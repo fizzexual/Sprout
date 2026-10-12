@@ -144,7 +144,7 @@ evidence comes separately from the inherited `SPROUT_GC_STRESS=1` ASan CI runs.
 N005's new test had the same mode mistake; its test-only correction and focused
 six-case run use the actual environment switch, with the original check retained.
 
-## Next batch implementation: worker backpressure and application contracts
+## Integrated batch awaiting correction: worker backpressure and application contracts
 
 | Item | Owner / isolated files | Acceptance / state |
 | --- | --- | --- |
@@ -162,6 +162,68 @@ preparation reservation. Both corrections/regressions passed; independent root
 replay confirms no post-close launch and recovered admission. Earlier41/44
 results stay separate. No OS process was started by the peer models.
 
+## Current corrective batch and active owners
+
+`3e0238e` [CI 38287634384](https://github.com/fizzexual/Sprout/actions/runs/38287634384)
+finished with three of eight jobs passing on its first attempt. Windows, Docker
+and Paper passed. Preserve all five failed logs and the exact original revision:
+
+- Linux, ASan and UBSan stopped in the workflow-progress atomic-reader fixture.
+  An independent offline Linux reproduction confirmed buffered `readline()`
+  consumed bytes later bypassed by `communicate()`. The test-only correction
+  uses owned unbuffered pipes and a flushed READY/GO handshake. Owner Windows
+  and Linux checks retained all16 complete observations,16 real replacements,
+  original deadlines and data/lock assertions; the independent peer approved.
+- Rebuilt WebAssembly passed all10 API assertions, then the summary checker
+  rejected its ANSI-colored `10 passed` line. Root corrected only the checker
+  and added wrong-count negatives. The peer approved; actual WebAssembly must
+  still complete the subsequent six-case progress corpus on the new revision.
+- macOS failed the actual GC-stress API corpus on the unknown-body validation
+  path. Bounded Windows and optimized offline Linux probes passed and have not
+  reproduced its cause. These passes do not explain the macOS observation.
+
+| Item | Active owner / files | Acceptance / current state |
+| --- | --- | --- |
+| R004 | `/root/stdlib`: `src/tests/workflow_progress_test.py`; `/root/editor_tooling` peer | Test-only stdout framing correction frozen and peer approved; original fragmented output preserved; fresh full CI required |
+| R005 | Root: `playground/tests/wasm-smoke.js` and mock controls; `/root/stdlib` peer | ANSI-aware exact summary counts, eight wrong-count negatives and two mock controls passed; no new actual-WASM claim |
+| N010 | `/root/distribution`: scoped precise GC environment roots in `src/sprout.c`, `src/ergonomics_calls.h` and dedicated regression fixtures; `/root/editor_tooling` independent peer | Frozen and peer approved: active/prepared/suspended scopes and normal/error recovery. Eleven Windows minimal-core controls, final five driver controls and independent byte-boundary oracles passed in separate runs. Linux sanitizer cohort remains failed; no combined16/full-SQLite claim. New canonical build/full CI required before installation; macOS cause remains unconfirmed |
+| N006 | `/root/stdlib`: new synthetic order-quote example, Python/Node baselines, parity fixtures and docs; root peer | Frozen and peer approved:58-case independent baselines, corrected portable pin controls and14 additional rational-oracle checks. Exact cents/IDs, explicit discount ties/rounding/shipping, no partial quote; fresh full CI required |
+| Integration | Root: CI wiring, source/build binding, readiness docs and this ledger | Preserve the installed native94 and both failed long-run reports. No sustained test, clock change or CI rerun; one fresh reviewed revision after the corrective batch is ready |
+
+N006's owner checks matched all58 synthetic cases against separate Python and
+Node baselines. Root's additional14 baskets matched an independent exact-rational
+oracle and checked int64/Decimal host types. A pre-CI review caught CRLF-sensitive
+raw source pins; the corrected controls explicitly hash strict UTF-8 text with
+CRLF pairs normalized to LF, while retaining the original raw snapshots. Bare CR,
+BOM, invalid UTF-8 and content changes are still rejected. Owner14 semantic groups
+and the two changed pin controls remain separate results. Independent wiring
+review approved the native/sanitizer/release and ordinary-collection WASM scopes.
+
+The first Windows full-SQLite core compile hit its150-second supervisor before
+producing a binary. That failure is retained. A separately identified optimized
+minimal Windows core passed11 controls after two test-only fixture corrections
+(CRLF summary framing and an invalid outside-test expectation). These results do
+not qualify a full-SQLite build or installation. The original Linux sanitizer
+fixture first failed execution from a noexec temporary mount. After that setup
+correction, its controller exited by SIGKILL with an unexplained cause. A separate
+capped producer captured continuous `AddressSanitizer:DEADLYSIGNAL`; its OOM
+counters did not increase. That probe does not establish the controller's cause.
+The test driver is now being bounded without extending its original15-second
+execution deadline; a cap or sanitizer failure must remain a failure.
+
+The final driver also puts stdin write/close under owned-thread supervision:
+independent review demonstrated that synchronous writing could delay the first
+deadline check even with only four bytes. Five final driver controls and separate
+peer byte-boundary checks passed. The15-second supervised I/O limit remains;
+process creation and bounded cleanup are separate OS boundaries. Single ASan
+version and scalar complements passed without diagnostics, but do not relabel
+the failed cohort or explain its bundle signal flood. No shipping code is being
+edited while root freezes the reviewed integrated revision.
+
+N007 performance and N009 capability metadata remain saved designs, with no
+measurements or shipping implementation yet. Select them after this corrective
+batch; do not repeat completed tests merely to populate the queue.
+
 ## Next unblocked work after the current batch
 
 Choose the first item whose dependencies are verified. Scope its API and file
@@ -169,9 +231,10 @@ ownership before implementation; keep each item independently reviewable.
 
 | ID | Work | Why it helps / acceptance |
 | --- | --- | --- |
-| N006 | Representative rules migration example | Add a second synthetic pricing/validation workflow with pinned host-language parity, exact-value cases and rollback instructions; never read private application source |
 | N007 | Performance measurements for new libraries/services | Publish workload-specific cost/limits with frozen inputs and bounded synthetic data; performance claims require measured comparisons, not syntax or test counts |
 | N009 | Runtime capability metadata and explicit adoption preflight | Design a bounded read-only command exposing compiled capabilities/host ABI so a development version string cannot be mistaken for intrinsic/SQLite support; no project execution, permission guarantee or network; native/WASM/profile parity and independent review required before implementation |
+| N011 | Error-safe argument-preparation allocation ownership | Peer source review found raw argument-position storage bypassed by a later argument/default error. First pin one bounded allocation-count reproduction with successful-call controls, then fix confirmed leaks with peer review and fresh CI; no whole-heap claim from ENV-root counts |
+| N012 | Explicit registered-type environment reachability | Normal files/modules have existing home roots. A type-only wizard file has a structural registry-home concern; bounded ordinary/stress probes passed and have not reproduced a runtime failure. Require a controlled collector reachability negative before proposing a shipping correction; nested task-local methods remain unsupported by the parser |
 
 As items complete, record their exact evidence below, move them to Done, and
 add the next useful scoped item. New priorities from the human supersede this

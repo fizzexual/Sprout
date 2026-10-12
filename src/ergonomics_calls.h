@@ -29,7 +29,10 @@ static Value call_task_expr(TaskDef *task,Expr *call,Env *caller,const Value *re
   int offset=receiver?1:0;
   if(!call_has_named(call))task_arity_check(task,call->nargs+offset,call->line);
   int *slots=argument_positions(task->name,task->params,task->defaults,task->nparams,offset,call);
+  size_t root_depth=gc_env_root_count;
+  gc_env_root_push(caller); SPROUT_GC_ENV_ROOT_EVENT("caller",caller);
   Env *frame=env_new(task->home);
+  gc_env_root_push(frame); SPROUT_GC_ENV_ROOT_EVENT("prepared-expression",frame);
   if(receiver){if(task->ptypes&&task->ptypes[0])check_type(*receiver,task->ptypes[0],call->line,"the receiver");env_define(frame,task->params[0],*receiver);}
   for(int arg=0;arg<call->nargs;arg++)for(int param=offset;param<task->nparams;param++)if(slots[param]==arg){
     Value value=eval(call->args[arg],caller);
@@ -43,5 +46,6 @@ static Value call_task_expr(TaskDef *task,Expr *call,Env *caller,const Value *re
   }
   free(slots);
   if(task->owner_type)env_define(frame,"__class__",vstr(task->owner_type));
-  return run_task(task,frame,call->line);
+  Value result=run_task(task,frame,call->line);
+  gc_env_root_restore(root_depth); return result;
 }

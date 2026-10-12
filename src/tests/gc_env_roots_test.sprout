@@ -1,0 +1,77 @@
+~ Precise environment-root behavior; this does not reproduce the Mac compiler failure.
+private task segment(name):
+    make copied = name + "!"
+    give copied
+private task report(result, path, code = segment("default")):
+    when builtin::length(result.errors) < 64:
+        builtin::add(result.errors, {path: path, code: code})
+    give result
+private task check_one():
+    make result = {errors: []}
+    report(result, [] + [segment("field")])
+    give result
+private task failing(value):
+    make local = {payload: value}
+    fail "expected recovery"
+private task default_failure(value = failing("default")):
+    give value
+private make segment = segment
+private make report = report
+private make check_one = check_one
+private make failing = failing
+private make default_failure = default_failure
+
+type Recorder:
+    make events = []
+    task note(self, text = segment("method")):
+        builtin::add(self.events, text)
+        give self.events
+
+test "prepared earlier input survives a later captured task and default":
+    repeat 32 times:
+        expect check_one().errors == [{path: ["field!"], code: "default!"}]
+
+test "named arguments preserve prepared frame inputs":
+    make result = {errors: []}
+    expect report(result: result, path: [segment("named")], code: segment("explicit")).errors == [{path: ["named!"], code: "explicit!"}]
+
+test "method receiver and default scope survive collection":
+    make recorder = Recorder()
+    expect recorder.note() == ["method!"]
+    expect recorder.note(segment("second")) == ["method!", "second!"]
+
+test "higher order Value calls retain suspended callers":
+    make prefix = "captured"
+    make convert = task(value): prefix + segment(value)
+    expect builtin::map(["a", "b"], convert) == ["captureda!", "capturedb!"]
+
+test "caught nested failures and failed defaults repeatedly restore roots":
+    repeat 160 times:
+        try:
+            default_failure()
+        caught issue:
+            expect issue.message == "expected recovery"
+        expect check_one().errors[0].code == "default!"
+
+test "caught rethrows restore the outer recovery depth":
+    try:
+        try:
+            failing({nested: []})
+        caught inner:
+            fail inner
+    caught outer:
+        expect outer.message == "expected recovery"
+    expect check_one().errors[0].path == ["field!"]
+
+test "expected errors and loop stop skip give balance statement scopes":
+    expect error:
+        failing("assertion")
+    make visited = []
+    for each value in [1, 2, 3]:
+        when value == 1:
+            skip
+        builtin::add(visited, value)
+        when value == 2:
+            stop
+    expect visited == [2]
+    expect check_one().errors[0].code == "default!"
