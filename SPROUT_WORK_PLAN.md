@@ -9,8 +9,13 @@ what comes next, and what remains blocked. Planned work is not delivered work.
 Current verified code: `6b8c724`, all eight jobs passed on the first attempt in
 [CI 38303471847](https://github.com/fizzexual/Sprout/actions/runs/38303471847).
 The installed normal Windows binary is `4ffec927` (`0.2.0-dev`). Allocation
-cleanup is verified and installed; performance tooling and compiled capability
-metadata are private work in progress. Earlier
+cleanup is verified and installed. Capability-query candidate `89654a9` is pushed;
+[CI 38309361500](https://github.com/fizzexual/Sprout/actions/runs/38309361500) passed
+seven jobs and failed the Windows bounded workflow fixture. Its existing two-second
+seed job timed out; cause is under review. The new query passed actual WASM and
+native metadata checks, but this candidate is not installed or fully qualified.
+Performance-tool publication and explicit doctor preflight remain private work.
+Earlier
 batch sections retain the status at that time; their pending claims do not
 override this current status. The eight-hour gate remains held by the human.
 
@@ -249,10 +254,11 @@ remain separate; later passes do not establish their causes.
 | ID | Owner / isolated files | Acceptance / current state |
 | --- | --- | --- |
 | N007 publication | `/root/stdlib`: private portable-tool/spec/guide implementation | The one finite run is complete and independently reviewed; do not rerun it. Reviewed design now has private implementation underway: trusted pinned inputs, portable paths, check-only default, exclusive explicit bounded Windows execution and truthful unsupported metrics. Keep all samples and historical failures; qualify with bounded fake/small Python controls and peer review before shipping. Derived numeric export remains private pending attribution/privacy review. |
-| N009 | Root integrated the frozen compiled-capability query; `/root/editor_tooling` independent wiring peer | Six earlier pure/model methods and four corrected native methods passed across separate profiles. Full/minimal builds have no warnings; replies differ only in SQLite. Both aggregate reports remain failed: consumed-separator fixture and private version-regex mistakes. Separate owner/root read-only checks verified captured outputs without rerunning builds/models/queries. Compiled JSON is availability only. Fresh full CI/actual WASM and verified installation remain pending. |
-| Integration | Root: queue, evidence, source/build binding and CI/release wiring | Current `6b8c724` installation complete. N009 runtime/tests/docs and native/sanitizer/release/source-free WASM wiring integrated. Four mock controls pass with four metadata, seven terminal-shape and 16 corpus-count checks. A peer reproduced malformed terminal statuses credited as success in the new mock harness; query-only checking is corrected, original proof retained. These are mock checks; actual WASM/fresh CI pending. No sustained test or clock changes. |
+| N009 | Root integrated and pushed `89654a9`; source/checker/wiring peers complete | Actual WASM, sanitizer, Docker, Paper, Linux and macOS jobs passed; Windows passed metadata/foundation controls, then failed the existing bounded DAG seed at its unchanged 2000ms deadline. Preserve the first-attempt 7/8 result and investigate without retries/retuning. The private separator/version-analysis failures also remain failed. Normal1544 was built without warnings and all19 inputs match Git, but installed4FF stays in place until the candidate's required gates pass. |
+| Windows workflow diagnosis | `/root/editor_tooling`: private read-only artifact/source diagnosis; root owns CI/evidence | Failed checkpoint records seed timeout and stopped process tree; SQLite journal and original report are retained. No confirmed cause or N009 causal attribution. Review exact hashes and propose a bounded minimal fixture before any launch. Do not repeat the whole soak or increase deadlines. |
+| Integration | Root: queue, evidence, source/build binding and CI/release wiring | Fresh `89654a9` CI is complete7/8, not a full pass. Keep installed6b/4FF, preserve immutable failed artifacts and collect the workflow diagnosis. Four mock controls, seven terminal shapes and16 corpus negatives were checked; actual WASM is now separately passed. No sustained test or clock changes. |
 | N014 implementation | `/root/distribution`: private explicit doctor preflight consumer | Default schema1/no spawn stays unchanged; explicit capability mode uses schema2, strict fixed-feature requirements, bounded supervised query and unknown external-effect status. No version/permission/provenance inference. Pure/fake new controls only until N009 qualification; no shared edits or automatic native query. |
-| N015 design | `/root/editor_tooling`: private bounded pure-quote batch contract | Design only after the N009 wiring peer: aggregate item/byte/time/step limits, exact per-item Python/Node results and private-safe failures; no hidden pool/retry/effects. Define acceptance and file ownership before implementation. |
+| N015 design | `/root/editor_tooling`: private bounded pure-quote batch draft, paused for concrete workflow finding | Draft preserved; compatibility at invalid-item boundaries still needs review. Aggregate item/byte/time/step limits, exact per-item Python/Node results and private-safe failures; no hidden pool/retry/effects. No implementation or performance claim. Resume after the bounded workflow investigation. |
 
 Root owns this file. Agents own only their assigned private inputs until the
 reviewed patch is accepted for shared integration. Current passing CI does not
@@ -285,10 +291,21 @@ order. Do not silently broaden an item into a public deployment or stable releas
 | Windows installer CI observation | `437af0a` healthy PowerShell upgrade timed out at 15 seconds; original cause unknown. Driver isolation/diagnostics were corrected, with unchanged deadlines, and later full CI passed. Preserve the original failure. |
 | HTTP capacity teardown | `b39afb6` observed10053. Local late-write fixtures reproduced lost503; bounded teardown corrections and later full CI passed. Exact remote cause and bounded delivery limits remain explicit. |
 | macOS concurrent .NET worker startup | `479c59e` failed with Operation canceled after earlier cancellation/recovery passed. Bounded diagnostics and subsequent fresh full CI passed; the prior startup cause remains unknown. No repeated clean-result explanation or descendant cleanup claim. |
+| Current Windows workflow timeout | `89654a9` fresh CI38309361500 finished7/8; a fresh DAG seed exceeded its declared2000ms job limit. Captured report/checkpoint/SQLite journal are retained; cause unknown. Read-only diagnosis and a reviewed minimal fixture come before any fix. No deadline increase, CI retry or installation promotion. |
 | Independent external security audit | Agent peer review and sanitizers are evidence for tested cases; external professional review remains separate. |
 | Live Paper and stable release | Live server use awaits the owner's EULA decision. No stable tag/public service/paid infrastructure is authorized. |
 
 ## Batch evidence log
+
+- 2026-10-13: `89654a9` fresh CI38309361500 finished with seven jobs passing,
+  including actual source-free WASM, ASan/UBSan, Docker, Paper, Linux and macOS.
+  Windows passed metadata/foundation checks then its existing fresh-DAG seed
+  timed out at2000ms. Original failed report, checkpoint, SQLite journal and job
+  log are retained. The log's SHA256 is
+  `bed90c5fb6d470f72f81fdfc5f2e52f7cbf4b4a7eaf10c03e2db83bd508657a6`.
+  Read-only diagnosis replaces N015 as that agent's immediate task; the other
+  two private feature streams continue. Installed4FF, held8h and deadlines stay
+  unchanged; no causal explanation or full qualification is claimed.
 
 - 2026-10-13: Continuing the existing three-agent team. N007's publication
   implementation uses the tested private supervisor and bounded fake/Python
