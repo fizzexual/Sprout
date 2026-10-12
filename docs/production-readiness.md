@@ -206,6 +206,19 @@ it covers point-in-time restoration, not power loss or general down migration.
 Fresh complete native/WebAssembly CI is still required for this new candidate;
 none of these local checks qualifies its eight-hour profile.
 
+The integrated `eac6d5b6b2a77bc214354c4c6a4d08dfe5b0699a` first
+[CI run](https://github.com/fizzexual/Sprout/actions/runs/38233671926) passed
+seven of eight jobs. Windows correctly refused dangling output symlinks, but
+the recovery fixture compared the returned extended-path spelling with the
+original plain path and failed two subcases. That original failed result remains
+recorded. The preservation assertion must compare the observed link target
+before and after refusal. The corrected fixture compares the exact observed
+target spelling and independently rejects prefix, case, target and link-removal
+changes. Its ten controls passed on offline Linux, including real symlinks;
+Windows passed nine with its existing symlink-privilege skip. Fresh complete CI
+remains required. This does not change recovery behavior or relax the
+output-preservation requirement.
+
 The review reproduced these issues and verified their fixes:
 
 | Issue | Required behavior | State |

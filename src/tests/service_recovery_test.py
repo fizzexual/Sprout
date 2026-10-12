@@ -1,7 +1,7 @@
 """Bounded recovery primitives; no live application, public service or soak."""
 from contextlib import closing
 import json
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import sqlite3
 import subprocess
 import sys
@@ -9,7 +9,7 @@ import tempfile
 import threading
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT/'tools'))
@@ -17,6 +17,10 @@ import service_recovery as RECOVERY
 
 
 class RecoveryTests(unittest.TestCase):
+    def assert_link_preserved(self, link, recorded_target):
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(str(link.readlink()), str(recorded_target))
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -146,14 +150,32 @@ class RecoveryTests(unittest.TestCase):
                 target = self.root/(option + '-target')
                 link = self.root/(option + '-link')
                 link.symlink_to(target, target_is_directory=option == 'workspace')
+                recorded_target = link.readlink()
                 workspace = link if option == 'workspace' else self.root/'unused-workspace'
                 report = link if option == 'report' else self.root/'unused-report.json'
                 with patch.object(RECOVERY, 'freeze') as freeze, self.assertRaisesRegex(AssertionError, option + ' must be new'):
                     RECOVERY.run_exercise(self.root/'unused-binary', workspace, report, 'fixture')
                 freeze.assert_not_called()
-                self.assertTrue(link.is_symlink()); self.assertEqual(link.readlink(), target)
+                self.assert_link_preserved(link, recorded_target)
                 self.assertFalse(target.exists())
+                self.assertFalse(report.exists())
                 if option == 'report': self.assertFalse(workspace.exists())
+
+    def test_link_preservation_accepts_recorded_windows_target_and_rejects_changes(self):
+        recorded_target = PureWindowsPath('//?/C:/recovery/original-target')
+        link = Mock()
+        link.is_symlink.return_value = True
+        link.readlink.return_value = recorded_target
+        self.assert_link_preserved(link, recorded_target)
+        for changed in (PureWindowsPath('C:/recovery/original-target'),
+                        PureWindowsPath('//?/c:/recovery/original-target'),
+                        PureWindowsPath('//?/C:/recovery/other-target')):
+            with self.subTest(changed=str(changed)), self.assertRaises(AssertionError):
+                link.readlink.return_value = changed
+                self.assert_link_preserved(link, recorded_target)
+        link.is_symlink.return_value = False
+        with self.assertRaises(AssertionError):
+            self.assert_link_preserved(link, recorded_target)
 
 
 if __name__ == '__main__': unittest.main()
