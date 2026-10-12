@@ -98,7 +98,7 @@ def verify_report(report_dir, report_pin, snapshot, manifest_pin, review_file, r
 
 def public_record(report, manifest, artifacts, controller, report_pin, manifest_pin, review_pin):
     # All measured fields are conserved except machine-local source paths/PIDs.
-    allowed = {'kind', 'id', 'sample', 'mode', 'warmup', 'launch_reservation', 'batch', 'source_sha256', 'spawn_returned', 'spawn_start_ns', 'ready_ns',
+    allowed = {'kind', 'id', 'sdk', 'sample', 'mode', 'warmup', 'launch_reservation', 'batch', 'source_sha256', 'spawn_returned', 'spawn_start_ns', 'ready_ns',
         'timing_scope', 'clock_provider', 'clock_resolution_ns', 'clock_resolution_reason', 'insufficient_timing_scale',
         'start_ns', 'end_ns', 'elapsed_ns', 'memory_ready', 'memory_done', 'cleanup', 'cleanup_scope', 'stdout_received_bytes', 'stderr_received_bytes',
         'stdout_artifact', 'stderr_artifact', 'output_artifact', 'output_bytes', 'output_sha256'}

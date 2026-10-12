@@ -6,8 +6,13 @@ configuration merging, literal request routing, JSON response construction and
 checkpoint summarizing. It does not establish a language ranking, SLA, tail
 latency, arbitrary capacity, general production readiness or an eight-hour result.
 
-The tools are available on the revival branch, pending their fresh integration
-CI. The numeric export remains private pending attribution/privacy review.
+The tools are available on the revival branch. Revision `1992c9a` passed all eight
+jobs in [CI 38315637983](https://github.com/fizzexual/Sprout/actions/runs/38315637983),
+including39 tool controls on each native platform. The earlier74ea run failed
+a fixture's canonical-root spelling assertion on Windows/macOS; that evidence
+is retained. A [reviewed historical derived copy](../benchmarks/library-workloads/README.md)
+restores48 SDK host labels omitted by the first private export; every other
+decoded value is unchanged. Its exporter correction needs fresh integration CI.
 No new Sprout measurement was run
 to prepare this package. The historical experiment used one normal-collector
 Windows `6b8c724` / `4ffec927...` runtime and completed204 observations without

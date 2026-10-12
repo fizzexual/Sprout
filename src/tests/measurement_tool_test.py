@@ -504,6 +504,26 @@ class Controls(unittest.TestCase):
                 self.assertEqual(old['elapsed_ns'], new['elapsed_ns']); self.assertEqual(old['output_artifact'], new['output_artifact'])
             self.assertEqual(result['summary']['V1']['paired_differences_ns'], [-4]*5)
 
+    def test_public_rows_keep_explicit_sdk_dimension_without_private_identity(self):
+        rows = [
+            {'kind': 'sdk', 'sdk': 'python', 'id': 'Hmin', 'start_ns': '1', 'end_ns': '2', 'pid': 101, 'source': 'private-path'},
+            {'kind': 'sdk', 'sdk': 'node', 'id': 'Hmin', 'start_ns': '3', 'end_ns': '4', 'parent_pid': 102},
+            {'kind': 'prepared', 'id': 'V1', 'mode': 'full', 'pid': 103},
+        ]
+        report = {'rows': rows, 'sdk_setup': {}, 'summary': {}, 'utc_started': 'synthetic', 'utc_finished': 'synthetic',
+                  'deadline_boundary': 'synthetic', 'host': {}, 'python': {}}
+        manifest = {'revision': 'a' * 40, 'native_sha256': 'b' * 64, 'compiler_sha256': 'c' * 64,
+                    'build_sha256': 'd' * 64, 'ci_sha256': 'e' * 64, 'files': {'controller.py': 'f' * 64}}
+        before = w.compact(report)
+        # Pure projection only: the CLI separately requires complete verified evidence.
+        result = exporter.public_record(report, manifest, {}, 'controller.py', '1' * 64, '2' * 64, '3' * 64)
+        self.assertEqual(result['rows'], [
+            {'kind': 'sdk', 'sdk': 'python', 'id': 'Hmin', 'start_ns': '1', 'end_ns': '2'},
+            {'kind': 'sdk', 'sdk': 'node', 'id': 'Hmin', 'start_ns': '3', 'end_ns': '4'},
+            {'kind': 'prepared', 'id': 'V1', 'mode': 'full'},
+        ])
+        self.assertEqual(w.compact(report), before)
+
     def test_export_rejects_simulation_and_tampering_before_write(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); snapshot, pin, _, _ = sample_snapshot(root)
