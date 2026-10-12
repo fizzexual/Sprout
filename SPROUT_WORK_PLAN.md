@@ -1,6 +1,6 @@
 # Sprout ongoing work ledger
 
-Updated: 2026-10-12 (Europe/Kyiv). This is the scheduled task's work queue.
+Updated: 2026-10-13 (Europe/Kyiv). This is the scheduled task's work queue.
 The user authorized continuing useful feature development with multiple agents
 while the eight-hour qualification is pending. Keep this file current at every
 handoff: record what changed, what was actually verified, who owns active files,
@@ -248,9 +248,11 @@ remain separate; later passes do not establish their causes.
 
 | ID | Owner / isolated files | Acceptance / current state |
 | --- | --- | --- |
-| N007 publication | `/root/stdlib`: private public-doc/portable-tool design | The one finite run is complete and independently reviewed; do not rerun it. Propose replayable trusted/pinned inputs, portable paths, check-only default, explicit bounded measurement and truthful unsupported metrics. Keep all samples and historical failures; require root/peer review and appropriate fake/CI controls before shipping tool code. |
-| N009 | `/root/distribution`: frozen private compiled-capability query and bounded qualification; `/root/editor_tooling` independent peer | Producer/checker/doc peers approved. Eight invalid private checker admissions were reproduced and corrected; original proposal/evidence preserved. Required helper is now pinned. One private full-SQLite/minimal qualification is authorized: full build180s, minimal90s, models30s/native5s with capped capture, one full10-method cohort and one minimal reply comparison; stop on failure. Compiled JSON is availability only; no shipping edits, installation, new CI or actual-WASM qualification yet. |
-| Integration | Root: queue, evidence, source/build binding and CI/release wiring | Current `6b8c724` installation complete and N007's one finite report independently reviewed. Collect N009 private qualification/N007 publication/N014 design handoffs, review the next scope and replenish the queue. No active sustained test or clock changes. |
+| N007 publication | `/root/stdlib`: private portable-tool/spec/guide implementation | The one finite run is complete and independently reviewed; do not rerun it. Reviewed design now has private implementation underway: trusted pinned inputs, portable paths, check-only default, exclusive explicit bounded Windows execution and truthful unsupported metrics. Keep all samples and historical failures; qualify with bounded fake/small Python controls and peer review before shipping. Derived numeric export remains private pending attribution/privacy review. |
+| N009 | Root integrated the frozen compiled-capability query; `/root/editor_tooling` independent wiring peer | Six earlier pure/model methods and four corrected native methods passed across separate profiles. Full/minimal builds have no warnings; replies differ only in SQLite. Both aggregate reports remain failed: consumed-separator fixture and private version-regex mistakes. Separate owner/root read-only checks verified captured outputs without rerunning builds/models/queries. Compiled JSON is availability only. Fresh full CI/actual WASM and verified installation remain pending. |
+| Integration | Root: queue, evidence, source/build binding and CI/release wiring | Current `6b8c724` installation complete. N009 runtime/tests/docs and native/sanitizer/release/source-free WASM wiring integrated. Four mock controls pass with four metadata, seven terminal-shape and 16 corpus-count checks. A peer reproduced malformed terminal statuses credited as success in the new mock harness; query-only checking is corrected, original proof retained. These are mock checks; actual WASM/fresh CI pending. No sustained test or clock changes. |
+| N014 implementation | `/root/distribution`: private explicit doctor preflight consumer | Default schema1/no spawn stays unchanged; explicit capability mode uses schema2, strict fixed-feature requirements, bounded supervised query and unknown external-effect status. No version/permission/provenance inference. Pure/fake new controls only until N009 qualification; no shared edits or automatic native query. |
+| N015 design | `/root/editor_tooling`: private bounded pure-quote batch contract | Design only after the N009 wiring peer: aggregate item/byte/time/step limits, exact per-item Python/Node results and private-safe failures; no hidden pool/retry/effects. Define acceptance and file ownership before implementation. |
 
 Root owns this file. Agents own only their assigned private inputs until the
 reviewed patch is accepted for shared integration. Current passing CI does not
@@ -287,6 +289,21 @@ order. Do not silently broaden an item into a public deployment or stable releas
 | Live Paper and stable release | Live server use awaits the owner's EULA decision. No stable tag/public service/paid infrastructure is authorized. |
 
 ## Batch evidence log
+
+- 2026-10-13: Continuing the existing three-agent team. N007's publication
+  implementation uses the tested private supervisor and bounded fake/Python
+  fixtures without repeating measurements. N009's first native fixture failure
+  was classified against the existing separator contract; the one-line fixture
+  correction and unchanged runtime were independently checked before a distinct
+  native-only follow-up. New WASM mocks pass; real target qualification remains
+  pending. The eight-hour gate and machine clock settings are unchanged.
+
+- 2026-10-13: N009's four changed native controls passed once on the existing
+  full/minimal binaries; the separate runner still failed its unnecessary
+  version-format regex. Both aggregate failures remain immutable. Owner/root
+  analysis checked raw equality, metadata, source and cleanup without another
+  workload. The exact candidate is integrated for new CI, with source-free WASM
+  checks and a peer-proven terminal-status correction; no installation claim yet.
 
 - 2026-10-12: The sealed N007 run completed once with 204 observations and no
   retries. Independent root review checked all 518 raw artifacts, exact outputs,

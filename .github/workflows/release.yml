@@ -59,8 +59,10 @@ jobs:
           compiler=cc; if [ "$RUNNER_OS" = "Windows" ]; then compiler=gcc; fi
           export SPROUT_GC_ROOT_CC="$compiler"
           export SPROUT_ARGUMENT_BUFFER_CC="$compiler"
+          export SPROUT_CAPABILITIES_CC="$compiler"
           python src/tests/gc_env_roots_test.py "$bin"
           python src/tests/argument_buffers_test.py "$bin"
+          python src/tests/runtime_capabilities_test.py "$bin"
           python src/tests/cli_test.py "$bin"
           python src/tests/unicode_boundary_test.py "$bin"
           python src/tests/stdlib_production_test.py "$bin"

@@ -5047,10 +5047,83 @@ failed:
 }
 #endif
 
+/* Compile-source metadata only: no runtime, transport or filesystem probes. */
+static int compiled_capabilities_json(void) {
+#if defined(__EMSCRIPTEN__)
+#define SPROUT_CAP_KIND "wasm"
+#define SPROUT_CAP_OS "emscripten"
+#define SPROUT_CAP_NATIVE "false"
+#define SPROUT_CAP_HTTP "unavailable"
+#define SPROUT_CAP_HTTP_TOOL "null"
+#else
+#define SPROUT_CAP_KIND "native"
+#define SPROUT_CAP_NATIVE "true"
+#if defined(_WIN32)
+#define SPROUT_CAP_OS "windows"
+#define SPROUT_CAP_HTTP "winhttp"
+#define SPROUT_CAP_HTTP_TOOL "null"
+#else
+#if defined(__APPLE__) && defined(__MACH__)
+#define SPROUT_CAP_OS "darwin"
+#elif defined(__linux__)
+#define SPROUT_CAP_OS "linux"
+#else
+#define SPROUT_CAP_OS "unknown"
+#endif
+#define SPROUT_CAP_HTTP "curl"
+#define SPROUT_CAP_HTTP_TOOL "\"curl\""
+#endif
+#endif
+#if defined(__wasm64__)
+#define SPROUT_CAP_ARCH "wasm64"
+#elif defined(__wasm32__)
+#define SPROUT_CAP_ARCH "wasm32"
+#elif defined(_M_X64) || defined(__x86_64__)
+#define SPROUT_CAP_ARCH "x86_64"
+#elif defined(_M_IX86) || defined(__i386__)
+#define SPROUT_CAP_ARCH "x86"
+#elif defined(_M_ARM64) || defined(__aarch64__)
+#define SPROUT_CAP_ARCH "aarch64"
+#elif defined(_M_ARM) || defined(__arm__)
+#define SPROUT_CAP_ARCH "arm32"
+#else
+#define SPROUT_CAP_ARCH "unknown"
+#endif
+#ifdef SPROUT_SQLITE
+#define SPROUT_CAP_SQLITE "true"
+#else
+#define SPROUT_CAP_SQLITE "false"
+#endif
+  static const char message[] =
+    "{\"schema\":1,\"runtime\":{\"kind\":\"" SPROUT_CAP_KIND "\",\"os\":\"" SPROUT_CAP_OS "\",\"arch\":\"" SPROUT_CAP_ARCH
+    "\"},\"features\":{\"intrinsic_calls_v1\":true,\"sqlite_adapter_v1\":" SPROUT_CAP_SQLITE
+    ",\"native_processes_v1\":" SPROUT_CAP_NATIVE ",\"http_request_v1\":" SPROUT_CAP_NATIVE
+    ",\"workflow_plan_v1\":true,\"workflow_run_v1\":" SPROUT_CAP_NATIVE
+    "},\"http_transport\":{\"operation\":\"http_request_v1\",\"kind\":\"" SPROUT_CAP_HTTP
+    "\",\"requires_external_tool\":" SPROUT_CAP_HTTP_TOOL
+    "},\"host_library\":{\"included\":false,\"abi_version\":null}}\n";
+  _Static_assert(sizeof(message) <= 1024, "capability metadata exceeds its fixed output bound");
+#undef SPROUT_CAP_KIND
+#undef SPROUT_CAP_OS
+#undef SPROUT_CAP_NATIVE
+#undef SPROUT_CAP_HTTP
+#undef SPROUT_CAP_HTTP_TOOL
+#undef SPROUT_CAP_ARCH
+#undef SPROUT_CAP_SQLITE
+  if (fwrite(message, 1, sizeof(message) - 1, stdout) != sizeof(message) - 1 || fflush(stdout) == EOF) {
+    fputs("Could not write capabilities JSON.\n", stderr); return 1;
+  }
+  return 0;
+}
+
 int main(int argc, char **argv) {
 #ifdef _WIN32
   if (!windows_utf8_arguments(&argc, &argv)) return 2;
 #endif
+  if (argc > 1 && !strcmp(argv[1], "--capabilities-json")) {
+    if (argc != 2) { fputs("Usage: sprout --capabilities-json\n", stderr); return 2; }
+    return compiled_capabilities_json();
+  }
   char gc_bottom_marker; gc_stack_bottom = &gc_bottom_marker;   /* the outermost stack address the GC scans up to */
   detect_stack_budget();                                        /* size the deep-recursion guard to the real stack */
   gc_stress = getenv("SPROUT_GC_STRESS") != NULL;               /* aggressive collection for testing */

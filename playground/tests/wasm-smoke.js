@@ -5,6 +5,37 @@ const path = require('node:path');
 const createSprout = require(path.resolve(process.argv[2]));
 const unstyled = text => text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
 
+// Metadata must work before mounting source, importing a library or parsing
+// runtime flags. Each query owns a fresh instance, including rejected queries.
+async function queryCapabilities(args, expectedCode = 0) {
+  const output = [], errors = [];
+  const module = await createSprout({ print: text => output.push(text), printErr: text => errors.push(text),
+    stdin: () => { throw new Error('metadata query read stdin'); }, noInitialRun: true });
+  let code = 0;
+  try { code = module.callMain(args) || 0; }
+  catch (error) {
+    if (error && error.name === 'ExitStatus' && Number.isInteger(error.status)) code = error.status;
+    else throw error;
+  }
+  assert.equal(code, expectedCode, errors.join('\n'));
+  if (expectedCode) {
+    assert.deepEqual(output, []);
+    assert.deepEqual(errors, ['Usage: sprout --capabilities-json']);
+    return;
+  }
+  assert.deepEqual(errors, []);
+  assert.equal(output.length, 1, 'metadata is exactly one JSON line');
+  assert.match(output[0], /^[\x20-\x7e]+$/);
+  assert.ok(Buffer.byteLength(output[0], 'ascii') + 1 <= 1024);
+  assert.deepEqual(JSON.parse(output[0]), {
+    schema: 1, runtime: {kind: 'wasm', os: 'emscripten', arch: 'wasm32'},
+    features: {intrinsic_calls_v1: true, sqlite_adapter_v1: false, native_processes_v1: false,
+      http_request_v1: false, workflow_plan_v1: true, workflow_run_v1: false},
+    http_transport: {operation: 'http_request_v1', kind: 'unavailable', requires_external_tool: null},
+    host_library: {included: false, abi_version: null},
+  });
+}
+
 async function run(source, expectedCode = 0, flags = [], sandbox = true, files = {}, command = null) {
   const output = [];
   const module = await createSprout({ print: text => output.push(text), printErr: text => output.push(text),
@@ -25,6 +56,9 @@ async function run(source, expectedCode = 0, flags = [], sandbox = true, files =
 }
 
 (async () => {
+  await queryCapabilities(['--capabilities-json']);
+  for (const extra of ['extra', '--sandbox', '--']) await queryCapabilities(['--capabilities-json', extra], 2);
+  console.log('ok: WASM source-free compiled metadata and exact argument admission');
   assert.equal((await run('show 6 * 7\n')).trim(), '42');
   for (const name of ['json_validation_test.sprout', 'object_regressions_test.sprout', 'exact_numbers_test.sprout', 'binary_values_test.sprout']) {
     // Each call creates a fresh Emscripten MEMFS. Only this suite needs persistence

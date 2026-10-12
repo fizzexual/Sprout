@@ -107,6 +107,9 @@ The synthetic [order-quote migration](docs/order-quote.md) compares exact cents,
 discount traces and bounded validation with Python/Node rules. The
 [environment reachability contract](docs/gc-environments.md) records the scoped
 GC hardening and its verification limits.
+[Compiled runtime metadata](docs/runtime-capabilities.md) identifies available
+operations before loading a program or bundle; sandbox permissions and external
+tool readiness remain separate checks.
 The [ongoing work ledger](SPROUT_WORK_PLAN.md) records completed evidence,
 active feature owners, the next queue and remaining release gates.
 The [TotalReach migration example](examples/adoption/totalreach/README.md) compares
@@ -236,6 +239,7 @@ winget install --id BrechtSanders.WinLibs.POSIX.UCRT
 sprout run hello.sprout     # or just: sprout hello.sprout
 sprout --sandbox run x.sprout   # run UNTRUSTED code: no file / shell / network access
 sprout version              # -> Sprout v0.2.0-dev
+sprout --capabilities-json   # compiled operation/target metadata; no program loaded
 sprout check hello.sprout    # syntax, declarations, and imports; no program execution
 sprout new myapp            # create a full multi-file project folder
 sprout build                # run the project in the current folder (reads sprout.toml)

@@ -4,8 +4,8 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
 
-async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7, bufferCount = 6) {
-  const calls = [], filesystems = [];
+async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7, bufferCount = 6, metadataChange = null) {
+  const calls = [], filesystems = [], metadataCalls = [];
   const validationLibrary = fs.readFileSync(path.join(__dirname, '..', '..', 'lib', 'validate.sprout'), 'utf8');
   const validationContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'validation_library_test.sprout'), 'utf8');
   const intrinsicContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'intrinsic_builtin_test.sprout'), 'utf8');
@@ -18,10 +18,26 @@ async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7, bu
   const rootContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'gc_env_roots_test.sprout'), 'utf8');
   const bufferContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'argument_buffers_test.sprout'), 'utf8');
   const factory = async options => {
-    const files = new Map(); filesystems.push(files);
+    const files = new Map();
     return {
       FS: { mkdirTree() {}, writeFile(name, value) { files.set(name, value); } },
       callMain(args) {
+        if (args[0] === '--capabilities-json') {
+          metadataCalls.push({args, files});
+          assert.equal(files.size, 0, 'query instance has no mounted program or library');
+          assert.equal(options.noInitialRun, true);
+          if (args.length !== 1) { options.printErr('Usage: sprout --capabilities-json'); return 2; }
+          const metadata = {
+            schema: 1, runtime: {kind: 'wasm', os: 'emscripten', arch: 'wasm32'},
+            features: {intrinsic_calls_v1: true, sqlite_adapter_v1: false, native_processes_v1: false,
+              http_request_v1: false, workflow_plan_v1: true, workflow_run_v1: false},
+            http_transport: {operation: 'http_request_v1', kind: 'unavailable', requires_external_tool: null},
+            host_library: {included: false, abi_version: null},
+          };
+          if (metadataChange) metadataChange(metadata);
+          options.print(JSON.stringify(metadata)); return 0;
+        }
+        filesystems.push(files);
         const source = files.get('/program.sprout');
         calls.push({ source, args, files });
         if (args[0] === 'test') {
@@ -76,9 +92,14 @@ async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7, bu
   const sandbox = {
     require(name) { return name === mockPath ? factory : require(name); },
     process: { argv: ['node', 'wasm-smoke.js', mockPath], exitCode: 0 },
-    __dirname, console: { log() {}, error(error) { throw error; } },
+    __dirname, Buffer, console: { log() {}, error(error) { throw error; } },
   };
   await vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'wasm-smoke.js'), 'utf8'), sandbox);
+  assert.deepEqual(metadataCalls.map(call => Array.from(call.args)), [
+    ['--capabilities-json'], ['--capabilities-json', 'extra'],
+    ['--capabilities-json', '--sandbox'], ['--capabilities-json', '--'],
+  ]);
+  assert.equal(new Set(metadataCalls.map(call => call.files)).size, 4, 'every metadata query owns a fresh instance');
   const persistence = calls.filter(call => call.source.includes('exact_roundtrip'));
   assert.equal(persistence.length, 1);
   assert.equal(persistence[0].args.includes('--sandbox'), false);
@@ -125,6 +146,47 @@ async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7, bu
 }
 
 test('WASM smoke isolates persistence and retains sandboxed native capability probes', () => exerciseSmoke());
+
+test('WASM metadata rejects incorrect compiled flags and target/ABI claims', async () => {
+  for (const change of [metadata => { metadata.features.http_request_v1 = true; },
+    metadata => { metadata.features.sqlite_adapter_v1 = true; },
+    metadata => { metadata.runtime.kind = 'native'; },
+    metadata => { metadata.host_library.abi_version = 1; }]) {
+    await assert.rejects(exerciseSmoke(10, 6, 7, 6, change), assert.AssertionError);
+  }
+});
+
+test('WASM metadata requires a known numeric terminal status', async () => {
+  const prefix = fs.readFileSync(path.join(__dirname, 'wasm-smoke.js'), 'utf8').split('async function run(')[0];
+  assert.ok(prefix.includes('async function queryCapabilities('));
+  const mockPath = path.resolve(__dirname, 'mock-sprout.js');
+  const metadata = {schema: 1, runtime: {kind: 'wasm', os: 'emscripten', arch: 'wasm32'},
+    features: {intrinsic_calls_v1: true, sqlite_adapter_v1: false, native_processes_v1: false,
+      http_request_v1: false, workflow_plan_v1: true, workflow_run_v1: false},
+    http_transport: {operation: 'http_request_v1', kind: 'unavailable', requires_external_tool: null},
+    host_library: {included: false, abi_version: null}};
+  async function terminal(error, expectedCode = 0) {
+    const factory = async options => ({
+      callMain() {
+        if (expectedCode) options.printErr('Usage: sprout --capabilities-json');
+        else options.print(JSON.stringify(metadata));
+        throw error;
+      },
+      get FS() { throw new Error('metadata fixture mounted a filesystem'); },
+    });
+    return vm.runInNewContext(prefix + '\nqueryCapabilities(["--capabilities-json"], ' + expectedCode + ');', {
+      require(name) { return name === mockPath ? factory : require(name); },
+      process: {argv: ['node', 'wasm-smoke.js', mockPath]}, Buffer,
+    });
+  }
+  for (const error of [{name: 'ExitStatus'}, {name: 'ExitStatus', status: null},
+    {name: 'ExitStatus', status: NaN}, {name: 'ExitStatus', status: false},
+    {name: 'OtherError', status: 0}]) {
+    await assert.rejects(terminal(error), thrown => thrown === error);
+  }
+  await terminal({name: 'ExitStatus', status: 0});
+  await terminal({name: 'ExitStatus', status: 2}, 2);
+});
 
 test('WASM summaries retain exact corpus counts with CLI colors', async () => {
   for (const wrong of [1, 9, 11, 110]) await assert.rejects(exerciseSmoke(wrong, 6), assert.AssertionError);

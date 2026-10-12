@@ -78,8 +78,10 @@ jobs:
           compiler=cc; if [ "$RUNNER_OS" = "Windows" ]; then compiler=gcc; fi
           export SPROUT_GC_ROOT_CC="$compiler"
           export SPROUT_ARGUMENT_BUFFER_CC="$compiler"
+          export SPROUT_CAPABILITIES_CC="$compiler"
           python src/tests/gc_env_roots_test.py "$bin"
           python src/tests/argument_buffers_test.py "$bin"
+          python src/tests/runtime_capabilities_test.py "$bin"
           python src/tests/stdlib_production_test.py "$bin"
           python src/tests/distribution_test.py "$bin"
           python src/tests/security_boundary_test.py "$bin"
@@ -307,10 +309,13 @@ jobs:
           SPROUT_GC_ROOT_CFLAGS: -O1 -g -fsanitize=address -fno-omit-frame-pointer
           SPROUT_ARGUMENT_BUFFER_CC: cc
           SPROUT_ARGUMENT_BUFFER_CFLAGS: -O1 -g -fsanitize=address -fno-omit-frame-pointer
+          SPROUT_CAPABILITIES_CC: cc
+          SPROUT_CAPABILITIES_CFLAGS: -O1 -g -fsanitize=address -fno-omit-frame-pointer
         run: |
           bash src/tests/run.sh
           python src/tests/gc_env_roots_test.py "$PWD/src/sprout"
           python src/tests/argument_buffers_test.py "$PWD/src/sprout"
+          python src/tests/runtime_capabilities_test.py "$PWD/src/sprout"
           python src/tests/runtime_production_test.py "$PWD/src/sprout"
           python src/tests/ergonomics_test.py "$PWD/src/sprout"
           python src/tests/security_boundary_test.py "$PWD/src/sprout"
@@ -352,9 +357,12 @@ jobs:
           SPROUT_GC_ROOT_CFLAGS: -O1 -g -fsanitize=undefined,float-cast-overflow -fno-sanitize-recover=all -fno-omit-frame-pointer
           SPROUT_ARGUMENT_BUFFER_CC: cc
           SPROUT_ARGUMENT_BUFFER_CFLAGS: -O1 -g -fsanitize=undefined,float-cast-overflow -fno-sanitize-recover=all -fno-omit-frame-pointer
+          SPROUT_CAPABILITIES_CC: cc
+          SPROUT_CAPABILITIES_CFLAGS: -O1 -g -fsanitize=undefined,float-cast-overflow -fno-sanitize-recover=all -fno-omit-frame-pointer
         run: |
           python src/tests/gc_env_roots_test.py "$PWD/src/sprout"
           python src/tests/argument_buffers_test.py "$PWD/src/sprout"
+          python src/tests/runtime_capabilities_test.py "$PWD/src/sprout"
           python src/tests/security_boundary_test.py "$PWD/src/sprout"
           python src/tests/serialization_test.py "$PWD/src/sprout"
           python src/tests/store_publication_test.py "$PWD/src/sprout"
