@@ -139,6 +139,20 @@ requiring the actual 413 decision, no dispatch and native request recovery.
 Trickling-input deadline assertions remain unchanged. The earlier two Windows
 socket errors are preserved; no production service source was changed.
 
+The `5d55dc8` real-native smoke passed: 80 exact contacts, seven actual lock
+probes, five clean host lifecycles and all 97 native workers exited. Its timer,
+cadence, source hashes, resource/storage limits and SQLite oracle were checked
+independently. Its [macOS CI](https://github.com/fizzexual/Sprout/actions/runs/38206803609)
+passed the cleanup controls and stopped on a test that expected the literal
+413 reason phrase `Request Entity Too Large`; the observed Python 3.14.7 response
+was a complete 413 `Content Too Large` response with the expected JSON body.
+The follow-on correction checks the numeric status and response framing,
+preserving JSON, no-dispatch, recovery and deadline assertions. Five focused
+controls passed on Windows and Linux. Reason text is descriptive rather than a
+reliable protocol field. [RFC 9112, section 4](https://www.rfc-editor.org/rfc/rfc9112.html#section-4)
+describes the status-line contract. Runtime, SDK and harness inputs are unchanged
+by this test-only correction; final full CI remains required.
+
 The review reproduced these issues and verified their fixes:
 
 | Issue | Required behavior | State |

@@ -19,6 +19,33 @@ from types import SimpleNamespace
 from sprout_service import SproutServer, SproutHandler, _DeadlineReader
 
 
+def _wire_has_413_status(response, *, allow_partial=False):
+    prefix = b'HTTP/1.0 413 '
+    return response.startswith(prefix) or (allow_partial and bool(response) and prefix.startswith(response))
+
+
+class WireStatusTests(unittest.TestCase):
+    def test_413_reason_phrase_is_independent_of_status_code(self):
+        for phrase in (b'Request Entity Too Large', b'Content Too Large'):
+            with self.subTest(phrase=phrase):
+                self.assertTrue(_wire_has_413_status(b'HTTP/1.0 413 ' + phrase + b'\r\nContent-Length: 0\r\n\r\n'))
+        for response in (b'HTTP/1.0 400 Bad Request\r\n', b'HTTP/1.0 431 Too Large\r\n',
+                         b'HTTP/1.0 4130 Too Large\r\n', b'HTTP/1.0  413 Too Large\r\n',
+                         b'HTTP/1.0 413\r\n', b'HTTP/1.0 413X Too Large\r\n', b'413 Content Too Large\r\n'):
+            with self.subTest(response=response):
+                self.assertFalse(_wire_has_413_status(response))
+                self.assertFalse(_wire_has_413_status(response, allow_partial=True))
+
+    def test_partial_status_prefix_requires_observed_transport_close(self):
+        for response in (b'H', b'HTTP/1.0 ', b'HTTP/1.0 4', b'HTTP/1.0 413'):
+            with self.subTest(response=response):
+                self.assertFalse(_wire_has_413_status(response))
+                self.assertTrue(_wire_has_413_status(response, allow_partial=True))
+        for response in (b'', b'HTTP/1.0 5', b'HTTP/1.0 412', b'HTTP/1.1 413'):
+            with self.subTest(response=response):
+                self.assertFalse(_wire_has_413_status(response, allow_partial=True))
+
+
 class ReaderDeadlineTests(unittest.TestCase):
     def test_server_bind_does_not_depend_on_reverse_dns(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -113,8 +140,7 @@ class ServiceTests(unittest.TestCase):
             response = b''.join(chunks)
             self.assertEqual(decisions.get(timeout=1), (413, {'error': 'request too large'}))
             if response:
-                status_line = b'HTTP/1.0 413 Request Entity Too Large\r\n'
-                self.assertTrue(response.startswith(status_line) or status_line.startswith(response),
+                self.assertTrue(_wire_has_413_status(response, allow_partial=close_error is not None),
                                 f'unexpected wire response: {response!r}')
             if close_error is None:
                 headers, body = response.split(b'\r\n\r\n', 1)
