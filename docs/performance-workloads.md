@@ -12,7 +12,9 @@ including39 tool controls on each native platform. The earlier74ea run failed
 a fixture's canonical-root spelling assertion on Windows/macOS; that evidence
 is retained. A [reviewed historical derived copy](../benchmarks/library-workloads/README.md)
 restores48 SDK host labels omitted by the first private export; every other
-decoded value is unchanged. Its exporter correction needs fresh integration CI.
+decoded value is unchanged. The exporter correction passed full
+[CI 38319793595](https://github.com/fizzexual/Sprout/actions/runs/38319793595)
+on `a3e11de`, including40 tool controls on each native platform.
 No new Sprout measurement was run
 to prepare this package. The historical experiment used one normal-collector
 Windows `6b8c724` / `4ffec927...` runtime and completed204 observations without

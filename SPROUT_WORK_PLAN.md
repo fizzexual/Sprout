@@ -6,10 +6,10 @@ while the eight-hour qualification is pending. Keep this file current at every
 handoff: record what changed, what was actually verified, who owns active files,
 what comes next, and what remains blocked. Planned work is not delivered work.
 
-Current verified code: `1992c9a`, all eight jobs passed on the first attempt in
-[CI 38315637983](https://github.com/fizzexual/Sprout/actions/runs/38315637983).
+Current verified code: `a3e11de`, all eight jobs passed on the first attempt in
+[CI 38319793595](https://github.com/fizzexual/Sprout/actions/runs/38319793595).
 The installed normal Windows binary is `154415bb` (`0.2.0-dev`), bound to all19
-exact current Git inputs and its original full-SQLite build. Compiled metadata
+exact unchanged native Git inputs and its original full-SQLite build. Compiled metadata
 and reusable measurement tools are functionally verified. Prior capability
 candidate `89654a9` [CI 38309361500](https://github.com/fizzexual/Sprout/actions/runs/38309361500)
 remains seven of eight: its two-second Windows DAG seed timed out with unknown
@@ -19,8 +19,8 @@ finished six of eight jobs passing: Windows/macOS rejected a fixture's lexical
 temporary-root spelling, while the tool returned its canonical root. One bounded
 preimage reproduced that assertion; a test-only correction and new alias/escape
 regression passed two controls, followed by the separate full1992 CI above.
-The reviewed historical numeric copy and explicit doctor are integrated for
-their own fresh CI. The quote batch and UTC helper remain private work.
+The reviewed historical numeric copy and explicit doctor passed their own
+fresh fulla3 CI. The quote batch and UTC helper remain private work.
 Earlier
 batch sections retain the status at that time; their pending claims do not
 override this current status. The eight-hour gate remains held by the human.
@@ -70,6 +70,8 @@ override this current status. The eight-hour gate remains held by the human.
 | Compiled runtime metadata (N009) | Source/helper/early-dispatch/strict-schema peers and bounded native/model controls; exact retained source passed actual native/WASM/sanitizer/full1992 CI. Query is before initialization and program/bundle loading. It reports compiled availability only; it does not grant permissions or verify external tools/host ABI/build authenticity. Prior local fixture/analysis failures and896 CI7/8 remain preserved. |
 | Reusable finite measurement tools (N007 tooling) | Explicit pinned selection, check-only inspection, frozen preparation, sealed one-attempt invocation and derived evidence export. Role/aggregate streaming bounds and primary-error retention independently reviewed. Three native platforms each passed39 controls in full1992 CI. Earlier74ea CI6/8 fixture spelling failure and private cap fixture/five extra pure repeats are retained. Full execution remains a Windows profile; no new measurement or numeric publication. |
 | Current1544 Windows installation | SHA256 `154415bb5fc64ae0ddcb6a57e2ad4c6a245ee1df1541be1e35a74bbd261e4f05`; its retained36.578-second normal full-SQLite build had no warnings and all19 inputs were compared with current1992 Git. No repeated compile. Bounded staged version/metadata and installed metadata passed, followed by one installed stock Python exact quote matched against the complete independent Decimal oracle. Prior4FF rollback preserved, PATH unchanged, version remains `0.2.0-dev`. |
+| Explicit compiled-feature doctor preflight (N014) | Opt-in schema2, six bounded requirements and one trusted-runtime query; default schema1/no probe unchanged.24 original fake/Python controls and separate clock1, independent source/root peers, exactly two actual full/minimal diagnostics and fresha3 fullCI8/8 with25 controls per native platform. MissingSQLite blocks adoption; availability/effects/build identity/permissions stay distinct. |
+| Corrected historical observation export (N007 attribution) | SDK row labels retained by exporter and one new pure control. Independent exact-file/privacy review of additive5FD7 restores48 original host dimensions, with every other decoded value unchanged from preservedBE40. Original root3067 review remains incomplete. Fulla3 CI8/8 passed with40 tool controls per native platform; no measured workload rerun or current-runtime speed claim. |
 
 The earlier `eac6d5b` run [38233671926](https://github.com/fizzexual/Sprout/actions/runs/38233671926)
 failed its Windows link-spelling fixture, with seven jobs passing. The corrected
@@ -262,13 +264,13 @@ remain separate; later passes do not establish their causes.
 
 | ID | Owner / isolated files | Acceptance / current state |
 | --- | --- | --- |
-| N007 SDK attribution correction | Root source integration; `/root/distribution` exact-file/source peer | First privateBE40 export omitted48 per-row SDK labels; root's first privacy review missed that field and remains incomplete for attribution. Exporter whitelist plus one new pure regression corrected this; only that new method ran locally. Independently reviewed additive copy5FD7 restores24Python/24Node labels, every other decoded value unchanged. Historical6b/4FF identity/raw sample scopes remain explicit; no workload/exporter rerun. New source/data/docs await fresh integrated CI. |
+| N007 attribution | Completed and verifieda3; original evidence retained | Exporter/data correction and fullCI passed; see Done. No new measurement or repeat audit is queued. |
 | N009 producer | Functionally verified and installed on1992; earlier failures retained | Original896 CI7/8 remains failed. Exact same19 runtime inputs passed separate1992 fullCI8/8 and normal1544 is now installed after bounded probes/complete exact quote. This opens N014's producer dependency; it does not explain the original seed timeout or qualify sustained deployment. |
 | Windows workflow diagnosis | Root/editor private observation complete; remote cause remains open | Original journal byte reviews verified seven before-image checksums and changed database pages, without SQLite recovery. One separately frozen instrumented local seed completed once under unchanged2000ms/15000ms/18s limits. Root read-only verification confirmed one exact effect, one application and two events in the new fixture. Local1544 differs from remote243; markers perturb timing, and this is not a failed-CI replacement or independent descendant-stop proof. No further seed/whole-soak run authorized. |
-| Integration | Root: queue, evidence, source/build binding and CI/release wiring | Preserve896 CI7/8 unknown seed cause and74ea CI6/8 fixture spelling failures. Corrected1992 fullCI8/8 firstattempt is sealed; installed1544/rollback4FF are recorded. N014/N015/N016 still require their separately frozen gates. No sustained test, clock change or repeated measurement. |
-| N014 explicit doctor | Root integrated three reviewed files; fresh consumer CI pending | Existing24 fake/three-Python controls and separate clock1 retain their own attribution. One sealed two-query actual consumer profile passed: full1544 accepted all six requirements; minimalCB1 produced exactly the requiredSQLite error. Raw metadata/outcomes/40 identities independently checked; no default probe, version fallback, application call or local24+1 repeat. New native-platform CI wiring awaits independent integration review/fresh CI. |
-| N015 diagnostic preparation | `/root/editor_tooling`: immutable failed cohort plus one proposed isolated probe | Corrected81-file driver/source peer and three pure groups preceded one sealed cohort on6b/4FF. All38 SDK oracles and normal shared8 passed; GC shared test6 timed out under the unchanged global3s limit after five groups.40 payload starts/39 completed operation checks; six later native operations unexecuted. Root independently checked raw outputs/failure, preserving its own ANSI-summary checker error. New prep only: isolated compound test6, five fixed phase markers, same graphs/4FF/3s/4M/8s/64KiB. No payload until new root seal; no repeat full/SDK/normal profile or cause/leak claim. |
-| N016 narrow correction | `/root/stdlib`: five private UTC source files; `/root/distribution` source peer | Source-firsta670/static17A1 retained: four source/oracle groups passed,59 vectors, zero native calls. Peer blocked precision-before-complete-grammar classification and unbounded PIPE capture. Correct privately with grammar-first precision, explicit35-character guard/acceptedASCII<=35bytes and frozen57D8 streaming32KiB per stream/owned cleanup. Keep59 vectors and add bad-suffix60th; four changed-only fake/source groups before new freeze/peer/root-sealed four-native plan. Existing local-time helpers unchanged; no implementation qualification yet. |
+| Integration | Root: queue, evidence, source/build binding and CI/release wiring | Preserve896 CI7/8 unknown seed cause and74ea CI6/8 fixture spelling failures. Fresh1992 and nowa3 fullCI8/8 firstattempt are sealed; installed1544/rollback4FF unchanged because native19 inputs are unchanged. N015/N016 still require separate gates. No sustained test, clock change or repeated measurement. |
+| N014 explicit doctor | Completed and verifieda3; default behavior retained | Consumer/source/wiring peers and real diagnostic profile passed; see Done. No unchanged local tests or additional queries queued. |
+| N015 admission refinement | `/root/editor_tooling`: separate private batch revision; `/root/distribution` peer | Original cohort remains failed. One separately sealed, marked test6-only invocation also reached the unchanged 3-second timeout: cycle assertion completed, alias admission began, final marker absent. Direct child exited/reaped with capture/cleanup/finalization errors empty. This identifies the observed phase, not exclusive CPU cost or the original corpus cause. Prepare admission without partial clones and reusable kind lists, followed by guarded detached copy; keep all envelopes, limits and exact cases. No corrected native/SDK call until new freeze, peer and root seal. |
+| N016 exact UTC helper | `/root/stdlib`: five private UTC source files; `/root/distribution` source peer | Original four source/oracle controls and separate four correction controls are retained. Grammar-first precision and bounded capture are reviewed; 60 vectors and four native calls are prepared, none launched. Final source peer found one remaining test gap: compare the complete synthetic-example JSON with its pinned expectation, including success and extra fields. Correct only that driver/schedule delta, add one pure control and seal before execution. Existing local-time helpers retain their contracts. |
 
 Root owns this file. Agents own only their assigned private inputs until the
 reviewed patch is accepted for shared integration. Current passing CI does not
@@ -282,8 +284,8 @@ ownership before implementation; keep each item independently reviewable.
 | ID | Work | Why it helps / acceptance |
 | --- | --- | --- |
 | N015 | Bounded batching for pure quote/rule calls | Let hosts request multiple pure evaluations in one fresh worker call to reduce worker launches. First fix the interface and aggregate item/byte/time/step caps; preserve exact per-item Python/Node parity and private-safe errors, no hidden pool/retry/effects. Verify launch counts and mixed invalid/valid boundaries; make no speed claim without separately frozen measurements. |
-| N014 | Explicit adoption preflight consuming verified N009 metadata | Extend the existing read-only doctor only after N009's command/schema is qualified. No default or per-request spawn; strict bounded metadata and required-feature checks, source identity/cleanup diagnostics, no version inference or permission/provenance guarantee. Native/consumer parity and independent negatives required. |
 | N016 | Exact explicit-offset timestamps for application inputs | Small pure API for strict timestamps and UTC conversion, after confirming no existing adequate function. Require an explicit range/precision/error contract and independent boundary oracle; no system-time, timezone database or scheduling behavior. Design remains private. |
+| N017 | Bounded declarative decision tables | Make eligibility, routing and policy rules explicit application data. First design a pure ordered-rule API with fixed predicates, exact scalar comparisons, detached results, strict table/input limits and fixed errors. Independent truth-table oracle must cover priority, missing values, invalid types, no match and limits. No expression strings, callback dispatch, ambient effects or retry behavior; design and dependency review precede implementation. |
 | N012 | Explicit registered-type environment reachability | Normal files/modules have existing home roots. A type-only wizard file has a structural registry-home concern; bounded ordinary/stress probes passed and have not reproduced a runtime failure. Require a controlled collector reachability negative before proposing a shipping correction; nested task-local methods remain unsupported by the parser |
 
 As items complete, record their exact evidence below, move them to Done, and
@@ -307,6 +309,24 @@ order. Do not silently broaden an item into a public deployment or stable releas
 | Live Paper and stable release | Live server use awaits the owner's EULA decision. No stable tag/public service/paid infrastructure is authorized. |
 
 ## Batch evidence log
+
+- 2026-10-13: The separately sealed N015 GC diagnostic stopped failed after
+  reaching alias admission. Its report SHA256 is
+  `5fcc55cc91f941adb93b02df7f750f8b6e6349589fc7552bcdc15a8f59e28de2`.
+  Four of five phase markers were delivered; the direct child exited and was
+  reaped. The original cohort remains failed, and no retry or limit change
+  occurred. Private admission refinement and the UTC driver's final whole-output
+  correction are the next owned tasks. N017 replenishes the concrete feature
+  queue; it has no delivered implementation yet.
+
+- 2026-10-13: Doctor preflight/export attribution revisiona3e11de passed all
+  eight jobs on its first attempt in
+  [CI38319793595](https://github.com/fizzexual/Sprout/actions/runs/38319793595).
+  Each native platform ran25 capability-consumer and40 measurement-tool controls.
+  Native19 inputs match the existing1544 build; no rebuild/reinstall occurred.
+  One isolated marked N015 observation is separately sealed; its original failed
+  cohort cannot gain qualification from that result. N016 corrected source/60
+  vectors/four-call selection are frozen for independent peer before execution.
 
 - 2026-10-13: N014's one sealed full/minimal consumer profile passed two fixed
   queries and root raw/identity review; three source/test/doc files are integrated

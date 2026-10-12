@@ -188,8 +188,10 @@ The consumer's producer dependency is qualified on `1992c9a` in
 One separate sealed Windows profile checked exactly two explicit diagnostics:
 full1544 accepted all six required features; minimalCB1 rejected required SQLite.
 The doctor executed no project code or version fallback; its reports keep
-external effects unverified. Current consumer integration still needs its own
-fresh CI. Local fake/Python-child evidence does not qualify a runtime release.
+external effects unverified. Consumer revision `a3e11de` passed all eight jobs in
+[CI 38319793595](https://github.com/fizzexual/Sprout/actions/runs/38319793595),
+including25 capability controls on each native platform. Local fake/Python-child
+evidence does not qualify a runtime release.
 
 Synthetic regressions:
 
