@@ -27,6 +27,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#include <shellapi.h>
 #include <urlmon.h>
 #include <io.h>         /* _setmode — clean LF stdout for `sprout format` */
 #include <fcntl.h>
@@ -1743,9 +1744,14 @@ static void fail_map_key(int line, Value mapval, const char *key, const char *su
 /* built-in functions — called like tasks: name(args). */
 /* ---- helpers for the "superpower" builtins: files, shell, web, json, text ---- */
 
+static FILE *pr_fopen(const char *path, const char *mode); /* UTF-8 paths; implemented in stdlib.inc. */
+#ifdef _WIN32
+static wchar_t *pr_wide(const char *text);
+static char *pr_utf8(const wchar_t *text);
+#endif
 static char *read_whole_file(const char *path) {
   errno = 0;
-  FILE *f = fopen(path, "rb");
+  FILE *f = pr_fopen(path, "rb");
   if (!f) return NULL;
   int error = 0; long sz = -1; char *buf = NULL;
   if (fseek(f, 0, SEEK_END) != 0) error = errno ? errno : EIO;
@@ -1803,11 +1809,15 @@ static char *http_get(const char *url) {
 #ifdef __EMSCRIPTEN__
   (void)url; return NULL;                 /* no network in the browser build (the playground runs sandboxed anyway) */
 #elif defined(_WIN32)
-  char tmp[MAX_PATH]; GetTempPathA(MAX_PATH, tmp);
-  char file[MAX_PATH + 48]; snprintf(file, sizeof file, "%ssprout_get_%lu.tmp", tmp, (unsigned long)GetCurrentProcessId());
-  if (URLDownloadToFileA(NULL, url, file, 0, NULL) != S_OK) { DeleteFileA(file); return NULL; }
-  char *body = read_whole_file(file);
-  DeleteFileA(file);
+  wchar_t base[MAX_PATH]; DWORD n = GetTempPathW(MAX_PATH, base);
+  if (!n || n >= MAX_PATH) return NULL;
+  char *tmp = pr_utf8(base); if (!tmp) return NULL;
+  char file[1024]; int needed = snprintf(file, sizeof file, "%ssprout_get_%lu.tmp", tmp, (unsigned long)GetCurrentProcessId());
+  free(tmp); if (needed < 0 || (size_t)needed >= sizeof file) return NULL;
+  wchar_t *wide_file = pr_wide(file), *wide_url = pr_wide(url);
+  if (!wide_file || !wide_url) { free(wide_file); free(wide_url); return NULL; }
+  char *body = URLDownloadToFileW(NULL, wide_url, wide_file, 0, NULL) == S_OK ? read_whole_file(file) : NULL;
+  DeleteFileW(wide_file); free(wide_file); free(wide_url);
   return body;
 #else
   /* POSIX: shell out to curl if it's available. Single-quote the URL (and escape any
@@ -2128,7 +2138,7 @@ static SMap *store_load(void) {
   Value v = parse_json(txt);
   if (v.type == V_MAP && v.map) { free(txt); return restore_exact_json(v, 0).map; }
   /* the file exists but won't parse: keep a backup before starting fresh, so we never silently lose data */
-  if (txt[0]) { FILE *b = fopen(SPROUT_STORE ".bak", "wb"); if (b) { fwrite(txt, 1, strlen(txt), b); fclose(b); } }
+  if (txt[0]) { FILE *b = pr_fopen(SPROUT_STORE ".bak", "wb"); if (b) { fwrite(txt, 1, strlen(txt), b); fclose(b); } }
   free(txt);
   fail_kind(0, "data", "sprout.data.json is invalid; the original was preserved. Repair or move it before saving new data.");
   return map_new();
@@ -3100,7 +3110,7 @@ static Value call_builtin(Expr *call, Env *env) {
   if (!strcmp(name,"write")||!strcmp(name,"append")) {
     if (n!=2) arity_error(call->line, name, "a file name and some text, like write(\"f.txt\", \"hi\")", n);
     want_str(call->line, name, 1, a[0], "write(\"f.txt\", \"hi\")");
-    FILE*f=fopen(a[0].str?a[0].str:"", name[0]=='a'?"ab":"wb"); if(!f) fail_kind(call->line,"io","I couldn't open that file to write.");
+    FILE*f=pr_fopen(a[0].str?a[0].str:"", name[0]=='a'?"ab":"wb"); if(!f) fail_kind(call->line,"io","I couldn't open that file to write.");
     char*t=stringify(a[1]); size_t size = strlen(t);
     int ok = fwrite(t,1,size,f) == size; if (fclose(f) != 0) ok = 0; free(t);
     if (!ok) fail_kind(call->line,"io","the file write did not complete.");
@@ -3108,7 +3118,7 @@ static Value call_builtin(Expr *call, Env *env) {
   }
   if (!strcmp(name,"exists")) {
     want_one_str(call->line,"exists",n,a,"exists(\"notes.txt\")");
-    FILE*f=fopen(a[0].str?a[0].str:"","rb"); if(f){fclose(f);return vbool(1);} return vbool(0);
+    FILE*f=pr_fopen(a[0].str?a[0].str:"","rb"); if(f){fclose(f);return vbool(1);} return vbool(0);
   }
   /* ---- persistence: remember/recall/forget across runs (a key/value store in sprout.data.json) ---- */
   if (!strcmp(name,"remember")) {
@@ -4077,7 +4087,7 @@ static void exec(Stmt *s, Env *env) {
 
 /* --------------------------------------------------------------------- main */
 static char *read_file(const char *path, int *out_len) {
-  FILE *f = fopen(path, "rb");
+  FILE *f = pr_fopen(path, "rb");
   if (!f) { fprintf(stderr, "\n  I couldn't open the file: %s\n\n", path); exit(1); }
   if (fseek(f, 0, SEEK_END) != 0) { fclose(f); fprintf(stderr, "\n  I couldn't read '%s' (is it a folder?).\n\n", path); exit(1); }
   long n = ftell(f);
@@ -4238,7 +4248,7 @@ static void wizard(void) {
 }
 
 /* ----------------------------------------------------- filesystem helpers */
-static int path_exists(const char *p) { FILE *f = fopen(p, "rb"); if (f) { fclose(f); return 1; } return 0; }
+static int path_exists(const char *p) { FILE *f = pr_fopen(p, "rb"); if (f) { fclose(f); return 1; } return 0; }
 
 /* create every parent directory of a file path (like mkdir -p on the folder part) */
 static void ensure_parent_dirs(const char *file) {
@@ -4249,7 +4259,7 @@ static void ensure_parent_dirs(const char *file) {
     if (tmp[i] == '/' || tmp[i] == '\\') {
       char c = tmp[i]; tmp[i] = 0;
 #ifdef _WIN32
-      CreateDirectoryA(tmp, NULL);
+      wchar_t *wide = pr_wide(tmp); if (wide) { CreateDirectoryW(wide, NULL); free(wide); }
 #else
       mkdir(tmp, 0777);
 #endif
@@ -4262,12 +4272,13 @@ static void ensure_parent_dirs(const char *file) {
 static int dir_has_entries(const char *dir) {
 #ifdef _WIN32
   char pat[1024]; snprintf(pat, sizeof pat, "%s\\*", dir);
-  WIN32_FIND_DATAA fd; HANDLE h = FindFirstFileA(pat, &fd);
+  wchar_t *wide = pr_wide(pat); if (!wide) return 0;
+  WIN32_FIND_DATAW fd; HANDLE h = FindFirstFileW(wide, &fd); free(wide);
   if (h == INVALID_HANDLE_VALUE) return 0;          /* no such folder yet */
   int found = 0;
   do {
-    if (strcmp(fd.cFileName, ".") && strcmp(fd.cFileName, "..")) { found = 1; break; }
-  } while (FindNextFileA(h, &fd));
+    if (wcscmp(fd.cFileName, L".") && wcscmp(fd.cFileName, L"..")) { found = 1; break; }
+  } while (FindNextFileW(h, &fd));
   FindClose(h);
   return found;
 #else
@@ -4426,18 +4437,23 @@ static const int NTEMPLATES = (int)(sizeof TEMPLATES / sizeof TEMPLATES[0]);
 #ifdef _WIN32
 static void wipe_dir(const char *dir) {
   char pat[1024]; snprintf(pat, sizeof pat, "%s\\*", dir);
-  WIN32_FIND_DATAA fd; HANDLE h = FindFirstFileA(pat, &fd);
+  wchar_t *wide = pr_wide(pat); if (!wide) return;
+  WIN32_FIND_DATAW fd; HANDLE h = FindFirstFileW(wide, &fd); free(wide);
   if (h == INVALID_HANDLE_VALUE) return;
   do {
-    if (!strcmp(fd.cFileName, ".") || !strcmp(fd.cFileName, "..")) continue;
-    char full[1024]; snprintf(full, sizeof full, "%s\\%s", dir, fd.cFileName);
+    if (!wcscmp(fd.cFileName, L".") || !wcscmp(fd.cFileName, L"..")) continue;
+    char *entry = pr_utf8(fd.cFileName); if (!entry) continue;
+    char full[1024]; int needed = snprintf(full, sizeof full, "%s\\%s", dir, entry); free(entry);
+    if (needed < 0 || (size_t)needed >= sizeof full) continue;
+    wchar_t *wide_full = pr_wide(full); if (!wide_full) continue;
     if (fd.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) {
       /* a junction/symlink: remove the LINK itself, NEVER recurse into its real target */
-      SetFileAttributesA(full, FILE_ATTRIBUTE_NORMAL);
-      if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) RemoveDirectoryA(full); else DeleteFileA(full);
-    } else if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) { wipe_dir(full); RemoveDirectoryA(full); }
-    else { SetFileAttributesA(full, FILE_ATTRIBUTE_NORMAL); DeleteFileA(full); }
-  } while (FindNextFileA(h, &fd));
+      SetFileAttributesW(wide_full, FILE_ATTRIBUTE_NORMAL);
+      if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) RemoveDirectoryW(wide_full); else DeleteFileW(wide_full);
+    } else if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) { wipe_dir(full); RemoveDirectoryW(wide_full); }
+    else { SetFileAttributesW(wide_full, FILE_ATTRIBUTE_NORMAL); DeleteFileW(wide_full); }
+    free(wide_full);
+  } while (FindNextFileW(h, &fd));
   FindClose(h);
 }
 static void wipe_cwd(void) { wipe_dir("."); }
@@ -4459,7 +4475,7 @@ static int scaffold(const Template *t, const char *destdir) {
       if (r < 0 || (size_t)r >= sizeof full) { fprintf(stderr, "  path too long, skipped: %s\n", t->files[i].path); continue; }
     } else { size_t L = strlen(t->files[i].path); if (L >= sizeof full) continue; memcpy(full, t->files[i].path, L + 1); }
     ensure_parent_dirs(full);
-    FILE *f = fopen(full, "wb");
+    FILE *f = pr_fopen(full, "wb");
     if (!f) { fprintf(stderr, "  couldn't write %s\n", full); continue; }
     fputs(t->files[i].content, f); fclose(f);
     printf("    " C_GREEN "+" C_RESET " %s\n", full);
@@ -4545,8 +4561,10 @@ static char **g_loaded = NULL; static int g_nloaded = 0, g_caploaded = 0;
 
 static char *canon_path(const char *p) {
 #ifdef _WIN32
-  char buf[1024];
-  if (_fullpath(buf, p, sizeof buf)) { for (char *c = buf; *c; c++) *c = (char)tolower((unsigned char)*c); return dup_str(buf); }
+  wchar_t *wide = pr_wide(p);
+  wchar_t *full = wide ? _wfullpath(NULL, wide, 0) : NULL; free(wide);
+  char *utf8 = full ? pr_utf8(full) : NULL; free(full);
+  if (utf8) { for (char *c = utf8; *c; c++) *c = (char)tolower((unsigned char)*c); return utf8; }
 #else
   char buf[PATH_MAX];
   if (realpath(p, buf)) return dup_str(buf);   /* so './a.sprout' and 'a.sprout' dedup to one file */
@@ -4782,8 +4800,11 @@ static int cmd_test(int argc, char **argv) {
   } else {
     int found = 0;
 #ifdef _WIN32
-    WIN32_FIND_DATAA fd; HANDLE h = FindFirstFileA("tests\\*.sprout", &fd);
-    if (h != INVALID_HANDLE_VALUE) { do { char p[600]; snprintf(p, sizeof p, "tests/%s", fd.cFileName); run_test_file(p); found = 1; } while (FindNextFileA(h, &fd)); FindClose(h); }
+    WIN32_FIND_DATAW fd; HANDLE h = FindFirstFileW(L"tests\\*.sprout", &fd);
+    if (h != INVALID_HANDLE_VALUE) { do { char *entry = pr_utf8(fd.cFileName); if (!entry) continue;
+      char p[1024]; int needed = snprintf(p, sizeof p, "tests/%s", entry); free(entry);
+      if (needed < 0 || (size_t)needed >= sizeof p) continue;
+      run_test_file(p); found = 1; } while (FindNextFileW(h, &fd)); FindClose(h); }
 #else
     DIR *d = opendir("tests");
     if (d) { struct dirent *e; while ((e = readdir(d))) { size_t L = strlen(e->d_name); if (L > 7 && !strcmp(e->d_name + L - 7, ".sprout")) { char p[600]; snprintf(p, sizeof p, "tests/%s", e->d_name); run_test_file(p); found = 1; } } closedir(d); }
@@ -4833,7 +4854,7 @@ static int cmd_format(int argc, char **argv) {
     if (changed) { fprintf(stderr, "  %s is not formatted (run: sprout format %s --write).\n", file, file); rc = 1; }
     else printf("  %s is already formatted.\n", file);
   } else if (dowrite) {
-    if (changed) { FILE *f = fopen(file, "wb"); if (!f) { fprintf(stderr, "  I couldn't write %s\n", file); rc = 1; } else { fwrite(fmt, 1, strlen(fmt), f); fclose(f); printf("  Formatted %s\n", file); } }
+    if (changed) { FILE *f = pr_fopen(file, "wb"); if (!f) { fprintf(stderr, "  I couldn't write %s\n", file); rc = 1; } else { fwrite(fmt, 1, strlen(fmt), f); fclose(f); printf("  Formatted %s\n", file); } }
     else printf("  %s is already formatted.\n", file);
   } else {
 #ifdef _WIN32
@@ -4862,7 +4883,45 @@ static void detect_stack_budget(void) {
 #endif
 }
 
+#ifdef _WIN32
+/* Keep ownership separate from the argv slice mutated by CLI flag removal. */
+static char **windows_argv_storage = NULL;
+static int windows_argv_count = 0;
+static void windows_argv_cleanup(void) {
+  for (int i = 0; i < windows_argv_count; i++) free(windows_argv_storage[i]);
+  free(windows_argv_storage); windows_argv_storage = NULL; windows_argv_count = 0;
+}
+static int windows_utf8_arguments(int *argc, char ***argv) {
+  int count = 0;
+  wchar_t **wide = CommandLineToArgvW(GetCommandLineW(), &count);
+  if (!wide || count < 1 || (size_t)count > (SIZE_MAX / sizeof(char *) - 1) / 2) goto failed;
+  windows_argv_storage = calloc((size_t)count * 2 + 1, sizeof(char *));
+  if (!windows_argv_storage) goto failed;
+  windows_argv_count = count;
+  char **working = windows_argv_storage + count;
+  for (int i = 0; i < count; i++) {
+    /* Default Windows conversion may replace lone UTF-16 surrogates. */
+    if (!WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide[i], -1, NULL, 0, NULL, NULL)) goto failed;
+    windows_argv_storage[i] = pr_utf8(wide[i]);
+    if (!windows_argv_storage[i]) goto failed;
+    working[i] = windows_argv_storage[i];
+  }
+  LocalFree(wide); wide = NULL;
+  if (atexit(windows_argv_cleanup) != 0) goto failed;
+  *argc = count; *argv = working;
+  return 1;
+failed:
+  if (wide) LocalFree(wide);
+  windows_argv_cleanup();
+  fprintf(stderr, "Could not read the Windows command line as valid UTF-8.\n");
+  return 0;
+}
+#endif
+
 int main(int argc, char **argv) {
+#ifdef _WIN32
+  if (!windows_utf8_arguments(&argc, &argv)) return 2;
+#endif
   char gc_bottom_marker; gc_stack_bottom = &gc_bottom_marker;   /* the outermost stack address the GC scans up to */
   detect_stack_budget();                                        /* size the deep-recursion guard to the real stack */
   gc_stress = getenv("SPROUT_GC_STRESS") != NULL;               /* aggressive collection for testing */

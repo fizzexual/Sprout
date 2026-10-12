@@ -6,6 +6,7 @@ import io
 import json
 import math
 import os
+import signal
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -438,6 +439,207 @@ class DeploymentHarnessTests(unittest.TestCase):
                     self.assertEqual(error.exit_code, code)
                     self.assertIn('different or unidentified process', error.metrics_error)
                     if code == 1: self.assertIn('HTTP host exit 1', str(error))
+
+    def stub_close_fixture(self, mode, code=1, platform_name='nt', group_failure=None, tree_status=0):
+        """No actual signals: model exit and STOP races with all signal APIs mocked."""
+        process = unittest.mock.Mock(pid=424242)
+        process.poll.return_value = code if mode == 'exited' else None
+        process.wait.return_value = code
+        process.stdout, process.stderr = io.BytesIO(), io.BytesIO()
+        writes = []
+        class Control(io.BytesIO):
+            def write(control, value):
+                writes.append(value)
+                if mode == 'broken':
+                    process.poll.return_value = code
+                    raise BrokenPipeError('fixture host exited during control write')
+                return super().write(value)
+            def close(control):
+                super().close()
+                if mode == 'delivered': process.poll.return_value = code
+        process.stdin = Control()
+        if mode in ('timeout-exited', 'live-timeout', 'kill-denied'):
+            def wait(*, timeout):
+                if timeout == 12:
+                    if mode == 'timeout-exited': process.poll.return_value = code
+                    raise subprocess.TimeoutExpired('owned fixture host', timeout)
+                if mode == 'kill-denied': raise subprocess.TimeoutExpired('owned fixture host', timeout)
+                return code
+            process.wait.side_effect = wait
+        if mode == 'kill-denied':
+            process.kill.side_effect = PermissionError('fixture direct kill denied')
+        elif mode == 'live-timeout':
+            process.kill.side_effect = lambda: setattr(process.poll, 'return_value', code)
+        with tempfile.TemporaryDirectory() as folder:
+            service = DEPLOYMENT.Service.__new__(DEPLOYMENT.Service)
+            service.process, service.stderr, service.readers = process, bytearray(), []
+            service.metrics = Path(folder)/'host.json'
+            payload = dict(pid=process.pid, clean_shutdown=True, native_started=0, native_exited=0,
+                           native_active_pids=[], baseline_threads=1, final_threads=1,
+                           errors=[] if code == 0 else ['fixture exit error'])
+            service.metrics.write_text(json.dumps(payload))
+            with patch.object(DEPLOYMENT.os, 'name', platform_name), \
+                 patch.object(DEPLOYMENT.os, 'killpg', create=True) as group, \
+                 patch.object(signal, 'SIGKILL', 9, create=True), \
+                 patch.object(DEPLOYMENT.subprocess, 'CREATE_NO_WINDOW', 0, create=True), \
+                 patch.object(DEPLOYMENT.subprocess, 'run') as tree:
+                tree.return_value = SimpleNamespace(returncode=tree_status, stdout=b'', stderr=b'fixture tree error' if tree_status else b'')
+                group.side_effect = group_failure
+                tree.side_effect = group_failure
+                try: summary, error = service.close(), None
+                except DEPLOYMENT.ServiceCloseError as caught: summary, error = None, caught
+            return SimpleNamespace(process=process, summary=summary, error=error, writes=writes,
+                                   tree_calls=tree.call_count, group_calls=group.call_count, payload=payload)
+
+    def test_exited_host_zero_and_one_are_reaped_without_stop_or_any_signal(self):
+        for platform_name in ('nt', 'posix'):
+            for code in (0, 1):
+                with self.subTest(platform=platform_name, code=code):
+                    result = self.stub_close_fixture('exited', code, platform_name)
+                    self.assertEqual(result.writes, [])
+                    self.assertEqual(result.tree_calls + result.group_calls, 0)
+                    result.process.kill.assert_not_called()
+                    result.process.wait.assert_called_once_with(timeout=0)
+                    self.assertEqual(result.error.exit_code, code)
+                    self.assertEqual(result.error.summary, result.payload)
+                    self.assertNotIn('deadline', str(result.error))
+                    self.assertIn('before controller STOP' if code == 0 else 'HTTP host exit 1', str(result.error))
+
+    def test_broken_stop_after_exit_preserves_exit_one_without_tree_or_group_signal(self):
+        for platform_name in ('nt', 'posix'):
+            result = self.stub_close_fixture('broken', 1, platform_name)
+            self.assertEqual(result.error.exit_code, 1)
+            self.assertEqual(result.error.summary, result.payload)
+            self.assertIn('HTTP host exit 1', str(result.error))
+            self.assertNotIn('deadline', str(result.error))
+            self.assertEqual(result.tree_calls + result.group_calls, 0)
+            result.process.kill.assert_not_called()
+
+    def test_zero_exit_requires_delivered_stop_to_receive_controlled_close_credit(self):
+        rejected = self.stub_close_fixture('broken', 0)
+        self.assertIn('without confirmed STOP delivery', str(rejected.error))
+        accepted = self.stub_close_fixture('delivered', 0)
+        self.assertIsNone(accepted.error)
+        self.assertEqual(accepted.summary, accepted.payload)
+        self.assertEqual(accepted.writes, [b'STOP\n'])
+        self.assertEqual(accepted.tree_calls + accepted.group_calls, 0)
+        accepted.process.kill.assert_not_called()
+
+    def test_deadline_expiry_followed_by_observed_exit_keeps_deadline_without_signal(self):
+        result = self.stub_close_fixture('timeout-exited', 0)
+        self.assertIn('deadline', str(result.error))
+        self.assertEqual(result.error.exit_code, 0)
+        self.assertEqual(result.error.summary, result.payload)
+        self.assertEqual(result.tree_calls + result.group_calls, 0)
+        result.process.kill.assert_not_called()
+
+    def test_live_group_denial_preserves_deadline_and_still_directly_kills_and_reaps(self):
+        for platform_name in ('nt', 'posix'):
+            for failure in (PermissionError('fixture group denied'), subprocess.TimeoutExpired('fixture tree', 5)):
+                with self.subTest(platform=platform_name, failure=type(failure).__name__):
+                    result = self.stub_close_fixture('live-timeout', 1, platform_name, failure)
+                    self.assertIn('deadline', str(result.error))
+                    self.assertIn(type(failure).__name__, str(result.error))
+                    self.assertEqual(result.error.summary, result.payload)
+                    result.process.kill.assert_called_once()
+                    self.assertEqual(result.process.wait.call_args.kwargs['timeout'], 5)
+
+    def test_unconfirmed_owned_exit_retains_primary_deadline_and_cleanup_diagnostics(self):
+        result = self.stub_close_fixture('kill-denied', 1, 'nt', PermissionError('fixture group denied'))
+        self.assertIsNone(result.error.exit_code)
+        self.assertIn('deadline', str(result.error))
+        self.assertIn('direct owned host termination', str(result.error))
+        self.assertIn('exit could not be confirmed', str(result.error))
+        self.assertEqual(result.error.summary, result.payload)
+
+    def test_live_failed_tree_command_retains_status_and_direct_owned_cleanup(self):
+        result = self.stub_close_fixture('live-timeout', 1, 'nt', tree_status=5)
+        self.assertIn('deadline', str(result.error))
+        self.assertIn('tree termination exit 5', str(result.error))
+        self.assertIn('fixture tree error', str(result.error))
+        result.process.kill.assert_called_once()
+
+    def test_real_preexited_zero_and_one_keep_metrics_without_signal_or_success_credit(self):
+        for code in (0, 1):
+            with self.subTest(code=code), tempfile.TemporaryDirectory() as folder:
+                service = DEPLOYMENT.Service.__new__(DEPLOYMENT.Service)
+                service.metrics, service.stderr, service.readers = Path(folder)/'metrics.json', bytearray(), []
+                service.process = subprocess.Popen([sys.executable, '-c', 'import sys; sys.exit(int(sys.argv[1]))', str(code)],
+                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    start_new_session=os.name != 'nt',
+                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+                service.process.wait(timeout=3)
+                payload = dict(pid=service.process.pid, clean_shutdown=True, native_started=0, native_exited=0,
+                               native_active_pids=[], baseline_threads=1, final_threads=1,
+                               errors=[] if code == 0 else ['fixture error'])
+                service.metrics.write_text(json.dumps(payload))
+                try:
+                    with patch.object(service.process, 'kill') as direct, \
+                         patch.object(DEPLOYMENT.os, 'killpg', create=True) as group, \
+                         patch.object(DEPLOYMENT.subprocess, 'run') as tree:
+                        with self.assertRaises(DEPLOYMENT.ServiceCloseError) as caught: service.close()
+                    direct.assert_not_called(); group.assert_not_called(); tree.assert_not_called()
+                    self.assertEqual(caught.exception.exit_code, code)
+                    self.assertEqual(caught.exception.summary, payload)
+                    self.assertNotIn('deadline', str(caught.exception))
+                    if os.name != 'nt':
+                        with self.assertRaises(ChildProcessError): os.waitpid(service.process.pid, os.WNOHANG)
+                finally:
+                    for pipe in (service.process.stdin, service.process.stdout, service.process.stderr):
+                        if not pipe.closed: pipe.close()
+
+    def test_real_owned_child_is_reaped_when_mocked_group_kill_is_denied(self):
+        with tempfile.TemporaryDirectory() as folder:
+            service = DEPLOYMENT.Service.__new__(DEPLOYMENT.Service)
+            service.metrics, service.stderr, service.readers = Path(folder)/'metrics.json', bytearray(), []
+            service.process = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                start_new_session=os.name != 'nt',
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+            payload = dict(pid=service.process.pid, clean_shutdown=True, native_started=0, native_exited=0,
+                           native_active_pids=[], baseline_threads=1, final_threads=1, errors=[])
+            service.metrics.write_text(json.dumps(payload))
+            original_wait = service.process.wait
+            def bounded_wait(timeout=None):
+                if timeout == 12: raise subprocess.TimeoutExpired('owned fixture', timeout)
+                return original_wait(timeout=timeout)
+            try:
+                with patch.object(service.process, 'wait', side_effect=bounded_wait), \
+                     patch.object(DEPLOYMENT.os, 'killpg', create=True, side_effect=PermissionError('fixture group denied')), \
+                     patch.object(DEPLOYMENT.subprocess, 'run', side_effect=PermissionError('fixture tree denied')):
+                    with self.assertRaises(DEPLOYMENT.ServiceCloseError) as caught: service.close()
+                self.assertIn('deadline', str(caught.exception))
+                self.assertIn('PermissionError', str(caught.exception))
+                self.assertIsNotNone(service.process.poll())
+                self.assertTrue(all(pipe.closed for pipe in (service.process.stdin, service.process.stdout, service.process.stderr)))
+                if os.name != 'nt':
+                    with self.assertRaises(ChildProcessError): os.waitpid(service.process.pid, os.WNOHANG)
+            finally:
+                if service.process.poll() is None: service.process.kill()
+                service.process.wait(timeout=2)
+                for pipe in (service.process.stdin, service.process.stdout, service.process.stderr):
+                    if not pipe.closed: pipe.close()
+
+    def test_live_reader_stream_is_retained_with_failure_instead_of_blocking_close(self):
+        with tempfile.TemporaryDirectory() as folder:
+            service = DEPLOYMENT.Service.__new__(DEPLOYMENT.Service)
+            service.process = unittest.mock.Mock(pid=424242)
+            service.process.poll.return_value = service.process.wait.return_value = 1
+            service.process.stdin, service.process.stdout, service.process.stderr = io.BytesIO(), io.BytesIO(), io.BytesIO()
+            reader = unittest.mock.Mock(ident=1)
+            reader.is_alive.return_value = True
+            service.readers, service.stderr = [reader], bytearray()
+            service.metrics = Path(folder)/'metrics.json'
+            service.metrics.write_text(json.dumps(dict(pid=424242, clean_shutdown=True, native_started=0,
+                native_exited=0, native_active_pids=[], baseline_threads=1, final_threads=1, errors=['fixture error'])))
+            try:
+                with self.assertRaises(DEPLOYMENT.ServiceCloseError) as caught: service.close()
+                reader.join.assert_called_once_with(timeout=3)
+                self.assertFalse(service.process.stdout.closed)
+                self.assertIn('pipe reader did not exit', str(caught.exception))
+                self.assertEqual(caught.exception.exit_code, 1)
+            finally:
+                service.process.stdout.close()
 
     def test_failed_clock_report_has_no_nan_or_infinity(self):
         result, report, closed, actual = self.clock_fixture(jump='nonfinite', duration=28800)

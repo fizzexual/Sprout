@@ -469,11 +469,14 @@ def host(args):
 
 class ServiceCloseError(AssertionError):
     """Failed close with available final evidence, never a successful epoch."""
-    def __init__(self, message, *, summary=None, exit_code=None, metrics_error=None):
+    def __init__(self, message, *, summary=None, exit_code=None, metrics_error=None, cleanup_errors=None):
         if metrics_error:
             message += '; final host metrics unavailable: ' + metrics_error
+        if cleanup_errors:
+            message += '; cleanup diagnostics: ' + '; '.join(cleanup_errors)
         super().__init__(message)
         self.summary, self.exit_code, self.metrics_error = summary, exit_code, metrics_error
+        self.cleanup_errors = list(cleanup_errors or ())
 
 
 class Service:
@@ -518,22 +521,73 @@ class Service:
 
     def close(self):
         shutdown_error = None
+        cleanup_errors = []
+        exit_code = None
+        def diagnostic(action, error):
+            cleanup_errors.append(('%s: %s: %s' % (action, type(error).__name__, error))[:1000])
+        def reap_exited():
+            return self.process.wait(timeout=0)
+        def escalate():
+            # A group/tree command is permitted only while the owned leader is
+            # still live. A denied group operation must not skip direct cleanup.
+            try:
+                if self.process.poll() is None:
+                    if os.name == 'nt':
+                        result = subprocess.run(['taskkill', '/PID', str(self.process.pid), '/T', '/F'],
+                            capture_output=True, timeout=5, creationflags=subprocess.CREATE_NO_WINDOW)
+                        if result.returncode:
+                            details = (result.stderr or result.stdout or b'').decode('utf-8', 'replace')[:1000]
+                            cleanup_errors.append('tree termination exit %d: %s' % (result.returncode, details))
+                    else:
+                        import signal
+                        os.killpg(self.process.pid, signal.SIGKILL)
+            except (OSError, subprocess.SubprocessError) as error:
+                diagnostic('group/tree termination', error)
+            finally:
+                if self.process.poll() is None:
+                    try: self.process.kill()
+                    except OSError as error: diagnostic('direct owned host termination', error)
+                try:
+                    stopped_code = self.process.wait(timeout=5)
+                except (OSError, subprocess.TimeoutExpired) as error:
+                    diagnostic('owned host %d exit could not be confirmed' % self.process.pid, error)
+                    stopped_code = self.process.poll()
+            return stopped_code
         try:
-            self.process.stdin.write(b'STOP\n'); self.process.stdin.close()
-            exit_code = self.process.wait(timeout=12)
-        except (OSError, subprocess.TimeoutExpired):
-            if os.name == 'nt':
-                subprocess.run(['taskkill', '/PID', str(self.process.pid), '/T', '/F'],
-                               capture_output=True, timeout=5, creationflags=subprocess.CREATE_NO_WINDOW)
+            exit_code = self.process.poll()
+            if exit_code is not None:
+                exit_code = reap_exited()
+                if exit_code == 0: shutdown_error = 'HTTP host exited unexpectedly before controller STOP (exit 0)'
             else:
-                import signal
-                os.killpg(self.process.pid, signal.SIGKILL)
-            self.process.kill(); exit_code = self.process.wait(timeout=5)
-            shutdown_error = 'HTTP host did not shut down within its deadline'
+                stop_delivered = False
+                try:
+                    if self.process.stdin.write(b'STOP\n') != len(b'STOP\n'):
+                        raise OSError('short STOP control write')
+                    self.process.stdin.close(); stop_delivered = True
+                    exit_code = self.process.wait(timeout=12)
+                except (OSError, subprocess.TimeoutExpired) as error:
+                    timed_out = isinstance(error, subprocess.TimeoutExpired)
+                    if timed_out: shutdown_error = 'HTTP host did not shut down within its deadline'
+                    exit_code = self.process.poll()
+                    if exit_code is not None:
+                        exit_code = reap_exited()
+                        if not timed_out and not stop_delivered:
+                            if exit_code == 0: shutdown_error = 'HTTP host exited without confirmed STOP delivery (exit 0)'
+                            diagnostic('STOP control delivery', error)
+                    else:
+                        if not timed_out: shutdown_error = 'HTTP host STOP delivery failed: %s: %s' % (type(error).__name__, error)
+                        exit_code = escalate()
         finally:
-            for thread in self.readers: thread.join(timeout=3)
-            for stream in (self.process.stdin, self.process.stdout, self.process.stderr):
-                if not stream.closed: stream.close()
+            for thread in self.readers:
+                if thread.ident is not None: thread.join(timeout=3)
+            for stream, reader in ((self.process.stdin, None),
+                                   (self.process.stdout, self.readers[0] if self.readers else None),
+                                   (self.process.stderr, self.readers[1] if len(self.readers) > 1 else None)):
+                if reader is not None and reader.is_alive():
+                    cleanup_errors.append('HTTP host pipe reader did not exit; its buffered stream was left open')
+                elif not stream.closed:
+                    try: stream.close()
+                    except OSError as error: diagnostic('host pipe close', error)
         summary = metrics_error = None
         try:
             parsed = json.loads(self.metrics.read_text(encoding='utf-8'))
@@ -544,10 +598,12 @@ class Service:
             summary = parsed
         except (OSError, ValueError) as error:
             metrics_error = (type(error).__name__ + ': ' + str(error))[:1000]
-        if shutdown_error is not None or exit_code != 0 or metrics_error:
-            message = shutdown_error or ('HTTP host exit %d: %s' %
-                (exit_code, self.stderr.decode('utf-8', 'replace')[:1000]) if exit_code != 0 else 'HTTP host final metrics could not be read')
-            raise ServiceCloseError(message, summary=summary, exit_code=exit_code, metrics_error=metrics_error)
+        if shutdown_error is not None or exit_code != 0 or metrics_error or cleanup_errors:
+            message = shutdown_error or ('HTTP host exit %s: %s' %
+                (exit_code if exit_code is not None else 'unconfirmed', self.stderr.decode('utf-8', 'replace')[:1000])
+                if exit_code != 0 else 'HTTP host final metrics could not be read' if metrics_error else 'HTTP host cleanup could not be confirmed')
+            raise ServiceCloseError(message, summary=summary, exit_code=exit_code, metrics_error=metrics_error,
+                                    cleanup_errors=cleanup_errors)
         try:
             require(summary.get('clean_shutdown') is True and type(summary.get('native_started')) is int and
                     summary['native_started'] >= 0 and type(summary.get('native_exited')) is int and

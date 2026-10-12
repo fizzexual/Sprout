@@ -72,3 +72,11 @@ requires representative application deployments, real Paper server evidence,
 longer operational soak workloads, independent security review,
 and workload-specific performance budgets.
 Completing features and passing CI does not close these operational gates.
+
+The resumed October 12 work adds opt-in HTTP metrics and a separate bounded
+SQLite backup/restore/upgrade rollback exercise. It repairs Windows Unicode
+arguments and file boundaries, verifies installer candidates before publication,
+and makes installer and owned-process cleanup failures explicit. Exact final
+integration and CI evidence belongs in [readiness](docs/production-readiness.md).
+The failed sustained runs remain failed; a fresh eight-hour qualification still
+requires an agreed stable-clock environment.

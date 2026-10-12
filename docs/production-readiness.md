@@ -182,6 +182,30 @@ checks. Eight-hour qualification remains open and
 requires an agreed stable-clock test environment; passing data checks cannot
 replace it. The original failed runs retain their original results.
 
+The resumed October 12 integration adds opt-in aggregate service metrics and a
+separate bounded [recovery exercise](service-recovery.md). Metrics retain fixed
+counter categories, no request contents, and no extra sampling thread. Missing
+timings are explicit and do not loosen deployment clock checks. All 68 combined
+Windows Python host/service controls completed on the normal Unicode candidate,
+with one POSIX-only skip. Windows Unicode CLI/filesystem checks passed 14
+controls, distribution checks passed 18 with one platform skip, and boundary
+checks passed 26. Peer review also identified and verified a fail-closed guard
+before the bundle scanner's fixed path buffer. The
+[compatibility policy](compatibility.md) documents repair of old code-page package
+metadata. The installer stages, verifies and probes a candidate before replacing
+the prior binary and reports publication, PATH and cleanup failures truthfully.
+Supervisor close checks distinguish an already-exited host from a shutdown
+timeout and do not signal its old PID/group. All 15 installer controls and four
+Windows PowerShell 5.1 controls passed. The harness's 58-control run and a new
+focused reader-retention control passed, followed by six independent installer
+and six independent close controls. The separate 3.125-second native recovery
+exercise restored five exact contacts, rejected code-only rollback against an
+incompatible schema, and verified restoration of the pre-upgrade snapshot.
+It recorded six clean host lifecycles, unchanged frozen inputs and no errors;
+it covers point-in-time restoration, not power loss or general down migration.
+Fresh complete native/WebAssembly CI is still required for this new candidate;
+none of these local checks qualifies its eight-hour profile.
+
 The review reproduced these issues and verified their fixes:
 
 | Issue | Required behavior | State |

@@ -73,20 +73,33 @@ static int dist_path_conflict(const char *a,const char *b) {
   return (!*a&&(!*b||*b=='/'))||(!*b&&*a=='/');
 }
 static int dist_write(const char *path,const unsigned char *data,size_t len) {
-  ensure_parent_dirs(path); FILE *f=fopen(path,"wb");if(!f)return 0;
+  ensure_parent_dirs(path); FILE *f=pr_fopen(path,"wb");if(!f)return 0;
   int ok=fwrite(data,1,len,f)==len; if(fclose(f)!=0)ok=0;return ok;
 }
 static unsigned char *read_bytes(const char *path, long *len) {
-  FILE *f=fopen(path,"rb");if(!f)return NULL;
+  FILE *f=pr_fopen(path,"rb");if(!f)return NULL;
   if(fseek(f,0,SEEK_END)!=0){fclose(f);return NULL;}long n=ftell(f);
   if(n<0||n>(128L<<20)||fseek(f,0,SEEK_SET)!=0){fclose(f);return NULL;}
   unsigned char *b=(unsigned char *)malloc((size_t)n+1);if(!b){fclose(f);return NULL;}
   size_t got=fread(b,1,(size_t)n,f);int bad=ferror(f);fclose(f);
   if(bad||got!=(size_t)n){free(b);return NULL;}b[n]=0;*len=n;return b;
 }
+#ifdef _WIN32
+static DWORD dist_attributes(const char *path) {
+  wchar_t *wide=pr_wide(path);if(!wide)return INVALID_FILE_ATTRIBUTES;
+  DWORD attrs=GetFileAttributesW(wide);free(wide);return attrs;
+}
+#endif
+static int dist_remove(const char *path) {
+#ifdef _WIN32
+  wchar_t *wide=pr_wide(path);int ok=wide&&DeleteFileW(wide);free(wide);return ok?0:-1;
+#else
+  return remove(path);
+#endif
+}
 static int dist_dir(const char *path) {
 #ifdef _WIN32
-  DWORD a=GetFileAttributesA(path);return a!=INVALID_FILE_ATTRIBUTES&&(a&FILE_ATTRIBUTE_DIRECTORY)!=0;
+  DWORD a=dist_attributes(path);return a!=INVALID_FILE_ATTRIBUTES&&(a&FILE_ATTRIBUTE_DIRECTORY)!=0;
 #else
   struct stat st;return stat(path,&st)==0&&S_ISDIR(st.st_mode);
 #endif
@@ -96,7 +109,7 @@ static int dist_no_links(const char *path) {
   char copy[1024];if(strlen(path)>=sizeof copy)return 0;strcpy(copy,path);
   for(char *p=copy;;p++)if(*p=='/'||*p=='\\'||!*p){char saved=*p;*p=0;
 #ifdef _WIN32
-    DWORD attrs=GetFileAttributesA(copy);int link=attrs!=INVALID_FILE_ATTRIBUTES&&(attrs&FILE_ATTRIBUTE_REPARSE_POINT);
+    DWORD attrs=dist_attributes(copy);int link=attrs!=INVALID_FILE_ATTRIBUTES&&(attrs&FILE_ATTRIBUTE_REPARSE_POINT);
 #else
     struct stat st;int link=lstat(copy,&st)==0&&S_ISLNK(st.st_mode);
 #endif
@@ -111,16 +124,19 @@ static int dist_atomic_write(const char *path,const unsigned char *data,size_t l
   char temp[1100];int ok=0;
 #ifdef _WIN32
   HANDLE f=INVALID_HANDLE_VALUE;
+  wchar_t *wide_path=pr_wide(path),*wide_temp=NULL;if(!wide_path)return 0;
   for(int i=0;i<100;i++) {
-    if(snprintf(temp,sizeof temp,"%s.tmp-%lu-%d",path,(unsigned long)GetCurrentProcessId(),i)>=(int)sizeof temp)return 0;
-    f=CreateFileA(temp,GENERIC_WRITE,0,NULL,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,NULL);if(f!=INVALID_HANDLE_VALUE)break;
+    if(snprintf(temp,sizeof temp,"%s.tmp-%lu-%d",path,(unsigned long)GetCurrentProcessId(),i)>=(int)sizeof temp)break;
+    free(wide_temp);wide_temp=pr_wide(temp);if(!wide_temp)break;
+    f=CreateFileW(wide_temp,GENERIC_WRITE,0,NULL,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,NULL);if(f!=INVALID_HANDLE_VALUE)break;
   }
-  if(f==INVALID_HANDLE_VALUE)return 0;
+  if(f==INVALID_HANDLE_VALUE){free(wide_temp);free(wide_path);return 0;}
   DWORD wrote=0;ok=len<=0xffffffffu&&WriteFile(f,data,(DWORD)len,&wrote,NULL)&&wrote==(DWORD)len;
   if(!FlushFileBuffers(f))ok=0;
   CloseHandle(f);
-  if(ok)ok=MoveFileExA(temp,path,MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)!=0;
-  if(!ok)DeleteFileA(temp);
+  if(ok)ok=MoveFileExW(wide_temp,wide_path,MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)!=0;
+  if(!ok)DeleteFileW(wide_temp);
+  free(wide_temp);free(wide_path);
 #else
   if(snprintf(temp,sizeof temp,"%s.tmp-XXXXXX",path)>=(int)sizeof temp)return 0;
   int fd=mkstemp(temp);if(fd<0)return 0;FILE *f=fdopen(fd,"wb");if(!f){close(fd);remove(temp);return 0;}

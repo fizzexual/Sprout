@@ -96,8 +96,10 @@ checksums alone do not authenticate the release or prove reproducible builds.
 - The private HTTP bridge requires an authenticated TLS proxy, an unprivileged
   identity, immutable code and writable state limits. `/health` is liveness;
   application/database readiness needs an external application probe. There is
-  no per-user identity/permission envelope, online source reload, metrics
-  exporter or complete audit trail in this bridge.
+  no per-user identity/permission envelope, online source reload or complete
+  audit trail in this bridge. The later opt-in [aggregate metrics](services.md#aggregate-service-metrics)
+  expose fixed-category operational counters without retaining request contents;
+  they do not replace authentication, database readiness or sustained evidence.
 - Client disconnect or worker timeout does not imply a database mutation was
   rolled back. Use durable application idempotency keys before enabling retries.
 - Paper cleanup depends on readers finishing and filesystem deletion succeeding.

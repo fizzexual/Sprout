@@ -57,6 +57,7 @@ jobs:
           bin="$(python -c 'import os; from pathlib import Path; print((Path.cwd() / "${{ matrix.asset }}").resolve())')"
           export SPROUT_BINARY="$bin" SPROUT_COMMAND="$bin"
           python src/tests/cli_test.py "$bin"
+          python src/tests/unicode_boundary_test.py "$bin"
           python src/tests/stdlib_production_test.py "$bin"
           python src/tests/distribution_test.py "$bin"
           python src/tests/security_boundary_test.py "$bin"
@@ -72,11 +73,18 @@ jobs:
           python src/tests/release_manifest_test.py
           python src/tests/deployment_harness_test.py
           python src/tests/deployment_coverage_test.py
+          python src/tests/service_recovery_test.py
           node --test integrations/node/tests/*.test.js
           python tools/soak.py "$bin" --cycles 5 --report "$RUNNER_TEMP/release-soak.json"
           python tools/service_load.py "$bin" --contacts 100 --report "$RUNNER_TEMP/release-service-load.json"
+          python tools/service_recovery.py "$bin" --workspace "$RUNNER_TEMP/release-service-recovery" --report "$RUNNER_TEMP/release-service-recovery.json" --label "$GITHUB_SHA"
           python tools/deployment_soak.py "$bin" --duration-seconds 8 --restart-seconds 3 --contention-seconds 3 --rate 4 --workspace "$RUNNER_TEMP/release-deployment-smoke" --report "$RUNNER_TEMP/release-deployment-smoke.json" --label release-smoke
           SPROUT_COMMAND="$bin" python -m unittest discover -s integrations/python -p 'test_*.py'
+
+      - name: Windows installer publication boundaries
+        if: runner.os == 'Windows'
+        shell: bash
+        run: python src/tests/installer_publication_test.py -v
 
       - name: Build Windows installer
         if: runner.os == 'Windows'

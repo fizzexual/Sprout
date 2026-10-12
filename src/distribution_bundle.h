@@ -16,7 +16,7 @@ static char *g_bundle_entry=NULL;
 
 static char *self_exe_path(void) {
 #ifdef _WIN32
-  char buf[1024];DWORD n=GetModuleFileNameA(NULL,buf,sizeof buf);return n&&n<sizeof buf?dup_str(buf):NULL;
+  wchar_t buf[1024];DWORD n=GetModuleFileNameW(NULL,buf,sizeof buf/sizeof buf[0]);return n&&n<sizeof buf/sizeof buf[0]?pr_utf8(buf):NULL;
 #elif defined(__APPLE__)
   char buf[4096];uint32_t n=sizeof buf;return _NSGetExecutablePath(buf,&n)==0?dup_str(buf):NULL;
 #else
@@ -25,14 +25,14 @@ static char *self_exe_path(void) {
 }
 static int dist_chdir(const char *p) {
 #ifdef _WIN32
-  return SetCurrentDirectoryA(p)?0:-1;
+  wchar_t *wide=pr_wide(p);int ok=wide&&SetCurrentDirectoryW(wide);free(wide);return ok?0:-1;
 #else
   return chdir(p);
 #endif
 }
 static void dist_rmdir(const char *p) {
 #ifdef _WIN32
-  RemoveDirectoryA(p);
+  wchar_t *wide=pr_wide(p);if(wide){RemoveDirectoryW(wide);free(wide);}
 #else
   rmdir(p);
 #endif
@@ -41,12 +41,13 @@ static void dist_rmdir(const char *p) {
 static void bundle_cleanup(void) {
   if(!g_bundle_temp)return;
 #ifdef _WIN32
-  SetCurrentDirectoryA(getenv("TEMP")?getenv("TEMP"):"C:\\");
+  wchar_t base[MAX_PATH];DWORD n=GetTempPathW(MAX_PATH,base);
+  SetCurrentDirectoryW(n&&n<MAX_PATH?base:L"C:\\");
 #else
   chdir("/");
 #endif
   for(int i=g_dist_count-1;i>=0;i--) {
-    char full[1024];snprintf(full,sizeof full,"%s/%s",g_bundle_temp,g_dist_files[i].path);remove(full);
+    char full[1024];snprintf(full,sizeof full,"%s/%s",g_bundle_temp,g_dist_files[i].path);dist_remove(full);
     char *slash=strrchr(full,'/');
     while(slash&&slash>full+strlen(g_bundle_temp)){*slash=0;dist_rmdir(full);slash=strrchr(full,'/');}
   }
@@ -56,11 +57,14 @@ static void bundle_corrupt(const char *why) {fprintf(stderr,"  Invalid Sprout bu
 static char *bundle_tempdir(void) {
   char p[1024];
 #ifdef _WIN32
-  char base[MAX_PATH];DWORD n=GetTempPathA(sizeof base,base);if(!n||n>=sizeof base)return NULL;
+  wchar_t wide_base[MAX_PATH];DWORD n=GetTempPathW(MAX_PATH,wide_base);if(!n||n>=MAX_PATH)return NULL;
+  char *base=pr_utf8(wide_base);if(!base)return NULL;
   for(unsigned i=0;i<100;i++) {
-    snprintf(p,sizeof p,"%ssprout_bundle_%lu_%lu_%u",base,(unsigned long)GetCurrentProcessId(),(unsigned long)GetTickCount(),i);
-    if(CreateDirectoryA(p,NULL))return dup_str(p);
+    if(snprintf(p,sizeof p,"%ssprout_bundle_%lu_%lu_%u",base,(unsigned long)GetCurrentProcessId(),(unsigned long)GetTickCount(),i)>=(int)sizeof p)break;
+    wchar_t *wide=pr_wide(p);if(!wide)break;int ok=CreateDirectoryW(wide,NULL);free(wide);
+    if(ok){free(base);return dup_str(p);}
   }
+  free(base);
   return NULL;
 #else
   const char *base=getenv("TMPDIR");if(!base||!*base)base="/tmp";
@@ -69,7 +73,7 @@ static char *bundle_tempdir(void) {
 #endif
 }
 static char *embedded_script(void) {
-  char *exe=self_exe_path();if(!exe)return NULL;FILE *f=fopen(exe,"rb");free(exe);if(!f)return NULL;
+  char *exe=self_exe_path();if(!exe)return NULL;FILE *f=pr_fopen(exe,"rb");free(exe);if(!f)return NULL;
   if(fseek(f,0,SEEK_END)!=0){fclose(f);return NULL;}long total=ftell(f);
   if(total<SB_TRAILER){fclose(f);return NULL;}unsigned char tail[SB_TRAILER];
   if(fseek(f,total-SB_TRAILER,SEEK_SET)!=0||fread(tail,1,sizeof tail,f)!=sizeof tail){fclose(f);return NULL;}
@@ -127,9 +131,10 @@ static char *dist_project_relative(const char *path) {
   size_t rootlen=strlen(g_dist_root);
   if(strncmp(full,g_dist_root,rootlen)||full[rootlen]!='/'||!dist_safe_path(full+rootlen+1)) {free(full);return NULL;}
 #ifdef _WIN32
-  /* _fullpath does not resolve junctions: reject reparse points in every input component. */
-  char check[1024];snprintf(check,sizeof check,"%s",full);
-  for(char *p=check+rootlen+1;;p++)if(*p=='/'||!*p){char saved=*p;*p=0;DWORD a=GetFileAttributesA(check);*p=saved;
+  /* Full-path normalization does not resolve junctions: reject input reparse points. */
+  char check[1024];if(strlen(full)>=sizeof check){free(full);return NULL;}
+  strcpy(check,full);
+  for(char *p=check+rootlen+1;;p++)if(*p=='/'||!*p){char saved=*p;*p=0;DWORD a=dist_attributes(check);*p=saved;
     if(a!=INVALID_FILE_ATTRIBUTES&&(a&FILE_ATTRIBUTE_REPARSE_POINT)){free(full);return NULL;}if(!saved)break;}
 #endif
   char *relative=dup_str(full+rootlen+1);free(full);return relative;
@@ -228,7 +233,7 @@ static int cmd_bundle(int argc,char **argv) {
   qsort(g_dist_files,(size_t)g_dist_count,sizeof(DistFile),dist_file_compare);
   size_t archive=16+strlen(entry)+g_dist_size;
   if(archive>DIST_MAX_ARCHIVE){fprintf(stderr,"  Complete bundle archive exceeds 64 MiB.\n");free(interp);dist_clear();free(entry);free(g_dist_root);return 1;}
-  FILE *f=fopen(out,"wb");if(!f){fprintf(stderr,"  Couldn't create %s\n",out);free(interp);dist_clear();free(entry);free(g_dist_root);return 1;}
+  FILE *f=pr_fopen(out,"wb");if(!f){fprintf(stderr,"  Couldn't create %s\n",out);free(interp);dist_clear();free(entry);free(g_dist_root);return 1;}
   ok=fwrite(interp,1,(size_t)ilen,f)==(size_t)ilen;
   ok=bundle_write_num(f,strlen(entry))&&ok;ok=fwrite(entry,1,strlen(entry),f)==strlen(entry)&&ok;ok=bundle_write_num(f,(uint64_t)g_dist_count)&&ok;
   for(int i=0;i<g_dist_count;i++){DistFile *r=&g_dist_files[i];unsigned char hash[32];dist_sha256(r->data,r->len,hash);

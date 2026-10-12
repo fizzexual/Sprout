@@ -66,6 +66,7 @@ jobs:
         run: |
           bin=src/sprout; [ -f src/sprout.exe ] && bin=src/sprout.exe
           python src/tests/cli_test.py "$bin"
+          python src/tests/unicode_boundary_test.py "$bin"
 
       - name: Editor and playground regression tests
         run: |
@@ -97,7 +98,13 @@ jobs:
           python tools/service_load.py "$SPROUT_BINARY" --contacts 100 --report "$RUNNER_TEMP/service-load.json"
           python src/tests/deployment_harness_test.py
           python src/tests/deployment_coverage_test.py
+          python src/tests/service_recovery_test.py
+          python tools/service_recovery.py "$SPROUT_BINARY" --workspace "$RUNNER_TEMP/service-recovery" --report "$RUNNER_TEMP/service-recovery.json" --label "$GITHUB_SHA"
           python tools/deployment_soak.py "$SPROUT_BINARY" --duration-seconds 8 --restart-seconds 3 --contention-seconds 3 --rate 4 --workspace "$RUNNER_TEMP/deployment-smoke" --report "$RUNNER_TEMP/deployment-smoke.json" --label ci-smoke
+
+      - name: Windows installer publication boundaries
+        if: runner.os == 'Windows'
+        run: python src/tests/installer_publication_test.py -v
 
       - name: Set up Go
         uses: actions/setup-go@v7
@@ -114,6 +121,8 @@ jobs:
             ${{ runner.temp }}/soak.json
             ${{ runner.temp }}/service-load.json
             ${{ runner.temp }}/deployment-smoke.json
+            ${{ runner.temp }}/service-recovery.json
+            ${{ runner.temp }}/service-recovery/
             soak-artifacts/
           if-no-files-found: ignore
 
@@ -282,6 +291,7 @@ jobs:
           python src/tests/runtime_production_test.py "$PWD/src/sprout"
           python src/tests/ergonomics_test.py "$PWD/src/sprout"
           python src/tests/security_boundary_test.py "$PWD/src/sprout"
+          python src/tests/unicode_boundary_test.py "$PWD/src/sprout"
           python src/tests/serialization_test.py "$PWD/src/sprout"
           python src/tests/store_publication_test.py "$PWD/src/sprout"
           python src/tests/sqlite_migrations_test.py "$PWD/src/sprout"

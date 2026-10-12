@@ -12,7 +12,7 @@ static PkgSpec pkg_specs[PKG_MAX];
 static size_t pkg_bytes=0;
 /* Text metadata is bounded and never silently truncated at an embedded NUL. */
 static char *pkg_read_text(const char *path,int optional,int *ok) {
-  *ok=0;FILE *f=fopen(path,"rb");
+  *ok=0;FILE *f=pr_fopen(path,"rb");
   if(!f){if(optional&&errno==ENOENT)*ok=1;else fprintf(stderr,"  Couldn't read package metadata: %s\n",path);return NULL;}
   if(fseek(f,0,SEEK_END)!=0){fclose(f);return NULL;}long n=ftell(f);
   if(n<0||(unsigned long)n>PKG_MAX_METADATA||fseek(f,0,SEEK_SET)!=0){fclose(f);fprintf(stderr,"  Package metadata exceeds 4 MiB: %s\n",path);return NULL;}
@@ -387,11 +387,11 @@ static int cmd_remove(int argc,char **argv) {
   if(!found){free(updated);fprintf(stderr,"  No package called '%s'.\n",name);return 1;}
   if(!dist_atomic_write(PKG_MANIFEST,(unsigned char *)updated,at)){free(updated);return 1;}free(updated);
   for(int i=0;i<pkg_nlocked;i++)if(!strcmp(pkg_locked[i].name,name)) {
-    char full[1024];snprintf(full,sizeof full,"%s",pkg_locked[i].path);remove(full);
+    char full[1024];snprintf(full,sizeof full,"%s",pkg_locked[i].path);dist_remove(full);
     char prefix[256];snprintf(prefix,sizeof prefix,"%s/%s",PKG_DIR,name);char *slash=strrchr(full,'/');
     while(slash&&slash>=full+strlen(prefix)){*slash=0;dist_rmdir(full);slash=strrchr(full,'/');}
   }else {pkg_files[pkg_nfiles++]=pkg_locked[i];pkg_files[pkg_nfiles-1].data=NULL;}
   /* Legacy projects may not have had a lockfile yet. */
-  char single[256];snprintf(single,sizeof single,"%s/%s.sprout",PKG_DIR,name);if(dist_no_links(single))remove(single);
+  char single[256];snprintf(single,sizeof single,"%s/%s.sprout",PKG_DIR,name);if(dist_no_links(single))dist_remove(single);
   int ok=pkg_lock_write(0);pkg_clear_plan();if(ok)printf("  Removed package %s.\n",name);return ok?0:1;
 }

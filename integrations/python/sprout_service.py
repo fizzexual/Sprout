@@ -3,6 +3,7 @@ import argparse
 import http.server
 import io
 import json
+import math
 import socket
 import signal
 import socketserver
@@ -11,6 +12,85 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit, parse_qs
 from sprout_host import run, encode, decode, SproutError
+
+
+class _ServiceMetrics:
+    """Fixed categories only: never retain request or worker contents."""
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.started = time.monotonic()
+        self.connections = dict(accepted=0, rejected_capacity=0, active=0, peak_active=0)
+        self.responses = dict.fromkeys(('2xx', '3xx', '4xx', '5xx', 'other'), 0)
+        self.workers = dict(started=0, completed=0, failed=0, timed_out=0, active=0,
+                            peak_active=0, invalid_responses=0)
+        self.durations = dict(connection_total_seconds=0.0, connection_max_seconds=0.0,
+                              worker_total_seconds=0.0, worker_max_seconds=0.0,
+                              connection_timing_failures=0, worker_timing_failures=0)
+
+    def accept(self):
+        with self.lock:
+            accepted = self.connections['accepted'] + 1
+            active = self.connections['active'] + 1
+            peak = max(self.connections['peak_active'], active)
+            self.connections['accepted'], self.connections['active'], self.connections['peak_active'] = accepted, active, peak
+
+    def reject_capacity(self):
+        with self.lock:
+            self.connections['rejected_capacity'] += 1
+            self.responses['5xx'] += 1
+
+    def finish_connection(self, started):
+        elapsed = self._elapsed(started)
+        with self.lock:
+            self.connections['active'] -= 1
+            self._duration('connection', elapsed)
+
+    def response(self, status):
+        category = str(status // 100) + 'xx'
+        with self.lock:
+            self.responses[category if category in self.responses else 'other'] += 1
+
+    def start_worker(self):
+        started = time.monotonic()
+        with self.lock:
+            self.workers['started'] += 1
+            self.workers['active'] += 1
+            self.workers['peak_active'] = max(self.workers['peak_active'], self.workers['active'])
+        return started
+
+    def finish_worker(self, started, outcome):
+        elapsed = self._elapsed(started)
+        with self.lock:
+            self.workers['active'] -= 1
+            self.workers['completed' if outcome == 'completed' else 'failed'] += 1
+            if outcome == 'timeout': self.workers['timed_out'] += 1
+            self._duration('worker', elapsed)
+
+    def invalid_response(self):
+        with self.lock:
+            self.workers['invalid_responses'] += 1
+
+    def _duration(self, name, elapsed):
+        if elapsed is None:
+            self.durations[name + '_timing_failures'] += 1
+            return
+        self.durations[name + '_total_seconds'] += elapsed
+        self.durations[name + '_max_seconds'] = max(self.durations[name + '_max_seconds'], elapsed)
+
+    @staticmethod
+    def _elapsed(started):
+        if started is None: return None
+        try:
+            elapsed = time.monotonic() - started
+        except OSError:
+            return None
+        return elapsed if math.isfinite(elapsed) and elapsed >= 0 else None
+
+    def snapshot(self):
+        with self.lock:
+            return dict(schema=1, uptime_seconds=self._elapsed(self.started),
+                        connections=self.connections.copy(), responses=self.responses.copy(),
+                        workers=self.workers.copy(), durations=self.durations.copy())
 
 
 class _DeadlineReader(io.RawIOBase):
@@ -56,11 +136,13 @@ class SproutServer(http.server.ThreadingHTTPServer):
     request_queue_size = 32
     request_read_timeout = 2.0
     def __init__(self, address, program, *, command="sprout", workers=8, allow_io=False,
-                 timeout_ms=5000, max_body=65536, cwd=None):
+                 timeout_ms=5000, max_body=65536, cwd=None, metrics=False):
         for value, label, maximum in ((workers, 'workers', 64), (max_body, 'body limit', 1048576),
                                       (timeout_ms, 'timeout_ms', 3600000)):
             if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= maximum:
                 raise ValueError(f'{label} must be an integer from 1 to {maximum}')
+        if type(metrics) is not bool:
+            raise ValueError('metrics must be a boolean')
         self.program = Path(program).resolve()
         self.working_dir = self.program.parent if cwd is None else Path(cwd).resolve()
         if not self.working_dir.is_dir():
@@ -68,6 +150,7 @@ class SproutServer(http.server.ThreadingHTTPServer):
         self.command, self.allow_io = command, allow_io
         self.timeout_ms, self.max_body = timeout_ms, max_body
         self.capacity = threading.BoundedSemaphore(workers)
+        self.metrics = _ServiceMetrics() if metrics else None
         super().__init__(address, SproutHandler)
     def server_bind(self):
         # The bridge uses the bound address, never a reverse-DNS server name.
@@ -81,6 +164,7 @@ class SproutServer(http.server.ThreadingHTTPServer):
         return connection, address
     def process_request(self, request, address):
         if not self.capacity.acquire(blocking=False):
+            if self.metrics: self.metrics.reject_capacity()
             try:
                 request.settimeout(.2)
                 request.sendall(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
@@ -88,16 +172,47 @@ class SproutServer(http.server.ThreadingHTTPServer):
                 pass
             self.shutdown_request(request)
             return
+        metrics_accepted = False
         try:
+            if self.metrics:
+                self.metrics.accept()
+                metrics_accepted = True
             super().process_request(request, address)
         except BaseException:
-            self.capacity.release()
+            try:
+                if metrics_accepted: self.metrics.finish_connection(None)
+            finally:
+                self.capacity.release()
             raise
     def process_request_thread(self, request, address):
+        started = None
+        delegated = False
         try:
+            if self.metrics: started = time.monotonic()
+            delegated = True
             super().process_request_thread(request, address)
         finally:
-            self.capacity.release()
+            try:
+                if not delegated: self.shutdown_request(request)
+            finally:
+                try:
+                    if self.metrics: self.metrics.finish_connection(started)
+                finally:
+                    self.capacity.release()
+    def run_worker(self, request):
+        started = self.metrics.start_worker() if self.metrics else None
+        outcome = 'failed'
+        try:
+            response = run(self.program, request, command=self.command, cwd=self.working_dir,
+                           sandbox=not self.allow_io, timeout_ms=self.timeout_ms,
+                           runtime_timeout_ms=max(1, self.timeout_ms - 250))
+            outcome = 'completed'
+            return response
+        except SproutError as error:
+            if error.code == 'timeout': outcome = 'timeout'
+            raise
+        finally:
+            if self.metrics: self.metrics.finish_worker(started, outcome)
 
 
 class SproutHandler(http.server.BaseHTTPRequestHandler):
@@ -115,6 +230,9 @@ class SproutHandler(http.server.BaseHTTPRequestHandler):
         return parsed
     def log_message(self, *_):
         pass
+    def send_response(self, code, message=None):
+        if self.server.metrics: self.server.metrics.response(code)
+        super().send_response(code, message)
     def respond(self, status, body, headers=None):
         bodyless = status in (204, 205, 304)
         payload = b'' if bodyless else body if isinstance(body, bytes) else encode(body).encode("utf-8")
@@ -158,6 +276,11 @@ class SproutHandler(http.server.BaseHTTPRequestHandler):
             if path.path == "/health" and self.command in ("GET", "HEAD"):
                 self.request_reader.finish_request()
                 self.respond(200, {"ok": True, "protocol": 1}); return
+            if path.path == "/metrics" and self.server.metrics:
+                self.request_reader.finish_request()
+                if self.command not in ("GET", "HEAD"):
+                    self.respond(405, {"error": "metrics are read-only"}, {"Allow": "GET, HEAD"}); return
+                self.respond(200, self.server.metrics.snapshot(), {"Cache-Control": "no-store"}); return
             raw = self.rfile.read(length)
             if len(raw) != length:
                 raise ValueError()
@@ -177,10 +300,7 @@ class SproutHandler(http.server.BaseHTTPRequestHandler):
             self.respond(413, {"error": "request too large"}); return
         self.request_reader.finish_request()
         try:
-            response = run(self.server.program, request, command=self.server.command,
-                           cwd=self.server.working_dir,
-                           sandbox=not self.server.allow_io, timeout_ms=self.server.timeout_ms,
-                           runtime_timeout_ms=max(1, self.server.timeout_ms - 250))
+            response = self.server.run_worker(request)
             if not isinstance(response, dict):
                 raise ValueError("response must be a map")
             status, headers = response.get("status", 200), response.get("headers", {})
@@ -197,6 +317,7 @@ class SproutHandler(http.server.BaseHTTPRequestHandler):
         except SproutError as error:
             self.respond(504 if error.code == "timeout" else 502, {"error": "worker failed", "code": error.code})
         except (ValueError, TypeError):
+            if self.server.metrics: self.server.metrics.invalid_response()
             self.respond(502, {"error": "invalid worker response"})
     do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = do_HEAD = handle_worker
 
@@ -212,10 +333,11 @@ def main():
     parser.add_argument("--max-body", type=int, default=65536)
     parser.add_argument("--cwd", help="Existing writable state directory; defaults to the program's directory")
     parser.add_argument("--allow-io", action="store_true")
+    parser.add_argument("--metrics", action="store_true", help="Expose aggregate JSON metrics at /metrics (GET/HEAD)")
     args = parser.parse_args()
     with SproutServer((args.host, args.port), args.program, command=args.command,
                       workers=args.workers, allow_io=args.allow_io,
-                      timeout_ms=args.timeout_ms, max_body=args.max_body, cwd=args.cwd) as server:
+                      timeout_ms=args.timeout_ms, max_body=args.max_body, cwd=args.cwd, metrics=args.metrics) as server:
         print(f"Sprout worker service at http://{args.host}:{server.server_port}", flush=True)
         stopping = threading.Event()
         def stop(_signal, _frame):

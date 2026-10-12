@@ -71,6 +71,29 @@ test restoration with the runtime selected for rollback as well as the new one.
 
 ## Changes during development
 
+Windows CLI arguments and native file paths now use UTF-8 with the operating
+system's Unicode APIs. This fixes filenames and arguments containing characters
+outside the active Windows code page, including Chinese text and emoji. Existing
+ASCII commands keep their encoding. The bounded bundle path scanner rejects
+normalized paths that exceed its 1,024-byte buffer; this does not promise general
+long-path support.
+
+An older Windows build could write code-page bytes into `sprout.packages` and
+`sprout.lock` when a local package source contained an accented filename. The
+corrected build rejects that invalid UTF-8 metadata without changing it. Preserve
+both metadata files and the original package source before upgrading. Re-add each
+affected known source with its original alias using the corrected build, for
+example `sprout add package-café.sprout local`, then verify the resulting digest
+and run `sprout install --locked`. A bounded migration fixture verified this
+repair and exact installed contents. Do not guess the original encoding or
+silently reinterpret invalid bytes; use a pinned prior runtime and backups to
+inspect unknown historical metadata.
+
+The HTTP bridge's aggregate metrics are opt-in through `--metrics`. Enabling
+them reserves GET/HEAD `/metrics`; an application using that route should leave
+the option disabled or choose a different application route. See
+[service metrics](services.md) for counter meanings and limitations.
+
 Maintainers aim to retain tested source behavior and documented interfaces.
 Regression fixes, security fixes, and development changes can still reject inputs
 previously accepted or change unfinished APIs. For example, numeric controls and

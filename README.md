@@ -88,6 +88,9 @@ for supported workloads and remaining release gates. Native SQLite builds vendor
 a pinned SQLite source dependency. These features do not constitute a stable 1.0
 or a blanket production-readiness claim. The [compatibility policy](docs/compatibility.md)
 records the current development contracts and the requirements for stable promotion.
+The service bridge offers opt-in [aggregate metrics](docs/services.md), and a
+bounded [backup, restore and upgrade rollback exercise](docs/service-recovery.md)
+checks exact SQLite data in private restored copies.
 The [TotalReach migration example](examples/adoption/totalreach/README.md) compares
 one existing CRM rule with its pinned TypeScript implementation using native parity tests.
 
