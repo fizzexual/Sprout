@@ -479,6 +479,11 @@ All 49 focused harness controls passed on Windows and offline Linux, including
 real owned subprocess exits, unavailable or foreign metrics, preservation of
 both primary/cleanup errors, partial clock reads and first-failure immutability.
 The native interpreter, SDK and HTTP service sources were not changed.
+The reporting revision `2ff3e34d837551e001e760a9e976c6a0d993e9ec` passed all
+eight [fresh native/SDK, WASM, sanitizer, Docker and Paper CI jobs](https://github.com/fizzexual/Sprout/actions/runs/38215794111)
+on its first attempt. Its harness SHA256 is
+`67108085f0a610b5a5484612e4ff219ccd12ee723f9f331572ae9c5ec0d00035`;
+the original frozen `8875be7a` harness and failed report remain unchanged.
 No original artifact is rewritten. There is no sustained test active; a new
 qualification needs an agreed stable-clock environment. The clock policy has
 not been relaxed, and this failed run has not been retried or relabeled.

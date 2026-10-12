@@ -108,8 +108,8 @@ It also enforces the existing 95% contact and 90% health/contention floors at
 completion. All 40 focused harness regressions passed on Windows and Linux,
 including genuine early-finish, failed-probe, missed-slot and fractional-rate
 controls. The unchanged v2 auditor's 17 checks passed locally with one Windows
-symlink skip. Full CI and a separate sustained run of the changed candidate
-remain required before final workload qualification.
+symlink skip. Those corrections require full CI and a separate sustained run
+of the changed candidate; subsequent outcomes are recorded below.
 
 The intermediate `3814a48` native smoke also remained failed: its five actual
 SQLite lock probes missed the six required by the 20-second/three-second
@@ -151,7 +151,7 @@ preserving JSON, no-dispatch, recovery and deadline assertions. Five focused
 controls passed on Windows and Linux. Reason text is descriptive rather than a
 reliable protocol field. [RFC 9112, section 4](https://www.rfc-editor.org/rfc/rfc9112.html#section-4)
 describes the status-line contract. Runtime, SDK and harness inputs are unchanged
-by this test-only correction; final full CI remains required.
+by this test-only correction; its full CI outcome is recorded below.
 
 The final test revision `d9c869895f34bed0d25bc1fed583570a7c187736` passed all
 eight [fresh CI jobs](https://github.com/fizzexual/Sprout/actions/runs/38207716585)
@@ -173,8 +173,12 @@ to one thread, but the clock failure also prevented its final resource capture;
 its earlier sample is not a final resource gate. New reporting corrections retain
 available failed-host metrics and the first offending clock readings without
 granting successful-close credit or relaxing the checks. All 49 focused harness
-regressions passed on Windows and an offline Linux fixture; fresh cross-platform
-CI remains required. Eight-hour qualification remains open and
+regressions passed on Windows and an offline Linux fixture, and ten independent
+peer controls passed. The reporting revision
+`2ff3e34d837551e001e760a9e976c6a0d993e9ec` passed all eight
+[fresh CI jobs](https://github.com/fizzexual/Sprout/actions/runs/38215794111)
+on its first attempt, including native/SDK, WASM, sanitizer, Docker and Paper
+checks. Eight-hour qualification remains open and
 requires an agreed stable-clock test environment; passing data checks cannot
 replace it. The original failed runs retain their original results.
 
