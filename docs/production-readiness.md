@@ -33,7 +33,8 @@ candidate run was superseded after the service startup fix and retained as
 interrupted evidence, with 4,960 exact contacts and verified owned-process cleanup.
 The replacement eight-hour HTTP/SQLite run started at 20:14 UTC on frozen
 `86ab3b4b0e6606a6d74a2e930483f5773ed84f6c` inputs, targeting 04:14 UTC on
-October 12. Its running report is pending evidence. A 20.156-second candidate
+October 12. It finished with failed qualification; the final findings are recorded
+below. A 20.156-second candidate
 smoke passed with 80 contacts and four cleanly stopped hosts, including all
 completion, snapshot, resource and storage gates. Mutable working-tree tests do not count as a
 single-build soak. See [deployment evidence](deployment-evidence.md).
@@ -55,10 +56,10 @@ It does not change the native interpreter or Python service/SDK sources.
 A later evidence review reproduced a false pass in the frozen deployment
 harness: advancing the clock by eight hours after one burst could satisfy its
 duration check with only eight contacts. This finding concerns the test evidence,
-not a reproduced service failure. The active frozen run remains unchanged. Its
-completion will require a separate [aggregate coverage audit](deployment-coverage.md)
-under thresholds declared before the run finishes; the original `passed` field
-alone is insufficient. Future harness runs record bounded controller and sampler
+not a reproduced service failure. The frozen run remains unchanged. Its
+completion requires a separate [aggregate coverage audit](deployment-coverage.md)
+under thresholds declared before the run finished; the original `passed` field
+alone is insufficient. Newer harness runs record bounded controller and sampler
 gaps in both monotonic and wall time and reject clock reversals or nonfinite
 readings. The existing frozen run cannot establish a maximum traffic gap.
 
@@ -82,11 +83,33 @@ on its first attempt; the earlier unexplained observation remains recorded.
 A 20.000-second integrated native/SDK smoke passed with 80 exact contacts,
 three clean service lifecycles, all 89 native workers exited and independent
 SQLite integrity/value checks. The frozen `86ab3b4` eight-hour run
-continues unchanged and cannot be attributed to these newer native/SDK fixes.
+finished without qualification and cannot be attributed to these newer native/SDK fixes.
 The existing Windows installation was updated to the tested normal binary
 SHA256 `066095edef005a511b1e89e0351f2099edcce5ea5fafce1e89425ebc639c725f`.
 Its installed copy passed the seven publication regression methods, with two
 POSIX-only skips. It still reports `0.2.0-dev`; no stable release was published.
+
+The original eight-hour report recorded `passed: false`: subtracting its
+floating-point clock readings produced `28799.999999999993` seconds against a
+28,800-second requirement. A bounded arithmetic reproduction shows that an
+endpoint exactly equal to the computed absolute deadline can produce that
+subtraction result. Independently, its 2,572 health probes missed the unchanged
+2,592-probe coverage floor. Neither finding is waived. The fixed v2 auditor
+rejected the failed report, and the final qualification checker refused it.
+A separate read-only diagnostic verified all 115,200 exact contacts across
+58 SQLite shards, all 117,933 native worker exits, 173 clean host lifecycles,
+trusted frozen hashes and recorded resource/storage limits. This supports data
+and cleanup observations; it does not qualify the original sustained run.
+
+The corrected harness reaches a validated absolute deadline, retains the raw
+measured duration, keeps actual health probes on their original phase, and
+derives contact pacing from cumulative work to avoid an extra terminal burst.
+It also enforces the existing 95% contact and 90% health/contention floors at
+completion. All 37 focused harness regressions passed on Windows and Linux,
+including genuine early-finish, failed-probe, missed-slot and fractional-rate
+controls. The unchanged v2 auditor's 17 checks passed locally with one Windows
+symlink skip. Full CI and a separate sustained run of the changed candidate
+remain required before final workload qualification.
 
 The review reproduced these issues and verified their fixes:
 

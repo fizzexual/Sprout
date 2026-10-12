@@ -85,6 +85,25 @@ larger limit, which changes the scope of the evidence. Polling checks pending
 gaps at most every 250 ms while pacing; blocking operations are checked at their
 next progress boundary.
 
+Newer runs retain their absolute monotonic start, nominal deadline, validated
+deadline and observed traffic finish. When floating-point addition followed by
+subtraction would encode less than the requested duration, the validated
+deadline advances to the next representable value and the final pacing wait
+actually reaches it. The raw measured duration must still meet the request;
+completion also requires the observed finish to reach that exact deadline.
+There is no duration tolerance or retrospective correction of older reports.
+
+Periodic health probes retain their scheduled ten-second phase and also run
+when due during traffic pacing. A delayed probe skips missed slots instead of
+inventing catch-up counts. Each successful actual periodic request earns one
+count; startup probes remain separate. New completion checks require at least
+95% of requested contacts and 90% of nominal health and contention probes.
+These are the existing coverage floors; the frozen v2 policy is unchanged.
+Health activity does not reset the completed-burst cadence baseline.
+Contact pacing derives deadlines from cumulative work at a fixed clock anchor,
+avoiding repeated fractional-addition drift. Slow operations rebase that anchor
+to their actual completion time rather than submitting an accumulated backlog.
+
 Checking wall time alongside monotonic time detects suspension when a platform's
 monotonic clock omits time asleep. This is deliberately conservative: a backward
 wall-clock adjustment, or a forward adjustment large enough to exceed the gap,
@@ -256,7 +275,7 @@ long-run evidence at
 `D:/Codex/Kestrel/work/deployment-candidate-smoke-20261011-final.json`. This smoke
 validates harness mechanics; hours-long candidate evidence remains pending.
 
-## Replacement candidate controls and pending run
+## Candidate controls and original run outcome
 
 The later operational candidate `d5ded754726bfe87ba12517630df9a62d179ba6e`
 passed a separate 20.000-second native/SDK smoke (20.188 seconds through final
@@ -284,7 +303,7 @@ normalizing its CRLF endings to LF equals the exact Git blob digest
 This is source correspondence, not a reproducible-build attestation.
 Private results are `D:/Codex/Kestrel/work/deployment-d5ded75-smoke-20261012.json`
 and its separate `deployment-d5ded75-smoke-20261012-verification.json`.
-These newer native/SDK inputs differ from the active eight-hour run below;
+These newer native/SDK inputs differ from the original eight-hour run below;
 this short check does not qualify them for eight hours.
 
 The later cadence candidate `fbd795d54eb7bdf829ba23015f048b18096b1f27`
@@ -328,12 +347,12 @@ it must not be presented as an eight-hour pass.
 The replacement eight-hour run started at **2026-10-11 20:14:15 UTC**, with a
 target end of **2026-10-12 04:14:15 UTC**. Its source hashes were independently
 compared with the Git blobs of the full `86ab3b4` commit. The workspace is
-`D:/Codex/Kestrel/work/deployment-86ab3b4-8h-20261011`; its running report remains
+`D:/Codex/Kestrel/work/deployment-86ab3b4-8h-20261011`; its final failed report remains
 private at `D:/Codex/Kestrel/work/deployment-86ab3b4-8h-20261011.json`. A dedicated
 `STOP` control path can interrupt it without changing frozen source files.
-Its frozen harness predates the dual-clock cadence guard. It continues unchanged
-and requires a separate final audit of traffic volume, probe counts, epoch
-durations and sample coverage before any completed evidence is published.
+Its frozen harness predates the dual-clock cadence guard. Its inputs and report
+remain unchanged. Successful completion additionally requires a separate final
+audit of traffic volume, probe counts, epoch durations and sample coverage.
 The [v2 aggregate policy](deployment-coverage.md) was declared at 21:41:33 UTC,
 before the run finishes, with SHA256
 `e0fa18931226ba2c181d2700dea0da3e91fc9cba878c551232298cb9342bd0ee`.
@@ -353,8 +372,33 @@ At the first completed restart, the service retained 728 contacts, reaped all
 at 33,546,240 bytes; retained RSS growth was 2,174,976 bytes. Handles peaked at
 244 and ended at 150, compared with 140 initially. At the 192.157-second
 progress snapshot, 776 contacts and four lock recoveries had completed with no
-errors. **The eight-hour outcome remains pending.** These initial observations
-do not establish full-duration resource stability or uptime.
+errors. These initial observations do not establish full-duration resource
+stability or uptime.
+
+The final report was **failed and unqualified**, with SHA256
+`71b549a9ae1e526585def16996e4f0cd8868d2e60ccbe93ff97dfc1c51045fb8`.
+It completed 115,200 contacts and 173 host lifecycles, but recorded traffic
+duration `28799.999999999993` against 28,800 seconds. The final elapsed duration,
+including checks and shutdown, was `28800.344000000005`. A deterministic
+arithmetic reproduction shows that subtracting a fractional start from its
+computed absolute deadline can encode a slightly smaller duration; the original
+failed report is retained without changing its result. Its 2,572 health probes
+also missed the predeclared 2,592 minimum. Startup health requests are not added
+retroactively to that count.
+
+The fixed v2 auditor returned `invalid_report` because original `passed` was
+false. The private final qualification checker rejected the unsuccessful report
+without producing a final qualification artifact. A separate read-only failed-run
+diagnostic verified every exact expected row across 58 retained shards, unique
+positive IDs and emails, SQLite integrity, all 117,933 native starts/exits,
+173 host metrics files, final one-thread baselines and absence of owned processes.
+It independently matched all frozen hashes and source Git blobs and confirmed
+the resource/storage limits. The maximum sampled RSS was 34,988,032 bytes,
+retained RSS growth at most 4,071,424 bytes, and handles at most 244 with retained
+growth at most ten. These are diagnostic observations of a failed run, not
+successful eight-hour coverage, maximum-gap evidence or uptime certification.
+The separate private record is
+`D:/Codex/Kestrel/work/deployment-86ab3b4-8h-20261011-failure-independent-review.json`.
 
 This exercise covers sustained local traffic, controlled SQLite contention,
 data preservation across graceful restarts and worker cleanup. It does not

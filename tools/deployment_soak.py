@@ -43,7 +43,7 @@ def check_stop_file(path):
     raise DeploymentStopped('stop file requested cancellation: ' + str(path))
 
 
-def pause_until(deadline, stop_file, cadence=None):
+def pause_until(deadline, stop_file, cadence=None, on_wait=None):
     while True:
         check_stop_file(stop_file)
         if cadence is not None:
@@ -51,6 +51,13 @@ def pause_until(deadline, stop_file, cadence=None):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return
+        if on_wait is not None:
+            on_wait()
+            if cadence is not None:
+                cadence.pending()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
         time.sleep(min(.25, remaining) if stop_file is not None or cadence is not None else remaining)
 
 
@@ -61,6 +68,33 @@ def require(condition, message):
 
 def finite_number(value):
     return type(value) in (int, float) and math.isfinite(value)
+
+
+def duration_deadline(started, duration):
+    """Choose an absolute endpoint whose raw subtraction reaches the duration."""
+    require(finite_number(started) and finite_number(duration) and duration > 0,
+            'deployment duration clock inputs are invalid')
+    deadline = started + duration
+    require(finite_number(deadline), 'deployment clock deadline is nonfinite')
+    if deadline - started < duration:
+        deadline = math.nextafter(deadline, math.inf)
+    require(finite_number(deadline) and finite_number(deadline - started) and deadline - started >= duration,
+            'deployment duration cannot be represented by a finite deadline')
+    return deadline
+
+
+def next_periodic_deadline(due, interval, finished):
+    """Stay on the scheduled phase; missed slots receive no probe credit."""
+    require(finite_number(due) and finite_number(interval) and interval > 0 and
+            finite_number(finished) and finished >= due and due + interval > due,
+            'periodic probe clock inputs are invalid')
+    slots = (finished - due) / interval
+    require(finite_number(slots), 'periodic probe clock delta is nonfinite')
+    next_due = due + (math.floor(slots) + 1) * interval
+    if next_due <= finished:
+        next_due = due + (math.floor(slots) + 2) * interval
+    require(finite_number(next_due) and next_due > finished, 'periodic probe deadline cannot advance')
+    return next_due
 
 
 def elapsed_since(started):
@@ -196,12 +230,35 @@ def completion_gate(report):
     duration, requested = report.get('traffic_duration_seconds'), report['configuration'].get('duration_seconds')
     require(finite_number(duration) and finite_number(requested) and requested > 0 and duration >= requested,
             'deployment traffic duration was shorter than requested')
+    clock = report.get('traffic_clock')
+    require(isinstance(clock, dict), 'absolute traffic clock evidence is missing')
+    started, nominal, deadline, finished = [clock.get(key) for key in
+        ('started_monotonic', 'nominal_deadline_monotonic', 'deadline_monotonic', 'finished_monotonic')]
+    require(all(finite_number(value) for value in (started, nominal, deadline, finished)), 'absolute traffic clock readings are invalid')
+    require(nominal == started + requested and deadline == duration_deadline(started, requested),
+            'absolute traffic deadline differs from the requested duration')
+    require(finished >= deadline and duration == finished - started,
+            'absolute traffic finish was before its deadline or disagrees with measured duration')
     require(report.get('frozen_inputs_unchanged') is True, 'frozen deployment inputs were not verified at completion')
     gap = report['configuration'].get('max_gap_seconds')
     cadence_gate(report.get('controller_cadence'), gap)
+    require(report['controller_cadence']['first_monotonic'] == started and
+            report['controller_cadence']['last_observed_monotonic'] >= finished,
+            'traffic endpoint differs from controller clock evidence')
     require(bool(report.get('hosts')), 'host cadence evidence is missing')
     for host_summary in report['hosts']:
         cadence_gate(host_summary.get('cadence'), gap)
+    counts = report.get('counts')
+    require(isinstance(counts, dict), 'deployment coverage counts are missing')
+    rate, contention = report['configuration'].get('rate'), report['configuration'].get('contention_seconds')
+    require(finite_number(rate) and rate > 0 and finite_number(contention) and contention > 0,
+            'deployment coverage configuration is invalid')
+    for key, target, percent in [('contacts', requested * rate, 95),
+                                  ('health_checks', math.floor(requested / 10), 90),
+                                  ('contention_503', math.floor(requested / contention), 90)]:
+        observed = counts.get(key)
+        require(finite_number(target) and type(observed) is int and observed >= 0 and observed * 100 >= target * percent,
+                'deployment ' + key + ' coverage is below its required floor')
 
 
 def workspace_bytes(workspace):
@@ -592,13 +649,22 @@ def main(args):
             summary['shard'] = shard; report['hosts'].append(summary)
             counts['hosts_cleanly_stopped'] += 1
             resource_gate(summary, resource_limits, args.workers, max_gap_seconds=args.max_gap_seconds)
+    def check_health():
+        nonlocal next_health
+        observed = time.monotonic()
+        if observed >= next_health and observed < nominal_until:
+            status, body = service.request('GET', '/health')
+            require(status == 200 and json.loads(body)['ok'], 'health probe failed')
+            counts['health_checks'] += 1
+            next_health = next_periodic_deadline(next_health, 10, time.monotonic())
     try:
         check_stop_file(stop_file)
         controller_cadence.checkpoint()
         started = controller_cadence.report()['first_monotonic']
-        until = started + args.duration_seconds
-        require(finite_number(until), 'deployment clock deadline is nonfinite')
+        nominal_until = started + args.duration_seconds
+        until = duration_deadline(started, args.duration_seconds)
         next_restart = next_health = next_contention = next_save = next_burst = started
+        pacing_anchor, pacing_contacts = started, 0
         oracle = sqlite3.connect(workspace / 'independent-oracle.sqlite')
         oracle.execute('CREATE TABLE expected(shard INTEGER, email TEXT PRIMARY KEY, name TEXT NOT NULL)')
         controller_cadence.pending()
@@ -628,9 +694,7 @@ def main(args):
                     next_restart = time.monotonic() + args.restart_seconds
                     print('Started HTTP host PID %d on shard %d with %d retained contacts' %
                           (service.process.pid, shard, len(expected)), flush=True)
-                if now >= next_health:
-                    status, body = service.request('GET', '/health'); require(status == 200 and json.loads(body)['ok'], 'health probe failed')
-                    counts['health_checks'] += 1; next_health = time.monotonic() + 10
+                check_health()
                 values = [contact(index + offset, args.seed) for offset in range(args.burst)]
                 for value in values:
                     expected[value['email']] = value['name']
@@ -663,11 +727,24 @@ def main(args):
                     persist(); next_save = time.monotonic() + 30
                     print('Elapsed %.1f s / contacts %d / hosts %d / errors %d' %
                           (time.monotonic()-started, counts['contacts'], counts['hosts_started'], len(report['errors'])), flush=True)
-                next_burst = max(next_burst + len(values) / args.rate, time.monotonic())
-                pause_until(min(next_burst, until), stop_file, controller_cadence)
+                # Cumulative work from a fixed anchor avoids repeated-addition
+                # drift (for example .2s slots admitting an extra final burst).
+                next_burst = pacing_anchor + (counts['contacts'] - pacing_contacts) / args.rate
+                observed = time.monotonic()
+                if next_burst < observed:
+                    # Preserve the existing slow-operation behavior: rebase
+                    # rather than sending an unbounded backlog of catch-up work.
+                    pacing_anchor, pacing_contacts, next_burst = observed, counts['contacts'], observed
+                # The final pacing wait reaches the validated outward endpoint;
+                # a subtraction-rounding ULP must not create an extra burst.
+                target = until if next_burst >= nominal_until else next_burst
+                pause_until(min(target, until), stop_file, controller_cadence, check_health)
             check_stop_file(stop_file)
             controller_cadence.pending()
-            report['traffic_duration_seconds'] = controller_cadence.report()['last_observed_monotonic'] - started
+            finished = controller_cadence.report()['last_observed_monotonic']
+            report['traffic_clock'] = dict(started_monotonic=started, nominal_deadline_monotonic=nominal_until,
+                                           deadline_monotonic=until, finished_monotonic=finished)
+            report['traffic_duration_seconds'] = finished - started
             verify(service, folder, expected); counts['oracle_checks'] += 1
             stop_host()
             report['shards'].append(dict(shard=shard, verified_contacts=len(expected), integrity='ok'))

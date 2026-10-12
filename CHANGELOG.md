@@ -48,6 +48,10 @@ roadmap records additional release evidence and adapter validation still needed.
 
 ### Fixed
 
+- Deployment evidence now records and reaches an absolute duration deadline,
+  keeps periodic health probes on their scheduled phase, and avoids an extra
+  terminal burst from fractional pacing drift. New completion checks enforce
+  the existing traffic/probe coverage floors; older failed reports stay failed.
 - Key/value store read failures preserve existing data instead of initializing
   an empty store; only an absent-path open means missing data. Later
   read/seek/close failures raise `io`, including controlled backend error cases.

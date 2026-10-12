@@ -4,6 +4,7 @@ import copy
 import importlib.util
 import io
 import json
+import math
 import os
 from pathlib import Path
 import sqlite3
@@ -40,6 +41,18 @@ class DeploymentHarnessTests(unittest.TestCase):
 
     def gate(self, summary=None, descriptor='handles'):
         DEPLOYMENT.resource_gate(summary or self.summary, self.limits, 4, descriptor=descriptor)
+
+    def complete_report(self):
+        cadence = dict(self.cadence_summary(), last_monotonic=30, last_observed_monotonic=30,
+                       last_wall=1030, last_observed_wall=1030,
+                       maximum_monotonic_gap_seconds=30, maximum_wall_gap_seconds=30)
+        return dict(workload_completed=True, traffic_duration_seconds=30,
+                    configuration=dict(duration_seconds=30, max_gap_seconds=60, rate=4, contention_seconds=60),
+                    frozen_inputs_unchanged=True, controller_cadence=cadence,
+                    traffic_clock=dict(started_monotonic=0, nominal_deadline_monotonic=30,
+                                       deadline_monotonic=30, finished_monotonic=30),
+                    counts=dict(contacts=120, health_checks=3, contention_503=1),
+                    hosts=[dict(cadence=self.cadence_summary())])
 
     def test_complete_host_metrics_pass_on_both_descriptor_models(self):
         self.gate()
@@ -82,9 +95,7 @@ class DeploymentHarnessTests(unittest.TestCase):
                 self.gate(summary)
 
     def test_completion_requires_duration_and_snapshot_verification(self):
-        report = dict(workload_completed=True, traffic_duration_seconds=30,
-                      configuration=dict(duration_seconds=30, max_gap_seconds=60), frozen_inputs_unchanged=True,
-                      controller_cadence=self.cadence_summary(), hosts=[dict(cadence=self.cadence_summary())])
+        report = self.complete_report()
         DEPLOYMENT.completion_gate(report)
         for key, value in [('workload_completed', False), ('traffic_duration_seconds', 29.9),
                            ('frozen_inputs_unchanged', False)]:
@@ -103,9 +114,7 @@ class DeploymentHarnessTests(unittest.TestCase):
                 summary = copy.deepcopy(self.summary); summary['cadence'] = cadence
                 with self.assertRaisesRegex(AssertionError, 'cadence'):
                     self.gate(summary)
-                report = dict(workload_completed=True, traffic_duration_seconds=30,
-                              frozen_inputs_unchanged=True, configuration=dict(duration_seconds=30, max_gap_seconds=60),
-                              controller_cadence=cadence, hosts=[self.summary])
+                report = self.complete_report(); report['controller_cadence'] = cadence
                 with self.assertRaisesRegex(AssertionError, 'cadence'):
                     DEPLOYMENT.completion_gate(report)
 
@@ -159,9 +168,10 @@ class DeploymentHarnessTests(unittest.TestCase):
             self.assertTrue(probes.report()['cadence']['failed'])
             json.dumps(probes.report(), allow_nan=False)
 
-    def clock_fixture(self, jump=None, duration=30, rate=4, max_gap_seconds=60):
+    def clock_fixture(self, jump=None, duration=30, rate=4, max_gap_seconds=60,
+                      started=0, health_delay=0, health_fail_at=None, startup_delay=0):
         """Real SQLite oracle and bounded fake transport/clock, no subprocesses."""
-        clock = SimpleNamespace(monotonic=0, wall=1000)
+        clock = SimpleNamespace(monotonic=started, wall=1000)
         services = []
         summary = copy.deepcopy(self.summary)
         class FixtureService:
@@ -169,6 +179,8 @@ class DeploymentHarnessTests(unittest.TestCase):
                 service.database = Path(program).parent / 'contacts.sqlite'
                 service.process = SimpleNamespace(pid=424242)
                 service.lock = threading.Lock(); service.close_calls = 0
+                service.health_calls = 0
+                clock.monotonic += startup_delay; clock.wall += startup_delay
                 service.summary = copy.deepcopy(summary)
                 service.summary['cadence']['max_gap_seconds'] = max_gap_seconds
                 services.append(service)
@@ -177,7 +189,11 @@ class DeploymentHarnessTests(unittest.TestCase):
                     database.commit()
             def request(service, method, path, value=None, *, timeout=6):
                 with service.lock:
-                    if path == '/health': return 200, b'{"ok":true}'
+                    if path == '/health':
+                        service.health_calls += 1
+                        clock.monotonic += health_delay; clock.wall += health_delay
+                        if service.health_calls == health_fail_at: return 500, b'{"ok":false}'
+                        return 200, b'{"ok":true}'
                     database = sqlite3.connect(service.database, timeout=0)
                     try:
                         if method == 'GET':
@@ -251,6 +267,89 @@ class DeploymentHarnessTests(unittest.TestCase):
         self.assertEqual(report['traffic_duration_seconds'], 30)
         DEPLOYMENT.completion_gate(report)
 
+    def test_absolute_deadline_rounding_preserves_raw_duration_without_extra_burst(self):
+        started = 65510.001
+        nominal = started + 30
+        self.assertLess(nominal - started, 30)  # Historical false failure.
+        result, report, closed, actual = self.clock_fixture(started=started)
+        self.assertEqual(result, 0, report['errors'])
+        self.assertEqual(actual, 120); self.assertEqual(closed, 1)
+        self.assertGreaterEqual(report['traffic_duration_seconds'], 30)
+        clock = report['traffic_clock']
+        self.assertEqual(clock['nominal_deadline_monotonic'], nominal)
+        self.assertEqual(clock['deadline_monotonic'], math.nextafter(nominal, math.inf))
+        self.assertGreaterEqual(clock['finished_monotonic'], clock['deadline_monotonic'])
+        self.assertEqual(report['traffic_duration_seconds'], clock['finished_monotonic'] - started)
+        DEPLOYMENT.completion_gate(report)
+
+    def test_eight_hour_arithmetic_and_unrepresentable_deadlines_fail_closed(self):
+        started = 50000.001
+        nominal = started + 28800
+        self.assertEqual(nominal - started, 28799.999999999993)
+        deadline = DEPLOYMENT.duration_deadline(started, 28800)
+        self.assertEqual(deadline, math.nextafter(nominal, math.inf))
+        self.assertGreaterEqual(deadline - started, 28800)
+        for start, duration in [(float('inf'), 30), (0, float('nan')), (True, 30),
+                                (0, 0), (1e308, 1e308), (float.fromhex('0x1.fffffffffffffp+1023'), 1)]:
+            with self.subTest(start=start, duration=duration), self.assertRaises(AssertionError):
+                DEPLOYMENT.duration_deadline(start, duration)
+
+    def test_fractional_burst_intervals_do_not_add_an_extra_terminal_burst(self):
+        for started, duration, rate, expected in [(0, 1, 80, 80), (65510.001, 1, 80, 80),
+                                                   (65510.001, 30, 40, 1200)]:
+            with self.subTest(started=started, duration=duration, rate=rate):
+                result, report, closed, actual = self.clock_fixture(started=started, duration=duration, rate=rate)
+                self.assertEqual(result, 0, report['errors'])
+                self.assertEqual(actual, expected)
+                self.assertEqual(report['counts']['contacts'], expected)
+                self.assertEqual(report['counts']['bursts'], expected // 8)
+                self.assertEqual(closed, 1)
+                self.assertGreaterEqual(report['traffic_duration_seconds'], duration)
+
+    def test_truly_short_absolute_finish_cannot_be_hidden_by_duration_field(self):
+        report = self.complete_report()
+        report['traffic_clock']['finished_monotonic'] = math.nextafter(30, -math.inf)
+        with self.assertRaisesRegex(AssertionError, 'before its deadline'):
+            DEPLOYMENT.completion_gate(report)
+        report = self.complete_report(); report.pop('traffic_clock')
+        with self.assertRaisesRegex(AssertionError, 'absolute traffic clock evidence'):
+            DEPLOYMENT.completion_gate(report)
+
+    def test_health_latency_does_not_accumulate_probe_phase_drift(self):
+        result, report, closed, actual = self.clock_fixture(duration=120, health_delay=.01, startup_delay=3)
+        self.assertEqual(result, 0, report['errors'])
+        self.assertEqual(report['counts']['health_checks'], 12)
+        self.assertGreaterEqual(actual, 456); self.assertEqual(closed, 1)
+        DEPLOYMENT.completion_gate(report)
+
+    def test_periodic_probe_skips_missed_slots_without_catchup_credit(self):
+        self.assertEqual(DEPLOYMENT.next_periodic_deadline(0, 10, .01), 10)
+        self.assertEqual(DEPLOYMENT.next_periodic_deadline(10, 10, 35), 40)
+        self.assertEqual(DEPLOYMENT.next_periodic_deadline(10, 10, 40), 50)
+        result, report, closed, actual = self.clock_fixture(duration=120, health_delay=21)
+        self.assertEqual(result, 1); self.assertFalse(report['passed'])
+        self.assertLess(report['counts']['health_checks'], 11)
+        self.assertEqual(closed, 1)
+        self.assertEqual(actual, report['counts']['contacts'])
+
+    def test_failed_health_probe_never_receives_success_credit(self):
+        result, report, closed, actual = self.clock_fixture(health_fail_at=2)
+        self.assertEqual(result, 1); self.assertFalse(report['passed'])
+        self.assertEqual(report['counts']['health_checks'], 0)
+        self.assertIn('health probe failed', report['errors'][0]['message'])
+        self.assertEqual(closed, 1); self.assertEqual(actual, 0)
+
+    def test_current_completion_gate_rejects_missing_or_low_aggregate_coverage(self):
+        accepted = self.complete_report(); accepted['counts']['contacts'] = 114
+        DEPLOYMENT.completion_gate(accepted)
+        for key, value in [('contacts', 113), ('health_checks', 2), ('contacts', True)]:
+            report = self.complete_report(); report['counts'][key] = value
+            with self.subTest(key=key, value=value), self.assertRaisesRegex(AssertionError, 'coverage'):
+                DEPLOYMENT.completion_gate(report)
+        report = self.complete_report(); report['counts'].pop('contention_503')
+        with self.assertRaisesRegex(AssertionError, 'coverage'):
+            DEPLOYMENT.completion_gate(report)
+
     def test_planned_pacing_above_limit_is_rejected_before_host_launch(self):
         with self.assertRaisesRegex(AssertionError, 'planned pacing exceeds'):
             self.clock_fixture(rate=.1)
@@ -260,6 +359,7 @@ class DeploymentHarnessTests(unittest.TestCase):
         self.assertEqual(result, 0); self.assertTrue(report['passed'])
         self.assertEqual(report['configuration']['max_gap_seconds'], 90)
         self.assertEqual(actual, 16); self.assertEqual(closed, 1)
+        self.assertEqual(report['counts']['health_checks'], 12)
         self.assertEqual(report['controller_cadence']['maximum_wall_gap_seconds'], 80)
 
     def setup_clock_fixture(self, pause):
