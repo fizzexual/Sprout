@@ -10,6 +10,7 @@ import subprocess
 import threading
 import time
 from decimal import Decimal, InvalidOperation
+from typing import NamedTuple
 
 MAX_JSON_NESTING = 128
 
@@ -48,10 +49,17 @@ def _tagged(key, value, depth, budget=None):
     return {key: value}
 
 
+class CleanupError(NamedTuple):
+    operation: str
+    errno: int | None
+    message: str
+
+
 class SproutError(RuntimeError):
-    def __init__(self, message, code, *, stderr="", exit_code=None):
+    def __init__(self, message, code, *, stderr="", exit_code=None, cleanup_errors=()):
         super().__init__(message)
         self.code, self.stderr, self.exit_code = code, stderr, exit_code
+        self.cleanup_errors = tuple(cleanup_errors)
 
 
 class _JsonBudget:
@@ -248,11 +256,16 @@ def _positive(value, name, maximum=2**31-1):
 
 
 def _stop_child(child):
+    cleanup_errors = []
     if os.name != "nt":
         try:
             os.killpg(child.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
+        except PermissionError as error:
+            # A denied group signal must not skip termination/reaping of the
+            # direct owned child. Its descendants' termination is unconfirmed.
+            cleanup_errors.append(CleanupError("process-group", error.errno, str(error)))
     elif child.poll() is None:
         # Native process operations additionally own Windows kill-on-close jobs.
         try:
@@ -263,6 +276,7 @@ def _stop_child(child):
             pass
     if child.poll() is None:
         child.kill()
+    return tuple(cleanup_errors)
 
 
 def run(program, input_value, *, command="sprout", cwd=None, sandbox=True,
@@ -348,12 +362,12 @@ def run(program, input_value, *, command="sprout", cwd=None, sandbox=True,
     except BaseException as error:
         # OS thread/task exhaustion can happen after any start. Cleanup must
         # also cover this path, before the ordinary deadline loop exists.
-        _stop_child(child)
+        cleanup_errors = _stop_child(child) or ()
         try:
-            child.wait(timeout=2)
+            exit_code = child.wait(timeout=2)
         except subprocess.TimeoutExpired:
             child.kill()
-            child.wait(timeout=2)
+            exit_code = child.wait(timeout=2)
         for thread in threads:
             if thread.ident is not None:
                 thread.join(timeout=.5)
@@ -368,8 +382,12 @@ def run(program, input_value, *, command="sprout", cwd=None, sandbox=True,
             except OSError:
                 pass
         if isinstance(error, Exception):
-            raise SproutError("Could not start Sprout I/O threads", "io") from error
+            raise SproutError("Could not start Sprout I/O threads", "io", exit_code=exit_code,
+                              cleanup_errors=cleanup_errors) from error
+        if cleanup_errors:
+            error.cleanup_errors = tuple(cleanup_errors)
         raise
+    cleanup_errors = ()
     deadline = time.monotonic() + timeout_ms / 1000
     while child.poll() is None or any(t.is_alive() for t in readers):
         if cancel and cancel.is_set():
@@ -377,7 +395,7 @@ def run(program, input_value, *, command="sprout", cwd=None, sandbox=True,
         if time.monotonic() >= deadline:
             fail("Sprout request exceeded its host deadline", "timeout")
         if failed.is_set():
-            _stop_child(child)
+            cleanup_errors = _stop_child(child) or ()
             break
         failed.wait(.01)
     try:
@@ -389,7 +407,7 @@ def run(program, input_value, *, command="sprout", cwd=None, sandbox=True,
         thread.join(timeout=.5)
     stderr = bytes(chunks[1]).decode("utf-8", "replace")
     if errors:
-        raise SproutError(*errors[0], stderr=stderr, exit_code=exit_code)
+        raise SproutError(*errors[0], stderr=stderr, exit_code=exit_code, cleanup_errors=cleanup_errors)
     if exit_code:
         raise SproutError(f"Sprout exited with {exit_code}", "runtime", stderr=stderr, exit_code=exit_code)
     try:

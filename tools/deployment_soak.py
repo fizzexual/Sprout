@@ -673,6 +673,9 @@ def main(args):
                 check_stop_file(stop_file)
                 controller_cadence.pending()
                 now = time.monotonic()
+                if now >= nominal_until:
+                    pause_until(until, stop_file, controller_cadence, check_health)
+                    break
                 rotate = service is None or len(expected) + args.burst > args.shard_contacts
                 restart = now >= next_restart
                 if rotate or restart:
@@ -695,12 +698,15 @@ def main(args):
                     print('Started HTTP host PID %d on shard %d with %d retained contacts' %
                           (service.process.pid, shard, len(expected)), flush=True)
                 check_health()
+                if time.monotonic() >= nominal_until:
+                    pause_until(until, stop_file, controller_cadence, check_health)
+                    break
                 values = [contact(index + offset, args.seed) for offset in range(args.burst)]
                 for value in values:
                     expected[value['email']] = value['name']
                     oracle.execute('INSERT INTO expected VALUES(?,?,?)', (shard, value['email'], value['name']))
                 oracle.commit(); index += len(values)
-                if now >= next_contention:
+                if time.monotonic() >= next_contention:
                     with closing(sqlite3.connect(folder / 'contacts.sqlite', timeout=2)) as holder:
                         holder.execute('BEGIN EXCLUSIVE')
                         try:
@@ -709,7 +715,7 @@ def main(args):
                             counts['contention_503'] += 1
                         finally:
                             holder.rollback()
-                    next_contention = time.monotonic() + args.contention_seconds
+                    next_contention = next_periodic_deadline(next_contention, args.contention_seconds, time.monotonic())
                 for result in pool.map(lambda value: write_contact(service, value), values):
                     statuses.update(result['statuses']); transports.update(result['transport'])
                     attempt_ms.extend(result['attempt_ms']); logical_ms.append(result['logical_ms'])

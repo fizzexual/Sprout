@@ -89,6 +89,10 @@ checksums alone do not authenticate the release or prove reproducible builds.
   Sprout groups. Intentionally detached `setsid`/`setpgid` descendants, external
   fork descriptor retention and already-performed effects require stronger
   supervisor/application controls. No SDK is an OS tenant sandbox.
+  A later macOS Python check exposed denied group termination (`EPERM`): the
+  SDK must still terminate/reap the direct owned worker and retain the primary
+  failure code. Its separate cleanup diagnostic records the denial; successful
+  descendant termination is not implied by direct-worker cleanup.
 - The private HTTP bridge requires an authenticated TLS proxy, an unprivileged
   identity, immutable code and writable state limits. `/health` is liveness;
   application/database readiness needs an external application probe. There is

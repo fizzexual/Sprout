@@ -16,7 +16,7 @@ import threading
 import unittest
 from unittest.mock import patch
 from types import SimpleNamespace
-from sprout_service import SproutServer, _DeadlineReader
+from sprout_service import SproutServer, SproutHandler, _DeadlineReader
 
 
 class ReaderDeadlineTests(unittest.TestCase):
@@ -79,10 +79,53 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(status, 200); self.assertEqual(data['body']['value'], 42)
         self.assertEqual(data['query']['tag'], ['a', 'b'])
     def test_input_limits(self):
-        self.assertEqual(self.request('POST', '/', 'x'*1001)[0], 413)
+        # No unread body remains on this control, so require the full response.
+        with patch('sprout_service.run') as worker:
+            response = self.raw_request(b'POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 1001\r\n\r\n')
+            headers, body = response.split(b'\r\n\r\n', 1)
+            self.assertIn(b' 413 ', headers.split(b'\r\n')[0])
+            self.assertEqual(json.loads(body), {'error': 'request too large'})
+            worker.assert_not_called()
         self.assertEqual(self.request('POST', '/', '{broken')[0], 400)
         self.assertEqual(self.request('POST', '/', '{"$sprout.decimal":"bad"}')[0], 400)
         self.assertEqual(self.request('POST', '/', '1e999')[0], 400)
+    def test_oversized_body_rejection_preserves_no_dispatch_and_recovery(self):
+        decisions = queue.Queue()
+        real_respond = SproutHandler.respond
+        def observe(handler, status, body, headers=None):
+            try:
+                return real_respond(handler, status, body, headers)
+            finally:
+                decisions.put((status, body))
+        with patch('sprout_service.run') as worker, patch.object(SproutHandler, 'respond', observe):
+            with socket.create_connection(('127.0.0.1', self.server.server_port), timeout=1) as client:
+                # Retain a real oversized body. Immediate rejection leaves it
+                # unread; TCP closure may replace some or all response bytes.
+                client.sendall(b'POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 1001\r\n\r\n' + b'x' * 1001)
+                chunks = []; close_error = None
+                try:
+                    while True:
+                        data = client.recv(4096)
+                        if not data: break
+                        chunks.append(data)
+                except (ConnectionResetError, ConnectionAbortedError) as error:
+                    close_error = error
+            response = b''.join(chunks)
+            self.assertEqual(decisions.get(timeout=1), (413, {'error': 'request too large'}))
+            if response:
+                status_line = b'HTTP/1.0 413 Request Entity Too Large\r\n'
+                self.assertTrue(response.startswith(status_line) or status_line.startswith(response),
+                                f'unexpected wire response: {response!r}')
+            if close_error is None:
+                headers, body = response.split(b'\r\n\r\n', 1)
+                self.assertEqual(json.loads(body), {'error': 'request too large'})
+            else:
+                print(f'oversized body: observed 413, wire_bytes={len(response)}, '
+                      f'close={type(close_error).__name__}, errno={close_error.errno}')
+            worker.assert_not_called()
+        self.assertEqual(self.request('GET', '/health')[0], 200)
+        status, body = self.request('POST', '/recovery', '{"value":42}')
+        self.assertEqual(status, 200); self.assertEqual(body['body'], {'value': 42})
     def test_deep_small_body_returns_400_without_worker(self):
         for depth in (128, 129):
             with self.subTest(depth=depth):
@@ -124,10 +167,10 @@ class ServiceTests(unittest.TestCase):
                     try:
                         try:
                             while client.recv(4096): pass
-                        except ConnectionResetError:
-                            # Closing with unread trickled bytes may produce RST
-                            # instead of EOF (notably on macOS). The same deadline
-                            # and no-dispatch assertions still apply below.
+                        except (ConnectionResetError, ConnectionAbortedError):
+                            # Closing unread input can produce a reset or Windows
+                            # abort instead of EOF. Deadline and no-dispatch
+                            # assertions remain unchanged below.
                             pass
                         self.assertLess(time.monotonic() - started, .9)
                     finally:

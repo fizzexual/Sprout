@@ -100,6 +100,9 @@ count; startup probes remain separate. New completion checks require at least
 95% of requested contacts and 90% of nominal health and contention probes.
 These are the existing coverage floors; the frozen v2 policy is unchanged.
 Health activity does not reset the completed-burst cadence baseline.
+Contention probes also retain their scheduled phase; each count requires a
+real application 503 while the independent connection holds the SQLite lock.
+The controller skips missed slots and never invents recovery checks.
 Contact pacing derives deadlines from cumulative work at a fixed clock anchor,
 avoiding repeated fractional-addition drift. Slow operations rebase that anchor
 to their actual completion time rather than submitting an accumulated backlog.

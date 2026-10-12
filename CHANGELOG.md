@@ -48,6 +48,9 @@ roadmap records additional release evidence and adapter validation still needed.
 
 ### Fixed
 
+- Python worker cleanup preserves the request failure and reaps its direct
+  owned worker when POSIX group termination is denied. Immutable cleanup
+  diagnostics retain the denial instead of claiming descendant termination.
 - Deployment evidence now records and reaches an absolute duration deadline,
   keeps periodic health probes on their scheduled phase, and avoids an extra
   terminal burst from fractional pacing drift. New completion checks enforce

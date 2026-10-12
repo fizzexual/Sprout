@@ -169,7 +169,8 @@ class DeploymentHarnessTests(unittest.TestCase):
             json.dumps(probes.report(), allow_nan=False)
 
     def clock_fixture(self, jump=None, duration=30, rate=4, max_gap_seconds=60,
-                      started=0, health_delay=0, health_fail_at=None, startup_delay=0):
+                      started=0, health_delay=0, health_fail_at=None, startup_delay=0,
+                      contention_seconds=60, contention_delay=0, restart_seconds=180, actual_counts=None):
         """Real SQLite oracle and bounded fake transport/clock, no subprocesses."""
         clock = SimpleNamespace(monotonic=started, wall=1000)
         services = []
@@ -180,12 +181,13 @@ class DeploymentHarnessTests(unittest.TestCase):
                 service.process = SimpleNamespace(pid=424242)
                 service.lock = threading.Lock(); service.close_calls = 0
                 service.health_calls = 0
+                service.lock_calls = 0
                 clock.monotonic += startup_delay; clock.wall += startup_delay
                 service.summary = copy.deepcopy(summary)
                 service.summary['cadence']['max_gap_seconds'] = max_gap_seconds
                 services.append(service)
                 with closing(sqlite3.connect(service.database)) as database:
-                    database.execute('CREATE TABLE contacts(id INTEGER PRIMARY KEY,name TEXT,email TEXT UNIQUE)')
+                    database.execute('CREATE TABLE IF NOT EXISTS contacts(id INTEGER PRIMARY KEY,name TEXT,email TEXT UNIQUE)')
                     database.commit()
             def request(service, method, path, value=None, *, timeout=6):
                 with service.lock:
@@ -202,6 +204,8 @@ class DeploymentHarnessTests(unittest.TestCase):
                             database.execute('INSERT INTO contacts(name,email) VALUES(?,?)', (value['name'], value['email'])); database.commit()
                             return 201, b'{"ok":true}'
                         except sqlite3.OperationalError:
+                            service.lock_calls += 1
+                            clock.monotonic += contention_delay; clock.wall += contention_delay
                             return 503, b'{"error":"database unavailable"}'
                         except sqlite3.IntegrityError:
                             return 409, b'{"error":"email already exists"}'
@@ -214,6 +218,11 @@ class DeploymentHarnessTests(unittest.TestCase):
             if jump == 'nonfinite':
                 clock.monotonic = float('inf'); clock.wall = float('nan')
                 return
+            nominal = started + duration
+            if jump == 'nominal' and clock.monotonic < nominal - 2 <= clock.monotonic + seconds:
+                clock.wall += nominal - clock.monotonic
+                clock.monotonic = nominal
+                return
             clock.monotonic += duration + 1 if jump == 'both' else seconds
             clock.wall += duration + 1 if jump in ('both', 'wall') else seconds
         with tempfile.TemporaryDirectory() as name:
@@ -222,7 +231,7 @@ class DeploymentHarnessTests(unittest.TestCase):
                 target = fixture / relative; target.parent.mkdir(parents=True, exist_ok=True); target.write_text('not executed\n')
             args = SimpleNamespace(binary=fixture/'dummy-native',duration_seconds=duration,rate=rate,clients=8,workers=4,burst=8,
                                    max_gap_seconds=max_gap_seconds,
-                                   restart_seconds=180,contention_seconds=60,shard_contacts=2000,
+                                   restart_seconds=restart_seconds,contention_seconds=contention_seconds,shard_contacts=2000,
                                    max_host_rss_mib=128,max_retained_rss_growth_mib=64,max_host_handles=512,max_retained_handles_growth=128,
                                    max_host_fds=128,max_retained_fds_growth=32,max_workspace_mib=256,max_report_mib=4,
                                    seed=1,label='clock-review',workspace=fixture/'run',report=fixture/'result.json',stop_file=fixture/'STOP')
@@ -231,9 +240,11 @@ class DeploymentHarnessTests(unittest.TestCase):
             report = json.loads(args.report.read_text())
             json.dumps(report, allow_nan=False)
             actual = 0
-            for service in services:
-                with closing(sqlite3.connect(service.database)) as database:
+            for database_path in {service.database for service in services}:
+                with closing(sqlite3.connect(database_path)) as database:
                     actual += database.execute('SELECT count(*) FROM contacts').fetchone()[0]
+            if actual_counts is not None:
+                actual_counts['locks'] = sum(service.lock_calls for service in services)
             return result, report, sum(service.close_calls for service in services), actual
 
     def test_pacing_clock_jump_after_one_burst_cannot_pass_full_duration(self):
@@ -282,6 +293,17 @@ class DeploymentHarnessTests(unittest.TestCase):
         self.assertEqual(report['traffic_duration_seconds'], clock['finished_monotonic'] - started)
         DEPLOYMENT.completion_gate(report)
 
+    def test_pacing_overrun_to_nominal_endpoint_cannot_start_rounding_only_burst(self):
+        for options, expected in [({'jump': 'nominal'}, 112), ({'startup_delay': 30}, 0)]:
+            with self.subTest(options=options):
+                result, report, closed, actual = self.clock_fixture(started=65510.001, **options)
+                self.assertEqual(result, 1); self.assertFalse(report['passed'])
+                self.assertEqual(actual, expected); self.assertEqual(report['counts']['bursts'], expected // 8)
+                self.assertEqual(report['counts']['contacts'], expected); self.assertEqual(closed, 1)
+                self.assertGreaterEqual(report['traffic_duration_seconds'], 30)
+                self.assertEqual(report['traffic_clock']['finished_monotonic'], report['traffic_clock']['deadline_monotonic'])
+                self.assertIn('contacts coverage', report['errors'][0]['message'])
+
     def test_eight_hour_arithmetic_and_unrepresentable_deadlines_fail_closed(self):
         started = 50000.001
         nominal = started + 28800
@@ -321,6 +343,30 @@ class DeploymentHarnessTests(unittest.TestCase):
         self.assertEqual(report['counts']['health_checks'], 12)
         self.assertGreaterEqual(actual, 456); self.assertEqual(closed, 1)
         DEPLOYMENT.completion_gate(report)
+
+    def test_contention_phase_survives_burst_lattice_latency_and_restarts(self):
+        for latency, restart, startup in [(0, 180, 0), (.01, 5, .1)]:
+            with self.subTest(latency=latency, restart=restart):
+                actual_counts = {}
+                result, report, closed, actual = self.clock_fixture(
+                    duration=20, contention_seconds=3, contention_delay=latency,
+                    restart_seconds=restart, startup_delay=startup, actual_counts=actual_counts)
+                self.assertEqual(result, 0, report['errors']); self.assertTrue(report['passed'])
+                self.assertGreaterEqual(actual_counts['locks'], 6)
+                self.assertEqual(report['counts']['contention_503'], actual_counts['locks'])
+                self.assertEqual(actual, 80)
+                self.assertEqual(closed, report['counts']['hosts_started'])
+                if restart == 5: self.assertGreaterEqual(closed, 3)
+                DEPLOYMENT.completion_gate(report)
+
+    def test_slow_contention_probe_does_not_manufacture_missed_slot_credits(self):
+        actual_counts = {}
+        result, report, closed, actual = self.clock_fixture(
+            duration=20, contention_seconds=3, contention_delay=7, actual_counts=actual_counts)
+        self.assertEqual(result, 1); self.assertFalse(report['passed'])
+        self.assertLess(actual_counts['locks'], 6)
+        self.assertEqual(report['counts']['contention_503'], actual_counts['locks'])
+        self.assertEqual(actual, report['counts']['contacts']); self.assertEqual(closed, 1)
 
     def test_periodic_probe_skips_missed_slots_without_catchup_credit(self):
         self.assertEqual(DEPLOYMENT.next_periodic_deadline(0, 10, .01), 10)

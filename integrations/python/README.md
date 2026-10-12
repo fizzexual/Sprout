@@ -31,6 +31,11 @@ the SDK terminates and reaps the owned worker, closes available pipes, and raise
 initialization interrupt performs cleanup and retains its interrupt semantics.
 `SproutError.code` distinguishes runtime, protocol, cancellation and limit
 failures; `stderr` is retained within its configured cap.
+If POSIX process-group termination is denied, the SDK still terminates and
+reaps its direct owned worker. The original failure code and exit status are
+retained; `cleanup_errors` records an immutable tuple of `CleanupError` entries
+with `operation`, `errno` and `message`. Group denial means descendant
+termination is unconfirmed and needs an external supervisor or container.
 Input encoding counts compact UTF-8 JSON bytes before expanding further shared
 collections or creating binary hex text. `max_input_bytes` includes the final
 newline and is clamped to the native reader's 1 MiB limit. An already-set cancel
@@ -45,8 +50,9 @@ container for hostile source. Windows native runners use kill-on-close jobs;
 POSIX native runners use a guardian to kill their owned process group after
 owner exit, including nested Sprout workers. Deliberately daemonized descendants
 that create a different process group need a container or external supervisor
-for descendant-wide termination. The host also kills its own POSIX group or
-Windows process tree on cancellation.
+for descendant-wide termination. The host also attempts to terminate its POSIX
+group or Windows process tree on cancellation; denied group termination is
+reported through the cleanup diagnostics above.
 
 `sprout_service.py` is a bounded HTTP bridge with a fixed worker capacity and
 strict request framing. Unsupported transfer encodings, ambiguous or malformed

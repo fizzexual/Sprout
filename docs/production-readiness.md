@@ -105,11 +105,39 @@ The corrected harness reaches a validated absolute deadline, retains the raw
 measured duration, keeps actual health probes on their original phase, and
 derives contact pacing from cumulative work to avoid an extra terminal burst.
 It also enforces the existing 95% contact and 90% health/contention floors at
-completion. All 37 focused harness regressions passed on Windows and Linux,
+completion. All 40 focused harness regressions passed on Windows and Linux,
 including genuine early-finish, failed-probe, missed-slot and fractional-rate
 controls. The unchanged v2 auditor's 17 checks passed locally with one Windows
 symlink skip. Full CI and a separate sustained run of the changed candidate
 remain required before final workload qualification.
+
+The intermediate `3814a48` native smoke also remained failed: its five actual
+SQLite lock probes missed the six required by the 20-second/three-second
+configuration. Independent checks verified its 80 exact rows, all 95 native
+worker exits and timer/hash/resource limits. The subsequent correction anchors
+contention probes to their scheduled phase as well, with actual request counts
+checked by regressions. Failed smoke evidence is retained.
+
+That intermediate candidate's [CI](https://github.com/fizzexual/Sprout/actions/runs/38205108189)
+passed seven jobs but failed the macOS Python output-limit recovery test:
+process-group `SIGKILL` returned `EPERM`, and cleanup raised before killing and
+reaping the owned direct worker. The corrected SDK retains the request's
+original failure code and exit status, reaps that worker, and records group
+denial through immutable `cleanup_errors`; descendant termination remains
+unconfirmed. Bounded live-worker controls cover output caps, cancellation,
+timeouts, failed initialization, interrupts and next-request recovery. The
+platform cause of that macOS denial is still unknown and is separate from the
+earlier unexplained .NET startup observation. No failed job was rerun or marked
+successful.
+
+The integrated Windows Python suite passed 50 tests with one POSIX skip.
+The Linux SDK/service suite passed 49 tests on its separately hashed existing
+native fixture; three updated service transport controls also passed on Linux.
+Those controls require complete header-only 413 JSON, retain an actual oversized
+body request, and accept only reset/abort closure for unread rejected input while
+requiring the actual 413 decision, no dispatch and native request recovery.
+Trickling-input deadline assertions remain unchanged. The earlier two Windows
+socket errors are preserved; no production service source was changed.
 
 The review reproduced these issues and verified their fixes:
 
