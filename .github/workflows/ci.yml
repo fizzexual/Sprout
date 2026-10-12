@@ -72,6 +72,13 @@ jobs:
         run: |
           node --test vscode-extension/tests/*.test.js playground/tests/*.test.js integrations/node/tests/*.test.js examples/apps/*.test.js examples/adoption/totalreach/parity.test.js examples/adoption/order-quote/parity.test.js
 
+      - name: Measurement tool contracts (no measured workload)
+        timeout-minutes: 2
+        run: |
+          python src/tests/measurement_tool_test.py
+          python src/tests/measurement_input_bound_test.py
+          python src/tests/measurement_inventory_growth_test.py
+
       - name: Native production foundation contracts
         run: |
           bin="$SPROUT_BINARY"

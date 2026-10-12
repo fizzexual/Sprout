@@ -1,0 +1,23 @@
+{
+  "schema": "sprout.library-workloads.v1",
+  "profile": "windows-native-sqlite-normal-v1",
+  "bounds": {
+    "supervised_ns": 90000000000,
+    "launch_ceiling": 208,
+    "cleanup_seconds": 2,
+    "prepared_host_seconds": 4,
+    "runtime_ms": 3000,
+    "steps": 20000000,
+    "stdout_bytes": 262144,
+    "stderr_bytes": 65536,
+    "fixture_bytes": 1048576,
+    "report_bytes": 2097152
+  },
+  "schedule": {"pure": 156, "sdk": 48, "planned_native_calls": 204, "native_launch_ceiling": 208, "warmups": 34, "samples": 5},
+  "input_bounds": {"selection_bytes": 65536, "metadata_bytes": 1048576, "source_file_bytes": 33554432, "native_compiler_bytes": 67108864, "host_executable_bytes": 268435456, "snapshot_bytes": 268435456},
+  "pure_ids": ["V1", "V64", "V512", "Verrors", "Csmall", "Cmedium", "Clarge", "Aselect1", "Aselect32", "Aresult2K", "Aresult32K", "P1", "P128"],
+  "sdk_ids": ["Hmin", "Hecho16K", "HpreviewValid", "HpreviewInvalid"],
+  "pair_order": ["full/control", "control/full", "full/control", "control/full", "full/control"],
+  "semantic_scope": "Synthetic validation/configuration/API/progress and stock Python/Node rule calls; no IO effects or arbitrary user workloads",
+  "metrics_scope": "Prepared inclusive phase or stock SDK inclusive call; all raw samples/negative paired differences retained, no ranking/SLA/8h claim"
+}

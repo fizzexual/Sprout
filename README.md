@@ -110,6 +110,9 @@ GC hardening and its verification limits.
 [Compiled runtime metadata](docs/runtime-capabilities.md) identifies available
 operations before loading a program or bundle; sandbox permissions and external
 tool readiness remain separate checks.
+The [fixed workload measurement tools](docs/performance-workloads.md) separate
+inspection, preparation and an explicitly pinned finite run, retaining raw
+samples and unavailable metrics. Functional CI uses synthetic controls.
 The [ongoing work ledger](SPROUT_WORK_PLAN.md) records completed evidence,
 active feature owners, the next queue and remaining release gates.
 The [TotalReach migration example](examples/adoption/totalreach/README.md) compares

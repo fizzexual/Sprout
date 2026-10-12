@@ -14,7 +14,8 @@ cleanup is verified and installed. Capability-query candidate `89654a9` is pushe
 seven jobs and failed the Windows bounded workflow fixture. Its existing two-second
 seed job timed out; cause is under review. The new query passed actual WASM and
 native metadata checks, but this candidate is not installed or fully qualified.
-Performance-tool publication and explicit doctor preflight remain private work.
+Performance tools are integrated for fresh CI; their numeric export remains
+private. Explicit doctor preflight remains a private reviewed proposal.
 Earlier
 batch sections retain the status at that time; their pending claims do not
 override this current status. The eight-hour gate remains held by the human.
@@ -253,12 +254,13 @@ remain separate; later passes do not establish their causes.
 
 | ID | Owner / isolated files | Acceptance / current state |
 | --- | --- | --- |
-| N007 publication | `/root/stdlib`: private portable-tool/spec/guide implementation | The one finite run is complete and independently reviewed; do not rerun it. Reviewed design now has private implementation underway: trusted pinned inputs, portable paths, check-only default, exclusive explicit bounded Windows execution and truthful unsupported metrics. Keep all samples and historical failures; qualify with bounded fake/small Python controls and peer review before shipping. Derived numeric export remains private pending attribution/privacy review. |
+| N007 publication | Root integration; `/root/stdlib` implementation, `/root/distribution` independent peer | Twelve reviewed tool/spec/doc/control files integrated; numeric export remains private. First Windows28 controls, five original cap passes plus one corrected fixture, and four new growth/identity controls remain separately attributed. One fixture failure and five unnecessary pure repeats are retained. Final peer approved streaming role caps, credited inventory sizes, aggregate growth checks and primary-error preservation. Fresh three-platform control/full CI pending; no new measurement or prior local worker repetition. |
 | N009 | Root integrated and pushed `89654a9`; source/checker/wiring peers complete | Actual WASM, sanitizer, Docker, Paper, Linux and macOS jobs passed; Windows passed metadata/foundation controls, then failed the existing bounded DAG seed at its unchanged 2000ms deadline. Preserve the first-attempt 7/8 result and investigate without retries/retuning. The private separator/version-analysis failures also remain failed. Normal1544 was built without warnings and all19 inputs match Git, but installed4FF stays in place until the candidate's required gates pass. |
-| Windows workflow diagnosis | `/root/editor_tooling`: private read-only artifact/source diagnosis; root owns CI/evidence | Failed checkpoint records seed timeout and stopped process tree; SQLite journal and original report are retained. No confirmed cause or N009 causal attribution. Review exact hashes and propose a bounded minimal fixture before any launch. Do not repeat the whole soak or increase deadlines. |
-| Integration | Root: queue, evidence, source/build binding and CI/release wiring | Fresh `89654a9` CI is complete7/8, not a full pass. Keep installed6b/4FF, preserve immutable failed artifacts and collect the workflow diagnosis. Four mock controls, seven terminal shapes and16 corpus negatives were checked; actual WASM is now separately passed. No sustained test or clock changes. |
-| N014 implementation | `/root/distribution`: private explicit doctor preflight consumer | Default schema1/no spawn stays unchanged; explicit capability mode uses schema2, strict fixed-feature requirements, bounded supervised query and unknown external-effect status. No version/permission/provenance inference. Pure/fake new controls only until N009 qualification; no shared edits or automatic native query. |
-| N015 design | `/root/editor_tooling`: private bounded pure-quote batch draft, paused for concrete workflow finding | Draft preserved; compatibility at invalid-item boundaries still needs review. Aggregate item/byte/time/step limits, exact per-item Python/Node results and private-safe failures; no hidden pool/retry/effects. No implementation or performance claim. Resume after the bounded workflow investigation. |
+| Windows workflow diagnosis | Root/editor private observation complete; remote cause remains open | Original journal byte reviews verified seven before-image checksums and changed database pages, without SQLite recovery. One separately frozen instrumented local seed completed once under unchanged2000ms/15000ms/18s limits. Root read-only verification confirmed one exact effect, one application and two events in the new fixture. Local1544 differs from remote243; markers perturb timing, and this is not a failed-CI replacement or independent descendant-stop proof. No further seed/whole-soak run authorized. |
+| Integration | Root: queue, evidence, source/build binding and CI/release wiring | `89654a9` CI remains7/8 with an unexplained Windows seed timeout. N007 is a distinct tooling batch needing one fresh full CI with bounded fake/oracle/Python lifecycle controls on all three platforms. Native19 inputs are unchanged from896; no redundant local compile or prior measurement repeat. Keep installed6b/4FF until required gates pass; no sustained test or clock changes. |
+| N014 private proposal | Root source/test/doc peer complete; producer/integration gates pending | New24 fake/three-owned-Python controls passed, then one separate fake clock regression passed after root reproduced a backward reading missed above the origin. The correction tracks the previous reading while retaining the original deadline and primary/cleanup errors. These are separate24+1 profiles, not a fresh combined25 pass. Default schema1/no probe stays unchanged; explicit schema2 and six feature requirements remain private. No real Sprout consumer query, shared edits or installation. |
+| N015 implementation | `/root/editor_tooling`: six new private pure-quote batch files | Final design approved: at most8 requests/128 aggregate raw lines, exact existing per-item envelopes, bounded compatible trees/bytes/steps/time and no partial results. Private implementation/static/fake controls authorized. Freeze candidate and exact bounded launch schedule for independent review/root seal before any native/SDK call. Future correctness uses verified6b/4FF; no pool/retry/effects, benchmark or speed claim. |
+| N016 design | `/root/stdlib`: private timestamp/UTC contract | First check existing operations for overlap, then design strict explicit-offset application timestamp parsing and canonical UTC output. Pin the primary RFC semantics; specify leap seconds, unknown offsets, fractional precision, exact types and bounds. No ambient clock/timezone/IANA lookup or native launch; independent design review precedes implementation. |
 
 Root owns this file. Agents own only their assigned private inputs until the
 reviewed patch is accepted for shared integration. Current passing CI does not
@@ -273,6 +275,7 @@ ownership before implementation; keep each item independently reviewable.
 | --- | --- | --- |
 | N015 | Bounded batching for pure quote/rule calls | Let hosts request multiple pure evaluations in one fresh worker call to reduce worker launches. First fix the interface and aggregate item/byte/time/step caps; preserve exact per-item Python/Node parity and private-safe errors, no hidden pool/retry/effects. Verify launch counts and mixed invalid/valid boundaries; make no speed claim without separately frozen measurements. |
 | N014 | Explicit adoption preflight consuming verified N009 metadata | Extend the existing read-only doctor only after N009's command/schema is qualified. No default or per-request spawn; strict bounded metadata and required-feature checks, source identity/cleanup diagnostics, no version inference or permission/provenance guarantee. Native/consumer parity and independent negatives required. |
+| N016 | Exact explicit-offset timestamps for application inputs | Small pure API for strict timestamps and UTC conversion, after confirming no existing adequate function. Require an explicit range/precision/error contract and independent boundary oracle; no system-time, timezone database or scheduling behavior. Design remains private. |
 | N012 | Explicit registered-type environment reachability | Normal files/modules have existing home roots. A type-only wizard file has a structural registry-home concern; bounded ordinary/stress probes passed and have not reproduced a runtime failure. Require a controlled collector reachability negative before proposing a shipping correction; nested task-local methods remain unsupported by the parser |
 
 As items complete, record their exact evidence below, move them to Done, and
@@ -291,11 +294,32 @@ order. Do not silently broaden an item into a public deployment or stable releas
 | Windows installer CI observation | `437af0a` healthy PowerShell upgrade timed out at 15 seconds; original cause unknown. Driver isolation/diagnostics were corrected, with unchanged deadlines, and later full CI passed. Preserve the original failure. |
 | HTTP capacity teardown | `b39afb6` observed10053. Local late-write fixtures reproduced lost503; bounded teardown corrections and later full CI passed. Exact remote cause and bounded delivery limits remain explicit. |
 | macOS concurrent .NET worker startup | `479c59e` failed with Operation canceled after earlier cancellation/recovery passed. Bounded diagnostics and subsequent fresh full CI passed; the prior startup cause remains unknown. No repeated clean-result explanation or descendant cleanup claim. |
-| Current Windows workflow timeout | `89654a9` fresh CI38309361500 finished7/8; a fresh DAG seed exceeded its declared2000ms job limit. Captured report/checkpoint/SQLite journal are retained; cause unknown. Read-only diagnosis and a reviewed minimal fixture come before any fix. No deadline increase, CI retry or installation promotion. |
+| Current Windows workflow timeout | `89654a9` fresh CI38309361500 finished7/8; a fresh DAG seed exceeded its declared2000ms job limit. Captured report/checkpoint/SQLite journal are retained; cause unknown. Byte-only original review and one instrumented local seed/root exact-data review are complete, without reproducing the timeout or confirming its cause. No further seed/whole-soak diagnostic, deadline increase or CI retry. |
 | Independent external security audit | Agent peer review and sanitizers are evidence for tested cases; external professional review remains separate. |
 | Live Paper and stable release | Live server use awaits the owner's EULA decision. No stable tag/public service/paid infrastructure is authorized. |
 
 ## Batch evidence log
+
+- 2026-10-13: Private publication and doctor reviews found reproducible input
+  and clock guard gaps. N014's previous-reading correction passed one new fake
+  control and root source review after its original24 controls; no native query
+  or prior children were repeated. N007's first28 controls remain separate from
+  later cap controls, including a preserved fixture failure and five extra pure
+  repeats. Its final cap/primary-error delta passed four new pure controls and
+  independent review. Twelve tool/spec/doc/control files are integrated for
+  fresh CI; the numeric export is still private. No measurement was repeated.
+
+- 2026-10-13: Original Windows journal byte checks verified seven sparse
+  checksums and changed page contents, using the documented
+  [SQLite rollback-journal format](https://www.sqlite.org/fileformat.html#the_rollback_journal).
+  One approved local instrumented seed completed once; original evidence stayed
+  unopened and unchanged. Root read-only review of the fresh fixture verified
+  exact rows and integrity. Local result SHA256
+  `d5300348aeda602c03a1ed205a650250393450eed4a03ed5215742e4e1daa83e`;
+  frozen manifest SHA256
+  `57e62650eafe1e4d493407b83088b894c9025324b50fa78d939de4428a1645d9`.
+  Marker/host/binary differences prevent a remote-cause or passing-CI claim.
+  No further run, deadline change, installation or clock setting change followed.
 
 - 2026-10-13: `89654a9` fresh CI38309361500 finished with seven jobs passing,
   including actual source-free WASM, ASan/UBSan, Docker, Paper, Linux and macOS.
