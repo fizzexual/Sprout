@@ -310,8 +310,35 @@ now uses explicit native calls for its six operations, passed 19 controls and
 ten shared GC controls, and requires an intrinsic-capable pinned runtime. The
 bounded CSV dry-run passed 18 controls with this candidate/dependency, after a
 separate original-runtime peer CSV/Decimal oracle. The editor's reproduced
-newline diagnostic defect and fixed evidence are retained. Rebuilt WebAssembly
-and one fresh complete candidate CI run remain required before installation
+newline diagnostic defect and fixed evidence are retained. The pushed `b39afb6`
+[CI 38277853794](https://github.com/fizzexual/Sprout/actions/runs/38277853794)
+passed seven jobs, including rebuilt WebAssembly and sanitizers; Windows stopped
+at an existing metrics-capacity control after losing its attempted 503 response.
+Separate bounded late-write fixtures reproduced that TCP close failure class.
+The service now half-closes and discards at most 64 KiB under the remaining
+original total 0.2-second I/O budget, without admitting a handler or worker.
+Late, idle or flooding peers can still lose the attempted response at the bound.
+
+The following `479c59e` revision adds pure explicit layered configuration with
+detached values and winning-root provenance. It passed 16 native controls,
+eight shared GC controls and independent precedence/type/detachment oracles.
+[CI 38282360254](https://github.com/fizzexual/Sprout/actions/runs/38282360254)
+passed seven jobs on its first attempt, including actual configuration WASM,
+sanitizers and the Windows overload/installer/host checks. macOS failed the
+existing eight-worker .NET concurrency control with `Operation canceled` after
+earlier cancellation/recovery passed. Its exact native status/system code was
+not printed. This observation and the older unexplained macOS startup failure
+remain unresolved; a Linux complement with 24 synchronized ABI launches passed
+and reaped its children without reproducing or explaining macOS. Test-only
+per-worker diagnostics preserve the original exception and all worker budgets.
+No job is retried or failure relabeled.
+
+The normal Windows candidate SHA256
+`94a468c820833b1f0fb26af329e9aed5b07bd892964922254f5e293261a7fbf6`
+was compiled from all 19 exact Git-byte native inputs. Its preceding working-tree
+build's three raw line-ending mismatches remain separately recorded; a CRLF-only
+explanation does not qualify that older raw build. The installed native stays
+`4cd9f4aa` until a fresh full CI result and installation verification permit
 promotion. These are development-contract results, not sustained qualification.
 
 - Cross-platform native, SDK, WASM, sanitizer and hardened Docker checks pass

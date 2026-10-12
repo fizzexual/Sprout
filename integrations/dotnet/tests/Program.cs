@@ -11,6 +11,7 @@ async Task Test(string name, Func<Task> body) { await body(); passed++; Console.
 try
 {
     var host = new WorkerHost(executable);
+    await Test("bounded worker diagnostics retain original failures", WorkerControl.Verify);
     await Test("strict worker protocol and recovery", () => ProtocolSecurity.WorkerBoundary(host, Source));
     await Test("ambiguous request rejects before launch", () => ProtocolSecurity.RequestBoundary(host, Source));
     await Test("JSON exact values and Unicode", async () => {
@@ -43,7 +44,10 @@ try
     });
     await Test("concurrent workers", async () => {
         string source = Source("show json_encode(json_decode(read_input()))\n");
-        await Task.WhenAll(Enumerable.Range(0,8).Select(async i => { var r=await host.RunAsync(source,new {n=i}); Check(r.Value.GetProperty("n").GetInt32()==i,"cross-worker state leak"); }));
+        await Task.WhenAll(Enumerable.Range(0,8).Select(async i => {
+            var r = await WorkerControl.Observe($"concurrent worker {i}", () => host.RunAsync(source, new {n=i}));
+            Check(r.Value.GetProperty("n").GetInt32()==i,"cross-worker state leak");
+        }));
     });
     await Test("request and decimal validation", async () => {
         try { await host.RunAsync(Source("show json_encode(42)\n"), new string('x',1_048_576)); throw new Exception("oversize accepted"); } catch (ArgumentException) {}

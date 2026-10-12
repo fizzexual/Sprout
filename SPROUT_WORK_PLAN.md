@@ -110,8 +110,26 @@ handler/worker and keeps attempted-response counters honest.
 | Installation provenance | Root: exact Git-byte normal build | Canonical b39 binary94 built from all19 Git inputs with no warnings; intrinsic22/validation19/CSV18 passed. Prior A394/raw-Git binding false and separate CRLF-only diagnostic preserved. Installed4CD remains until final complete CI and source/build verification |
 
 N003 Node queue and N004 application-contract designs are ready, with explicit
-acceptance gates. Implement only the next approved scope; do not mistake design
-or the current configuration code for coverage by earlier CI.
+acceptance gates. Their implementations are now selected as the next separate
+batch. Do not mistake later edits for coverage by an earlier frozen CI revision.
+
+`479c59e` [CI 38282360254](https://github.com/fizzexual/Sprout/actions/runs/38282360254)
+finished seven of eight jobs passing on its first attempt. Windows completed
+the overload, installer and host checks, and actual configuration WASM and both
+sanitizers passed. macOS failed its eight-worker .NET concurrency control with
+`SproutWorkerException: Operation canceled`; prior cancellation/recovery controls
+passed. The native status/system code was not printed. Preserve this failure,
+keep the candidate unpromoted and investigate without retries or longer budgets.
+Installed native remains4CD.
+
+## Next batch implementation: worker backpressure and application contracts
+
+| Item | Owner / isolated files | Acceptance / state |
+| --- | --- | --- |
+| N003 | `/root/distribution`: Node SDK, dedicated queue controls and Node documentation | Implementation active: bounded FIFO admission and immutable prepared input; queued cancel/expiry without spawn; slots retained until direct-child termination; uncertain cleanup fails closed; standalone SDK compatibility and peer/full CI required |
+| N004 | `/root/editor_tooling`: new pure `lib/api.sprout`, native/shared controls, docs and separate synthetic contacts-preview example; `/root/stdlib` peer | Implementation active: schema-first literal route selection and bounded response construction with exact values, no implicit routing/auth/transport semantics; independent oracle, native/real WASM/host parity and complete CI required |
+| N005 | `/root/stdlib`: five new pure workflow-progress module/example/docs/control files | Implementation selected after independent N004 design feedback; bounded read-only recorded-state summary, no replay/liveness/retry/authenticity claim; not delivered or covered by earlier CI |
+| R003 | Root: .NET test-only per-worker failure diagnostics and private bounded complements | Peer approved: bounded status/exit/system-code observations, identical primary exception even when diagnostic sink fails, same eight workers/deadlines and no SDK/core change. Nine Windows source-copy controls passed using cached net10 references; shipping net8 Host framework unchanged and awaits CI. Initial missing net8 assets/noexec Linux fixture failures retained; Linux24 synchronized ABI calls passed and reaped all direct children, without reproducing or explaining macOS |
 
 ## Next unblocked work
 
@@ -124,7 +142,7 @@ ownership before implementation; keep each item independently reviewable.
 | N002 | Pure layered configuration module (active) | Merge explicit defaults, file maps and CLI overrides with schema validation and provenance; no ambient environment access, mutation or secret logging |
 | N003 | Node SDK bounded request queue | Add useful concurrency/backpressure/cancellation without sharing VM state; test queued cancellation, overflow, timeout and complete owned-worker cleanup |
 | N004 | Reusable application request/result contracts | Small source module for method/route/field validation and bounded response errors; test against the contacts example and current Python/Node host contracts |
-| N005 | Workflow progress tooling | Make partial/failed/uncertain job state easier to inspect and explain without replaying effects; read-only exact checkpoint fixtures and concise actionable output |
+| N005 | Workflow progress tooling (implementation selected) | Make partial/failed/uncertain recorded job state easier to inspect without replaying effects; pure bounded summary plus one native read-only snapshot, exact checkpoint fixtures, no liveness/retry/authenticity claim |
 | N006 | Representative rules migration example | Add a second synthetic pricing/validation workflow with pinned host-language parity, exact-value cases and rollback instructions; never read private application source |
 | N007 | Performance measurements for new libraries/services | Publish workload-specific cost/limits with frozen inputs and bounded synthetic data; performance claims require measured comparisons, not syntax or test counts |
 | N008 | Stable callable and builtin namespace contracts | Investigate legal task/type-name collisions and provide explicit standard-library access or clarified lexical dispatch without breaking constructor/overload/source compatibility; preserve real collision cases and require native/WASM/host parity before any runtime promotion |
@@ -143,6 +161,7 @@ order. Do not silently broaden an item into a public deployment or stable releas
 | Actual supervisor/crash recovery and representative deployment | Finite cold recovery and compiled/adapter tests do not establish these platform-specific behaviors. Keep limits explicit and scope any future rehearsal separately. |
 | Windows installer CI observation | `437af0a` healthy PowerShell upgrade timed out at 15 seconds; original cause unknown. Correct driver isolation/diagnostics with unchanged deadlines, preserve the failure and require fresh complete CI before promotion. |
 | HTTP capacity teardown | `b39afb6` observed10053. Local late-write fixtures independently reproduce lost503; correct bounded teardown and require new complete CI before promotion, retaining the exact remote-cause uncertainty and bounded delivery limits. |
+| macOS concurrent .NET worker startup | `479c59e` failed with Operation canceled in the existing eight-worker control after earlier cancellation/recovery passed. Prior unexplained macOS startup observation stays recorded. Linux24 synchronized ABI launches passed; no macOS root-cause claim. Add bounded test diagnostics while retaining exact errors/deadlines and require fresh complete CI; repeated clean results alone do not explain this observation. |
 | Independent external security audit | Agent peer review and sanitizers are evidence for tested cases; external professional review remains separate. |
 | Live Paper and stable release | Live server use awaits the owner's EULA decision. No stable tag/public service/paid infrastructure is authorized. |
 
