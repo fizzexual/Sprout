@@ -32,11 +32,12 @@ async function run(source, expectedCode = 0, flags = [], sandbox = true, files =
     console.log('ok: WASM ' + name);
   }
   assert.match(await run('show read("/etc/passwd")\n', 1), /sandbox mode/);
-  for (const expression of ['file_read("/etc/passwd")', 'file_write("/marker", "forbidden")',
-    'request("https://example.com")', 'process(["echo", "forbidden"])', 'sql_open("/database.sqlite")',
+  const nativeExpressions = ['file_read("/etc/passwd")', 'file_write("/marker", "forbidden")',
+    'request("http://127.0.0.1:1/")', 'process(["echo", "forbidden"])', 'sql_open("/database.sqlite")',
     'workflow_inspect("/checkpoint.json")', 'workflow_run([], {checkpoint: "/checkpoint.json"})',
     'sql_migrate(nothing, [])', 'sql_migrations(nothing)',
-    'remember("sandbox_probe", 42)']) {
+    'remember("sandbox_probe", 42)'];
+  for (const expression of nativeExpressions) {
     assert.match(await run('show ' + expression + '\n', 1), /sandbox mode/, expression + ' must be blocked');
   }
   assert.match(await run('repeat while yes:\n    make x = 1\n', 1, ['--max-steps', '100']), /--max-steps/);
@@ -70,6 +71,14 @@ async function run(source, expectedCode = 0, flags = [], sandbox = true, files =
     0, ['--max-steps', '3000000']));
   assert.equal(suppliedValidation.ok, true);
   assert.deepEqual(suppliedValidation.errors, []);
+  const intrinsicContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'intrinsic_builtin_test.sprout'), 'utf8');
+  const intrinsicOutput = await run(intrinsicContracts, 0, ['--max-steps', '3000000'], true, {}, 'test');
+  assert.match(intrinsicOutput, /[1-9][0-9]* passed/);
+  assert.doesNotMatch(intrinsicOutput, /[1-9][0-9]* failed/);
+  console.log('ok: WASM explicit builtin contracts');
+  for (const expression of nativeExpressions) {
+    assert.match(await run('show builtin::' + expression + '\n', 1), /sandbox mode/, expression + ' must stay blocked with explicit lookup');
+  }
   // Expected failure above must not leave Node's process exit status set to 1.
   process.exitCode = 0;
   console.log('WASM smoke tests passed.');

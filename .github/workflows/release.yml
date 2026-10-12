@@ -69,10 +69,13 @@ jobs:
           python src/tests/workflow_tools_test.py "$bin"
           python src/tests/cli_library_test.py "$bin"
           python src/tests/validation_library_test.py "$bin"
+          python src/tests/intrinsic_builtin_test.py "$bin"
+          python src/tests/csv_import_example_test.py "$bin"
           python src/tests/ergonomics_test.py "$bin"
           python src/tests/embed_test.py "$bin"
           python src/tests/release_manifest_test.py
           python src/tests/project_doctor_test.py
+          if [ "$RUNNER_OS" != "Windows" ]; then python src/tests/installer_publication_test.py InstallerDriver; fi
           python src/tests/deployment_harness_test.py
           python src/tests/deployment_coverage_test.py
           python src/tests/service_recovery_test.py
@@ -86,6 +89,8 @@ jobs:
       - name: Windows installer publication boundaries
         if: runner.os == 'Windows'
         shell: bash
+        env:
+          SPROUT_INSTALLER_ARTIFACTS: ${{ runner.temp }}/installer-boundary
         run: python src/tests/installer_publication_test.py -v
 
       - name: Build Windows installer

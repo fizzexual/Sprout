@@ -44,6 +44,11 @@
     "body": ["make ${1:template} = \"\"\"${2:First line}", "${3:Second line}", "\"\"\"", "${0}"],
     "description": "Plain multiline text; whitespace is preserved"
   },
+  "Explicit native call": {
+    "prefix": "intrinsic",
+    "body": ["builtin::${1:length}(${2:value})${0}"],
+    "description": "Call a native built-in directly; positional inputs and existing permissions apply"
+  },
   "Plan a workflow": {
     "prefix": "workflowplan",
     "body": ["use workflow", "make jobs = [{id: \"${1:report}\", argv: [\"${2:tool}\"]}]", "make plan = workflow.plan(jobs)", "show plan.layers", "${0}"],

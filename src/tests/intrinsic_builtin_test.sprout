@@ -1,0 +1,61 @@
+~ Shared native/WebAssembly intrinsic contracts. Deliberately legal collisions.
+type number:
+    make value
+type length:
+    make value
+type integer:
+    make value
+type visit:
+    make value
+task visit(value):
+    give "task:" + value
+private make captured_visit = visit
+
+test "explicit numeric conversion bypasses the number constructor":
+    expect builtin::number("12") == 12
+    expect number("12").value == "12"
+
+test "captured tasks and bare constructor priority stay unchanged":
+    expect captured_visit(value: "x") == "task:x"
+    expect visit("x").value == "x"
+
+test "value introspection ignores same-spelled global constructors":
+    expect builtin::length("café") == 4
+    expect builtin::kind_of(12) == "number"
+    expect builtin::contains([1, 2], 2)
+    expect builtin::keys({name: "Ada"}) == ["name"]
+
+test "ordinary builtin identifier and labels stay lexical":
+    make builtin = 4
+    make record = {builtin: builtin}
+    make consume = task(builtin): builtin + 1
+    expect consume(builtin: record.builtin) == 5
+    expect builtin::number("12") == 12
+
+test "explicit calls preserve exact data handlers":
+    expect builtin::kind_of(builtin::integer("9223372036854775807")) == "integer"
+    expect builtin::json_encode(builtin::integer("9223372036854775807")) == "{\"$sprout.integer\":\"9223372036854775807\"}"
+    expect builtin::kind_of(builtin::bytes([0, 255])) == "bytes"
+
+test "pipelines keep their intrinsic identity":
+    expect ("12" |> builtin::number()) == 12
+    make convert = task(value): value |> builtin::number()
+    expect convert("4") == 4
+
+test "nested argument prefix is distinct from a named label":
+    make combine = task(value, builtin): value + builtin
+    expect combine(builtin::number("12"), builtin: 3) == 15
+    expect [0, 1, 2][builtin::number("1"):builtin::length([0, 1, 2])] == [1, 2]
+
+test "builtin named inputs are rejected":
+    expect error "argument":
+        builtin::length(items: [1])
+
+test "builtin argument type errors retain their normal contract":
+    expect error "error":
+        builtin::length(12)
+
+test "local data mutations use the actual builtin":
+    make result = []
+    builtin::add(result, "issue")
+    expect result == ["issue"]

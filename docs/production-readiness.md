@@ -287,6 +287,33 @@ supplied source, retaining capability negatives and isolated filesystem checks.
 All 82 editor/playground/Node/application tests passed locally after correction;
 fresh corrected-revision CI remains required. The original failure stays recorded.
 
+The corrected `437af0a` revision then passed seven jobs in
+[CI 38273452312](https://github.com/fizzexual/Sprout/actions/runs/38273452312).
+Windows completed the new foundation/workload contracts, then a healthy
+PowerShell upgrade fixture hit its unchanged 15-second deadline. The next
+subcase reused that directory and was contaminated by the earlier staged file.
+The initial timeout cause remains unknown; a bounded unmodified local probe
+passed without explaining it. A separate pure stub reproduced the driver
+contamination. The driver now isolates scenarios and retains bounded timeout,
+owned-shell and uncertain descendant observations. Nineteen local installer/
+driver controls passed, followed by five final diagnostic controls on Windows
+and offline Linux. No shipping installer behavior or deadline changed.
+
+The next candidate adds contextual `builtin::name(...)` calls while preserving
+bare calls, constructors, task values, namespaces, object overloads and runtime
+permissions. Its private optimized SQLite executable is SHA256
+`a39480011059cdbd380c29aaa1bbd73740199d0bd241240a32bf3e82e4b3e15f`;
+all 19 build inputs are frozen separately. It passed 22 intrinsic controls,
+82 Python host/service controls with one POSIX skip, and 101 combined editor/
+Node/application controls before two further editor controls passed. Validation
+now uses explicit native calls for its six operations, passed 19 controls and
+ten shared GC controls, and requires an intrinsic-capable pinned runtime. The
+bounded CSV dry-run passed 18 controls with this candidate/dependency, after a
+separate original-runtime peer CSV/Decimal oracle. The editor's reproduced
+newline diagnostic defect and fixed evidence are retained. Rebuilt WebAssembly
+and one fresh complete candidate CI run remain required before installation
+promotion. These are development-contract results, not sustained qualification.
+
 - Cross-platform native, SDK, WASM, sanitizer and hardened Docker checks pass
   against the final commit. New regressions belong in CI and release checks.
 - Immutable sustained-run reports record build/source/host hashes, duration,

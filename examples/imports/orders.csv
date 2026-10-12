@@ -1,0 +1,4 @@
+id,name,amount,currency,note
+9007199254740993,"Ada, 🌱",0.10,USD,"Quoted ""note"""
+2,Ivy,0.20,USD,
+9223372036854775807,Zoë,19.95,EUR,Synthetic sample

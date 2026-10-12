@@ -94,6 +94,9 @@ checks exact SQLite data in private restored copies.
 Application projects can use [declarative input validation](docs/validation.md),
 inspect declared files and locked packages with the [project doctor](docs/project-doctor.md),
 and start from the [paginated contacts API with durable retry keys](docs/contacts-api.md).
+The [CSV dry-run example](docs/csv-import.md) validates exact identifiers and
+money before any import. [Explicit builtin calls](docs/intrinsics.md) preserve
+native operation identity when application names collide, with editor support.
 The [ongoing work ledger](SPROUT_WORK_PLAN.md) records completed evidence,
 active feature owners, the next queue and remaining release gates.
 The [TotalReach migration example](examples/adoption/totalreach/README.md) compares

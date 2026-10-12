@@ -18,6 +18,11 @@ Import paths resolve relative to the source file. Adjust the path for your proje
 the runnable [order example](../examples/validation/order-input.sprout) uses
 `../../lib/validate.sprout`.
 
+This module requires a development runtime with
+[`builtin::name(...)` support](intrinsics.md). Older runtimes reject that syntax;
+pin and verify the runtime revision together with the library source. The
+explicit native calls retain the operation's permissions and runtime budgets.
+
 `check(value, schema)` returns:
 
 ```sprout
@@ -95,11 +100,12 @@ checks and length comparisons also avoid the `number` constructor/conversion
 name. Native non-finite arithmetic raises a math error; the guarded finite check
 catches that specific error and rejects the value. Other errors propagate.
 
-This is a trusted-source library: retain the normal builtin bindings for
-`kind_of`, `is_a`, `contains`, `length`, `keys` and `add`. Globally declaring types
-with those names can change native callable resolution. The current language
-does not provide a private immutable builtin namespace. Do not treat this module
-as isolation from arbitrary surrounding Sprout code.
+The module selects `kind_of`, `is_a`, `contains`, `length`, `keys` and `add`
+through explicit native calls. Caller tasks, constructors and variables with
+those names cannot redirect these operations. Its helper task-value captures
+remain in place. Surrounding program expressions and user callbacks retain
+their normal behavior; this remains a trusted-source library, without isolation
+from arbitrary surrounding Sprout code.
 
 ## Aggregation and limits
 
@@ -162,8 +168,9 @@ sprout test src/tests/validation_library_test.sprout
 sprout run examples/validation/order-input.sprout
 ```
 
-The nine-test Sprout corpus is shared with the real WebAssembly harness. The
+The ten-test Sprout corpus is shared with the real WebAssembly harness. The
 Python suite additionally checks exact boundaries, schema aggregation budgets,
-non-mutation, object overload exclusion, cyclic values and bounded diagnostics.
+non-mutation, object overload exclusion, cyclic values, bounded diagnostics and
+all six native-operation name collisions without constructor callbacks.
 This library is part of the development build; it does not close deployment or
 sustained-workload qualification gates.

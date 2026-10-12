@@ -2,15 +2,93 @@
 from __future__ import annotations
 import json
 import ctypes
+import hashlib
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 OLD = b'previous working installation'
+
+
+def fixture_inventory(directory):
+    """Bounded observations of private fixture artifacts, without removing them."""
+    result = []
+    paths = []
+    with os.scandir(directory) as entries:
+        for index, entry in enumerate(entries):
+            if index == 16:
+                result.append({'inventory_truncated': True})
+                break
+            paths.append(Path(entry.path))
+    for path in sorted(paths):
+        item = {'name': path.name, 'symlink': path.is_symlink()}
+        try:
+            if not item['symlink'] and path.is_file():
+                item['bytes'] = path.stat().st_size
+                if item['bytes'] <= 64 * 1024 * 1024:
+                    digest = hashlib.sha256()
+                    with path.open('rb') as stream:
+                        remaining = 64 * 1024 * 1024
+                        while remaining:
+                            chunk = stream.read(min(65536, remaining))
+                            if not chunk: break
+                            digest.update(chunk)
+                            remaining -= len(chunk)
+                        incomplete = bool(stream.read(1))
+                    if incomplete:
+                        item['hash_incomplete'] = True
+                    else:
+                        item['sha256'] = digest.hexdigest()
+        except OSError as error:
+            item['observation_error'] = str(error)[:512]
+        result.append(item)
+    return result
+
+
+def run_powershell_fixture(argv, *, env, destination, diagnostics):
+    """Keep the original deadline; preserve a timeout as a failing observation."""
+    started = time.monotonic()
+    before = fixture_inventory(destination.parent)
+    child = subprocess.Popen(argv, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             text=True, encoding='utf-8', errors='replace')
+    try:
+        stdout, stderr = child.communicate(timeout=15)
+    except subprocess.TimeoutExpired as error:
+        detail = {'kind': 'timeout', 'argv': argv, 'owned_shell_pid': child.pid,
+                  'deadline_seconds': 15, 'phase': 'unknown', 'before': before,
+                  'elapsed_seconds': time.monotonic() - started,
+                  'probe_child_cleanup': 'unconfirmed; no descendant termination claim'}
+        try:
+            if child.poll() is None:
+                child.kill()
+            child.wait(timeout=1)
+            detail['owned_shell_reaped'] = True
+        except (OSError, subprocess.TimeoutExpired) as cleanup_error:
+            detail['owned_shell_reaped'] = False
+            detail['cleanup_error'] = str(cleanup_error)[:512]
+        try:
+            stdout, stderr = child.communicate(timeout=1)
+            detail['pipe_capture_complete'] = True
+        except (OSError, subprocess.TimeoutExpired):
+            stdout, stderr = error.stdout or '', error.stderr or ''
+            detail['pipe_capture_complete'] = False
+        for key, value in [('stdout', stdout), ('stderr', stderr)]:
+            if isinstance(value, bytes): value = value.decode('utf-8', 'replace')
+            detail[key] = value[:4096]
+            detail[key + '_truncated'] = len(value) > 4096
+        try:
+            detail['after'] = fixture_inventory(destination.parent)
+            diagnostics(detail)
+        except Exception as diagnostic_error:
+            print('INSTALLER_TIMEOUT_DIAGNOSTIC_FAILED ' + str(diagnostic_error)[:512])
+        raise
+    return subprocess.CompletedProcess(argv, child.returncode, stdout, stderr)
 WRAPPER = r'''
 #include <stdio.h>
 #include <stdlib.h>
@@ -158,11 +236,27 @@ class InstallerPublication(unittest.TestCase):
         subprocess.run([cls.compiler, '-O0', str(source), '-o', str(output), *options], check=True, capture_output=True, timeout=30)
 
     def setUp(self):
-        self.base = Path(tempfile.mkdtemp(prefix='case-', dir=self.root))
+        self.fresh_case('case')
+
+    def fresh_case(self, scenario):
+        self.base = Path(tempfile.mkdtemp(prefix=scenario + '-', dir=self.root))
         self.destination = self.base / 'Programs/Sprout/sprout.exe'
         self.destination.parent.mkdir(parents=True)
         self.destination.write_bytes(OLD)
         self.previous_stat = self.destination.stat()
+
+    def timeout_diagnostics(self, detail):
+        detail['script_sha256'] = hashlib.sha256((self.checkout / 'install.ps1').read_bytes()).hexdigest()
+        detail['candidate_sha256'] = hashlib.sha256((self.checkout / 'src/sprout.exe').read_bytes()).hexdigest()
+        print('INSTALLER_TIMEOUT ' + json.dumps(detail, ensure_ascii=True, allow_nan=False))
+        artifacts = os.environ.get('SPROUT_INSTALLER_ARTIFACTS')
+        if artifacts:
+            directory = Path(artifacts)
+            directory.mkdir(parents=True, exist_ok=True)
+            path = directory / (self.base.name + '-timeout.json')
+            with path.open('x', encoding='utf-8') as stream:
+                json.dump(detail, stream, indent=2, ensure_ascii=True, allow_nan=False)
+                stream.write('\n')
 
     def wizard(self, mode=0, candidate=None):
         env = dict(os.environ, LOCALAPPDATA=str(self.base), APPDATA=str(self.base))
@@ -288,12 +382,13 @@ class InstallerPublication(unittest.TestCase):
         # Prefer this host's standard modules, since a runner launched from
         # PowerShell 7 can otherwise shadow Windows PowerShell 5.1's modules.
         env['PSModulePath'] = str(Path(self.shell).parent / 'Modules')
-        return subprocess.run([self.shell, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
-                              env=env, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=15)
+        return run_powershell_fixture([self.shell, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
+                                      env=env, destination=self.destination, diagnostics=self.timeout_diagnostics)
 
     def test_powershell_failed_and_timed_out_version_checks_preserve_existing_binary(self):
         for candidate in (self.bad, self.hung):
             with self.subTest(candidate=candidate.name):
+                self.fresh_case('rejected-' + candidate.stem)
                 result = self.powershell(candidate)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn('staged Sprout', result.stderr)
@@ -312,12 +407,14 @@ class InstallerPublication(unittest.TestCase):
     def test_powershell_first_install_upgrade_and_explicit_runtime_rollback(self):
         for existing in (True, False):
             with self.subTest(existing=existing):
+                self.fresh_case('upgrade' if existing else 'first-install')
                 if not existing: self.destination.unlink()
                 result = self.powershell(self.good)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(self.destination.read_bytes(), self.good.read_bytes())
                 self.assertEqual(list(self.destination.parent.iterdir()), [self.destination])
         # Runtime restoration is a byte-for-byte republish, not a data downgrade.
+        self.fresh_case('rollback')
         shutil.copy2(self.good, self.destination)
         second = self.root / 'second.exe'; second.write_bytes(self.good.read_bytes() + b'fixture second version')
         result = self.powershell(second)
@@ -335,6 +432,98 @@ class InstallerPublication(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.destination.read_bytes(), self.good.read_bytes())
         self.assertEqual(list(self.destination.parent.iterdir()), [self.destination])
+
+
+class InstallerDriver(unittest.TestCase):
+    def test_inventory_limits_entries_without_removing_artifacts(self):
+        with tempfile.TemporaryDirectory(prefix='installer-driver-inventory-') as directory:
+            root = Path(directory)
+            for index in range(20): (root / ('item-' + str(index))).write_bytes(b'fixture')
+            result = fixture_inventory(root)
+            self.assertEqual(len(result), 17)
+            self.assertTrue(result[0]['inventory_truncated'])
+            self.assertEqual(len(list(root.iterdir())), 20)
+            self.assertTrue(all(item.get('sha256') == hashlib.sha256(b'fixture').hexdigest() for item in result[1:]))
+
+    def test_diagnostic_failure_cannot_replace_the_original_timeout(self):
+        with tempfile.TemporaryDirectory(prefix='installer-driver-diagnostic-') as directory:
+            destination = Path(directory) / 'sprout.exe'
+            destination.write_bytes(OLD)
+            child = mock.Mock(pid=1234)
+            child.poll.return_value = None
+            child.communicate.side_effect = [subprocess.TimeoutExpired(['fixture'], 15), ('', '')]
+            with mock.patch('subprocess.Popen', return_value=child), mock.patch('builtins.print'):
+                with self.assertRaises(subprocess.TimeoutExpired) as caught:
+                    run_powershell_fixture(['fixture'], env={}, destination=destination,
+                                           diagnostics=mock.Mock(side_effect=OSError('diagnostic output unavailable')))
+            self.assertEqual(caught.exception.timeout, 15)
+
+    def test_timed_out_upgrade_does_not_contaminate_first_install_or_rollback(self):
+        with tempfile.TemporaryDirectory(prefix='installer-driver-isolation-') as directory:
+            instance = InstallerPublication('test_powershell_first_install_upgrade_and_explicit_runtime_rollback')
+            instance.root = Path(directory)
+            instance.good = instance.root / 'good.exe'
+            instance.good.write_bytes(b'new fixture')
+            instance.fresh_case('initial')
+            calls = []
+
+            def fake(candidate):
+                calls.append(instance.destination)
+                if len(calls) == 1:
+                    (instance.destination.parent / '.sprout-failed.exe').write_bytes(b'retained evidence')
+                    raise subprocess.TimeoutExpired(['fixture'], 15)
+                instance.destination.write_bytes(candidate.read_bytes())
+                return subprocess.CompletedProcess(['fixture'], 0, '', '')
+
+            instance.powershell = fake
+            result = unittest.TestResult()
+            # This pure injected driver control also runs on POSIX; it does
+            # not invoke the Windows-only class setup, compiler or installer.
+            with mock.patch.object(InstallerPublication, '__unittest_skip__', False, create=True):
+                instance.run(result)
+            self.assertEqual(len(result.errors), 1, 'the original timeout must still fail')
+            self.assertEqual(len(result.failures), 0, 'later valid cases must not inherit earlier artifacts')
+            self.assertEqual(len({path.parent for path in calls}), 3, 'upgrade, first install and rollback are isolated')
+            self.assertEqual((calls[0].parent / '.sprout-failed.exe').read_bytes(), b'retained evidence')
+
+    def test_timeout_reaps_only_owned_shell_and_retains_bounded_failed_evidence(self):
+        with tempfile.TemporaryDirectory(prefix='installer-driver-timeout-') as directory:
+            destination = Path(directory) / 'sprout.exe'
+            destination.write_bytes(OLD)
+            child = mock.Mock(pid=1234, returncode=-9)
+            child.poll.return_value = None
+            child.communicate.side_effect = [subprocess.TimeoutExpired(['fixture'], 15, output=b'partial'), ('x' * 5000, 'failure')]
+            reports = []
+            with mock.patch('subprocess.Popen', return_value=child):
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    run_powershell_fixture(['fixture'], env={}, destination=destination, diagnostics=reports.append)
+            child.kill.assert_called_once_with()
+            child.wait.assert_called_once_with(timeout=1)
+            self.assertEqual(child.communicate.call_args_list, [mock.call(timeout=15), mock.call(timeout=1)])
+            self.assertTrue(reports[0]['owned_shell_reaped'])
+            self.assertEqual(reports[0]['phase'], 'unknown')
+            self.assertIn('unconfirmed', reports[0]['probe_child_cleanup'])
+            self.assertEqual(len(reports[0]['stdout']), 4096)
+            self.assertTrue(reports[0]['stdout_truncated'])
+            self.assertEqual(destination.read_bytes(), OLD)
+
+    def test_unconfirmed_cleanup_and_pipe_capture_keep_original_timeout(self):
+        with tempfile.TemporaryDirectory(prefix='installer-driver-cleanup-') as directory:
+            destination = Path(directory) / 'sprout.exe'
+            destination.write_bytes(OLD)
+            child = mock.Mock(pid=1234)
+            child.poll.return_value = None
+            child.wait.side_effect = subprocess.TimeoutExpired(['fixture'], 1)
+            child.communicate.side_effect = [subprocess.TimeoutExpired(['fixture'], 15, output=b'partial'), subprocess.TimeoutExpired(['fixture'], 1)]
+            reports = []
+            with mock.patch('subprocess.Popen', return_value=child):
+                with self.assertRaises(subprocess.TimeoutExpired) as caught:
+                    run_powershell_fixture(['fixture'], env={}, destination=destination, diagnostics=reports.append)
+            self.assertEqual(caught.exception.timeout, 15)
+            self.assertFalse(reports[0]['owned_shell_reaped'])
+            self.assertFalse(reports[0]['pipe_capture_complete'])
+            self.assertEqual(reports[0]['stdout'], 'partial')
+            self.assertEqual(destination.read_bytes(), OLD)
 
 
 if __name__ == '__main__': unittest.main()

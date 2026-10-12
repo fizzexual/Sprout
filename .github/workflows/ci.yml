@@ -86,10 +86,13 @@ jobs:
           python src/tests/workflow_tools_test.py "$bin"
           python src/tests/cli_library_test.py "$bin"
           python src/tests/validation_library_test.py "$bin"
+          python src/tests/intrinsic_builtin_test.py "$bin"
+          python src/tests/csv_import_example_test.py "$bin"
           python src/tests/ergonomics_test.py "$bin"
           python src/tests/embed_test.py "$bin"
           python src/tests/release_manifest_test.py
           python src/tests/project_doctor_test.py
+          if [ "$RUNNER_OS" != "Windows" ]; then python src/tests/installer_publication_test.py InstallerDriver; fi
           python tools/fuzz.py "$bin" --iterations 200 --seed 20261010 --report "$RUNNER_TEMP/fuzz.json" --artifacts "$RUNNER_TEMP/fuzz-artifacts"
           SPROUT_COMMAND="$bin" python -m unittest discover -s integrations/python -p 'test_*.py'
           "$bin" test examples/apps/ui_test.sprout
@@ -106,6 +109,8 @@ jobs:
 
       - name: Windows installer publication boundaries
         if: runner.os == 'Windows'
+        env:
+          SPROUT_INSTALLER_ARTIFACTS: ${{ runner.temp }}/installer-boundary
         run: python src/tests/installer_publication_test.py -v
 
       - name: Set up Go
@@ -125,6 +130,7 @@ jobs:
             ${{ runner.temp }}/deployment-smoke.json
             ${{ runner.temp }}/service-recovery.json
             ${{ runner.temp }}/service-recovery/
+            ${{ runner.temp }}/installer-boundary/
             soak-artifacts/
           if-no-files-found: ignore
 
@@ -302,7 +308,10 @@ jobs:
           # The full boundary suite uses ASan with ordinary collection; the
           # small shared corpus additionally collects after every statement.
           env -u SPROUT_GC_STRESS python src/tests/validation_library_test.py "$PWD/src/sprout"
+          env -u SPROUT_GC_STRESS python src/tests/intrinsic_builtin_test.py "$PWD/src/sprout"
+          env -u SPROUT_GC_STRESS python src/tests/csv_import_example_test.py "$PWD/src/sprout"
           "$PWD/src/sprout" test src/tests/validation_library_test.sprout --max-steps 3000000 --timeout-ms 5000
+          "$PWD/src/sprout" test src/tests/intrinsic_builtin_test.sprout --max-steps 3000000 --timeout-ms 5000
           python tools/fuzz.py "$PWD/src/sprout" --iterations 100 --seed 20261010 --report "$RUNNER_TEMP/fuzz-asan.json" --artifacts "$RUNNER_TEMP/fuzz-asan-artifacts"
 
   ubsan:
@@ -324,6 +333,8 @@ jobs:
           python src/tests/workflow_tools_test.py "$PWD/src/sprout"
           python src/tests/cli_library_test.py "$PWD/src/sprout"
           python src/tests/validation_library_test.py "$PWD/src/sprout"
+          python src/tests/intrinsic_builtin_test.py "$PWD/src/sprout"
+          python src/tests/csv_import_example_test.py "$PWD/src/sprout"
 
   playground:
     name: playground image (Docker)

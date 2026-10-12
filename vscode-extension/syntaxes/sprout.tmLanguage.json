@@ -2,7 +2,13 @@
   "name": "Sprout",
   "scopeName": "source.sprout",
   "patterns": [
-    { "match": "~.*$", "name": "comment.line.tilde.sprout" },
+    { "match": "[~#].*$", "name": "comment.line.sprout" },
+    {
+      "name": "string.quoted.triple.sprout",
+      "begin": "\"\"\"",
+      "end": "\"\"\"",
+      "patterns": [{ "match": "\\\\.", "name": "constant.character.escape.sprout" }]
+    },
     {
       "name": "string.quoted.double.sprout",
       "begin": "\"",
@@ -16,6 +22,14 @@
     },
     { "match": "\\b(and|or|not)\\b", "name": "keyword.operator.word.sprout" },
     { "match": "\\b(yes|no|nothing)\\b", "name": "constant.language.sprout" },
+    {
+      "match": "(?<![A-Za-z_0-9.])\\b(builtin)[ \\t]*(::)[ \\t]*([A-Za-z_][A-Za-z_0-9]*)(?=[ \\t]*\\()",
+      "captures": {
+        "1": { "name": "keyword.other.intrinsic.sprout" },
+        "2": { "name": "keyword.operator.intrinsic.sprout" },
+        "3": { "name": "support.function.intrinsic.sprout" }
+      }
+    },
     {
       "match": "\\b(window|server|label|button|field|textof|get|post|jsonpick|explore|get_api_points|secret|remember|recall|abs|round|floor|ceil|sqrt|min|max|length|upper|lower|random)\\b(?=\\s*\\()",
       "name": "support.function.sprout"

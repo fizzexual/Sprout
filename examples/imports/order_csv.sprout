@@ -1,0 +1,200 @@
+~ Pure application-specific CSV dry-run. No storage or network operations.
+use csv
+use "../../lib/validate.sprout"
+
+private task csv_report():
+    give {ok: no, row_count: nothing, valid_rows: 0, error_count: 0, errors: [], truncated: no, preview: [], totals: nothing}
+
+private task csv_error(report, record, path, code, message, first_record = nothing):
+    set report.error_count += 1
+    when length(report.errors) < 64:
+        make issue = {record: record, path: path, code: code, message: message}
+        when first_record != nothing:
+            set issue.first_record = first_record
+        add(report.errors, issue)
+    otherwise:
+        set report.truncated = yes
+
+private task csv_digits(value):
+    for each digit in value:
+        when not contains("0123456789", digit):
+            give no
+    give value != ""
+
+private task csv_id(value):
+    when length(value) < 1 or length(value) > 19 or not csv_digits(value) or value[0] == "0":
+        give {ok: no, code: "id_format", message: "ID must be canonical positive decimal digits, without a sign or leading zeros."}
+    when length(value) == 19 and value > "9223372036854775807":
+        give {ok: no, code: "id_range", message: "ID exceeds the positive signed-int64 range."}
+    give {ok: yes, value: integer(value)}
+
+private task csv_money(value):
+    when length(value) < 4 or length(value) > 20:
+        give {ok: no, code: "amount_format", message: "Amount must be canonical nonnegative decimal text with exactly two fractional digits."}
+    make parts = split(value, ".")
+    when length(parts) != 2 or length(parts[0]) < 1 or length(parts[0]) > 17 or length(parts[1]) != 2:
+        give {ok: no, code: "amount_format", message: "Amount must be canonical nonnegative decimal text with exactly two fractional digits."}
+    when not csv_digits(parts[0]) or not csv_digits(parts[1]) or (length(parts[0]) > 1 and parts[0][0] == "0"):
+        give {ok: no, code: "amount_format", message: "Amount must be canonical nonnegative decimal text with exactly two fractional digits."}
+    when length(value) == 20 and value > "92233720368547758.07":
+        give {ok: no, code: "amount_range", message: "Amount exceeds the signed-int64 cents range."}
+    give {ok: yes, value: decimal(value)}
+
+private task csv_field(report, record, name, value, schema):
+    make input = {}
+    set input[name] = value
+    make fields = {}
+    set fields[name] = schema[name]
+    make checked = validate.check(input, {kind: "map", fields: fields})
+    when checked.schema_error != nothing:
+        fail "The CSV example's fixed validation schema is invalid."
+    for each issue in checked.errors:
+        csv_error(report, record, issue.path, issue.code, issue.message)
+    give checked.ok
+
+private task csv_name(value):
+    when trim(value) == "":
+        give "Name must not be blank after trimming ASCII whitespace."
+    for each letter in value:
+        when code(letter) < 32 or code(letter) == 127:
+            give "Name must not contain ASCII controls or DEL."
+    give ""
+
+private task csv_headers(header, report):
+    when length(header) < 4 or length(header) > 5:
+        csv_error(report, 1, ["header"], "header", "Headers must contain id, name, amount and currency, with optional note.")
+        give nothing
+    make positions = {}
+    make index = 0
+    for each name in header:
+        when not contains(["id", "name", "amount", "currency", "note"], name) or contains(positions, name):
+            csv_error(report, 1, ["header"], "header", "Header names must be unique supported names with exact spelling.")
+            give nothing
+        set positions[name] = index
+        set index += 1
+    for each name in ["id", "name", "amount", "currency"]:
+        when not contains(positions, name):
+            csv_error(report, 1, ["header"], "header", "Headers must contain id, name, amount and currency, with optional note.")
+            give nothing
+    give positions
+
+private task csv_rows(rows, positions, report):
+    make schema = {id: {kind: "integer"}, name: {kind: "text", min_length: 1, max_length: 80}, amount: {kind: "decimal"}, currency: {kind: "text", allowed: ["USD", "EUR"]}, note: {kind: "text", required: no, nullable: yes, max_length: 200}}
+    make seen = {}
+    make totals = {USD: decimal("0.00"), EUR: decimal("0.00")}
+    make sum_ok = {USD: yes, EUR: yes}
+    make ceiling = decimal("92233720368547758.07")
+    make index = 1
+    repeat while index < length(rows):
+        make record = index + 1
+        make row = rows[index]
+        set index += 1
+        when length(row) != length(rows[0]):
+            csv_error(report, record, [], "row_width", "Record must contain exactly one cell for every header.")
+            skip
+        make previous_errors = report.error_count
+        make converted = {name: row[positions.name], currency: row[positions.currency]}
+        make id = csv_id(row[positions.id])
+        when not id.ok:
+            csv_error(report, record, ["id"], id.code, id.message)
+        otherwise:
+            set converted.id = id.value
+            when csv_field(report, record, "id", id.value, schema):
+                make canonical_id = row[positions.id]
+                when contains(seen, canonical_id):
+                    csv_error(report, record, ["id"], "duplicate_id", "ID was already used by an earlier CSV record.", seen[canonical_id])
+                otherwise:
+                    set seen[canonical_id] = record
+        make money = csv_money(row[positions.amount])
+        when not money.ok:
+            csv_error(report, record, ["amount"], money.code, money.message)
+        otherwise:
+            set converted.amount = money.value
+            make amount_ok = csv_field(report, record, "amount", money.value, schema)
+        when csv_field(report, record, "name", converted.name, schema):
+            make name_issue = csv_name(converted.name)
+            when name_issue != "":
+                csv_error(report, record, ["name"], "name", name_issue)
+        make currency_ok = csv_field(report, record, "currency", converted.currency, schema)
+        when contains(positions, "note"):
+            make note = row[positions.note]
+            when note == "":
+                set note = nothing
+            set converted.note = note
+            make note_ok = csv_field(report, record, "note", note, schema)
+        when report.error_count != previous_errors:
+            skip
+        set report.valid_rows += 1
+        when length(report.preview) < 10:
+            add(report.preview, converted)
+        make currency = converted.currency
+        when sum_ok[currency]:
+            when converted.amount > ceiling - totals[currency]:
+                set sum_ok[currency] = no
+                csv_error(report, nothing, ["totals", currency], "total_range", "Exact currency total exceeds the signed-int64 cents range.")
+            otherwise:
+                set totals[currency] += converted.amount
+    when report.error_count == 0:
+        set report.ok = yes
+        set report.totals = totals
+    give report
+
+public task check(text):
+    make report = csv_report()
+    when kind_of(text) != "text" or is_a(text, "text"):
+        csv_error(report, nothing, [], "input_kind", "CSV input must be plain text.")
+        give report
+    make raw = nothing
+    try:
+        set raw = bytes(text)
+    caught issue:
+        when issue.kind == "limit":
+            csv_error(report, nothing, [], "input_bytes", "CSV input exceeds 262144 bytes.")
+            give report
+        fail issue
+    when length(raw) > 262144:
+        csv_error(report, nothing, [], "input_bytes", "CSV input exceeds 262144 bytes.")
+        give report
+    try:
+        make confirmed = bytes_text(raw)
+    caught issue:
+        when issue.kind == "data":
+            csv_error(report, nothing, [], "input_encoding", "CSV input must be valid UTF-8 without NUL.")
+            give report
+        fail issue
+    when length(text) > 65536:
+        csv_error(report, nothing, [], "input_characters", "CSV input exceeds 65536 decoded characters.")
+        give report
+    make parsed = text
+    when starts_with(parsed, "﻿"):
+        set parsed = slice(parsed, 1, length(parsed))
+    make rows = nothing
+    try:
+        set rows = csv.parse(parsed)
+    caught issue:
+        when issue.kind == "error":
+            csv_error(report, nothing, [], "csv_parse", "CSV input could not be parsed under the native parser's limits.")
+            give report
+        fail issue
+    when length(rows) == 0:
+        csv_error(report, 1, ["header"], "header", "CSV input requires a header record.")
+        give report
+    set report.row_count = length(rows) - 1
+    when report.row_count > 1000:
+        csv_error(report, nothing, [], "row_limit", "CSV input exceeds 1000 data records.")
+        give report
+    make positions = csv_headers(rows[0], report)
+    when positions == nothing:
+        give report
+    give csv_rows(rows, positions, report)
+
+private make csv_report = csv_report
+private make csv_error = csv_error
+private make csv_digits = csv_digits
+private make csv_id = csv_id
+private make csv_money = csv_money
+private make csv_field = csv_field
+private make csv_name = csv_name
+private make csv_headers = csv_headers
+private make csv_rows = csv_rows
+public make check = check

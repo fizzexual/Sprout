@@ -51,7 +51,7 @@ class ValidationLibrary(unittest.TestCase):
                                  '--max-steps', '3000000', '--timeout-ms', '5000'], cwd=self.directory,
                                 capture_output=True, timeout=12)
         self.assertEqual(result.returncode, 0, result.stderr.decode('utf-8', 'replace'))
-        self.assertIn(b'9 passed', result.stdout)
+        self.assertIn(b'10 passed', result.stdout)
         self.assertEqual(result.stderr, b'')
         self.assertEqual(list(self.directory.iterdir()), [])
 
@@ -174,6 +174,44 @@ show json_encode({numbers: results, ordinary: validate.check("ab", {kind: "text"
                     self.assertTrue(value['good']['ok'])
                     self.assertIsNotNone(value['schema']['schema_error'])
                     self.assertFalse(value['nonfinite']['ok'])
+                    self.assertEqual(value['calls'], [])
+
+    def test_native_operations_ignore_all_six_constructor_and_task_value_collisions(self):
+        definitions = 'make calls = []\ntask collision_noted():\n    builtin::add(calls, "callback")\n    give nothing\n'
+        operations = [('kind_of', 1), ('is_a', 2), ('contains', 2), ('length', 1), ('keys', 1), ('add', 2)]
+        for name, arity in operations:
+            definitions += 'type ' + name + ':\n'
+            definitions += ''.join('    make arg%d\n' % index for index in range(arity))
+            definitions += '    make observed = collision_noted()\n'
+            parameters = ', '.join('arg%d' % index for index in range(arity))
+            definitions += 'make ' + name + ' = task(' + parameters + '): collision_noted()\n'
+        for sandbox in (False, True):
+            for ordering in ('before', 'after'):
+                with self.subTest(sandbox=sandbox, declarations=ordering):
+                    call = 'check' if sandbox else 'validate.check'
+                    body = '''make schema = {kind: "map", fields: {
+    name: {kind: "text", min_length: 2, max_length: 4, allowed: ["café"]},
+    id: {kind: "integer", allowed: [builtin::integer("9223372036854775807")]},
+    tags: {kind: "list", max_length: 2, items: {kind: "text"}},
+    note: {kind: "text", required: no, nullable: yes}
+}}
+make good = {name: "café", id: builtin::integer("9223372036854775807"), tags: ["🌱"]}
+make before = builtin::json_encode([schema, good])
+make passed = CALL(good, schema)
+make rejected = CALL({name: "x", id: 1, tags: [42], note: nothing, extra: yes}, schema)
+make malformed = CALL(nothing, {kind: "list"})
+make nonfinite = CALL(builtin::sum([1e308, 1e308]), {kind: "number"})
+show builtin::json_encode({passed: passed, rejected: rejected, malformed: malformed,
+    nonfinite: nonfinite, unchanged: before == builtin::json_encode([schema, good]), calls: calls})'''.replace('CALL', call)
+                    value = self.run_sprout(definitions + body if ordering == 'after' else body,
+                                            sandbox=sandbox, prelude=definitions if ordering == 'before' else '')
+                    self.assertTrue(value['passed']['ok'])
+                    self.assertEqual([(error['path'], error['code']) for error in value['rejected']['errors']],
+                                     [(['name'], 'allowed'), (['name'], 'min_length'),
+                                      (['id'], 'kind'), (['tags', 0], 'kind'), (['extra'], 'unknown')])
+                    self.assertIsNotNone(value['malformed']['schema_error'])
+                    self.assertFalse(value['nonfinite']['ok'])
+                    self.assertTrue(value['unchanged'])
                     self.assertEqual(value['calls'], [])
 
     def test_unsupported_objects_cannot_run_overloads_or_spoof_primitive_kind_tags(self):

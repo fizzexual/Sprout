@@ -3,7 +3,7 @@ use "../../lib/validate.sprout"
 
 private make validation_constructor_calls = []
 private task validation_constructor_noted():
-    add(validation_constructor_calls, "constructor")
+    builtin::add(validation_constructor_calls, "constructor")
     give 0
 
 type number:
@@ -122,4 +122,44 @@ test "caller constructors cannot replace validator tasks or numeric checks":
     expect validate.check("ab", {kind: "text", min_length: 1, max_length: integer("2")}).ok
     expect not validate.check(42, {kind: "text"}).ok
     expect validate.check({name: "Ada"}, {kind: "map", fields: {name: {kind: "text"}}}).ok
+    expect validation_constructor_calls == []
+
+test "six colliding native names cannot redirect validator operations":
+    type kind_of:
+        make value
+        make observed = validation_constructor_noted()
+    type is_a:
+        make value
+        make kind
+        make observed = validation_constructor_noted()
+    type contains:
+        make collection
+        make value
+        make observed = validation_constructor_noted()
+    type length:
+        make value
+        make observed = validation_constructor_noted()
+    type keys:
+        make value
+        make observed = validation_constructor_noted()
+    type add:
+        make collection
+        make value
+        make observed = validation_constructor_noted()
+    make kind_of = task(value): validation_constructor_noted()
+    make is_a = task(value, kind): validation_constructor_noted()
+    make contains = task(collection, value): validation_constructor_noted()
+    make length = task(value): validation_constructor_noted()
+    make keys = task(value): validation_constructor_noted()
+    make add = task(collection, value): validation_constructor_noted()
+    make schema = {kind: "map", fields: {name: {kind: "text", min_length: 2, max_length: 4, allowed: ["café"]}, id: {kind: "integer"}, tags: {kind: "list", items: {kind: "text"}}}}
+    make input = {name: "café", id: builtin::integer("9223372036854775807"), tags: ["🌱"]}
+    make before = builtin::json_encode([schema, input])
+    expect validate.check(input, schema).ok
+    make rejected = validate.check({name: "x", id: 1, tags: [42], extra: yes}, schema)
+    expect not rejected.ok
+    expect builtin::length(rejected.errors) == 5
+    expect validate.check(nothing, {kind: "list"}).schema_error != nothing
+    expect not validate.check(builtin::sum([1e308, 1e308]), {kind: "number"}).ok
+    expect before == builtin::json_encode([schema, input])
     expect validation_constructor_calls == []

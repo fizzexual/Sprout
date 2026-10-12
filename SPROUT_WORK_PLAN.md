@@ -48,7 +48,7 @@ fixture compares the observed link target exactly. That failure remains recorded
 
 | ID | Deliverable | Owner and files | Acceptance / current state |
 | --- | --- | --- | --- |
-| F001 | Pure declarative input validation | `/root/stdlib`: `lib/validate.sprout`, `src/tests/validation_library_test.py`, shared `src/tests/validation_library_test.sprout`, `docs/validation.md`, `examples/validation/order-input.sprout` | Peer approved after preserving and fixing two name-collision false passes: final 18 native controls passed on Windows and separately attributed cached Linux UBSan; shared nine-test corpus passed forced GC. Module task bindings and guarded primitive numeric checks fixed; fresh WASM/complete CI pending. |
+| F001 | Pure declarative input validation | `/root/stdlib`: `lib/validate.sprout`, `src/tests/validation_library_test.py`, shared `src/tests/validation_library_test.sprout`, `docs/validation.md`, `examples/validation/order-input.sprout` | Initial FF485 module: 18 native/nine GC controls and old-name false passes fixed. N008 follow-on: six explicit native calls, 19 boundary/ten GC controls on private A394 and preserved negative preimage. Requires pinned intrinsic-capable runtime; new complete CI pending. |
 | F002 | Read-only project doctor | `/root/distribution`: `tools/project_doctor.py`, `src/tests/project_doctor_test.py`, `docs/project-doctor.md` | Ready for integration: Windows 26 passed/two platform skips; independent offline Linux 28/28 passed including real symlink/FIFO controls. Read-only bounded diagnostics and optional trusted version-only probe; fresh CI pending. |
 | F003 | Contacts API with pagination and durable request keys | `/root/editor_tooling`: `examples/services/contacts_api.sprout`, `integrations/python/test_contacts_api.py`, `docs/contacts-api.md` | Peer approved: owner/peer each passed 14 real native controls; additional independent SQLite oracle verified retry/conflict/rollback semantics. Original contacts/recovery fixtures untouched; fresh complete CI pending. |
 
@@ -66,13 +66,27 @@ supplied-source invocation. All 82 editor/playground/Node/application tests now
 pass locally. The original failed run is preserved; a fresh corrected-revision
 CI run remains required before marking F001–F003 Done.
 
+The corrected `437af0a` [run 38273452312](https://github.com/fizzexual/Sprout/actions/runs/38273452312)
+finished seven of eight jobs passing. Windows passed the new foundation and
+bounded workload contracts, then its healthy PowerShell upgrade fixture hit the
+unchanged 15-second deadline. A second subcase reused that directory and saw the
+first attempt's leftover stage. The original timeout's cause remains unknown;
+one bounded unmodified local reproduction passed. A pure stub reproduced the
+case-contamination defect. The driver now uses separate scenario directories,
+retains failed-stage observations, and records bounded timeout/direct-shell
+cleanup diagnostics without claiming descendant termination. Four focused peer
+controls and all 19 local installer/driver controls passed. No shipping installer
+change, deadline extension, job retry or successful full-CI claim follows from
+those local results. The next integrated revision still needs all eight jobs.
+
 ## Next batch active while integration completes
 
 | Item | Owner and scope | State |
 | --- | --- | --- |
-| N001 | `/root/stdlib`: five new CSV dry-run example/docs/test files | Approved for implementation: bounded synthetic input, exact IDs/money, field errors and no persistence; existing validation files frozen |
-| N008 runtime | `/root/distribution`: native parser/evaluator/formatter, dedicated intrinsic controls and documentation | Approved additive contextual `builtin::name(...)` syntax; preserve current dispatch and permissions, build only a private candidate; no installation promotion |
-| N008 editor | `/root/editor_tooling`: editor indexing/help/navigation/rename and controls | Coordinate contextual intrinsic handling with the runtime owner; ordinary names remain lexical; fresh native/WASM/SDK CI required before promotion |
+| N001 | `/root/stdlib`: five new CSV dry-run example/docs/test files | Peer approved: original4CD/FF485 controls plus independent CSV/Decimal oracle; integrated A394/migrated validator18 controls passed. Exact IDs/money, bounded errors/preview, no persistence; fresh CI pending |
+| N008 runtime | `/root/distribution`: native parser/evaluator/formatter, dedicated intrinsic controls and documentation | Root approved: candidate A39422 controls, legacy frozen compatibility and SDK/Node integration passed; six F001 calls migrated. Private build inputs frozen; new WASM/full CI and verified install promotion pending |
+| N008 editor | `/root/editor_tooling`: editor indexing/help/navigation/rename and controls | Peer approved: 52 controls, preserved/fixed newline diagnostic observation, exact native registry parity, ordinary lexical names retained. New complete CI pending |
+| R001 | Root: Windows installer regression driver; `/root/distribution` read-only peer | Corrected confirmed case contamination and retained failure diagnostics; initial CI timeout cause unknown; 19 local controls and final5 diagnostic controls on Windows/Linux passed, next full CI pending |
 
 N002 remains a design proposal until separately selected. Next-batch edits do
 not change the exact frozen Git revision used by the current batch's CI.
@@ -105,6 +119,7 @@ order. Do not silently broaden an item into a public deployment or stable releas
 | Original frozen eight-hour evidence | Original `86` failed duration/health qualification; separate data/cleanup diagnostic observed 115,200 contacts and 117,933 exits. Final `d9` stopped after 1,115.532 seconds on a confirmed 2.5843477-second backward clock step; 4,464 contacts and 4,570 exits are diagnostic observations. Both remain unqualified and immutable. |
 | New agreed sustained run | Freeze final native/source/header/SDK/harness inputs and fresh trusted review inputs before launch. Preserve v2 policy SHA256 `e0fa18931226ba2c181d2700dea0da3e91fc9cba878c551232298cb9342bd0ee`; independently verify exact clocks/raw duration, actual SQLite data, lifecycle/thread baselines, cadence and resource/storage limits. Never reuse the failed candidate's sealed trust. |
 | Actual supervisor/crash recovery and representative deployment | Finite cold recovery and compiled/adapter tests do not establish these platform-specific behaviors. Keep limits explicit and scope any future rehearsal separately. |
+| Windows installer CI observation | `437af0a` healthy PowerShell upgrade timed out at 15 seconds; original cause unknown. Correct driver isolation/diagnostics with unchanged deadlines, preserve the failure and require fresh complete CI before promotion. |
 | Independent external security audit | Agent peer review and sanitizers are evidence for tested cases; external professional review remains separate. |
 | Live Paper and stable release | Live server use awaits the owner's EULA decision. No stable tag/public service/paid infrastructure is authorized. |
 
@@ -142,3 +157,19 @@ order. Do not silently broaden an item into a public deployment or stable releas
   passed; mock-only correction keeps capability negatives and fresh-filesystem
   assertions and adds shared-source/mount/sandbox wiring checks. Start N001/N008
   as the next isolated feature batch while corrected CI is prepared.
+- 2026-10-12: Preserve the separate `437af0a` seven-of-eight result and Windows
+  raw failure log. Local installer/driver correction passed 19 controls after
+  independent peer review; no installer behavior changed. N008's private normal
+  SQLite candidate passed 22 native controls and 101 combined editor/Node/app
+  tests. Root replay preserved nine legacy exit/output observations; one saved
+  stderr string had earlier encoding damage, so a separate raw-byte comparison
+  proved that baseline/candidate diagnostic bytes match. All failed comparison
+  artifacts remain preserved. N001 has 18 local controls and peer review active;
+  rebuilt WASM and final candidate CI remain required.
+- 2026-10-12: N001 independently verified capped mixed errors, exact currency
+  overflow/carry and read-only input observations; its original4CD/FF485 evidence
+  remains separate from the new A394/migrated-library18-control run. N008 editor
+  has 52 passing controls after the reproduced newline correction. F001 now uses
+  six explicit native operations and passed19 boundary/ten GC tests; the archived
+  FF485 negative control remains. Native installation is still4CD pending new
+  candidate full CI. All source owners are frozen for one integrated commit.

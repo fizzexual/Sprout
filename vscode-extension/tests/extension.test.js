@@ -6,7 +6,7 @@ const { test } = require('node:test');
 
 function harness() {
   const root = path.resolve('fixture', 'project'), file = path.join(root, 'src', 'app.sprout');
-  const handlers = {}, commands = {}, children = [], reports = [], tasks = [];
+  const handlers = {}, commands = {}, children = [], reports = [], tasks = [], registrations = [];
   const disposable = () => ({ dispose() {} });
   const doc = { languageId: 'sprout', fileName: file, version: 1, lineCount: 4, isClosed: false,
     uri: { scheme: 'file', toString: () => file, fsPath: file }, getText: () => 'use helper\nshow 42\n',
@@ -20,7 +20,7 @@ function harness() {
       onDidChangeActiveTextEditor: () => disposable(),
       createStatusBarItem: () => ({ ...disposable(), show() {}, hide() {} }) },
     languages: { createDiagnosticCollection: () => ({ ...disposable(), set: (uri, values) => reports.push(values), delete() {} }),
-      ...Object.fromEntries(['CompletionItem', 'Hover', 'SignatureHelp', 'Definition', 'Reference', 'Rename', 'DocumentFormattingEdit'].map(kind => [`register${kind}Provider`, () => disposable()])) },
+      ...Object.fromEntries(['CompletionItem', 'Hover', 'SignatureHelp', 'Definition', 'Reference', 'Rename', 'DocumentFormattingEdit'].map(kind => [`register${kind}Provider`, (...args) => { registrations.push({ kind, args }); return disposable(); }])) },
     commands: { registerCommand: (id, fn) => { commands[id] = fn; return disposable(); } },
     tasks: { executeTask: async task => tasks.push(task) }, TaskScope: { Workspace: 1 },
     TaskRevealKind: { Always: 1 }, TaskPanelKind: { Shared: 1 }, StatusBarAlignment: { Left: 1 },
@@ -46,7 +46,7 @@ function harness() {
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8'), sandbox);
   const extension = sandbox.module.exports;
   extension.activate({ subscriptions: [] });
-  return { root, file, doc, handlers, commands, children, reports, tasks, extension };
+  return { root, file, doc, handlers, commands, children, reports, tasks, registrations, extension };
 }
 
 test('checks unsaved source in its project, without temporary files', () => {
@@ -103,4 +103,11 @@ test('run uses the executable directly with correct arguments and working direct
 test('cancelled saves do not run outdated code', async () => {
   const h = harness(); h.doc.save = async () => false; await h.commands['sprout.run']();
   assert.equal(h.tasks.length, 0); h.extension.deactivate();
+});
+
+test('completion triggers after intrinsic colons as well as namespace dots', () => {
+  const h = harness();
+  const registration = h.registrations.find(item => item.kind === 'CompletionItem');
+  assert.deepEqual(Array.from(registration.args.slice(2)), ['.', ':']);
+  h.extension.deactivate();
 });

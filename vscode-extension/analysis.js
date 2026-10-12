@@ -17,6 +17,21 @@ const HELP = {
   json: ['json(text)', 'Parse JSON text into Sprout values; malformed input gives nothing.'],
   remember: ['remember(key, value)', 'Persist a value under a key.'],
   recall: ['recall(key)', 'Read a remembered value; an absent key gives nothing.'],
+  number: ['number(value)', 'Convert ordinary numeric text or an exact numeric value to an ordinary floating-point number.'],
+  is_number: ['is_number(value)', 'Check whether a value can be parsed as an ordinary number.'],
+  kind_of: ['kind_of(value)', 'Return the value kind as text, including integer and decimal for exact numbers.'],
+  is_a: ['is_a(value, type)', 'Check whether an object belongs to the named type or a descendant.'],
+  keys: ['keys(map)', 'Return map keys as a list of text.'],
+  contains: ['contains(collection, value)', 'Check whether a list, map, or text contains a value or key.'],
+  copy: ['copy(value)', 'Copy a value, including nested lists and maps.'],
+  add: ['add(items, value)', 'Append a value to a list.'],
+  upper: ['upper(text)', 'Convert ASCII letters in text to uppercase.'],
+  lower: ['lower(text)', 'Convert ASCII letters in text to lowercase.'],
+  bytes: ['bytes(value)', 'Construct a binary value from text or a list of byte values.'],
+  bytes_hex: ['bytes_hex(value)', 'Encode a binary value as hexadecimal text.'],
+  bytes_from_hex: ['bytes_from_hex(text)', 'Decode hexadecimal text into a binary value.'],
+  bytes_text: ['bytes_text(value)', 'Decode a binary value as checked UTF-8 text.'],
+  bytes_list: ['bytes_list(value)', 'Return a binary value as a list of byte values.'],
   integer: ['integer(value)', 'Convert a value to an exact signed 64-bit integer.'],
   decimal: ['decimal(value)', 'Construct an exact decimal value from text or an integer.'],
   decimal_div: ['decimal_div(left, right, places)', 'Divide exact decimals using an explicit number of decimal places.'],
@@ -52,7 +67,7 @@ const NAMESPACES = {
   files: { read: 'file_read', write: 'file_write', info: 'file_info', list: 'file_list', mkdir: 'file_mkdir', remove: 'file_remove', move: 'file_move' },
   csv: { parse: 'csv_parse', write: 'csv_write' },
   sqlite: { open: 'sql_open', execute: 'sql_execute', transaction: 'sql_transaction', close: 'sql_close', migrate: 'sql_migrate', migrations: 'sql_migrations' },
-  data: { json_encode: 'json_encode', json_decode: 'json_decode', read_input: 'read_input' },
+  data: { json_encode: 'json_encode', json_decode: 'json_decode', read_input: 'read_input', bytes: 'bytes', bytes_hex: 'bytes_hex', bytes_from_hex: 'bytes_from_hex', bytes_text: 'bytes_text', bytes_list: 'bytes_list' },
   numbers: { integer: 'integer', decimal: 'decimal', decimal_div: 'decimal_div' },
   workflow: { run: 'workflow_run', plan: 'workflow_plan', inspect: 'workflow_inspect' },
 };
@@ -105,7 +120,7 @@ function tokenize(text) {
       if (c === '{') braces++;
       if (c === '}') braces--;
       const pair = text.slice(i, i + 2);
-      i += ['->', '|>', '==', '!=', '<=', '>=', '+=', '-=', '*=', '/=', '%='].includes(pair) ? 2 : 1;
+      i += ['::', '->', '|>', '==', '!=', '<=', '>=', '+=', '-=', '*=', '/=', '%='].includes(pair) ? 2 : 1;
       tokens.push({ kind: 'punct', value: text.slice(start, i), start, end: i });
     }
   }
@@ -120,7 +135,7 @@ function analyze(text, file = 'untitled.sprout') {
   const starts = [0];
   for (let i = 0; i < text.length; i++) if (text[i] === '\n') starts.push(i + 1);
   const lineAt = offset => { let lo = 0, hi = starts.length; while (lo + 1 < hi) { const mid = (lo + hi) >> 1; if (starts[mid] <= offset) lo = mid; else hi = mid; } return lo; };
-  for (const token of tokens) { token.line = lineAt(token.start); token.column = token.start - starts[token.line]; }
+  for (const [index, token] of tokens.entries()) { token.index = index; token.line = lineAt(token.start); token.column = token.start - starts[token.line]; }
   const root = { start: 0, end: text.length + 1, parent: null, kind: 'file', symbols: [], children: [] };
   const scopes = [root], symbols = [], imports = [], issues = [], declarationTokens = new Set(), ignored = new Set();
   const addScope = (parent, start, end, kind) => { const scope = { parent, start, end, kind, symbols: [], children: [] }; parent.children.push(scope); scopes.push(scope); return scope; };
@@ -160,7 +175,7 @@ function analyze(text, file = 'untitled.sprout') {
       stack.pop().scope.end = starts[line];
     }
     const scope = stack[stack.length - 1].scope;
-    for (const token of ts) token.scope = scope;
+    for (const token of ts) { token.scope = scope; token.statementLine = line; }
     let p = ['public', 'private'].includes(ts[0].value) ? 1 : 0;
     const head = ts[p]?.value, isPublic = p === 1 && ts[0].value === 'public';
     let owner;
@@ -268,14 +283,52 @@ function analyze(text, file = 'untitled.sprout') {
 }
 
 function tokenAt(model, offset) { return model.tokens.find(t => t.kind === 'name' && t.start <= offset && offset <= t.end); }
+function tokenIndex(model, token) { return token && model.tokens[token.index] === token ? token.index : model.tokens.indexOf(token); }
+// Only the bare contextual prefix has intrinsic identity. A single colon is
+// still a named input/map key; dotted receivers and declarations remain lexical.
+function intrinsicAt(model, token) {
+  let i = tokenIndex(model, token);
+  if (i < 0 || token.kind !== 'name') return null;
+  if (model.tokens[i - 1]?.value === '::') i -= 2;
+  const prefix = model.tokens[i], separator = model.tokens[i + 1], candidate = model.tokens[i + 2];
+  if (prefix?.value !== 'builtin' || separator?.value !== '::' || model.tokens[i - 1]?.value === '.' || model.declarationTokens.has(prefix)) return null;
+  if (prefix.statementLine !== separator.statementLine || prefix.interpolation !== separator.interpolation) return null;
+  const operation = candidate?.kind === 'name' && candidate.statementLine === prefix.statementLine && candidate.interpolation === prefix.interpolation ? candidate : null;
+  if (token !== prefix && token !== operation) return null;
+  return { prefix, separator, token: operation };
+}
+function intrinsicCompletion(model, offset) {
+  const token = model.tokens.findLast(t => t.start < offset);
+  if (!token) return null;
+  const i = tokenIndex(model, token);
+  const prefix = token.value === '::' ? model.tokens[i - 1] : model.tokens[i - 2];
+  const intrinsic = prefix && intrinsicAt(model, prefix);
+  if (!intrinsic || intrinsic.separator.end > offset || (token !== intrinsic.separator && token !== intrinsic.token)) return null;
+  const gap = model.text.slice(Math.min(token.end, offset), offset);
+  if (!/^[ \t\r\n]*$/.test(gap)) return null;
+  if (/[\r\n]/.test(gap)) {
+    // Line continuation belongs to an existing bracketed expression. A blank
+    // line after a complete top-level statement does not inherit its prefix.
+    let depth = 0;
+    for (const t of model.tokens) {
+      if (t.start >= offset) break;
+      if (t.interpolation !== intrinsic.prefix.interpolation) continue;
+      if (['(', '[', '{'].includes(t.value)) depth++;
+      if ([')', ']', '}'].includes(t.value)) depth--;
+    }
+    if (depth <= 0) return null;
+  }
+  return intrinsic;
+}
 function isReference(model, token) {
-  const i = model.tokens.indexOf(token), prev = model.tokens[i - 1], next = model.tokens[i + 1];
-  return token.kind === 'name' && !KEYWORDS.has(token.value) && !model.ignored.has(token) && !model.declarationTokens.has(token) && !(next?.value === ':' && ['{', ',', '('].includes(prev?.value));
+  const i = tokenIndex(model, token), prev = model.tokens[i - 1], next = model.tokens[i + 1];
+  return token.kind === 'name' && !intrinsicAt(model, token) && !KEYWORDS.has(token.value) && !model.ignored.has(token) && !model.declarationTokens.has(token) && !(next?.value === ':' && ['{', ',', '('].includes(prev?.value));
 }
 function symbolAt(model, offset, modules = new Map()) {
   const token = tokenAt(model, offset); if (!token) return null;
+  if (intrinsicAt(model, token)) return null;
   const declaration = model.symbols.find(s => s.token.start === token.start); if (declaration) return declaration;
-  const i = model.tokens.indexOf(token);
+  const i = tokenIndex(model, token);
   if (model.tokens[i + 1]?.value === ':' && ['(', ','].includes(model.tokens[i - 1]?.value)) {
     const call = callAt(model, token.start, modules);
     return call?.symbol?.body?.symbols.find(s => s.kind === 'parameter' && s.name === token.value) || null;
@@ -335,14 +388,26 @@ function callAt(model, offset, modules = new Map()) {
   }
   const frame = stack[stack.length - 1]; if (!frame || frame.token.value !== '(') return null;
   const name = before[frame.index - 1]; if (!name || name.kind !== 'name' || model.declarationTokens.has(name)) return null;
+  const intrinsic = intrinsicAt(model, name);
+  if (intrinsic && (frame.token.statementLine !== name.statementLine || frame.token.interpolation !== name.interpolation)) return null;
   const argument = before[frame.argumentStart];
-  return { name: name.value, symbol: symbolAt(model, name.start, modules), activeParameter: frame.commas, argumentName: argument?.kind === 'name' && before[frame.argumentStart + 1]?.value === ':' ? argument.value : null, token: name };
+  return { name: name.value, intrinsic, symbol: symbolAt(model, name.start, modules), activeParameter: frame.commas, argumentName: argument?.kind === 'name' && before[frame.argumentStart + 1]?.value === ':' ? argument.value : null, token: name };
 }
 function callIssues(model, modules = new Map()) {
   const issues = [];
+  for (const token of model.tokens) {
+    const intrinsic = intrinsicAt(model, token);
+    if (!intrinsic || token !== intrinsic.token) continue;
+    const opening = model.tokens[tokenIndex(model, token) + 1];
+    if (!BUILTINS.includes(token.value)) issues.push({ token, code: 'intrinsic-name', message: `There is no native built-in operation '${token.value}'.` });
+    else if (opening?.value !== '(' || opening.statementLine !== token.statementLine || opening.interpolation !== token.interpolation) issues.push({ token, code: 'intrinsic-call-required', message: `Explicit built-in operations require a call, like builtin::${token.value}(...); they are not task values.` });
+  }
   for (let i = 1; i < model.tokens.length; i++) if (model.tokens[i].value === '(') {
     const name = model.tokens[i - 1]; if (name.kind !== 'name' || model.declarationTokens.has(name)) continue;
-    const symbol = symbolAt(model, name.start, modules); if (!symbol?.params || !['task', 'method'].includes(symbol.kind)) continue;
+    const intrinsic = intrinsicAt(model, name);
+    if (intrinsic && (model.tokens[i].statementLine !== name.statementLine || model.tokens[i].interpolation !== name.interpolation)) continue;
+    const symbol = symbolAt(model, name.start, modules);
+    if (intrinsic ? !BUILTINS.includes(name.value) : !symbol?.params || !['task', 'method'].includes(symbol.kind)) continue;
     let depth = 1, end = i + 1, count = 0, content = false, part = [], parts = [];
     for (; end < model.tokens.length; end++) {
       if (model.tokens[end].interpolation !== name.interpolation) continue;
@@ -355,6 +420,10 @@ function callIssues(model, modules = new Map()) {
     if (depth) continue;
     count += content ? 1 : 0;
     if (part.length) parts.push(part);
+    if (intrinsic) {
+      if (parts.some(part => part[0]?.kind === 'name' && part[1]?.value === ':')) issues.push({ token: name, code: 'intrinsic-arguments', message: 'Explicit built-in calls accept positional inputs only; named inputs are rejected before evaluation.' });
+      continue;
+    }
     // Pipeline calls receive the left-hand value as an additional first argument.
     if (model.tokens[i - 2]?.value === '|>' || (model.tokens[i - 2]?.value === '.' && model.tokens[i - 4]?.value === '|>')) count++;
     const params = symbol.kind === 'method' && symbol.params[0]?.name === 'self' ? symbol.params.slice(1) : symbol.params;
@@ -378,4 +447,4 @@ function callIssues(model, modules = new Map()) {
   return issues;
 }
 
-module.exports = { analyze, tokenize, tokenAt, symbolAt, visibleSymbols, references, rename, callAt, callIssues, KEYWORDS, BUILTINS, HELP, NAMESPACES };
+module.exports = { analyze, tokenize, tokenAt, intrinsicAt, intrinsicCompletion, symbolAt, visibleSymbols, references, rename, callAt, callIssues, KEYWORDS, BUILTINS, HELP, NAMESPACES };

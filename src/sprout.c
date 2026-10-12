@@ -494,7 +494,7 @@ typedef enum {
   T_PLUS, T_MINUS, T_STAR, T_SLASH, T_PERCENT, T_DOT,
   T_PLUSEQ, T_MINUSEQ, T_STAREQ, T_SLASHEQ, T_PERCENTEQ, T_ARROW,
   T_EQ, T_EQEQ, T_BANGEQ, T_LT, T_LE, T_GT, T_GE, T_PIPE,
-  T_LPAREN, T_RPAREN, T_LBRACK, T_RBRACK, T_LBRACE, T_RBRACE, T_COMMA, T_COLON,
+  T_LPAREN, T_RPAREN, T_LBRACK, T_RBRACK, T_LBRACE, T_RBRACE, T_COMMA, T_COLON, T_DCOLON,
   T_NEWLINE, T_INDENT, T_DEDENT, T_EOF
 } TokType;
 
@@ -621,7 +621,7 @@ static void scan_token(const char *src, int *ip, int len, int line) {
     case '}': push_tok(T_RBRACE, NULL, 0, line); if (g_bracket_depth > 0) g_bracket_depth--; i++; break;
     case ',': push_tok(T_COMMA, NULL, 0, line); i++; break;
     case '.': push_tok(T_DOT, NULL, 0, line); i++; break;
-    case ':': push_tok(T_COLON, NULL, 0, line); i++; break;
+    case ':': if (i + 1 < len && src[i + 1] == ':') { push_tok(T_DCOLON, NULL, 0, line); i += 2; } else { push_tok(T_COLON, NULL, 0, line); i++; } break;
     case '=': if (i + 1 < len && src[i + 1] == '=') { push_tok(T_EQEQ, NULL, 0, line); i += 2; } else { push_tok(T_EQ, NULL, 0, line); i++; } break;
     case '!': if (i + 1 < len && src[i + 1] == '=') { push_tok(T_BANGEQ, NULL, 0, line); i += 2; } else fail(line, "I didn't expect a '!' here (use 'not', or '!=' for not-equal)."); break;
     case '<': if (i + 1 < len && src[i + 1] == '=') { push_tok(T_LE, NULL, 0, line); i += 2; } else { push_tok(T_LT, NULL, 0, line); i++; } break;
@@ -732,6 +732,7 @@ static void tokenize(const char *src, int len) {
 typedef enum { E_NUM, E_STR, E_BOOL, E_NONE, E_VAR, E_UNARY, E_BINARY, E_LOGICAL, E_COALESCE, E_CALL, E_LIST, E_MAP, E_INDEX, E_SLICE, E_MEMBER, E_LAMBDA, E_RANGE, E_COMPREHENSION, E_METHODCALL } EKind;
 typedef struct Expr {
   EKind kind; double num; char *str; int boolean; char *name; char *module;  /* module: server.name */
+  int builtin_call;                       /* contextual builtin::name(): bypass callable-name lookup */
   TokType op; struct Expr *left, *right, *operand; int line;
   struct Expr **args; int nargs;         /* call inputs / list items / map values */
   char **keys;                            /* E_MAP keys (parallel to args) */
@@ -831,6 +832,15 @@ static Expr *primary(void) {
   }
   if (match(T_IDENT)) {
     char *module = NULL; char *who = t.text; int line = t.line;
+    if (match(T_DCOLON)) {
+      if (strcmp(who, "builtin")) fail(line, "only 'builtin' uses '::', like builtin::length(items).");
+      Token operation = expect(T_IDENT, "I expected a builtin operation name after 'builtin::', like builtin::length(items).");
+      expect(T_LPAREN, "an explicit builtin operation needs a call, like builtin::length(items); it is not a task value.");
+      Expr *e = new_expr(E_CALL, line); e->name = operation.text; e->builtin_call = 1;
+      parse_call_inputs(e); return e;
+    }
+    if (!strcmp(who, "builtin") && check(T_COLON) && toks[pos + 1].type == T_COLON)
+      fail(line, "write the two colons together as '::', like builtin::length(items).");
     if (check(T_DOT)) {              /* a module member: server.start(...) or server.config */
       advance();
       Token m = expect(T_IDENT, "I expected a name after '.' (like server.start).");
@@ -3623,7 +3633,11 @@ static Value eval(Expr *e, Env *env) {
       return l.type == V_NONE ? eval(e->right, env) : l;
     }
     case E_BINARY: return eval_binary(e, env);
-    case E_CALL:   if (e->module) return call_module(e, env);
+    case E_CALL:   if (e->builtin_call) {
+                     if (!is_builtin_name(e->name)) { char m[240]; snprintf(m, sizeof m, "there's no builtin operation called '%s'.", e->name); fail_hard(e->line, "name", m); }
+                     return call_builtin(e, env);
+                   }
+                   if (e->module) return call_module(e, env);
                    { Value *fv = env_find(env, e->name); if (fv && fv->type == V_TASK) return call_task_def(fv->task, e, env); }  /* call a task held in a variable */
                    { TypeReg *ty = type_find(e->name); if (ty) return type_instantiate(ty, e, env); }  /* TypeName(args) -> a new object */
                    if (task_find(e->name)) return call_task(e, env);
@@ -3762,7 +3776,9 @@ static void render_expr(Expr *e, int wv, Env *env, char **o, size_t *c, size_t *
       render_expr(e->left, wv, env, o, c, l); sb_add(o, c, l, " "); sb_add(o, c, l, op_sym(e->op)); sb_add(o, c, l, " "); render_expr(e->right, wv, env, o, c, l); break;
     }
     case E_COALESCE: render_expr(e->left, wv, env, o, c, l); sb_add(o, c, l, " or else "); render_expr(e->right, wv, env, o, c, l); break;
-    case E_CALL: if (e->module) { sb_add(o, c, l, e->module); sb_add(o, c, l, "."); } sb_add(o, c, l, e->name); sb_add(o, c, l, "(");
+    case E_CALL: if (e->builtin_call) sb_add(o, c, l, "builtin::");
+      else if (e->module) { sb_add(o, c, l, e->module); sb_add(o, c, l, "."); }
+      sb_add(o, c, l, e->name); sb_add(o, c, l, "(");
       for (int i = 0; i < e->nargs; i++) { if (i) sb_add(o, c, l, ", "); if (e->keys && e->keys[i]) { sb_add(o, c, l, e->keys[i]); sb_add(o, c, l, ": "); } render_expr(e->args[i], wv, env, o, c, l); } sb_add(o, c, l, ")"); break;
     case E_MEMBER: sb_add(o, c, l, e->module); sb_add(o, c, l, "."); sb_add(o, c, l, e->name); break;
     case E_LIST: sb_add(o, c, l, "[");

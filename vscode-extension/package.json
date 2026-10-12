@@ -2,7 +2,7 @@
   "name": "sprout-language",
   "displayName": "Sprout",
   "description": "Language support for Sprout: scope-aware completion, navigation, rename, task signatures, formatting, and live checking.",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "publisher": "fizzexual",
   "license": "MIT",
   "icon": "icon.png",
@@ -60,7 +60,7 @@
         "sprout.staticDiagnostics": {
           "type": "boolean",
           "default": true,
-          "description": "Warn about duplicate lexical declarations, unbound assignment targets, and argument counts for known tasks. This conservative source index is not a full type checker."
+          "description": "Warn about duplicate lexical declarations, unbound assignment targets, known task inputs, and invalid explicit built-in calls. This conservative source index is not a full type checker."
         },
         "sprout.command": {
           "type": "string",

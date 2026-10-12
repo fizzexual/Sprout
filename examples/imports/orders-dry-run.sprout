@@ -1,0 +1,37 @@
+~ Read-only CLI: print one bounded JSON report; never import or write rows.
+use files
+use "../../lib/cli.sprout"
+use "./order_csv.sprout"
+
+private task csv_cli_error(code, message):
+    give {ok: no, row_count: nothing, valid_rows: 0, error_count: 1, errors: [{record: nothing, path: [], code: code, message: message}], truncated: no, preview: [], totals: nothing}
+
+private make csv_cli_error = csv_cli_error
+
+make arguments = cli.parse(args(), [])
+when arguments.ok and arguments.help:
+    show cli.help("orders-dry-run", [], "Validate a UTF-8 orders CSV without importing it.", "INPUT.csv")
+    exit(0)
+
+when not arguments.ok or length(arguments.positionals) != 1:
+    show json_encode(csv_cli_error("arguments", "Provide exactly one CSV input path; use --help for usage."))
+    exit(2)
+
+make loaded = files.read(arguments.positionals[0], {binary: yes, max_bytes: 262144})
+when not loaded.ok:
+    show json_encode(csv_cli_error("input_io", "Could not read the input file within the 262144-byte limit."))
+    exit(2)
+
+make text = nothing
+try:
+    set text = bytes_text(loaded.data)
+caught issue:
+    when issue.kind != "data":
+        fail issue
+    show json_encode(csv_cli_error("input_encoding", "CSV input must be valid UTF-8 without NUL."))
+    exit(2)
+
+make report = order_csv.check(text)
+show json_encode(report)
+when not report.ok:
+    exit(2)

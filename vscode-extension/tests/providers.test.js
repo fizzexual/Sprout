@@ -152,3 +152,93 @@ test('static warnings combine known arity and assignments without speculative er
   const warnings = h.provider.staticDiagnostics(doc);
   assert.deepEqual(Array.from(warnings.map(w => w.code)).sort(), ['task-arity', 'unbound-assignment']);
 });
+
+test('explicit native completion ignores lexical shadows and inserts a direct call', () => {
+  const h = harness(), text = 'make builtin = {}\ntask number(left_input, right_input):\n    give left_input\nshow builtin::num\nshow builtin :: \n';
+  const doc = h.document(text);
+  for (const at of [text.indexOf('::num') + 5, text.lastIndexOf(':: ') + 3]) {
+    const items = h.provider.completion.provideCompletionItems(doc, doc.positionAt(at));
+    const number = items.find(item => item.label === 'number');
+    assert.equal(number.detail, 'builtin::number(value)');
+    assert.equal(number.insertText.value, 'number($0)');
+    assert.match(number.documentation, /bypassing lexical task and constructor/);
+    assert.equal(items.some(item => item.label === 'builtin' || item.label === 'left_input' || item.label === 'make'), false);
+    assert.equal(items.some(item => item.label === 'bytes_from_hex'), true);
+    assert.equal(items.some(item => item.label === 'workflow_plan'), true);
+  }
+});
+
+test('native hover and signatures keep native identity and capability boundaries', () => {
+  const h = harness(), text = 'task number(first, second):\n    give first\nnumber(1, )\nbuiltin::number("2")\nbuiltin::file_read("path", )\n';
+  const doc = h.document(text);
+  const native = h.provider.hover.provideHover(doc, doc.positionAt(text.indexOf('number("2")')));
+  assert.match(native.contents.value, /builtin::number\(value\)/);
+  assert.match(native.contents.value, /Positional inputs only/);
+  assert.match(native.contents.value, /Sandbox permissions/);
+  const ordinary = h.provider.hover.provideHover(doc, doc.positionAt(text.indexOf('number(1')));
+  assert.match(ordinary.contents.value, /task number\(first, second\)/);
+  const nativeSignature = h.provider.signature.provideSignatureHelp(doc, doc.positionAt(text.indexOf('"2")') + 3));
+  assert.equal(nativeSignature.signatures[0].label, 'builtin::number(value)');
+  assert.equal(nativeSignature.signatures[0].parameters.length, 1);
+  const checked = h.provider.signature.provideSignatureHelp(doc, doc.positionAt(text.lastIndexOf(', )') + 2));
+  assert.equal(checked.signatures[0].label, 'builtin::file_read(path, options = {})');
+  assert.equal(checked.activeParameter, 1);
+});
+
+test('intrinsic prefixes and operations have no lexical definition, references or rename edits', () => {
+  const h = harness(), text = 'make builtin = 1\ntask number(value):\n    give value\nnumber(2)\nshow builtin\nbuiltin::number("2")\n';
+  const doc = h.document(text);
+  for (const at of [text.indexOf('builtin::'), text.indexOf('number("2")')]) {
+    const position = doc.positionAt(at);
+    assert.equal(h.provider.definition.provideDefinition(doc, position), null);
+    assert.equal(h.provider.reference.provideReferences(doc, position, { includeDeclaration: true }).length, 0);
+    assert.throws(() => h.provider.rename.prepareRename(doc, position), /native built-in/);
+    assert.throws(() => h.provider.rename.provideRenameEdits(doc, position, 'changed'), /native built-in/);
+  }
+  const ordinary = h.provider.rename.provideRenameEdits(doc, doc.positionAt(text.indexOf('make builtin') + 5), 'local');
+  assert.equal(ordinary.edits.length, 2, 'ordinary builtin binding remains renameable');
+  const taskRefs = h.provider.reference.provideReferences(doc, doc.positionAt(text.indexOf('number(2)')), { includeDeclaration: true });
+  assert.equal(taskRefs.length, 2, 'native operation is not a reference to the shadowing task');
+});
+
+test('ordinary named builtin task input retains signature selection and safe rename', () => {
+  const h = harness(), text = 'task combine(builtin, second = 1):\n    give builtin + second\ncombine(second: 2, builtin: builtin::number("3"))\n';
+  const doc = h.document(text), at = text.indexOf('builtin: builtin::');
+  const signature = h.provider.signature.provideSignatureHelp(doc, doc.positionAt(at + 'builtin: '.length));
+  assert.equal(signature.signatures[0].label, 'combine(builtin, second = 1)');
+  assert.equal(signature.activeParameter, 0);
+  const result = h.provider.rename.provideRenameEdits(doc, doc.positionAt(text.indexOf('builtin,')), 'value');
+  assert.equal(result.edits.length, 3);
+  assert.equal(h.provider.staticDiagnostics(doc).length, 0);
+});
+
+test('intrinsic diagnostics and suggestions never interpret comments or literal text', () => {
+  const h = harness(), text = 'task missing(value):\n    give value\nbuiltin::missing(1)\nbuiltin::number(value: "2")\nmake callback = builtin::number\nmake ordinary = "builtin::missing(1)"\nmake triple = """\nbuiltin::missing(1)\n"""\n~ builtin::missing(1)\n# builtin::missing(1)\n';
+  const doc = h.document(text), warnings = h.provider.staticDiagnostics(doc);
+  assert.deepEqual(Array.from(warnings.map(w => w.code)).sort(), ['intrinsic-arguments', 'intrinsic-call-required', 'intrinsic-name']);
+  const unknown = h.provider.hover.provideHover(doc, doc.positionAt(text.indexOf('missing(1)')));
+  assert.equal(unknown, null, 'unknown explicit names cannot borrow local task documentation');
+  for (const at of [text.indexOf('"builtin::') + '"builtin::'.length, text.lastIndexOf('~ builtin::') + '~ builtin::'.length, text.lastIndexOf('# builtin::') + '# builtin::'.length, text.indexOf('builtin::missing(1)', text.indexOf('"""')) + 'builtin::'.length]) {
+    assert.equal(h.provider.completion.provideCompletionItems(doc, doc.positionAt(at)).length, 0);
+  }
+});
+
+test('f-string expressions offer intrinsic completion while literal portions stay opaque', () => {
+  const h = harness(), text = 'show f"builtin::num {builtin::num} literal builtin::num"\n';
+  const doc = h.document(text), expression = text.indexOf('{builtin::num') + '{builtin::num'.length;
+  const items = h.provider.completion.provideCompletionItems(doc, doc.positionAt(expression));
+  assert.ok(items.some(item => item.label === 'number'));
+  assert.equal(h.provider.completion.provideCompletionItems(doc, doc.positionAt(text.indexOf('builtin::num') + 'builtin::num'.length)).length, 0);
+});
+
+test('intrinsic help cannot bridge a top-level newline while bracketed continuations stay valid', () => {
+  const h = harness(), invalid = 'show builtin::length\n([])\n', doc = h.document(invalid);
+  assert.deepEqual(Array.from(h.provider.staticDiagnostics(doc).map(issue => issue.code)), ['intrinsic-call-required']);
+  assert.equal(h.provider.signature.provideSignatureHelp(doc, doc.positionAt(invalid.indexOf('([])') + 1)), null);
+  for (const text of ['show (builtin::length\n([1]))\n', 'show f"{builtin::length([1])}"\n']) {
+    const valid = h.document(text);
+    assert.equal(h.provider.staticDiagnostics(valid).length, 0);
+    const signature = h.provider.signature.provideSignatureHelp(valid, valid.positionAt(text.indexOf('([1])') + 1));
+    assert.equal(signature.signatures[0].label, 'builtin::length(value)');
+  }
+});

@@ -72,7 +72,16 @@ function markdown(symbol) {
 function withModels(index) { for (const model of index.models.values()) for (const symbol of model.symbols) symbol.model = model; return index; }
 function providers(projectDirectory, sproutCmd) {
   const index = doc => withModels(project(doc, projectDirectory(doc)));
+  const intrinsicHelp = name => {
+    if (!source.BUILTINS.includes(name)) return null;
+    const help = source.HELP[name] || [`${name}(...)`, 'Native Sprout built-in operation.'];
+    return [`builtin::${help[0]}`, `${help[1]}\nCalls the native operation directly, bypassing lexical task and constructor names. Positional inputs only; this operation is not a first-class task value. Sandbox permissions, runtime limits, and build-profile restrictions still apply.`];
+  };
   const builtinHelp = (model, token) => {
+    const intrinsic = source.intrinsicAt(model, token);
+    if (intrinsic) return token === intrinsic.prefix
+      ? ['builtin::name(...)', 'Explicit native built-in call. The two colons must be adjacent. Positional inputs only; native permissions and runtime limits still apply.']
+      : intrinsicHelp(token.value);
     const i = model.tokens.indexOf(token);
     if (model.tokens[i - 1]?.value === '.') {
       const object = model.resolve(model.tokens[i - 2]?.value, token.start);
@@ -81,7 +90,12 @@ function providers(projectDirectory, sproutCmd) {
     }
     return source.HELP[token.value];
   };
-  const excluded = (model, at) => model.excluded.some(([start, end]) => start <= at && at < end);
+  const excluded = (model, at) => {
+    // A cursor immediately before the closing interpolation brace is still in
+    // the expression. Other literal and comment ranges remain excluded.
+    const expressionEnd = model.interpolations.some(([, end]) => end === at);
+    return model.excluded.some(([start, end]) => start <= at && at < end && !(expressionEnd && start === at));
+  };
   const item = symbol => {
     const kind = ['task', 'method'].includes(symbol.kind) ? vscode.CompletionItemKind.Function : symbol.kind === 'module' ? vscode.CompletionItemKind.Module : ['type', 'interface'].includes(symbol.kind) ? vscode.CompletionItemKind.Class : vscode.CompletionItemKind.Variable;
     const result = new vscode.CompletionItem(symbol.name, kind);
@@ -94,6 +108,12 @@ function providers(projectDirectory, sproutCmd) {
     provideCompletionItems(doc, position) {
       const p = index(doc), at = offset(doc, position);
       if (excluded(p.entry, at)) return [];
+      if (source.intrinsicCompletion(p.entry, at)) return source.BUILTINS.map(name => {
+        const result = new vscode.CompletionItem(name, vscode.CompletionItemKind.Function), help = intrinsicHelp(name);
+        result.detail = help[0]; result.documentation = help[1];
+        result.insertText = new vscode.SnippetString(`${name}($0)`);
+        return result;
+      });
       const before = p.entry.text.slice(0, at), member = before.match(/([A-Za-z_]\w*)\.[A-Za-z_0-9]*$/);
       if (member) {
         const object = p.entry.resolve(member[1], at);
@@ -166,12 +186,14 @@ function providers(projectDirectory, sproutCmd) {
       const p = index(doc), symbol = source.symbolAt(p.entry, offset(doc, position), p.modules);
       // Validate the target using a fresh name, without making any edits.
       if (p.entry.tooLarge) throw new Error('Source analysis is limited to files up to 1 MiB.');
+      if (source.intrinsicAt(p.entry, source.tokenAt(p.entry, offset(doc, position)))) throw new Error('Explicit native built-in prefixes and operation names cannot be renamed.');
       source.rename(p.entry, symbol, `${symbol?.name || 'name'}_renamed`);
       return { range: range(p.entry, source.tokenAt(p.entry, offset(doc, position))), placeholder: symbol.name };
     },
     provideRenameEdits(doc, position, name) {
       const p = index(doc), symbol = source.symbolAt(p.entry, offset(doc, position), p.modules);
       if (p.entry.tooLarge) throw new Error('Source analysis is limited to files up to 1 MiB.');
+      if (source.intrinsicAt(p.entry, source.tokenAt(p.entry, offset(doc, position)))) throw new Error('Explicit native built-in prefixes and operation names cannot be renamed.');
       const edits = source.rename(p.entry, symbol, name), result = new vscode.WorkspaceEdit();
       for (const edit of edits) result.replace(doc.uri, range(p.entry, edit.token), name);
       return result;

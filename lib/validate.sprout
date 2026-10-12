@@ -1,12 +1,12 @@
 ~ Pure declarative validation. This module neither changes caller values nor performs I/O.
 
 private task field(record, name, fallback):
-    when contains(record, name):
+    when builtin::contains(record, name):
         give record[name]
     give fallback
 
 private task segment(name):
-    when length(name) > 128:
+    when builtin::length(name) > 128:
         give "<field name exceeds 128 characters>"
     give name
 
@@ -14,7 +14,7 @@ private task problem(path, message):
     give {path: path, message: message}
 
 private task finite_number(value):
-    when kind_of(value) != "number" or is_a(value, "number"):
+    when builtin::kind_of(value) != "number" or builtin::is_a(value, "number"):
         give no
     try:
         give value - value == 0
@@ -31,7 +31,7 @@ private task bound(value, ceiling):
     give value >= 0 and value <= ceiling and value % 1 == 0
 
 private task matches_kind(value, kind):
-    when kind_of(value) != kind or is_a(value, kind):
+    when builtin::kind_of(value) != kind or builtin::is_a(value, kind):
         give no
     when kind == "number":
         give finite_number(value)
@@ -45,24 +45,24 @@ private task schema_problem(schema, path, depth, budget, field_node):
         give problem(path, "Schema exceeds 1024 nodes.")
     when not matches_kind(schema, "map"):
         give problem(path, "A schema node must be a map.")
-    when length(schema) > 9:
+    when builtin::length(schema) > 9:
         give problem(path, "A schema node has too many options.")
     make kind = field(schema, "kind", nothing)
-    when kind_of(kind) != "text" or not contains(["text", "yes-no", "list", "map", "number", "integer", "decimal"], kind):
+    when builtin::kind_of(kind) != "text" or not builtin::contains(["text", "yes-no", "list", "map", "number", "integer", "decimal"], kind):
         give problem(path + ["kind"], "Kind must be text, yes-no, list, map, number, integer or decimal.")
-    for each name in keys(schema):
-        make accepted = contains(["kind", "required", "nullable"], name)
+    for each name in builtin::keys(schema):
+        make accepted = builtin::contains(["kind", "required", "nullable"], name)
         when kind == "text" or kind == "list":
-            set accepted = accepted or contains(["min_length", "max_length"], name)
+            set accepted = accepted or builtin::contains(["min_length", "max_length"], name)
         when kind == "list":
             set accepted = accepted or name == "items"
         orwhen kind == "map":
-            set accepted = accepted or contains(["fields", "allow_unknown"], name)
+            set accepted = accepted or builtin::contains(["fields", "allow_unknown"], name)
         otherwise:
             set accepted = accepted or name == "allowed"
         when not accepted:
             give problem(path + [segment(name)], "This option is not supported for this kind.")
-    when contains(schema, "required") and not field_node:
+    when builtin::contains(schema, "required") and not field_node:
         give problem(path + ["required"], "Required is only valid on a declared map field.")
     when not matches_kind(field(schema, "required", yes), "yes-no"):
         give problem(path + ["required"], "Required must be yes or no.")
@@ -81,24 +81,24 @@ private task schema_problem(schema, path, depth, budget, field_node):
             give problem(path + ["max_length"], "Length bounds must be whole nonnegative numbers within the documented kind limit.")
         when minimum > maximum:
             give problem(path + ["min_length"], "Minimum length must not exceed maximum length.")
-    when contains(schema, "allowed"):
+    when builtin::contains(schema, "allowed"):
         make allowed = schema.allowed
-        when not matches_kind(allowed, "list") or length(allowed) < 1 or length(allowed) > 256:
+        when not matches_kind(allowed, "list") or builtin::length(allowed) < 1 or builtin::length(allowed) > 256:
             give problem(path + ["allowed"], "Allowed must contain from 1 to 256 scalar values.")
-        set budget.allowed += length(allowed)
+        set budget.allowed += builtin::length(allowed)
         when budget.allowed > 4096:
             give problem(path + ["allowed"], "Schema exceeds 4096 allowed-value entries.")
         make index = 0
         for each value in allowed:
-            when is_a(value, kind_of(value)):
+            when builtin::is_a(value, builtin::kind_of(value)):
                 give problem(path + ["allowed", index], "Allowed values must have the declared scalar kind.")
-            orwhen kind_of(value) == "nothing":
+            orwhen builtin::kind_of(value) == "nothing":
                 when not nullable:
                     give problem(path + ["allowed", index], "An allowed nothing value requires nullable: yes.")
             orwhen not matches_kind(value, kind):
                 give problem(path + ["allowed", index], "Allowed values must have the declared scalar kind.")
-            when kind_of(value) == "text":
-                set budget.text += length(value)
+            when builtin::kind_of(value) == "text":
+                set budget.text += builtin::length(value)
                 when budget.text > 16384:
                     give problem(path + ["allowed", index], "Schema names and allowed text exceed 16384 characters in total.")
             set index += 1
@@ -106,26 +106,26 @@ private task schema_problem(schema, path, depth, budget, field_node):
         when not matches_kind(field(schema, "allow_unknown", no), "yes-no"):
             give problem(path + ["allow_unknown"], "Allow_unknown must be yes or no.")
         make fields = field(schema, "fields", {})
-        when not matches_kind(fields, "map") or length(fields) > 128:
+        when not matches_kind(fields, "map") or builtin::length(fields) > 128:
             give problem(path + ["fields"], "Fields must be a map with at most 128 declared fields.")
-        for each name in keys(fields):
-            when length(name) < 1 or length(name) > 128:
+        for each name in builtin::keys(fields):
+            when builtin::length(name) < 1 or builtin::length(name) > 128:
                 give problem(path + ["fields", segment(name)], "Field names must contain from 1 to 128 characters.")
-            set budget.text += length(name)
+            set budget.text += builtin::length(name)
             when budget.text > 16384:
                 give problem(path + ["fields", name], "Schema names and allowed text exceed 16384 characters in total.")
             make child = schema_problem(fields[name], path + ["fields", name], depth + 1, budget, yes)
             when child != nothing:
                 give child
     orwhen kind == "list":
-        when not contains(schema, "items"):
+        when not builtin::contains(schema, "items"):
             give problem(path + ["items"], "A list schema requires an items schema.")
         give schema_problem(schema.items, path + ["items"], depth + 1, budget, no)
     give nothing
 
 private task error(result, path, code, message):
-    when length(result.errors) < 64:
-        add(result.errors, {path: path, code: code, message: message})
+    when builtin::length(result.errors) < 64:
+        builtin::add(result.errors, {path: path, code: code, message: message})
     otherwise:
         set result.truncated = yes
 
@@ -137,23 +137,23 @@ private task visit(value, schema, path, depth, result):
         set result.truncated = yes
         give nothing
     set result.nodes += 1
-    when is_a(value, kind_of(value)):
+    when builtin::is_a(value, builtin::kind_of(value)):
         error(result, path, "kind", "Expected " + schema.kind + ".")
         give nothing
-    when kind_of(value) == "nothing":
+    when builtin::kind_of(value) == "nothing":
         when not field(schema, "nullable", no):
             error(result, path, "null", "Nothing is not allowed here.")
-        orwhen contains(schema, "allowed") and not contains(schema.allowed, nothing):
+        orwhen builtin::contains(schema, "allowed") and not builtin::contains(schema.allowed, nothing):
             error(result, path, "allowed", "Value is not among the allowed values.")
         give nothing
     make kind = schema.kind
     when not matches_kind(value, kind):
         error(result, path, "kind", "Expected " + kind + ".")
         give nothing
-    when contains(schema, "allowed") and not contains(schema.allowed, value):
+    when builtin::contains(schema, "allowed") and not builtin::contains(schema.allowed, value):
         error(result, path, "allowed", "Value is not among the allowed values.")
     when kind == "text" or kind == "list":
-        make size = length(value)
+        make size = builtin::length(value)
         make ceiling = 1048576
         when kind == "list":
             set ceiling = 10000
@@ -165,27 +165,27 @@ private task visit(value, schema, path, depth, result):
         when size > field(schema, "max_length", ceiling):
             error(result, path, "max_length", "Value is longer than its maximum length.")
     when kind == "map":
-        when length(value) > 128:
+        when builtin::length(value) > 128:
             error(result, path, "limit", "A validated map may contain at most 128 fields.")
             give nothing
         make fields = field(schema, "fields", {})
-        for each name in keys(fields):
+        for each name in builtin::keys(fields):
             when result.truncated:
                 give nothing
-            when not contains(value, name):
+            when not builtin::contains(value, name):
                 when field(fields[name], "required", yes):
                     error(result, path + [name], "required", "Required field is missing.")
             otherwise:
                 visit(value[name], fields[name], path + [name], depth + 1, result)
         when not field(schema, "allow_unknown", no):
-            for each name in keys(value):
+            for each name in builtin::keys(value):
                 when result.truncated:
                     give nothing
-                when not contains(fields, name):
+                when not builtin::contains(fields, name):
                     error(result, path + [segment(name)], "unknown", "Field is not declared by the schema.")
     orwhen kind == "list":
         make index = 0
-        repeat while index < length(value) and not result.truncated:
+        repeat while index < builtin::length(value) and not result.truncated:
             visit(value[index], schema.items, path + [index], depth + 1, result)
             set index += 1
     give nothing
@@ -196,7 +196,7 @@ public task check(value, schema):
         give {ok: no, errors: [], schema_error: issue, truncated: no}
     make result = {errors: [], truncated: no, nodes: 0}
     visit(value, schema, [], 0, result)
-    give {ok: length(result.errors) == 0 and not result.truncated, errors: result.errors, schema_error: nothing, truncated: result.truncated}
+    give {ok: builtin::length(result.errors) == 0 and not result.truncated, errors: result.errors, schema_error: nothing, truncated: result.truncated}
 
 ~ Bind callable values so caller-defined type constructors cannot preempt these tasks.
 private make field = field

@@ -126,7 +126,7 @@ function activate(context) {
   for (const doc of vscode.workspace.textDocuments) checkDocument(doc);
 
   const selector = { language: "sprout", scheme: "file" };
-  context.subscriptions.push(vscode.languages.registerCompletionItemProvider(selector, languageTools.completion, "."));
+  context.subscriptions.push(vscode.languages.registerCompletionItemProvider(selector, languageTools.completion, ".", ":"));
   context.subscriptions.push(vscode.languages.registerHoverProvider(selector, languageTools.hover));
   context.subscriptions.push(vscode.languages.registerSignatureHelpProvider(selector, languageTools.signature, "(", ","));
   context.subscriptions.push(vscode.languages.registerDefinitionProvider(selector, languageTools.definition));

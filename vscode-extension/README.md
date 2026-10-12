@@ -20,6 +20,10 @@ declaration, and argument counts for known tasks. Disable these extra warnings
 with `sprout.staticDiagnostics: false`. Runtime type/value errors are reported
 when you run the program.
 
+Explicit native calls also warn about unknown operation names, missing call
+parentheses, and named inputs. These checks do not infer native value types or
+whether the selected runtime profile permits an operation.
+
 ## Editor tools
 
 - Completion includes visible variables and task parameters, hoisted tasks,
@@ -30,6 +34,11 @@ when you run the program.
   planning/inspection, process parallelism, and SQLite migrations include
   permission and result hints; completion is not a runtime capability check.
 - Signature help tracks nested calls, optional parameters, and named arguments.
+- `builtin::name(...)` completion offers native operation names even when a local
+  task, type, or variable has the same name. Hover and common signatures describe
+  the native operation and its positional-input contract. The two colons must be
+  adjacent; `builtin` remains an ordinary name in variables and single-colon task
+  inputs. Native calls retain sandbox restrictions and runtime budgets.
 - Go to Definition and Find References resolve lexical names and public imported
   members. Imports follow the project manifest and normal module search folders;
   open unsaved imported files take precedence over files on disk.
@@ -40,6 +49,10 @@ when you run the program.
   excluded until a project-wide semantic index is available. Parameters in
   exported tasks/methods and tasks passed as values are also excluded because
   external named callers cannot be safely rewritten.
+- Explicit native prefixes and operation names have no lexical definition or
+  references and cannot be renamed. Renaming an ordinary `builtin` variable or
+  parameter preserves explicit calls, while their argument expressions remain
+  ordinary editable references.
 
 This is a lexical source index rather than full type inference or an LSP server.
 Object member hints do not follow aliases or runtime type changes. Navigation
@@ -48,12 +61,18 @@ is bounded to 1 MiB per file and 64 files per graph; larger entry files omit sou
 index features. Multiline declarations, lambdas, comprehensions, destructuring,
 triple-quoted text, named argument labels, and f-string expression references
 are supported.
+Native signatures without detailed metadata show `(...)`; the interpreter
+remains responsible for actual arity and value validation. Syntax highlighting
+is a TextMate grammar, while source navigation uses the conservative lexical
+index; neither is a full semantic parser.
 
 The `taskdefault`, `multiline`, and `workflowplan` snippets help discover named
 inputs, preserved multiline text, and pure DAG planning. See the runnable
 [named report example](../examples/named-report.sprout),
 [ergonomics guide](../docs/ergonomics.md), and
-[workflow tools guide](../docs/workflow-tools.md) for complete contracts.
+[workflow tools guide](../docs/workflow-tools.md) for complete contracts. The
+`intrinsic` snippet and [explicit native-call guide](../docs/intrinsics.md) show
+how to select native behavior through a shadowing declaration.
 
 ## Formatting
 
@@ -87,7 +106,7 @@ From this directory:
 
 ```sh
 npx @vscode/vsce package
-code --install-extension sprout-language-0.4.0.vsix
+code --install-extension sprout-language-0.4.2.vsix
 ```
 
 ## Test
@@ -100,3 +119,6 @@ The regression suite covers lexical shadowing, comments and strings,
 interpolation-safe edits, lambda/comprehension and multiline scopes, imports,
 navigation, signature help, formatting cancellation, diagnostic races, and run
 arguments. The extension requires VS Code 1.85 or newer.
+Native-call controls also cover contextual prefix parsing, exact native-name
+registry parity, shadowing, nested/pipeline/interpolation contexts, ordinary
+named-input renames, and the distinction between native identity and permissions.
