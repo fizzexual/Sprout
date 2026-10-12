@@ -337,9 +337,29 @@ The normal Windows candidate SHA256
 `94a468c820833b1f0fb26af329e9aed5b07bd892964922254f5e293261a7fbf6`
 was compiled from all 19 exact Git-byte native inputs. Its preceding working-tree
 build's three raw line-ending mismatches remain separately recorded; a CRLF-only
-explanation does not qualify that older raw build. The installed native stays
-`4cd9f4aa` until a fresh full CI result and installation verification permit
-promotion. These are development-contract results, not sustained qualification.
+explanation does not qualify that older raw build. The test-only diagnostics
+revision `8dd5d4c` passed all eight jobs on its first attempt in
+[CI 38284544805](https://github.com/fizzexual/Sprout/actions/runs/38284544805),
+using the unchanged native inputs and shipping SDK framework targets. This
+passing result does not explain the earlier macOS observation.
+
+The installed Windows native is now `94a468c8`; prior `4cd9f4aa` remains available
+for rollback. Installed intrinsic22/configuration16/Python88 controls completed,
+with one POSIX-only skip. Thirteen Unicode controls passed, while the remaining
+compiler control first stopped at setup because GCC was absent from PATH. That
+unchanged control completed separately with the pinned cached compiler; the
+initial failure remains preserved. Some earlier local library corpus commands
+used unsupported `--gc-stress`; their pass counts establish ordinary execution.
+Actual GC-mode evidence is separately provided by environment-enabled ASan CI.
+These are development-contract results, not sustained qualification.
+
+The next separate batch adds a bounded Node queue, pure literal API selection/
+response contracts, and read-only recorded workflow progress. Review reproduced
+and fixed two signal-driven queue-close/admission races and a Windows API output
+overflow where a one-byte newline estimate omitted physical CRLF. The API helper
+now reserves two bytes uniformly. Original failures and the workflow test's
+corrected GC-mode setup are retained; new actual WebAssembly and full CI are
+required for this batch. No later source is qualified by the preceding run.
 
 - Cross-platform native, SDK, WASM, sanitizer and hardened Docker checks pass
   against the final commit. New regressions belong in CI and release checks.

@@ -1,0 +1,91 @@
+~ Shared native/WebAssembly pure API corpus; no host effects.
+use "../../lib/api.sprout"
+
+test "literal routes require the exact request envelope":
+    make routes = [{id: "get", method: "GET", path: "/"}]
+    expect api.select({method: "GET", path: "/", query: {}, body: nothing}, routes).route == "get"
+    expect api.select({method: "GET", path: "/", query: {}}, routes).response.status == 400
+    expect api.select({method: "GET", path: "/", query: nothing, body: nothing}, routes).error == "invalid_query"
+    expect api.select({method: "GET", path: "/x", query: {}, body: nothing}, routes).response.status == 404
+
+test "configuration checks precede selection and ambiguous identities reject":
+    make request = {method: "GET", path: "/", query: {}, body: nothing}
+    make routes = [{id: "get", method: "GET", path: "/"}]
+    expect api.select(request, routes + [{id: "other", method: "POST", path: "/other", body: {kind: "list"}}]).error == "invalid_contract"
+    expect api.select(request, routes + [{id: "other", method: "GET", path: "/"}]).error == "invalid_contract"
+    expect api.select(request, routes + [{id: "get", method: "POST", path: "/"}]).error == "invalid_contract"
+
+test "unsupported methods have a sorted Allow without implicit HEAD":
+    make routes = [{id: "post", method: "POST", path: "/"}, {id: "get", method: "GET", path: "/"}]
+    make result = api.select({method: "HEAD", path: "/", query: {}, body: nothing}, routes)
+    expect result.response.status == 405
+    expect result.response.headers.Allow == "GET, POST"
+    expect result.response.headers["Cache-Control"] == "no-store"
+
+test "omitted schemas and explicit null remain distinct":
+    make request = {method: "GET", path: "/", query: {}, body: nothing}
+    expect api.select(request, [{id: "get", method: "GET", path: "/"}]).ok
+    expect api.select(request, [{id: "get", method: "GET", path: "/", body: nothing}]).error == "invalid_contract"
+    expect api.select(request, [{id: "get", method: "GET", path: "/", body: {kind: "map", nullable: yes}}]).ok
+
+test "queries preserve lists with a hundred real string leaves":
+    make routes = [{id: "get", method: "GET", path: "/", query: {kind: "map", fields: {q: {kind: "list", items: {kind: "text"}}}}}]
+    expect api.select({method: "GET", path: "/", query: {q: [""] * 100}, body: nothing}, routes).ok
+    expect api.select({method: "GET", path: "/", query: {q: [""] * 101}, body: nothing}, routes).error == "invalid_query"
+
+test "private-safe errors never echo raw names paths or values":
+    make bad = api.select({method: "GET", path: "/private-secret", query: {}, body: nothing}, [])
+    expect not builtin::contains(builtin::json_encode(bad), "private-secret")
+    expect bad.response.body == {error: "route_not_found"}
+    make schema = [{id: "get", method: "GET", path: "/", body: {kind: "map"}}]
+    make unknown = api.select({method: "GET", path: "/", query: {}, body: {"secret-key": "secret-value"}}, schema)
+    expect unknown.response.body == {error: "invalid_request"}
+    expect not builtin::contains(builtin::json_encode(unknown), "secret-")
+
+test "exact scalars retain native kinds and reserved plain singleton maps reject":
+    make good = api.result(builtin::integer("201"), {id: builtin::integer("9223372036854775807"), cost: builtin::decimal("19.95")})
+    expect good.ok
+    expect good.response.status == 201
+    expect builtin::kind_of(good.response.body.id) == "integer"
+    expect builtin::kind_of(good.response.body.cost) == "decimal"
+    expect not api.result(200, {"$sprout.integer": "1"}).ok
+    expect not api.result(200, 1e20).ok
+
+test "status headers and bodyless response policy are strict":
+    expect not api.result(yes, nothing).ok
+    expect not api.result(builtin::decimal("200"), nothing).ok
+    expect not api.result(200, nothing, {"Content-Length": "0"}).ok
+    expect not api.result(200, nothing, {"X-Id": "a", "x-id": "b"}).ok
+    expect api.result(204, nothing).ok
+    expect not api.result(204, {}).ok
+    expect api.result(200, {ok: yes}, {"X-Test": "ok"}).ok
+
+test "recursive graphs reject and successful aliases are detached":
+    make loop = []
+    builtin::add(loop, loop)
+    expect not api.result(200, loop).ok
+    expect builtin::length(loop) == 1
+    make shared = [{name: "old"}]
+    make headers = {"X-Test": "old"}
+    make good = api.result(200, {first: shared, second: shared}, headers)
+    set good.response.body.first[0].name = "new"
+    set good.response.headers["X-Test"] = "new"
+    expect shared[0].name == "old"
+    expect good.response.body.second[0].name == "old"
+    expect headers["X-Test"] == "old"
+
+test "explicit natives and captured helpers do not dispatch constructors":
+    make calls = []
+    make noted = task(value): builtin::add(calls, value)
+    type api_tree:
+        make value
+        make state
+        make depth
+        make observed = noted("constructor")
+    type number:
+        make value
+        make observed = noted("constructor")
+    make number = task(value): noted("task")
+    expect api.result(200, {name: "Ada"}).ok
+    expect api.select({method: "GET", path: "/", query: {}, body: nothing}, [{id: "get", method: "GET", path: "/"}]).ok
+    expect calls == []

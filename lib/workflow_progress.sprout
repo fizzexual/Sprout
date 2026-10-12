@@ -1,0 +1,122 @@
+~ Pure summary of recorded workflow state. Never launch, repair or replay jobs.
+
+private task wfp_plain(value, kind):
+    give builtin::kind_of(value) == kind and not builtin::is_a(value, kind)
+
+private task wfp_shape(value, names):
+    when not wfp_plain(value, "map") or builtin::length(value) != builtin::length(names):
+        give no
+    for each name in names:
+        when not builtin::contains(value, name):
+            give no
+    give yes
+
+private task wfp_whole(value, upper):
+    when wfp_plain(value, "integer"):
+        give value >= 0 and value <= upper
+    when not wfp_plain(value, "number"):
+        give no
+    try:
+        give value - value == 0 and value >= 0 and value <= upper and value % 1 == 0
+    caught issue:
+        when issue.kind == "math":
+            give no
+        fail issue
+
+private task wfp_hash(value):
+    when not wfp_plain(value, "text") or builtin::length(value) != 64:
+        give no
+    for each character in value:
+        when not builtin::contains("0123456789abcdefABCDEF", character):
+            give no
+    give yes
+
+private task wfp_id(value):
+    when not wfp_plain(value, "text") or builtin::length(value) < 1 or builtin::length(value) > 64:
+        give no
+    make encoded = builtin::bytes(value)
+    when builtin::length(encoded) > 64:
+        give no
+    try:
+        builtin::bytes_text(encoded)
+    caught issue:
+        when issue.kind == "data":
+            give no
+        fail issue
+    give yes
+
+private task wfp_error(code, message):
+    give {ok: no, code: code, error: message, state: "unavailable", count: nothing,
+        counts: nothing, attempts_total: nothing, recorded_complete: nothing,
+        fingerprint: nothing, expected_matches: nothing}
+
+private task wfp_invalid():
+    give wfp_error("invalid_summary", "The supplied workflow inspection summary is inconsistent or unsupported.")
+
+public task summarize(summary, expected_fingerprint = nothing):
+    make has_expected = not wfp_plain(expected_fingerprint, "nothing")
+    when has_expected and not wfp_hash(expected_fingerprint):
+        give wfp_error("invalid_expectation", "Expected fingerprint must be 64 ASCII hexadecimal characters or nothing.")
+    when not wfp_plain(summary, "map") or not builtin::contains(summary, "ok") or not wfp_plain(summary.ok, "yes-no"):
+        give wfp_invalid()
+    when not summary.ok:
+        when not wfp_shape(summary, ["ok", "error", "code"]) or not wfp_plain(summary.code, "text") or not wfp_plain(summary.error, "text"):
+            give wfp_invalid()
+        when builtin::length(summary.error) > 256:
+            give wfp_invalid()
+        when not builtin::contains(["not_found", "io", "limit", "invalid_checkpoint"], summary.code):
+            give wfp_invalid()
+        give wfp_error(summary.code, "The workflow checkpoint could not be inspected; no recorded progress is available.")
+    when not wfp_shape(summary, ["ok", "error", "code", "version", "fingerprint", "count", "complete", "counts", "jobs"]):
+        give wfp_invalid()
+    when not wfp_plain(summary.error, "nothing") or not wfp_plain(summary.code, "text") or summary.code != "ok":
+        give wfp_invalid()
+    when not wfp_whole(summary.version, 1) or summary.version != 1 or not wfp_hash(summary.fingerprint):
+        give wfp_invalid()
+    when not wfp_whole(summary.count, 128) or summary.count < 1 or not wfp_plain(summary.complete, "yes-no"):
+        give wfp_invalid()
+    make states = ["pending", "running", "done", "failed"]
+    when not wfp_shape(summary.counts, states) or not wfp_plain(summary.jobs, "list") or builtin::length(summary.jobs) != summary.count:
+        give wfp_invalid()
+    make counts = {pending: 0, running: 0, done: 0, failed: 0}
+    make attempts = builtin::integer("0")
+    make seen = []
+    for each job in summary.jobs:
+        when not wfp_shape(job, ["id", "status", "attempts"]) or not wfp_id(job.id) or builtin::contains(seen, job.id):
+            give wfp_invalid()
+        when not wfp_plain(job.status, "text") or not builtin::contains(states, job.status) or not wfp_whole(job.attempts, 1000000):
+            give wfp_invalid()
+        builtin::add(seen, job.id)
+        set counts[job.status] += 1
+        set attempts += builtin::integer(job.attempts)
+    for each state in states:
+        when not wfp_whole(summary.counts[state], 128) or summary.counts[state] != counts[state]:
+            give wfp_invalid()
+    make complete = counts.done == summary.count
+    when summary.complete != complete:
+        give wfp_invalid()
+    make state = "pending"
+    when counts.running > 0:
+        set state = "uncertain"
+    orwhen counts.failed > 0:
+        set state = "failed"
+    orwhen complete:
+        set state = "complete"
+    orwhen counts.done > 0:
+        set state = "partial"
+    make fingerprint = builtin::lower(summary.fingerprint)
+    make matches = nothing
+    when has_expected:
+        set matches = fingerprint == builtin::lower(expected_fingerprint)
+    give {ok: yes, code: "ok", error: nothing, state: state, count: builtin::number(summary.count),
+        counts: counts, attempts_total: attempts, recorded_complete: complete,
+        fingerprint: fingerprint, expected_matches: matches}
+
+private make wfp_plain = wfp_plain
+private make wfp_shape = wfp_shape
+private make wfp_whole = wfp_whole
+private make wfp_hash = wfp_hash
+private make wfp_id = wfp_id
+private make wfp_error = wfp_error
+private make wfp_invalid = wfp_invalid
+public make summarize = summarize

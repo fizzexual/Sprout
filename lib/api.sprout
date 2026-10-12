@@ -1,0 +1,285 @@
+~ Pure literal request selection and bounded bridge response contracts.
+use "validate.sprout"
+private make api_validate = validate.check
+
+private task api_plain(value, kind):
+    give builtin::kind_of(value) == kind and not builtin::is_a(value, kind)
+
+private task api_field(value, name, fallback):
+    when builtin::contains(value, name):
+        give value[name]
+    give fallback
+
+private task api_stop(state, code):
+    when state.error == nothing:
+        set state.error = code
+    give nothing
+
+private task api_text(value, state):
+    make size = builtin::length(value)
+    when size > 65536 or state.text + size > 65536:
+        api_stop(state, "limit")
+        give no
+    ~ Strict scalar encoding validates UTF-8 before copying a map key or rendering a tree.
+    try:
+        builtin::json_encode(value)
+    caught issue:
+        when issue.kind != "data":
+            fail issue
+        api_stop(state, "kind")
+        give no
+    set state.text += size
+    give yes
+
+private task api_tree(value, state, depth):
+    when state.error != nothing:
+        give nothing
+    when depth > 16 or state.nodes >= 4096:
+        give api_stop(state, "limit")
+    set state.nodes += 1
+    make kind = builtin::kind_of(value)
+    when builtin::is_a(value, kind) or not builtin::contains(["nothing", "text", "yes-no", "number", "integer", "decimal", "list", "map"], kind):
+        give api_stop(state, "kind")
+    when kind == "number":
+        try:
+            when value - value != 0 or value < -9007199254740991 or value > 9007199254740991:
+                give api_stop(state, "kind")
+        caught issue:
+            when issue.kind != "math":
+                fail issue
+            give api_stop(state, "kind")
+    when kind == "text":
+        when not api_text(value, state):
+            give nothing
+    when kind == "list":
+        when builtin::length(value) > 1024:
+            give api_stop(state, "limit")
+        make copied = []
+        for each child in value:
+            make item = api_tree(child, state, depth + 1)
+            when state.error != nothing:
+                give nothing
+            builtin::add(copied, item)
+        give copied
+    when kind == "map":
+        when builtin::length(value) > 128:
+            give api_stop(state, "limit")
+        when builtin::length(value) == 1:
+            for each tag in ["$sprout.integer", "$sprout.decimal", "$sprout.bytes"]:
+                when builtin::contains(value, tag):
+                    give api_stop(state, "kind")
+        make copied = {}
+        for each name in builtin::keys(value):
+            when builtin::length(name) > 128:
+                give api_stop(state, "limit")
+            when not api_text(name, state):
+                give nothing
+            make item = api_tree(value[name], state, depth + 1)
+            when state.error != nothing:
+                give nothing
+            set copied[name] = item
+        give copied
+    give value
+
+private task api_wire(value, ceiling):
+    ~ The caller has already bounded and admitted every occurrence in this tree.
+    make encoded = builtin::json_encode(value)
+    ~ Reserve CRLF uniformly: LF-only platforms keep one conservative spare byte.
+    give builtin::length(builtin::bytes(encoded)) + 2 <= ceiling
+
+private task api_ascii(value, minimum, maximum, mode):
+    when not api_plain(value, "text"):
+        give no
+    make size = builtin::length(value)
+    when size < minimum or size > maximum:
+        give no
+    for each letter in value:
+        make code = builtin::code(letter)
+        when mode == "value":
+            when code < 32 or code > 126:
+                give no
+        orwhen mode == "path":
+            when code < 33 or code > 126 or builtin::contains("\\?#", letter):
+                give no
+        orwhen mode == "method":
+            when not builtin::contains("ABCDEFGHIJKLMNOPQRSTUVWXYZ-", letter):
+                give no
+        orwhen mode == "id":
+            when not builtin::contains("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-", letter):
+                give no
+        otherwise:
+            when not builtin::contains("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!#$%&'*+-.^_`|~", letter):
+                give no
+    when mode == "path":
+        give value[0] == "/"
+    give yes
+
+private task api_routes(routes):
+    when not api_plain(routes, "list") or builtin::length(routes) > 32:
+        give nothing
+    make state = {nodes: 0, text: 0, error: nothing}
+    make copied = api_tree(routes, state, 0)
+    when state.error != nothing:
+        give nothing
+    make normalized = []
+    make ids = {}
+    make pairs = {}
+    for each route in copied:
+        when not api_plain(route, "map") or builtin::length(route) < 3 or builtin::length(route) > 5:
+            give nothing
+        for each name in builtin::keys(route):
+            when not builtin::contains(["id", "method", "path", "query", "body"], name):
+                give nothing
+        when not builtin::contains(route, "id") or not builtin::contains(route, "method") or not builtin::contains(route, "path"):
+            give nothing
+        when not api_ascii(route.id, 1, 64, "id") or not api_ascii(route.path, 1, 1024, "path"):
+            give nothing
+        when not api_plain(route.method, "text") or not builtin::contains(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"], route.method):
+            give nothing
+        make pair = route.method + " " + route.path
+        when builtin::contains(ids, route.id) or builtin::contains(pairs, pair):
+            give nothing
+        set ids[route.id] = yes
+        set pairs[pair] = yes
+        make query = api_field(route, "query", {kind: "map"})
+        make checked = api_validate({}, query)
+        when checked.schema_error != nothing or query.kind != "map":
+            give nothing
+        make body = nothing
+        when builtin::contains(route, "body"):
+            set body = route.body
+            set checked = api_validate(nothing, body)
+            when checked.schema_error != nothing:
+                give nothing
+        builtin::add(normalized, {id: route.id, method: route.method, path: route.path, query: query, body: body})
+    give normalized
+
+private task api_query(query):
+    when not api_plain(query, "map") or builtin::length(query) > 100:
+        give no
+    make leaves = 0
+    for each name in builtin::keys(query):
+        when builtin::length(name) < 1 or builtin::length(name) > 128 or not api_plain(query[name], "list"):
+            give no
+        for each value in query[name]:
+            when not api_plain(value, "text"):
+                give no
+            set leaves += 1
+            when leaves > 100:
+                give no
+    give yes
+
+private task api_selection_failure(status, code, headers = {}):
+    make detached_headers = {"Cache-Control": "no-store"}
+    for each name in builtin::keys(headers):
+        set detached_headers[name] = headers[name]
+    make public_code = code
+    when builtin::contains(["invalid_query", "invalid_body"], code):
+        set public_code = "invalid_request"
+    give {ok: no, route: nothing, error: code, response: {status: status, headers: detached_headers, body: {error: public_code}}}
+
+public task select(request, routes):
+    make configured = api_routes(routes)
+    when configured == nothing:
+        give api_selection_failure(500, "invalid_contract")
+    when not api_plain(request, "map") or builtin::length(request) != 4:
+        give api_selection_failure(400, "invalid_request")
+    for each name in ["method", "path", "query", "body"]:
+        when not builtin::contains(request, name):
+            give api_selection_failure(400, "invalid_request")
+    make state = {nodes: 0, text: 0, error: nothing}
+    make copied = api_tree(request, state, 0)
+    when state.error == "limit":
+        give api_selection_failure(413, "request_limit")
+    when state.error != nothing:
+        give api_selection_failure(400, "invalid_request")
+    when not api_wire(copied, 262144):
+        give api_selection_failure(413, "request_limit")
+    when not api_ascii(copied.method, 1, 16, "method") or not api_ascii(copied.path, 1, 1024, "path"):
+        give api_selection_failure(400, "invalid_request")
+    when not api_query(copied.query):
+        give api_selection_failure(400, "invalid_query")
+    make selected = nothing
+    make methods = []
+    for each route in configured:
+        when route.path == copied.path:
+            builtin::add(methods, route.method)
+            when route.method == copied.method:
+                set selected = route
+    when builtin::length(methods) == 0:
+        give api_selection_failure(404, "route_not_found")
+    when selected == nothing:
+        set methods = builtin::sort(methods)
+        give api_selection_failure(405, "method_not_supported", {Allow: builtin::join(methods, ", ")})
+    when not api_validate(copied.query, selected.query).ok:
+        give api_selection_failure(400, "invalid_query")
+    when selected.body == nothing:
+        when copied.body != nothing:
+            give api_selection_failure(400, "invalid_body")
+    orwhen not api_validate(copied.body, selected.body).ok:
+        give api_selection_failure(400, "invalid_body")
+    give {ok: yes, route: selected.id, error: nothing, response: nothing}
+
+private task api_headers(headers):
+    when not api_plain(headers, "map") or builtin::length(headers) > 16:
+        give no
+    make names = {}
+    make size = 0
+    for each name in builtin::keys(headers):
+        when not api_ascii(name, 1, 64, "header") or not api_ascii(headers[name], 0, 1024, "value"):
+            give no
+        make lower = builtin::lower(name)
+        when builtin::contains(names, lower) or builtin::contains(["content-type", "content-length", "connection", "transfer-encoding"], lower):
+            give no
+        set names[lower] = yes
+        set size += builtin::length(name) + builtin::length(headers[name])
+        when size > 4096:
+            give no
+    give yes
+
+private task api_status(status):
+    make kind = builtin::kind_of(status)
+    when builtin::is_a(status, kind) or not builtin::contains(["number", "integer"], kind):
+        give nothing
+    try:
+        when status - status != 0 or status < 200 or status > 599 or status % 1 != 0:
+            give nothing
+    caught issue:
+        when issue.kind != "math":
+            fail issue
+        give nothing
+    give builtin::number(status)
+
+private task api_result_failure():
+    give {ok: no, error: "invalid_response", response: {status: 500, headers: {"Cache-Control": "no-store"}, body: {error: "invalid_response"}}}
+
+public task result(status, body, headers = {}):
+    make normalized = api_status(status)
+    when normalized == nothing or not api_headers(headers):
+        give api_result_failure()
+    make state = {nodes: 0, text: 0, error: nothing}
+    make response = api_tree({status: normalized, headers: headers, body: body}, state, 0)
+    when state.error != nothing:
+        give api_result_failure()
+    when builtin::contains([204, 205, 304], normalized) and response.body != nothing:
+        give api_result_failure()
+    when not api_wire(response, 65536):
+        give api_result_failure()
+    give {ok: yes, error: nothing, response: response}
+
+~ Capture callable identities; application type constructors cannot preempt helpers.
+private make api_plain = api_plain
+private make api_field = api_field
+private make api_stop = api_stop
+private make api_text = api_text
+private make api_tree = api_tree
+private make api_wire = api_wire
+private make api_ascii = api_ascii
+private make api_routes = api_routes
+private make api_query = api_query
+private make api_selection_failure = api_selection_failure
+private make api_headers = api_headers
+private make api_status = api_status
+private make api_result_failure = api_result_failure
+public make select = select
+public make result = result

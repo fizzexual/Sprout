@@ -39,12 +39,14 @@ what comes next, and what remains blocked. Planned work is not delivered work.
 | Finite SQLite backup/restore/upgrade rollback exercise | Five exact restored contacts, six clean hosts and 12/12 worker exits; point-in-time recovery, not crash/supervisor/eight-hour qualification |
 | Integrated candidate and existing installation | `db6b598` passed all eight jobs in [CI 38234599062](https://github.com/fizzexual/Sprout/actions/runs/38234599062) on its first attempt; installed native SHA256 `4cd9f4aa893808ee10cc9fed128bddfc1ef980364977f0be265eb7817157d24f`; remains `0.2.0-dev` |
 | Ongoing Markdown queue and scheduled continuation (F000) | Work ledger saved in `31f33c6`; the existing scheduled task is active every 15 minutes and reads this file before choosing active/unblocked work; later stop/pause still overrides it |
+| Validation, project doctor, paginated retry-safe contacts, CSV dry-run, explicit builtins/editor, layered configuration, overload teardown and diagnostic controls | `8dd5d4c` passed all eight jobs in [CI 38284544805](https://github.com/fizzexual/Sprout/actions/runs/38284544805) on its first attempt. Earlier failed revisions remain below; these development contracts do not qualify the pending sustained deployment. |
+| Current Windows installation | Normal native SHA256 `94a468c820833b1f0fb26af329e9aed5b07bd892964922254f5e293261a7fbf6`, built from all19 exact Git inputs. Installed intrinsic22/configuration16/Python88 controls completed (one POSIX skip); Unicode13 passed then its missing-compiler setup control completed separately with pinned GCC. Initial failed invocation retained;4CD rollback preserved; still `0.2.0-dev`. |
 
 The earlier `eac6d5b` run [38233671926](https://github.com/fizzexual/Sprout/actions/runs/38233671926)
 failed its Windows link-spelling fixture, with seven jobs passing. The corrected
 fixture compares the observed link target exactly. That failure remains recorded.
 
-## Active batch: application inputs and safer service adoption
+## Earlier batch: application inputs and safer service adoption
 
 | ID | Deliverable | Owner and files | Acceptance / current state |
 | --- | --- | --- | --- |
@@ -79,7 +81,7 @@ controls and all 19 local installer/driver controls passed. No shipping installe
 change, deadline extension, job retry or successful full-CI claim follows from
 those local results. The next integrated revision still needs all eight jobs.
 
-## Next batch active while integration completes
+## Earlier batch: imports and intrinsic lookup
 
 | Item | Owner and scope | State |
 | --- | --- | --- |
@@ -101,7 +103,7 @@ error class without claiming the exact remote cause. R002 now half-closes then
 discards bounded bytes using the remaining original deadline; it admits no new
 handler/worker and keeps attempted-response counters honest.
 
-## Current active integration: configuration and overload teardown
+## Completed integration: configuration and overload teardown
 
 | Item | Owner and exact scope | Evidence / next action |
 | --- | --- | --- |
@@ -122,30 +124,54 @@ passed. The native status/system code was not printed. Preserve this failure,
 keep the candidate unpromoted and investigate without retries or longer budgets.
 Installed native remains4CD.
 
+The test-only `8dd5d4c` revision is running one fresh
+[CI 38284544805](https://github.com/fizzexual/Sprout/actions/runs/38284544805).
+Its per-worker diagnostics retain the identical primary exception even when
+the diagnostic sink fails; no shipping SDK/native behavior, test deadline or
+worker count changed. A Windows source-copy check passed nine controls using
+cached net10 references; the repository Host target remains net8 and still
+requires this exact CI. Both local fixture setup failures remain recorded.
+
+That run subsequently completed all eight jobs successfully on its first
+attempt. Installed native94 is now verified as described in Done. A passing
+fresh run does not explain the earlier macOS startup or PowerShell timeout;
+both observations remain recorded. N003–N005 below need their own exact CI.
+
+Review also found that some earlier standalone F001/N002 corpus commands used
+an unsupported `--gc-stress` flag. Those local pass counts are ordinary corpus
+checks, not GC-stress evidence. Preserve their original artifacts. Actual GC
+evidence comes separately from the inherited `SPROUT_GC_STRESS=1` ASan CI runs.
+N005's new test had the same mode mistake; its test-only correction and focused
+six-case run use the actual environment switch, with the original check retained.
+
 ## Next batch implementation: worker backpressure and application contracts
 
 | Item | Owner / isolated files | Acceptance / state |
 | --- | --- | --- |
-| N003 | `/root/distribution`: Node SDK, dedicated queue controls and Node documentation | Implementation active: bounded FIFO admission and immutable prepared input; queued cancel/expiry without spawn; slots retained until direct-child termination; uncertain cleanup fails closed; standalone SDK compatibility and peer/full CI required |
-| N004 | `/root/editor_tooling`: new pure `lib/api.sprout`, native/shared controls, docs and separate synthetic contacts-preview example; `/root/stdlib` peer | Implementation active: schema-first literal route selection and bounded response construction with exact values, no implicit routing/auth/transport semantics; independent oracle, native/real WASM/host parity and complete CI required |
-| N005 | `/root/stdlib`: five new pure workflow-progress module/example/docs/control files | Implementation selected after independent N004 design feedback; bounded read-only recorded-state summary, no replay/liveness/retry/authenticity claim; not delivered or covered by earlier CI |
+| N003 | `/root/distribution`: Node SDK, dedicated queue controls and Node documentation; root peer | Ready for integration:45 Node controls, two preserved/fixed signal-close/admission races and independent exact replay. Bounded FIFO admission, queued cancel/expiry without spawn, confirmed direct-worker slots/cleanup, fail-closed uncertainty; fresh multi-platform CI pending |
+| N004 | `/root/editor_tooling`: new pure `lib/api.sprout`, native/shared controls, docs and separate synthetic contacts-preview example; `/root/stdlib` peer | Ready:22 native controls including10 actual GC cases,82 independent peer controls and two root Node/native parity cases. Full JSON plus two-byte newline reservation enforces physical Windows cap; original overflow and root decimal-fixture error retained. Literal routes/exact values/private-safe errors, no implicit auth; actual new WASM/full CI pending |
+| N005 | `/root/stdlib`: five new pure workflow-progress module/example/docs/control files; `/root/editor_tooling` peer | Ready:13 native functional controls, corrected actual six-case GC run,65 independent state oracles and six CLI controls. Bounded read-only recorded-state summary, unchanged checkpoints/locks, no replay/liveness/retry/authenticity claim; actual new WASM/full CI pending |
 | R003 | Root: .NET test-only per-worker failure diagnostics and private bounded complements | Peer approved: bounded status/exit/system-code observations, identical primary exception even when diagnostic sink fails, same eight workers/deadlines and no SDK/core change. Nine Windows source-copy controls passed using cached net10 references; shipping net8 Host framework unchanged and awaits CI. Initial missing net8 assets/noexec Linux fixture failures retained; Linux24 synchronized ABI calls passed and reaped all direct children, without reproducing or explaining macOS |
 
-## Next unblocked work
+Root's independent N003 peer fixture reproduced a close/dispatch race in the
+first frozen implementation: an observable getter on an actual AbortSignal
+closed the queue while a waiting ticket was shifted for dispatch, then that
+ticket started after close had resolved. The exact source and modeled report
+are preserved. A second supported-signal getter could leak a listener and
+preparation reservation. Both corrections/regressions passed; independent root
+replay confirms no post-close launch and recovered admission. Earlier41/44
+results stay separate. No OS process was started by the peer models.
+
+## Next unblocked work after the current batch
 
 Choose the first item whose dependencies are verified. Scope its API and file
 ownership before implementation; keep each item independently reviewable.
 
 | ID | Work | Why it helps / acceptance |
 | --- | --- | --- |
-| N001 | CSV import validation example using F001 | Turn dirty application data into accepted rows and bounded row/field errors; preserve exact identifiers/money and demonstrate dry-run behavior with synthetic CSV |
-| N002 | Pure layered configuration module (active) | Merge explicit defaults, file maps and CLI overrides with schema validation and provenance; no ambient environment access, mutation or secret logging |
-| N003 | Node SDK bounded request queue | Add useful concurrency/backpressure/cancellation without sharing VM state; test queued cancellation, overflow, timeout and complete owned-worker cleanup |
-| N004 | Reusable application request/result contracts | Small source module for method/route/field validation and bounded response errors; test against the contacts example and current Python/Node host contracts |
-| N005 | Workflow progress tooling (implementation selected) | Make partial/failed/uncertain recorded job state easier to inspect without replaying effects; pure bounded summary plus one native read-only snapshot, exact checkpoint fixtures, no liveness/retry/authenticity claim |
 | N006 | Representative rules migration example | Add a second synthetic pricing/validation workflow with pinned host-language parity, exact-value cases and rollback instructions; never read private application source |
 | N007 | Performance measurements for new libraries/services | Publish workload-specific cost/limits with frozen inputs and bounded synthetic data; performance claims require measured comparisons, not syntax or test counts |
-| N008 | Stable callable and builtin namespace contracts | Investigate legal task/type-name collisions and provide explicit standard-library access or clarified lexical dispatch without breaking constructor/overload/source compatibility; preserve real collision cases and require native/WASM/host parity before any runtime promotion |
+| N009 | Runtime capability metadata and explicit adoption preflight | Design a bounded read-only command exposing compiled capabilities/host ABI so a development version string cannot be mistaken for intrinsic/SQLite support; no project execution, permission guarantee or network; native/WASM/profile parity and independent review required before implementation |
 
 As items complete, record their exact evidence below, move them to Done, and
 add the next useful scoped item. New priorities from the human supersede this

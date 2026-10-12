@@ -1,0 +1,32 @@
+~ Single read-only snapshot. No workflow execution or recovery decision.
+use "../../lib/workflow_progress.sprout"
+
+private task progress_cli_error():
+    give {ok: no, code: "arguments", error: "Provide CHECKPOINT and optional EXPECTED_FINGERPRINT; use --help for usage.",
+        state: "unavailable", count: nothing, counts: nothing, attempts_total: nothing,
+        recorded_complete: nothing, fingerprint: nothing, expected_matches: nothing}
+private make progress_cli_error = progress_cli_error
+
+make arguments = builtin::args()
+when arguments == ["--help"]:
+    show "Usage: sprout run progress.sprout CHECKPOINT [EXPECTED_FINGERPRINT]"
+    show "Reads one recorded snapshot. Never runs, retries, repairs or unlocks jobs."
+    builtin::exit(0)
+when builtin::length(arguments) < 1 or builtin::length(arguments) > 2 or builtin::length(builtin::bytes(arguments[0])) > 4096 or arguments[0] == "":
+    show builtin::json_encode(progress_cli_error())
+    builtin::exit(3)
+make expected = nothing
+when builtin::length(arguments) == 2:
+    set expected = arguments[1]
+make preflight = workflow_progress.summarize({ok: no, code: "not_found", error: ""}, expected)
+when preflight.code == "invalid_expectation":
+    show builtin::json_encode(preflight)
+    builtin::exit(3)
+make result = workflow_progress.summarize(builtin::workflow_inspect(arguments[0]), expected)
+show builtin::json_encode(result)
+when not result.ok:
+    builtin::exit(3)
+when result.expected_matches == no:
+    builtin::exit(4)
+when not result.recorded_complete:
+    builtin::exit(2)

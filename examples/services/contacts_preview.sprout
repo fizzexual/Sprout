@@ -1,0 +1,38 @@
+~ Pure validation/preview only: no database, file writes, or outbound calls.
+use "../../lib/api.sprout"
+
+private make preview_routes = [
+    {id: "describe", method: "GET", path: "/contacts/preview"},
+    {id: "preview", method: "POST", path: "/contacts/preview", body: {kind: "map", fields: {
+        name: {kind: "text", min_length: 1, max_length: 80},
+        email: {kind: "text", min_length: 3, max_length: 254}
+    }}}
+]
+
+private task preview_valid(body):
+    when builtin::trim(body.name) == "":
+        give no
+    for each letter in body.name:
+        when builtin::code(letter) < 32 or builtin::code(letter) == 127:
+            give no
+    make pieces = builtin::split(body.email, "@")
+    when builtin::length(pieces) != 2 or pieces[0] == "" or pieces[1] == "":
+        give no
+    for each letter in body.email:
+        when builtin::code(letter) < 33 or builtin::code(letter) > 126:
+            give no
+    give yes
+
+private task preview(request):
+    make selected = api.select(request, preview_routes)
+    when not selected.ok:
+        give selected.response
+    when selected.route == "describe":
+        give api.result(200, {mode: "preview", fields: ["name", "email"], persisted: no}).response
+    when not preview_valid(request.body):
+        give api.result(400, {error: "invalid_contact"}, {"Cache-Control": "no-store"}).response
+    give api.result(200, {valid: yes, persisted: no, contact: {name: request.body.name, email: request.body.email}}).response
+
+private make preview_valid = preview_valid
+private make preview = preview
+show builtin::json_encode(preview(builtin::json_decode(builtin::read_input())))

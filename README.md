@@ -99,6 +99,10 @@ money before any import. [Explicit builtin calls](docs/intrinsics.md) preserve
 native operation identity when application names collide, with editor support.
 [Layered configuration](docs/configuration.md) combines explicit defaults, file
 maps and CLI values with validation and winning-key provenance.
+[Pure API contracts](docs/api-contracts.md) select literal routes and validate
+bounded responses; [workflow progress](docs/workflow-progress.md) reads recorded
+state without replaying jobs. The [Node SDK](integrations/node/README.md) provides
+a bounded FIFO queue with cancellation and confirmed direct-worker cleanup.
 The [ongoing work ledger](SPROUT_WORK_PLAN.md) records completed evidence,
 active feature owners, the next queue and remaining release gates.
 The [TotalReach migration example](examples/adoption/totalreach/README.md) compares

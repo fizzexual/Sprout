@@ -89,6 +89,8 @@ jobs:
           python src/tests/intrinsic_builtin_test.py "$bin"
           python src/tests/csv_import_example_test.py "$bin"
           python src/tests/config_library_test.py "$bin"
+          python src/tests/api_contract_test.py "$bin"
+          python src/tests/workflow_progress_test.py "$bin"
           python src/tests/ergonomics_test.py "$bin"
           python src/tests/embed_test.py "$bin"
           python src/tests/release_manifest_test.py
@@ -312,9 +314,13 @@ jobs:
           env -u SPROUT_GC_STRESS python src/tests/intrinsic_builtin_test.py "$PWD/src/sprout"
           env -u SPROUT_GC_STRESS python src/tests/csv_import_example_test.py "$PWD/src/sprout"
           env -u SPROUT_GC_STRESS python src/tests/config_library_test.py "$PWD/src/sprout"
+          env -u SPROUT_GC_STRESS python src/tests/api_contract_test.py "$PWD/src/sprout"
+          env -u SPROUT_GC_STRESS python src/tests/workflow_progress_test.py "$PWD/src/sprout"
           "$PWD/src/sprout" test src/tests/validation_library_test.sprout --max-steps 3000000 --timeout-ms 5000
           "$PWD/src/sprout" test src/tests/intrinsic_builtin_test.sprout --max-steps 3000000 --timeout-ms 5000
           "$PWD/src/sprout" test src/tests/config_library_test.sprout --max-steps 3000000 --timeout-ms 5000
+          "$PWD/src/sprout" test src/tests/api_contract_test.sprout --max-steps 5000000 --timeout-ms 5000
+          "$PWD/src/sprout" test src/tests/workflow_progress_test.sprout --max-steps 1000000 --timeout-ms 3000
           python tools/fuzz.py "$PWD/src/sprout" --iterations 100 --seed 20261010 --report "$RUNNER_TEMP/fuzz-asan.json" --artifacts "$RUNNER_TEMP/fuzz-asan-artifacts"
 
   ubsan:
@@ -339,6 +345,8 @@ jobs:
           python src/tests/intrinsic_builtin_test.py "$PWD/src/sprout"
           python src/tests/csv_import_example_test.py "$PWD/src/sprout"
           python src/tests/config_library_test.py "$PWD/src/sprout"
+          python src/tests/api_contract_test.py "$PWD/src/sprout"
+          python src/tests/workflow_progress_test.py "$PWD/src/sprout"
 
   playground:
     name: playground image (Docker)

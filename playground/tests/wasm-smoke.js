@@ -83,6 +83,20 @@ async function run(source, expectedCode = 0, flags = [], sandbox = true, files =
   assert.match(configOutput, /[1-9][0-9]* passed/);
   assert.doesNotMatch(configOutput, /[1-9][0-9]* failed/);
   console.log('ok: WASM layered configuration contracts');
+  const apiLibrary = fs.readFileSync(path.join(__dirname, '..', '..', 'lib', 'api.sprout'), 'utf8');
+  const apiContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'api_contract_test.sprout'), 'utf8');
+  const apiOutput = await run(apiContracts, 0, ['--max-steps', '5000000'], false,
+    {'/lib/validate.sprout': validationLibrary, '/lib/api.sprout': apiLibrary}, 'test');
+  assert.match(apiOutput, /\b10 passed\b/);
+  assert.doesNotMatch(apiOutput, /[1-9][0-9]* failed/);
+  console.log('ok: WASM pure API contracts');
+  const progressLibrary = fs.readFileSync(path.join(__dirname, '..', '..', 'lib', 'workflow_progress.sprout'), 'utf8');
+  const progressContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'workflow_progress_test.sprout'), 'utf8');
+  const progressOutput = await run(progressContracts, 0, ['--max-steps', '1000000'], false,
+    {'/lib/workflow_progress.sprout': progressLibrary}, 'test');
+  assert.match(progressOutput, /\b6 passed\b/);
+  assert.doesNotMatch(progressOutput, /[1-9][0-9]* failed/);
+  console.log('ok: WASM recorded workflow progress contracts');
   for (const expression of nativeExpressions) {
     assert.match(await run('show builtin::' + expression + '\n', 1), /sandbox mode/, expression + ' must stay blocked with explicit lookup');
   }

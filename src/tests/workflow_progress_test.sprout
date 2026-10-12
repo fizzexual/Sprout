@@ -1,0 +1,76 @@
+~ Shared pure native/WebAssembly corpus. No checkpoint or process access.
+use "../../lib/workflow_progress.sprout"
+
+private task progress_snapshot(status, attempts):
+    make counts = {pending: 0, running: 0, done: 0, failed: 0}
+    set counts[status] = 1
+    give {ok: yes, error: nothing, code: "ok", version: 1, fingerprint: "a" * 64,
+        count: 1, complete: status == "done", counts: counts,
+        jobs: [{id: "🌱", status: status, attempts: attempts}]}
+private make progress_snapshot = progress_snapshot
+
+test "recorded states do not imply live work or authorize retries":
+    for each status in ["pending", "running", "done", "failed"]:
+        make result = workflow_progress.summarize(progress_snapshot(status, 1))
+        expect result.ok
+        make state = status
+        when status == "running":
+            set state = "uncertain"
+        when status == "done":
+            set state = "complete"
+        expect result.state == state
+        expect result.recorded_complete == (status == "done")
+
+test "exact attempt totals and fingerprint comparison remain separate":
+    make result = workflow_progress.summarize(progress_snapshot("done", 1000000), "A" * 64)
+    expect result.expected_matches
+    expect builtin::kind_of(result.attempts_total) == "integer"
+    expect result.attempts_total == builtin::integer("1000000")
+    make mismatch = workflow_progress.summarize(progress_snapshot("done", 1), "b" * 64)
+    expect mismatch.ok
+    expect mismatch.recorded_complete
+    expect not mismatch.expected_matches
+
+test "inconsistent snapshots return no partial counters or private values":
+    make snapshot = progress_snapshot("pending", 0)
+    set snapshot.counts.done = 1
+    make rejected = workflow_progress.summarize(snapshot)
+    expect not rejected.ok
+    expect rejected.counts == nothing
+    expect rejected.attempts_total == nothing
+    make failed = workflow_progress.summarize({ok: no, code: "io", error: "private path"})
+    expect failed.code == "io"
+    expect not builtin::contains(builtin::json_encode(failed), "private path")
+
+test "UTF8 ID byte bounds do not expose IDs":
+    make snapshot = progress_snapshot("pending", 0)
+    set snapshot.jobs[0].id = "🌱" * 16
+    expect workflow_progress.summarize(snapshot).ok
+    set snapshot.jobs[0].id = "🌱" * 17
+    make rejected = workflow_progress.summarize(snapshot)
+    expect not rejected.ok
+    expect not builtin::contains(builtin::json_encode(rejected), "🌱")
+
+test "output count maps are detached and cyclic summary containers reject finitely":
+    make snapshot = progress_snapshot("done", 1)
+    make before = builtin::json_encode(snapshot)
+    make result = workflow_progress.summarize(snapshot)
+    set result.counts.done = 99
+    expect before == builtin::json_encode(snapshot)
+    set snapshot.jobs = []
+    builtin::add(snapshot.jobs, snapshot.jobs)
+    expect not workflow_progress.summarize(snapshot).ok
+
+test "global constructor collisions do not redirect captured helpers":
+    type wfp_hash:
+        make value
+    type summarize:
+        make value
+        make expected
+    type number:
+        make value
+    type integer:
+        make value
+    make result = workflow_progress.summarize(progress_snapshot("done", 1), "A" * 64)
+    expect result.ok
+    expect result.expected_matches
