@@ -157,12 +157,26 @@ The final test revision `d9c869895f34bed0d25bc1fed583570a7c187736` passed all
 eight [fresh CI jobs](https://github.com/fizzexual/Sprout/actions/runs/38207716585)
 on its first attempt. Its five measured deployment inputs match the passed
 `5d55dc8` smoke exactly; that report retains its original commit attribution.
-The separate final eight-hour run started at **2026-10-12 05:31:52 UTC**, targeting
-**13:31:52 UTC (16:31 Kyiv)**. It remains running evidence, with frozen inputs
-and caller-sealed build/source/manifest identity. Final qualification still
-requires the unchanged v2 coverage audit and the independent exact-clock,
-read-only database, process and resource review. The original failed runs are
-not reclassified by these newer results.
+The separate final eight-hour run started at **2026-10-12 05:31:52 UTC** but
+failed after **1,115.532 seconds**. Windows event logs confirm that time
+synchronization moved the wall clock backward by **2.5843477 seconds**. Both
+the controller and host sampler correctly rejected this under the unchanged
+policy. The original report remains failed, the v2 audit rejected it, and the
+strict final checker refused qualification. No restart or clock-setting change
+was made.
+
+A separate read-only diagnostic verified all 4,464 exact contacts across three
+shards, all 4,570 native worker exits, seven physical host cleanups and unchanged
+frozen/source/build hashes. The report retained six host summaries because its
+failed-exit check discarded the available seventh summary. That host returned
+to one thread, but the clock failure also prevented its final resource capture;
+its earlier sample is not a final resource gate. New reporting corrections retain
+available failed-host metrics and the first offending clock readings without
+granting successful-close credit or relaxing the checks. All 49 focused harness
+regressions passed on Windows and an offline Linux fixture; fresh cross-platform
+CI remains required. Eight-hour qualification remains open and
+requires an agreed stable-clock test environment; passing data checks cannot
+replace it. The original failed runs retain their original results.
 
 The review reproduced these issues and verified their fixes:
 

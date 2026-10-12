@@ -114,25 +114,32 @@ class Cadence:
                 'maximum cadence gap must be finite and positive')
         self.label = label
         self.data = dict(max_gap_seconds=max_gap_seconds, checkpoints=0, failed=False, failure=None,
+                         first_failure_observation=None,
                          first_monotonic=None, last_monotonic=None, last_observed_monotonic=None,
                          first_wall=None, last_wall=None, last_observed_wall=None,
                          maximum_monotonic_gap_seconds=0, maximum_wall_gap_seconds=0)
 
     def _record(self, advance):
+        monotonic = wall = None
+        prior = self.data.copy()
         try:
-            monotonic, wall = time.monotonic(), time.time()
+            monotonic = time.monotonic()
+            wall = time.time()
             require(finite_number(monotonic) and finite_number(wall), self.label + ' cadence clock is missing or nonfinite')
             if self.data['checkpoints']:
+                gaps = {}
                 for name, value in [('monotonic', monotonic), ('wall', wall)]:
                     require(value >= self.data['last_observed_' + name], self.label + ' cadence ' + name + ' clock moved backward')
                     gap = value - self.data['last_' + name]
                     require(finite_number(gap), self.label + ' cadence clock delta is nonfinite')
+                    gaps[name] = gap
+                # A rejected second clock must not commit the first clock's gap.
+                for name, gap in gaps.items():
                     self.data['maximum_' + name + '_gap_seconds'] = max(self.data['maximum_' + name + '_gap_seconds'], gap)
-            # Commit only validated finite readings, including evidence of an excessive gap.
-            self.data['last_observed_monotonic'], self.data['last_observed_wall'] = monotonic, wall
             require(self.data['maximum_monotonic_gap_seconds'] <= self.data['max_gap_seconds'] and
                     self.data['maximum_wall_gap_seconds'] <= self.data['max_gap_seconds'],
                     self.label + ' cadence exceeded maximum gap')
+            self.data['last_observed_monotonic'], self.data['last_observed_wall'] = monotonic, wall
             if advance:
                 if not self.data['checkpoints']:
                     self.data['first_monotonic'], self.data['first_wall'] = monotonic, wall
@@ -142,6 +149,20 @@ class Cadence:
             self.data['failed'] = True
             if self.data['failure'] is None:
                 self.data['failure'] = type(error).__name__ + ': ' + str(error)
+                def observed(value):
+                    return value if finite_number(value) else None
+                def delta(value, previous):
+                    return observed(value - previous) if finite_number(value) and finite_number(previous) else None
+                self.data['first_failure_observation'] = dict(
+                    requested_checkpoint=advance, prior_checkpoints=prior['checkpoints'],
+                    observed_monotonic=observed(monotonic), observed_wall=observed(wall),
+                    prior_observed_monotonic=prior['last_observed_monotonic'],
+                    prior_observed_wall=prior['last_observed_wall'],
+                    prior_checkpoint_monotonic=prior['last_monotonic'], prior_checkpoint_wall=prior['last_wall'],
+                    monotonic_delta_seconds=delta(monotonic, prior['last_observed_monotonic']),
+                    wall_delta_seconds=delta(wall, prior['last_observed_wall']),
+                    monotonic_checkpoint_gap_seconds=delta(monotonic, prior['last_monotonic']),
+                    wall_checkpoint_gap_seconds=delta(wall, prior['last_wall']))
             raise
 
     def checkpoint(self):
@@ -152,7 +173,10 @@ class Cadence:
         self._record(False)
 
     def report(self):
-        return self.data.copy()
+        result = self.data.copy()
+        if result['first_failure_observation'] is not None:
+            result['first_failure_observation'] = result['first_failure_observation'].copy()
+        return result
 
 
 def cadence_gate(summary, max_gap_seconds):
@@ -443,6 +467,15 @@ def host(args):
     return 0 if summary['clean_shutdown'] and not summary['errors'] else 1
 
 
+class ServiceCloseError(AssertionError):
+    """Failed close with available final evidence, never a successful epoch."""
+    def __init__(self, message, *, summary=None, exit_code=None, metrics_error=None):
+        if metrics_error:
+            message += '; final host metrics unavailable: ' + metrics_error
+        super().__init__(message)
+        self.summary, self.exit_code, self.metrics_error = summary, exit_code, metrics_error
+
+
 class Service:
     def __init__(self, frozen, program, binary, workers, metrics, max_gap_seconds=60):
         self.metrics = metrics; self.stderr = bytearray(); self.lines = queue.Queue()
@@ -484,6 +517,7 @@ class Service:
             return response.status, body
 
     def close(self):
+        shutdown_error = None
         try:
             self.process.stdin.write(b'STOP\n'); self.process.stdin.close()
             exit_code = self.process.wait(timeout=12)
@@ -494,17 +528,37 @@ class Service:
             else:
                 import signal
                 os.killpg(self.process.pid, signal.SIGKILL)
-            self.process.kill(); self.process.wait(timeout=5)
-            raise AssertionError('HTTP host did not shut down within its deadline')
+            self.process.kill(); exit_code = self.process.wait(timeout=5)
+            shutdown_error = 'HTTP host did not shut down within its deadline'
         finally:
             for thread in self.readers: thread.join(timeout=3)
             for stream in (self.process.stdin, self.process.stdout, self.process.stderr):
                 if not stream.closed: stream.close()
-        require(exit_code == 0, 'HTTP host exit %d: %s' % (exit_code, self.stderr.decode('utf-8', 'replace')[:1000]))
-        summary = json.loads(self.metrics.read_text(encoding='utf-8'))
-        require(summary['clean_shutdown'] and summary['native_started'] == summary['native_exited'],
-                'HTTP host left native children or threads running')
-        require(not self.stderr and not summary['errors'], 'unexpected host/probe errors: ' + self.stderr.decode('utf-8', 'replace')[:1000])
+        summary = metrics_error = None
+        try:
+            parsed = json.loads(self.metrics.read_text(encoding='utf-8'))
+            if not isinstance(parsed, dict):
+                raise ValueError('final host metrics must be a JSON object')
+            if type(parsed.get('pid')) is not int or parsed['pid'] != self.process.pid:
+                raise ValueError('final host metrics belong to a different or unidentified process')
+            summary = parsed
+        except (OSError, ValueError) as error:
+            metrics_error = (type(error).__name__ + ': ' + str(error))[:1000]
+        if shutdown_error is not None or exit_code != 0 or metrics_error:
+            message = shutdown_error or ('HTTP host exit %d: %s' %
+                (exit_code, self.stderr.decode('utf-8', 'replace')[:1000]) if exit_code != 0 else 'HTTP host final metrics could not be read')
+            raise ServiceCloseError(message, summary=summary, exit_code=exit_code, metrics_error=metrics_error)
+        try:
+            require(summary.get('clean_shutdown') is True and type(summary.get('native_started')) is int and
+                    summary['native_started'] >= 0 and type(summary.get('native_exited')) is int and
+                    summary['native_started'] == summary['native_exited'] and summary.get('native_active_pids') == [] and
+                    type(summary.get('baseline_threads')) is int and summary['baseline_threads'] > 0 and
+                    type(summary.get('final_threads')) is int and summary['final_threads'] == summary['baseline_threads'],
+                    'HTTP host left native children or threads running')
+            require(not self.stderr and summary.get('errors') == [],
+                    'unexpected host/probe errors: ' + self.stderr.decode('utf-8', 'replace')[:1000])
+        except AssertionError as error:
+            raise ServiceCloseError(str(error), summary=summary, exit_code=exit_code) from error
         return summary
 
 
@@ -645,7 +699,16 @@ def main(args):
         nonlocal service
         if service:
             stopping, service = service, None
-            summary = stopping.close(); summary['epoch_seconds'] = elapsed_since(host_started)
+            try:
+                summary = stopping.close()
+            except ServiceCloseError as error:
+                if error.summary is not None:
+                    summary = error.summary.copy()
+                    summary.update(epoch_seconds=elapsed_since(host_started), shard=shard,
+                                   close_error=str(error), exit_code=error.exit_code)
+                    report['hosts'].append(summary)
+                raise
+            summary['epoch_seconds'] = elapsed_since(host_started)
             summary['shard'] = shard; report['hosts'].append(summary)
             counts['hosts_cleanly_stopped'] += 1
             resource_gate(summary, resource_limits, args.workers, max_gap_seconds=args.max_gap_seconds)

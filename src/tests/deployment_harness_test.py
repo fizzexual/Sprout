@@ -8,6 +8,8 @@ import math
 import os
 from pathlib import Path
 import sqlite3
+import subprocess
+import sys
 import tempfile
 import threading
 from types import SimpleNamespace
@@ -127,6 +129,69 @@ class DeploymentHarnessTests(unittest.TestCase):
                 self.assertTrue(cadence.report()['failed'])
                 json.dumps(cadence.report(), allow_nan=False)
 
+    def test_first_rejected_clock_observation_retains_raw_delta_and_prior_state(self):
+        clock = SimpleNamespace(monotonic=100, wall=1000)
+        with patch.object(DEPLOYMENT.time, 'monotonic', side_effect=lambda: clock.monotonic), \
+             patch.object(DEPLOYMENT.time, 'time', side_effect=lambda: clock.wall):
+            cadence = DEPLOYMENT.Cadence(60, 'test'); cadence.checkpoint()
+            clock.monotonic, clock.wall = 101, 1001; cadence.pending()
+            prior = cadence.report()
+            self.assertIsNone(prior['first_failure_observation'])
+            clock.monotonic, clock.wall = 102, 999
+            with self.assertRaisesRegex(AssertionError, 'wall clock moved backward'): cadence.pending()
+            failed = cadence.report(); observation = failed['first_failure_observation']
+            self.assertEqual(observation['observed_monotonic'], 102)
+            self.assertEqual(observation['observed_wall'], 999)
+            self.assertEqual(observation['prior_observed_wall'], 1001)
+            self.assertEqual(observation['prior_checkpoint_wall'], 1000)
+            self.assertEqual(observation['wall_delta_seconds'], -2)
+            self.assertEqual(observation['wall_checkpoint_gap_seconds'], -1)
+            self.assertEqual(observation['monotonic_delta_seconds'], 1)
+            self.assertFalse(observation['requested_checkpoint'])
+            for key in ('checkpoints', 'first_monotonic', 'first_wall', 'last_monotonic', 'last_wall',
+                        'last_observed_monotonic', 'last_observed_wall',
+                        'maximum_monotonic_gap_seconds', 'maximum_wall_gap_seconds'):
+                self.assertEqual(failed[key], prior[key])
+            clock.monotonic, clock.wall = 103, 998
+            with self.assertRaisesRegex(AssertionError, 'wall clock moved backward'): cadence.checkpoint()
+            self.assertEqual(cadence.report()['first_failure_observation'], observation)
+            observation['observed_wall'] = 0  # Report copies cannot alter the latched evidence.
+            self.assertEqual(cadence.report()['first_failure_observation']['observed_wall'], 999)
+            json.dumps(cadence.report(), allow_nan=False)
+
+    def test_excessive_gap_records_raw_evidence_without_advancing_valid_clock(self):
+        with patch.object(DEPLOYMENT.time, 'monotonic', side_effect=[100, 162]), \
+             patch.object(DEPLOYMENT.time, 'time', side_effect=[1000, 1062]):
+            cadence = DEPLOYMENT.Cadence(60, 'test'); cadence.checkpoint()
+            with self.assertRaisesRegex(AssertionError, 'exceeded maximum gap'): cadence.checkpoint()
+            value = cadence.report()
+            self.assertEqual(value['checkpoints'], 1)
+            self.assertEqual(value['last_observed_monotonic'], 100)
+            self.assertEqual(value['last_observed_wall'], 1000)
+            self.assertEqual(value['maximum_monotonic_gap_seconds'], 62)
+            self.assertEqual(value['first_failure_observation']['observed_monotonic'], 162)
+            self.assertEqual(value['first_failure_observation']['wall_delta_seconds'], 62)
+            self.assertTrue(value['first_failure_observation']['requested_checkpoint'])
+            json.dumps(value, allow_nan=False)
+
+    def test_partial_clock_read_failure_keeps_the_completed_raw_read_only(self):
+        for failing in ('wall', 'monotonic'):
+            with self.subTest(failing=failing), \
+                 patch.object(DEPLOYMENT.time, 'monotonic', side_effect=OSError('clock unavailable') if failing == 'monotonic' else None,
+                              return_value=100) as monotonic, \
+                 patch.object(DEPLOYMENT.time, 'time', side_effect=OSError('clock unavailable') if failing == 'wall' else None,
+                              return_value=1000) as wall:
+                cadence = DEPLOYMENT.Cadence(60, 'test')
+                with self.assertRaisesRegex(OSError, 'clock unavailable'): cadence.checkpoint()
+                value = cadence.report(); observation = value['first_failure_observation']
+                self.assertEqual(observation['observed_monotonic'], 100 if failing == 'wall' else None)
+                self.assertIsNone(observation['observed_wall'])
+                self.assertEqual(value['checkpoints'], 0)
+                self.assertIsNone(value['last_observed_monotonic'])
+                self.assertIsNone(value['last_observed_wall'])
+                if failing == 'monotonic': wall.assert_not_called()
+                json.dumps(value, allow_nan=False)
+
     def test_missing_and_nonfinite_clocks_do_not_pollute_report(self):
         for source in ('monotonic', 'time'):
             for value in (None, float('nan'), float('inf'), float('-inf'), True):
@@ -135,6 +200,8 @@ class DeploymentHarnessTests(unittest.TestCase):
                     with self.assertRaisesRegex(AssertionError, 'missing or nonfinite'):
                         cadence.checkpoint()
                     self.assertTrue(cadence.report()['failed'])
+                    key = 'observed_monotonic' if source == 'monotonic' else 'observed_wall'
+                    self.assertIsNone(cadence.report()['first_failure_observation'][key])
                     json.dumps(cadence.report(), allow_nan=False)
         with patch.object(DEPLOYMENT.time, 'monotonic', return_value=float('nan')):
             self.assertIsNone(DEPLOYMENT.elapsed_since(0))
@@ -170,7 +237,8 @@ class DeploymentHarnessTests(unittest.TestCase):
 
     def clock_fixture(self, jump=None, duration=30, rate=4, max_gap_seconds=60,
                       started=0, health_delay=0, health_fail_at=None, startup_delay=0,
-                      contention_seconds=60, contention_delay=0, restart_seconds=180, actual_counts=None):
+                      contention_seconds=60, contention_delay=0, restart_seconds=180, actual_counts=None,
+                      close_failure=False, close_summary_available=True):
         """Real SQLite oracle and bounded fake transport/clock, no subprocesses."""
         clock = SimpleNamespace(monotonic=started, wall=1000)
         services = []
@@ -178,6 +246,7 @@ class DeploymentHarnessTests(unittest.TestCase):
         class FixtureService:
             def __init__(service, frozen, program, binary, workers, metrics, max_gap_seconds=60):
                 service.database = Path(program).parent / 'contacts.sqlite'
+                service.metrics = metrics
                 service.process = SimpleNamespace(pid=424242)
                 service.lock = threading.Lock(); service.close_calls = 0
                 service.health_calls = 0
@@ -213,7 +282,14 @@ class DeploymentHarnessTests(unittest.TestCase):
                         database.close()
             def close(service):
                 service.close_calls += 1
-                return copy.deepcopy(service.summary)
+                summary = copy.deepcopy(service.summary)
+                if close_failure:
+                    summary.update(pid=service.process.pid, errors=['fixture probe error'])
+                    if close_summary_available: DEPLOYMENT.save(service.metrics, summary)
+                    raise DEPLOYMENT.ServiceCloseError('HTTP host exit 1: fixture probe error',
+                        summary=summary if close_summary_available else None, exit_code=1,
+                        metrics_error=None if close_summary_available else 'FileNotFoundError: fixture metrics unavailable')
+                return summary
         def sleep(seconds):
             if jump == 'nonfinite':
                 clock.monotonic = float('inf'); clock.wall = float('nan')
@@ -224,7 +300,7 @@ class DeploymentHarnessTests(unittest.TestCase):
                 clock.monotonic = nominal
                 return
             clock.monotonic += duration + 1 if jump == 'both' else seconds
-            clock.wall += duration + 1 if jump in ('both', 'wall') else seconds
+            clock.wall += -1 if jump == 'backward' else duration + 1 if jump in ('both', 'wall') else seconds
         with tempfile.TemporaryDirectory() as name:
             fixture = Path(name)
             for relative in ('integrations/python/sprout_host.py', 'integrations/python/sprout_service.py', 'examples/services/contacts.sprout', 'dummy-native'):
@@ -262,6 +338,106 @@ class DeploymentHarnessTests(unittest.TestCase):
         self.assertEqual(result, 1); self.assertFalse(report['passed'])
         self.assertIn('controller cadence exceeded maximum gap', report['errors'][0]['message'])
         self.assertEqual(closed, 1); self.assertEqual(actual, 8)
+
+    def test_failed_close_after_clock_error_retains_final_host_evidence_without_success_credit(self):
+        result, report, closed, actual = self.clock_fixture(jump='backward', close_failure=True)
+        self.assertEqual(result, 1); self.assertFalse(report['passed']); self.assertFalse(report['workload_completed'])
+        self.assertEqual(actual, 8); self.assertEqual(closed, 1)
+        self.assertEqual(report['counts']['hosts_started'], 1)
+        self.assertEqual(report['counts']['hosts_cleanly_stopped'], 0)
+        self.assertEqual(len(report['hosts']), 1)
+        self.assertEqual(report['hosts'][0]['native_started'], report['hosts'][0]['native_exited'])
+        self.assertTrue(report['hosts'][0]['clean_shutdown'])
+        self.assertEqual(report['hosts'][0]['exit_code'], 1)
+        self.assertIn('HTTP host exit 1', report['hosts'][0]['close_error'])
+        self.assertIn('fixture probe error', report['hosts'][0]['errors'])
+        self.assertIn('wall clock moved backward', report['errors'][0]['message'])
+        self.assertIn('HTTP host exit 1', report['errors'][1]['message'])
+        self.assertIsNone(report['active_host_pid'])
+        self.assertEqual(report['controller_cadence']['first_failure_observation']['observed_wall'], 999)
+        json.dumps(report, allow_nan=False)
+
+    def test_unavailable_close_metrics_do_not_manufacture_a_host_summary(self):
+        result, report, closed, actual = self.clock_fixture(jump='backward', close_failure=True, close_summary_available=False)
+        self.assertEqual(result, 1); self.assertFalse(report['passed'])
+        self.assertEqual(actual, 8); self.assertEqual(closed, 1)
+        self.assertEqual(report['hosts'], [])
+        self.assertEqual(report['counts']['hosts_cleanly_stopped'], 0)
+        self.assertIn('wall clock moved backward', report['errors'][0]['message'])
+        self.assertIn('final host metrics unavailable', report['errors'][1]['message'])
+
+    def close_service_fixture(self, code, mode='valid', final_threads=1):
+        """Real small owned child publishes local metrics and exits after STOP."""
+        with tempfile.TemporaryDirectory() as name:
+            metrics = Path(name) / 'metrics.json'
+            payload = dict(clean_shutdown=True, native_started=0, native_exited=0, native_active_pids=[],
+                           baseline_threads=1, final_threads=final_threads,
+                           errors=[] if code == 0 else ['fixture probe error'])
+            script = ('import json,os,pathlib,sys\n'
+                      'assert sys.stdin.readline().strip()=="STOP"\n'
+                      'value=json.loads(sys.argv[3]); value["pid"]=os.getpid()\n'
+                      'if sys.argv[4]=="foreign": value["pid"]+=1\n'
+                      'if sys.argv[4]=="unidentified": value.pop("pid")\n'
+                      'if sys.argv[4]!="missing": pathlib.Path(sys.argv[1]).write_text('
+                      '"unfinished JSON" if sys.argv[4]=="invalid" else json.dumps(value))\n'
+                      'sys.exit(int(sys.argv[2]))\n')
+            service = DEPLOYMENT.Service.__new__(DEPLOYMENT.Service)
+            service.metrics, service.stderr, service.readers = metrics, bytearray(), []
+            service.process = subprocess.Popen([sys.executable, '-c', script, str(metrics), str(code), json.dumps(payload), mode],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                start_new_session=os.name != 'nt',
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+            try:
+                try:
+                    summary, error = service.close(), None
+                except DEPLOYMENT.ServiceCloseError as caught:
+                    summary, error = None, caught
+                self.assertEqual(service.process.returncode, code)
+                self.assertTrue(all(p.closed for p in (service.process.stdin, service.process.stdout, service.process.stderr)))
+                if os.name != 'nt':
+                    with self.assertRaises(ChildProcessError): os.waitpid(service.process.pid, os.WNOHANG)
+                return summary, error, service.process.pid
+            finally:
+                if service.process.poll() is None: service.process.kill()
+                service.process.wait(timeout=2)
+                for stream in (service.process.stdin, service.process.stdout, service.process.stderr):
+                    if not stream.closed: stream.close()
+
+    def test_real_host_exit_one_retains_saved_metrics_and_reaps_child(self):
+        summary, error, pid = self.close_service_fixture(0)
+        self.assertIsNone(error); self.assertEqual(summary['pid'], pid)
+        summary, error, pid = self.close_service_fixture(1)
+        self.assertIsNone(summary); self.assertEqual(error.exit_code, 1)
+        self.assertEqual(error.summary['pid'], pid)
+        self.assertTrue(error.summary['clean_shutdown'])
+        self.assertEqual(error.summary['errors'], ['fixture probe error'])
+        self.assertIsNone(error.metrics_error)
+
+    def test_real_host_unavailable_or_incomplete_metrics_remain_failed(self):
+        for mode, expected in [('missing', 'FileNotFoundError'), ('invalid', 'JSONDecodeError')]:
+            for code in (0, 1):
+                with self.subTest(mode=mode, code=code):
+                    summary, error, pid = self.close_service_fixture(code, mode)
+                    self.assertIsNone(summary); self.assertIsNone(error.summary)
+                    self.assertEqual(error.exit_code, code)
+                    self.assertIn(expected, error.metrics_error)
+                    if code == 1: self.assertIn('HTTP host exit 1', str(error))
+
+    def test_real_host_invalid_cleanup_metrics_do_not_receive_success_credit(self):
+        summary, error, pid = self.close_service_fixture(0, final_threads=True)
+        self.assertIsNone(summary); self.assertEqual(error.exit_code, 0)
+        self.assertEqual(error.summary['pid'], pid)
+        self.assertIn('native children or threads', str(error))
+
+    def test_real_host_foreign_or_unidentified_metrics_are_not_attached_as_evidence(self):
+        for mode in ('foreign', 'unidentified'):
+            for code in (0, 1):
+                with self.subTest(mode=mode, code=code):
+                    summary, error, pid = self.close_service_fixture(code, mode)
+                    self.assertIsNone(summary); self.assertIsNone(error.summary)
+                    self.assertEqual(error.exit_code, code)
+                    self.assertIn('different or unidentified process', error.metrics_error)
+                    if code == 1: self.assertIn('HTTP host exit 1', str(error))
 
     def test_failed_clock_report_has_no_nan_or_infinity(self):
         result, report, closed, actual = self.clock_fixture(jump='nonfinite', duration=28800)

@@ -70,8 +70,11 @@ The controller keeps an initial progress point, observes completed bursts, and
 checks the pending gap during pacing and before final completion. Pacing polls
 do not reset the last completed burst. Each host observes sampler captures,
 including the final shutdown capture. The report retains only checkpoint counts,
-first/last readings, last observed readings and maximum gaps for each clock;
-it does not retain an ever-growing timestamp array.
+first/last readings, last observed readings and maximum gaps for each clock.
+New failure-reporting revisions also retain the first rejected observation,
+including the prior readings and signed deltas; nonfinite values are encoded
+as null. They preserve the failure and accepted clock baselines without retaining
+an ever-growing timestamp array.
 The traffic start and deadline are anchored to that initial checkpoint before
 opening the expected-data oracle, so a long setup pause also fails the guard.
 
@@ -403,7 +406,7 @@ successful eight-hour coverage, maximum-gap evidence or uptime certification.
 The separate private record is
 `D:/Codex/Kestrel/work/deployment-86ab3b4-8h-20261011-failure-independent-review.json`.
 
-## Final changed candidate: running
+## Final changed candidate: failed qualification
 
 The corrected `d9c869895f34bed0d25bc1fed583570a7c187736` revision passed all
 eight [native/SDK, WASM, sanitizer, Docker and Paper CI jobs](https://github.com/fizzexual/Sprout/actions/runs/38207716585)
@@ -416,7 +419,7 @@ cadence, resource and storage checks passed. The smoke retains its original
 inputs. It does not establish eight-hour readiness.
 
 One separate bounded final run started at **2026-10-12 05:31:52 UTC**, targeting
-**13:31:52 UTC**. Its workspace is
+**13:31:52 UTC**, but stopped after **1,115.532 seconds**. Its workspace is
 `D:/Codex/Kestrel/work/deployment-final-8h-20261012`, with a private `.json`
 sibling report. The supported Windows profile remains 28,800 seconds, four
 contacts/second, eight clients, four workers, eight-contact bursts, 180-second
@@ -438,9 +441,47 @@ manifest and controller identity. After completion the independent checker
 requires the fixed v2 qualification for the exact original report, then checks
 absolute timer endpoints, raw duration, dual-clock cadence, retained SQLite rows,
 source/build hashes, native exits/thread baselines and actual resource/storage
-limits. Its live invocation returned pending before any final database/process
-review or output. **This new eight-hour outcome remains pending.** No running
-report is a completed pass, and the original failed evidence remains unchanged.
+limits. Its initial live invocation returned pending before any final database
+or process review. The original final report is now **failed and unqualified**,
+SHA256 `82b9a81d57f444c40d4736bfcd547fd14b4632d39440d24be7d08080f4267756`.
+The unchanged v2 auditor returned `invalid_report`, and the strict final checker
+refused the unsuccessful candidate without producing a qualification artifact.
+
+System Kernel-General event 1, record 19062, records UTC moving from
+`2026-10-12T05:50:27.5863627Z` to `2026-10-12T05:50:25.0020150Z`: a backward
+step of 2.5843477 seconds. Time-Service records corroborate synchronization with
+`time.windows.com`. The old time matches the host's final accepted sampler point.
+Both controller and host sampler correctly failed the conservative declared
+clock guard. No sleep/resume event was found in the bounded log window. The
+frozen harness omitted the rejected reading, so the adjustment magnitude comes
+from the independent OS events rather than an inferred report delta.
+
+A separate read-only failed-scope review verified 4,464 exact rows in shards of
+2,000, 2,000 and 464 contacts, including the unfinished shard, with intact values,
+unique IDs/emails and SQLite integrity. All seven host metrics files record
+physical cleanup, all 4,570 native workers exited, final threads returned to one,
+and no owned processes remained. The original report kept only six summaries:
+`Service.close()` raised on the final host's exit status before retaining its
+available metrics. That host exited nonzero because its sampler also rejected
+the clock step. Its last resource sample preceded cleanup and showed three
+threads; the separately measured final thread count was one. Its final resource
+capture is missing, so these observations do not establish every final resource
+gate. Sampled host RSS reached 34,832,384 bytes and handles reached 256, within
+the declared ceilings. Frozen inputs, sealed trust, source Git blobs and the
+installed native binary remained unchanged.
+
+The separate private diagnostics are
+`D:/Codex/Kestrel/work/deployment-final-8h-20261012-wall-failure-independent-review.json`
+and `D:/Codex/Kestrel/work/deployment-final-8h-20261012-clock-independent-review.json`.
+Reporting corrections retain available failed-host metrics and the first bad
+clock sample while preserving failure, validation and clean-close accounting.
+All 49 focused harness controls passed on Windows and offline Linux, including
+real owned subprocess exits, unavailable or foreign metrics, preservation of
+both primary/cleanup errors, partial clock reads and first-failure immutability.
+The native interpreter, SDK and HTTP service sources were not changed.
+No original artifact is rewritten. There is no sustained test active; a new
+qualification needs an agreed stable-clock environment. The clock policy has
+not been relaxed, and this failed run has not been retried or relabeled.
 
 This exercise covers sustained local traffic, controlled SQLite contention,
 data preservation across graceful restarts and worker cleanup. It does not
