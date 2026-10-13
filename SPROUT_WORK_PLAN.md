@@ -63,6 +63,15 @@ The retained EF8 normal build matches all19 committed native inputs, but
 installation promotion awaits complete qualification. Root owns quote pin
 adoption; stdlib prepares a smaller source-supported validation allocation
 change, and distribution continues only private N018 source/fixture preparation.
+The separate source-approved3971 validator candidate then ran one unchanged
+four-call qualification on EF8. Normal10 passed; actual-GC stopped during the
+final group at3000ms with9passed/1failed, and the later42/4 calls did not run.
+The failed3971 source remains private. No source integration, quote pin adoption,
+CI or installation promotion followed that result. A native admission design
+comparison is queued instead of further constant-only iterations. New N018
+source review found two acceptance mismatches before execution: C35's expected
+hard-limit stderr and the named-input fixture's existing `argument` error kind.
+Distribution owns a separate fixture/driver correction; original49D stays frozen.
 No workload replay, diagnostic-speed comparison or deadline increase is queued.
 
 ## Current rules
@@ -309,13 +318,13 @@ remain separate; later passes do not establish their causes.
 | N007 attribution | Completed and verifieda3; original evidence retained | Exporter/data correction and fullCI passed; see Done. No new measurement or repeat audit is queued. |
 | N009 producer | Functionally verified and installed on1992; earlier failures retained | Original896 CI7/8 remains failed. Exact same19 runtime inputs passed separate1992 fullCI8/8 and normal1544 is now installed after bounded probes/complete exact quote. This opens N014's producer dependency; it does not explain the original seed timeout or qualify sustained deployment. |
 | Windows workflow diagnosis | Root/editor private observation complete; remote cause remains open | Original journal byte reviews verified seven before-image checksums and changed database pages, without SQLite recovery. One separately frozen instrumented local seed completed once under unchanged2000ms/15000ms/18s limits. Root read-only verification confirmed one exact effect, one application and two events in the new fixture. Local1544 differs from remote243; markers perturb timing, and this is not a failed-CI replacement or independent descendant-stop proof. No further seed/whole-soak run authorized. |
-| Integration | Root: queue, exact evidence and CI wiring | Last fully verified127ab6d/CI8 remains; first289 featureCI6/8 and firstf230 combinedCI3/8 are preserved. Root verified saved f230 text profiles/source hashes and bound retained EF8 build to all19 committed inputs. No active CI or installation promotion. Review smallest remaining allocation proposal, adopt exact final validator pins and qualify one changed candidate with fresh full CI. Installed1544/rollback4FF and human8h hold unchanged. |
+| Integration | Root: queue, exact evidence and handoff | Last fully verified127ab6d/CI8 remains; first289 CI6/8 and firstf230 CI3/8 preserved. Source-approved3971 private candidate passed normal10 then failed actualGC9/1 at unchanged3000ms, so no integration/pin adoption/CI/promotion. Root independently checked raw hashes, exact modes/caps and all27 postflight pins. Native admission design and corrected N018 fixtures are next; installed1544 and human8h hold unchanged. |
 | N014 explicit doctor | Completed and verifieda3; default behavior retained | Consumer/source/wiring peers and real diagnostic profile passed; see Done. No unchanged local tests or additional queries queued. |
 | N015 admission redesign | `/root/editor_tooling`: preserved failures and N018 source-only design; `/root/distribution` peer | The separately sealed clone-free refinement failed its first actual-GC call at the unchanged3s deadline, after five shared groups passed. Zero SDK calls; the other46 payloads were not launched. Capture/cleanup/finalization errors empty, all73 inputs unchanged. Original and isolated failures remain failed. No more quote payloads are authorized. Inspect a bounded native plain-data admission design before another implementation; no timer/cap relaxation or claim that the exact CPU cause is established. |
 | N016 exact UTC helper | Completed and verified127ab6d | See Done. Prior local fixture failure/source-review preimages and4f73 firstCI7/8 stay preserved; no unchanged local payloads or extra audits queued. |
-| N017 ordered decision tables | Stdlib private further allocation proposal; root pin adoption | First289 CI6/8 remains failed. Seven map-loop substitutions/private constant passed the full local E7E/5E80 profile. Firstf230 CI3/8 retained stale quote validator pins, while ASan actual-GC stopped during group9 at3000ms with8/1. UBSan decision10/10/42/4 passed; root raw review completed. Source-only review of eager default containers, immutable key lists and helper-call allocation is active; preserve exact original bodies/order/caps and require peer/seal before any changed-candidate test. No CPU-cause or speedup claim. |
+| N017 ordered decision tables | Stdlib source-only native admission comparison; root adoption held | E7E/5E80 original local profile and remoteUBSan10/10/42/4 passed, firstf230 fullCI3/8 and ASan8/1 stay failed. New3971 four-membership-list/empty-map proposal passed independent source peers/exact inverse, then its first sealed EF8 profile failed actualGC group10 with9/1 after normal10. Later42/4 unlaunched; no integration or quote-pin update. No further constant-only retry. Compare edge/wire depth, widths, text/legacyUTF8, shared budgets and error ordering against native inspector before proposing adoption; no blind substitution or CPU/speed claim. |
 | N019 library snippets | Distribution frozen handoff; root integrated28956f9 | Four useful prefixes for validation/configuration/UTC preserve all11 prior snippets. New source3/3 and root byte-inverse/API/placeholder review passed. First integrated featureCI6/8 is preserved; complete qualification remains pending. No actual VS Code expansion, VSIX publication or editor installation claim. |
-| N018 plain-data inspection | New distribution source freeze; independent driver/fixture peer pending | Immutable E012 starting implementation source peer remains approved. New49D handoff/789 manifest bind exactf230/C0D and20 candidate native inputs, complete prospective controls/fixtures and corrected deadline-clock wording. Root integrity intake verified all74 files/22,147,688 bytes; this is not complete source or target approval. No imports/models/controls/builds/native/quote/CI or shared implementation. Distribution now waits to peer stdlib's frozen validator proposal; actual N018 execution remains held until target qualification and separate driver/fixture peer/root seal. Original N015 failures remain failed. |
+| N018 plain-data inspection | Distribution private fixture/driver correction; final118 source peer retained | New49D/789 freeze and all74/22,147,688 source pins/Git/inverses checked. Independent new peer118 found two pre-execution blockers: C35 hard step/deadline cases emit diagnostics although driver/fake expects empty stderr, and named options case expects `error` instead of existing `argument`. Owner creates a separate exact-label diagnostic/fixture-only correction; walker/core/formatter unchanged,17-input inspector error/callback0 retained. Outer180s must be provided by root seal; wrong UTF8 docstring also corrected. No target imports/models/tests/builds/native/helper/SDK/GC/quote/CI/shared integration; source/target/seal gates stay pending. |
 | R003 native text bounds | Integratedf230 source; root target evidence review | Source-approved C0D candidateEF8/helper0F31 built once, both historical images full-SQLite; one private6/6/16 passed. Public source/model controls passed, original failed outer CRLF assertion preserved. ActualWASM shared6 and separate ASan/UBSan minimal compile/normal6/actualGC6/helper16 passed firstf230 CI; raw and23-source/Git review completed. OverallCI3/8 remains failed, native3 halted before the explicit driver, installation1544 unchanged. No unsafe original-runtime replay. |
 
 Root owns this file. Agents own only their assigned private inputs until the
@@ -331,8 +340,8 @@ ownership before implementation; keep each item independently reviewable.
 | --- | --- | --- |
 | N015 | Bounded batching for pure quote/rule calls | Let hosts request multiple pure evaluations in one fresh worker call to reduce worker launches. First fix the interface and aggregate item/byte/time/step caps; preserve exact per-item Python/Node parity and private-safe errors, no hidden pool/retry/effects. Verify launch counts and mixed invalid/valid boundaries; make no speed claim without separately frozen measurements. |
 | N016 | Completed exact explicit-offset timestamps | Delivered and verified127ab6d; see Done. Existing local-time helpers retain their contracts. |
-| N017 | Bounded declarative decision tables | Public ordered-table API and detached-result contracts are integrated. Reviewed allocation reduction passed the unchanged four-call candidate profile; fresh combined full CI must qualify actual sanitizer/native/WASM targets before delivery is credited. Preserve original failures; no workload/deadline retuning. |
-| N018 | Bounded native plain-data inspection | New49D/789 source/fixture/plan freeze is complete and root's74-file integrity intake passed. Finish independent new driver/fixture/source review after the active validator batch: exact prefix counts, zero mutation/callbacks,20-input provenance, complete typed results and first-error reporting are acceptance criteria. Root must seal each prospective cohort separately; actual target qualification remains a dependency. No quote retries or speed claim. |
+| N017 | Bounded declarative decision tables | Public API/E7E/5E80 remains integrated but full qualification failed. Private3971 source proposal also failed its first actualGC profile and is not adopted. Next source-only native-admission comparison must preserve guest edge versus wire/exact depth, per-key/container limits, cumulative table/input budgets, text policy, callbacks and first-error order; freeze explicit contract changes if exact parity is impossible. No failed workload/deadline retuning. |
+| N018 | Bounded native plain-data inspection | Collect the separate corrected C35 diagnostic/named-argument driver/fixture freeze after final118 review, then independently peer only the new delta before any root execution seal. Keep original49D immutable, all output oracles/caps/modes otherwise unchanged, and establish the exact20-input build/target dependency. No original controls/payloads ran, no quote retries or speed claim. |
 | N019 | Useful editor snippets for application inputs | Four prefixes are integrated with all11 prior snippets preserved, source3 and API/placeholder peers complete. Their original feature CI remains6/8; qualification awaits the fresh combined candidate. No actual editor expansion or marketplace publication claim. |
 | R003 | Terminator-aware native text traversal | Public source/model coverage and first actualWASM/ASan/UBSan profiles passed, all19 retained normal-build inputs bound to committedf230. Preserve wholeCI3/8 failure, require the changed candidate's complete native3/full target qualification before installation promotion. No unchanged local native replay or compile. |
 | N012 | Explicit registered-type environment reachability | Normal files/modules have existing home roots. A type-only wizard file has a structural registry-home concern; bounded ordinary/stress probes passed and have not reproduced a runtime failure. Require a controlled collector reachability negative before proposing a shipping correction; nested task-local methods remain unsupported by the parser |
@@ -351,7 +360,7 @@ order. Do not silently broaden an item into a public deployment or stable releas
 | Actual supervisor/crash recovery and representative deployment | Finite cold recovery and compiled/adapter tests do not establish these platform-specific behaviors. Keep limits explicit and scope any future rehearsal separately. |
 | Native error cleanup | N011's measured array leaks are fixed and qualified on `6b8c724` with counted success/error/fault controls and fresh full CI. ENV/array evidence does not establish whole-heap cleanup or eliminate unrelated future findings. |
 | Legacy native text bounds (R003) | Reviewed correction/portable coverage integrated. Local6/6/16, source/model controls, first actualWASM and separate ASan/UBSan6/6/16 passed; all19 committed inputs match retained normal build. Overallf230 CI remains3/8 with three explicit native profiles unlaunched after earlier fixture-pin failure. Installation promotion remains gated; no original crash or exploitability claim. |
-| Decision-table stress deadline | Preserve first289 ASan group6/5passed deficit and firstf230 ASan group9/8passed deficit, both unchanged3000ms with later2 calls unlaunched. E7E/5E80 passed full local EF8 and remote UBSan10/10/42/4; no memory fault reported in saved decision pipes. Stdlib source-only allocation proposal remains active. No timing-cause/speed claim, split/retry or extended limits. |
+| Decision-table stress deadline | Preserve first289 ASan group6/5passed, firstf230 ASan group9/8passed and first private3971 EF8 actualGC group10/9passed deficits, all unchanged3000ms with later2 calls unlaunched. E7E/5E80 prior local profile and remoteUBSan10/10/42/4 remain separate. No memory fault reported in retained decision pipes. Native admission contract comparison precedes any next candidate; no CPU/speed inference, split/retry or extended limits. |
 | Windows installer CI observation | `437af0a` healthy PowerShell upgrade timed out at 15 seconds; original cause unknown. Driver isolation/diagnostics were corrected, with unchanged deadlines, and later full CI passed. Preserve the original failure. |
 | HTTP capacity teardown | `b39afb6` observed10053. Local late-write fixtures reproduced lost503; bounded teardown corrections and later full CI passed. Exact remote cause and bounded delivery limits remain explicit. |
 | macOS concurrent .NET worker startup | `479c59e` failed with Operation canceled after earlier cancellation/recovery passed. Bounded diagnostics and subsequent fresh full CI passed; the prior startup cause remains unknown. No repeated clean-result explanation or descendant cleanup claim. |
@@ -360,6 +369,29 @@ order. Do not silently broaden an item into a public deployment or stable releas
 | Live Paper and stable release | Live server use awaits the owner's EULA decision. No stable tag/public service/paid infrastructure is authorized. |
 
 ## Batch evidence log
+
+- 2026-10-13: Collected3971 validator-only frozen26A/1259 proposal. Root source
+  peer SHA256 `13cfe3ecb5b69bca6f79de041aae05a8521ec4d3d80add37d4d4a8d2b8b3a0f2`
+  and independent distribution peer SHA256
+  `2282bc644f55b438bbae35981f33a593a23b84298f9dd1b6e28e3ec0dfad441c`
+  approved exact inverse to5E80, five private read-only collections, unchanged
+  schema/order/captures/42+4 oracles and original unsplit four-call caps. One
+  separately sealed3971/EF8 profile FAILED: normal10 passed, actualGC group10
+  stopped9passed/1failed at3000ms in d_text/d_admit/evaluate; later42/4 calls
+  unlaunched. Original outer result SHA256
+  `3de093c0f9a8c5b61b12b8db50557b9a0091864a70959d388d2bdc21b92dac15`;
+  read-only raw/27-source/all selected-input diagnostics SHA256
+  `9afbf1290df7bcf03d9fedc3a34648e2c6e8dd67ed85dcf6f03000ec926df68a`.
+  Direct capture/cleanup fields are empty. Outer secondary AssertionError is
+  its all-four-success postcondition after the primary failure, not child or
+  artifact cleanup; its original field remains unchanged. No source/pin
+  adoption, CI or installation followed. A semantic native-admission design
+  comparison replaces further constant-only iterations.
+  New N018 peer SHA256
+  `118d794475dcc91173d4ad82a3ebcd2a5aaaf3d19282a59fcdcb166a4b404fcf`
+  retained all74 pins and identified the C35 hard-diagnostic and named-input
+  error-kind mismatches before execution. Distribution prepares a separate
+  fixture/driver correction, retaining49D/789 and unchanged walker/runtime.
 
 - 2026-10-13: Collected the new private N018 source/fixture/prospective-plan
   freeze. Handoff SHA256 `49d221e72379d41bceeb0145fa12ab567a952328fd9fa7720780f5140af46485`;
