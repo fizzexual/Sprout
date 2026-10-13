@@ -1,0 +1,38 @@
+~ sort_by computes every item's key BEFORE it sorts. Those keys are fresh values that
+~ nothing in the program holds, so the interpreter must keep them alive itself while it
+~ runs the key task for the NEXT item (that task may trigger a collection). Run under
+~ SPROUT_GC_STRESS=1 (the asan CI job does) the GC collects on EVERY statement, so a key
+~ the collector can't see is freed at once and ASan aborts. The big sort at the bottom
+~ needs no stress mode: its keys pass the normal GC threshold on their own.
+~ Guarded script: prints "FAIL ..." on any wrong result.
+
+task check(label, got, want):
+    when got != want:
+        show "FAIL", label, "- got", got, "wanted", want
+
+~ ---------- small sorts: every key is a fresh string ----------
+check("sort_by, 3 fresh keys", sort_by(["b", "a", "c"], task(w): upper(w)), ["a", "b", "c"])
+make ws = ["delta", "alpha", "kilo", "echo", "bravo", "juliet", "golf", "hotel", "india", "charlie"]
+check("sort_by, 10 fresh keys", sort_by(ws, task(w): upper(w) + "-" + lower(w)), ["alpha", "bravo", "charlie", "delta", "echo", "golf", "hotel", "india", "juliet", "kilo"])
+task key(w):
+    make a = upper(w)
+    make b = a + "-" + lower(w)
+    give b + "!"
+check("sort_by with a multi-statement key task", sort_by(["kilo", "echo", "alpha"], key), ["alpha", "echo", "kilo"])
+
+~ ---------- a big sort with NO stress mode ----------
+~ ~1 KB per key x 10,000 keys ~ 10 MB of keys, so ordinary collections run while the keys
+~ are still being computed; a key the collector can't see gets freed, its memory reused by
+~ a later key, and the order comes out wrong.
+make pad = "-"
+repeat 10 times:
+    set pad = pad + pad
+make big = []
+for each i in 1 to 10000:
+    add(big, "w" + ((i * 7919) % 100003))
+make want = sort(copy(big))
+make got = sort_by(big, task(w): upper(w) + pad)
+check("big sort_by keeps every item", length(got), 10000)
+check("big sort_by is in the right order", got == want, yes)
+
+show "ok: sort_by keys survive collection"
