@@ -9,6 +9,16 @@ what comes next, and what remains blocked. Planned work is not delivered work.
 Current verified code: `127ab6d`, all eight jobs passed on the first attempt in
 [CI 38340208597](https://github.com/fizzexual/Sprout/actions/runs/38340208597).
 This verifies the pure UTC helper and test-only crafted-bundle isolation correction.
+Latest feature revision `28956f9` adds ordered decision tables and four library
+snippets. Its first [CI38346598689](https://github.com/fizzexual/Sprout/actions/runs/38346598689)
+passed six of eight jobs, including actual WebAssembly, and remains unqualified.
+Windows stopped at a source-check CRLF mismatch before its decision driver.
+A test-only normalization retains the exact guards and passed one focused
+LF/CRLF control with14 source checks and no child execution. ASan's decision
+actual-GC corpus exceeded the unchanged3000ms limit during its sixth group,
+after five passed; the captured report contains no reported ASan memory fault.
+The original failure remains immutable. Meaningful efficiency work and fresh
+complete CI are required; no workload retry or deadline change is authorized.
 The installed normal Windows binary is `154415bb` (`0.2.0-dev`), bound to all19
 exact unchanged native Git inputs and its original full-SQLite build. Compiled metadata
 and reusable measurement tools are functionally verified. Prior capability
@@ -276,13 +286,14 @@ remain separate; later passes do not establish their causes.
 | N007 attribution | Completed and verifieda3; original evidence retained | Exporter/data correction and fullCI passed; see Done. No new measurement or repeat audit is queued. |
 | N009 producer | Functionally verified and installed on1992; earlier failures retained | Original896 CI7/8 remains failed. Exact same19 runtime inputs passed separate1992 fullCI8/8 and normal1544 is now installed after bounded probes/complete exact quote. This opens N014's producer dependency; it does not explain the original seed timeout or qualify sustained deployment. |
 | Windows workflow diagnosis | Root/editor private observation complete; remote cause remains open | Original journal byte reviews verified seven before-image checksums and changed database pages, without SQLite recovery. One separately frozen instrumented local seed completed once under unchanged2000ms/15000ms/18s limits. Root read-only verification confirmed one exact effect, one application and two events in the new fixture. Local1544 differs from remote243; markers perturb timing, and this is not a failed-CI replacement or independent descendant-stop proof. No further seed/whole-soak run authorized. |
-| Integration | Root: queue, exact evidence and CI wiring | Fresh127ab6d fullCI8/8 firstattempt qualifies UTC and the test-only bundle fixture correction. Old4f73 firstCI7/8 remains failed; installed1544/rollback4FF are unchanged because all19 native Git inputs are unchanged. N017 remains a separate private feature pending public wiring/own CI. Eight-hour gate remains held. |
+| Integration | Root: queue, exact evidence and CI wiring | Last fully verified127ab6d/CI8 remains; first289 featureCI6/8 is preserved. Windows source-only correction passed; private R003 first profile passed. Await portable R003 and two-library N017 candidate source peers, then one new combined candidate CI. Installed1544/rollback4FF and human8h hold unchanged. |
 | N014 explicit doctor | Completed and verifieda3; default behavior retained | Consumer/source/wiring peers and real diagnostic profile passed; see Done. No unchanged local tests or additional queries queued. |
 | N015 admission redesign | `/root/editor_tooling`: preserved failures and N018 source-only design; `/root/distribution` peer | The separately sealed clone-free refinement failed its first actual-GC call at the unchanged3s deadline, after five shared groups passed. Zero SDK calls; the other46 payloads were not launched. Capture/cleanup/finalization errors empty, all73 inputs unchanged. Original and isolated failures remain failed. No more quote payloads are authorized. Inspect a bounded native plain-data admission design before another implementation; no timer/cap relaxation or claim that the exact CPU cause is established. |
 | N016 exact UTC helper | Completed and verified127ab6d | See Done. Prior local fixture failure/source-review preimages and4f73 firstCI7/8 stay preserved; no unchanged local payloads or extra audits queued. |
-| N017 ordered decision tables | Root shared integration; stdlib portable regressions; distribution peer | Source-first6 and the one sealed native4 profile passed, with root full42/4 output review. Portable BDD9 driver/source peer approved; three new private packaging controls passed once with5 modeled completions and actualPopen0. Core/shared/example accepted. Public three-test source port and corrected wiring peer are accepted; fresh own native/WASM/sanitizer/fullCI remains pending; no repeated local native profile. |
-| N019 library snippets | Distribution frozen handoff; root accepted integration | Four useful prefixes for validation/configuration/UTC preserve all11 prior snippets. New source3/3 passed once; root byte-inverse/API/placeholder/full-summary review accepted. Shared source/docs/tests are integrated for the same next feature CI. Source checks do not claim actual VS Code expansion or runtime support. |
+| N017 ordered decision tables | Root integrated28956f9; stdlib private efficiency candidate; distribution peer | First featureCI6/8 remains failed: Windows CRLF source assertion and ASan actual-GC3000ms deficit. Peer-approved test-only normalization passed one new source group/14 checks. Source review identified removable temporary key lists and repeated kind lists; stdlib prepares only seven direct-map loops and one private constant, preserving all guards/order/budgets/shared10/full42+4/actualGC/deadlines. No efficiency workload has run. Earlier source6/native4/package3 evidence stays separate. |
+| N019 library snippets | Distribution frozen handoff; root integrated28956f9 | Four useful prefixes for validation/configuration/UTC preserve all11 prior snippets. New source3/3 and root byte-inverse/API/placeholder review passed. First integrated featureCI6/8 is preserved; complete qualification remains pending. No actual VS Code expansion, VSIX publication or editor installation claim. |
 | N018 plain-data inspection | Distribution private source preparation after the N017 peer | Design, independent peer and root fixed error/count/writer clarifications are frozen. Private prototype/include/fixture preparation only, with no source sharing, imports/controls/build/native/quote or CI execution until separate review/seal. Original N015 failures remain failed. |
+| R003 native text bounds | Distribution private portable regressions/CI wiring; root integration | Source-approved C0D normal candidateEF8/helper0F31 built once. Corrected adapter passed its new fake3 cohort, then one separate root-sealed normal6/actualGC6/helper16 profile passed. Root independently checked all raw outputs, exact argv,62 source pins and binary/host/build identities. Portable target regressions and fresh full CI are required before any shared or installed fix is credited. No old vulnerable runtime or fixture replay. |
 
 Root owns this file. Agents own only their assigned private inputs until the
 reviewed patch is accepted for shared integration. Current passing CI does not
@@ -300,7 +311,7 @@ ownership before implementation; keep each item independently reviewable.
 | N017 | Bounded declarative decision tables | Source-first six groups/source peer and one separately sealed Windows profile passed: normal10, actual-GC10, all42 complete sandbox cases and all4 example outputs. Root raw/43-input review passed without payload repeats. Stdlib prepares the portable public driver and up to3 new pure controls; distribution peer/root wiring and fresh own native/WASM/fullCI remain required. No shared delivery yet. |
 | N018 | Bounded native plain-data inspection | Private design and independent design peer complete. Root has pinned fixed option errors, depth/occurrence/text failure-prefix counts and current JSON-writer byte parity in a separate private acceptance record; assign private implementation ownership after current handoffs. Fixed iterative walk, no copies/callbacks, budget cooperation and target parity; no implementation or speed claim. N015 remains failed, no quote retries. |
 | N019 | Useful editor snippets for application inputs | Distribution prepares private validatecheck/configresolve/utcparse/utcformat snippets using actual exported APIs, preserving all11 old entries. Unique prefixes, valid placeholders and explicit synthetic arguments; up to3 new pure source controls. Peer/root integration and fresh CI before delivery; tooling agent remains unavailable. |
-| R003 | Terminator-aware native text traversal | Root source inspection found nominal UTF-8 advances that can skip a string terminator in legacy length/index/slice counting. Two independent source reviews confirmed reachable requested-allocation bounds failures and the narrow five-advance correction proposal. No dynamic crash, exploitability or fix is credited. Stdlib prepares a private correction and candidate-only controls under a separate reviewed scope; do not run the old unsafe helper or a crash fixture. Preserve valid-text behavior and require new native/sanitizer/WASM checks before any fix or installation claim. |
+| R003 | Terminator-aware native text traversal | Local candidate-only normal6/actualGC6/helper16 passed once after source and corrected-controller peers plus fake3 controls. Distribution prepares a portable explicit-native regression driver and fresh native/ASan/UBSan/WASM coverage; root integrates its source/test delta and separately reviewed N017 allocation reduction for one new candidate CI. Keep original fixtures, scope and deadlines; no repeat local native profile or installation change before target qualification. |
 | N012 | Explicit registered-type environment reachability | Normal files/modules have existing home roots. A type-only wizard file has a structural registry-home concern; bounded ordinary/stress probes passed and have not reproduced a runtime failure. Require a controlled collector reachability negative before proposing a shipping correction; nested task-local methods remain unsupported by the parser |
 
 As items complete, record their exact evidence below, move them to Done, and
@@ -316,7 +327,8 @@ order. Do not silently broaden an item into a public deployment or stable releas
 | New agreed sustained run | Freeze final native/source/header/SDK/harness inputs and fresh trusted review inputs before launch. Preserve v2 policy SHA256 `e0fa18931226ba2c181d2700dea0da3e91fc9cba878c551232298cb9342bd0ee`; independently verify exact clocks/raw duration, actual SQLite data, lifecycle/thread baselines, cadence and resource/storage limits. Never reuse the failed candidate's sealed trust. |
 | Actual supervisor/crash recovery and representative deployment | Finite cold recovery and compiled/adapter tests do not establish these platform-specific behaviors. Keep limits explicit and scope any future rehearsal separately. |
 | Native error cleanup | N011's measured array leaks are fixed and qualified on `6b8c724` with counted success/error/fault controls and fresh full CI. ENV/array evidence does not establish whole-heap cleanup or eliminate unrelated future findings. |
-| Legacy native text bounds (R003) | Independently source-confirmed requested-allocation failures from incomplete legacy byte text in length/index/expression-slice traversal, plus a narrower index_of pointer advance. Private correction/regressions are in preparation. No dynamic crash, exploitability or fixed-runtime qualification is credited; this remains a release blocker. |
+| Legacy native text bounds (R003) | Independently source-confirmed requested-allocation failures from incomplete legacy byte text in length/index/expression-slice traversal, plus a narrower index_of pointer advance. Private correction built cleanly and one normal6/actualGC6/helper16 profile passed; fresh portable target qualification remains pending. No original dynamic crash, exploitability or installed fix is credited; this remains a release blocker. |
+| Decision-table stress deadline | First28956f9 ASan actual-GC profile stopped inside schema validation during group6 at the unchanged3000ms VM limit. Five groups passed; two later driver calls were unlaunched. No memory fault was reported in its retained raw decision streams. Preserve the failure and require a reviewed efficiency change with the full original profile; do not split/retry it or extend limits. |
 | Windows installer CI observation | `437af0a` healthy PowerShell upgrade timed out at 15 seconds; original cause unknown. Driver isolation/diagnostics were corrected, with unchanged deadlines, and later full CI passed. Preserve the original failure. |
 | HTTP capacity teardown | `b39afb6` observed10053. Local late-write fixtures reproduced lost503; bounded teardown corrections and later full CI passed. Exact remote cause and bounded delivery limits remain explicit. |
 | macOS concurrent .NET worker startup | `479c59e` failed with Operation canceled after earlier cancellation/recovery passed. Bounded diagnostics and subsequent fresh full CI passed; the prior startup cause remains unknown. No repeated clean-result explanation or descendant cleanup claim. |
@@ -325,6 +337,37 @@ order. Do not silently broaden an item into a public deployment or stable releas
 | Live Paper and stable release | Live server use awaits the owner's EULA decision. No stable tag/public service/paid infrastructure is authorized. |
 
 ## Batch evidence log
+
+- 2026-10-13: Corrected R003 adapter8AC and fake-control plan passed source
+  peer; one new fake3 cohort passed with2 modeled completions and no native
+  calls. Outer result SHA256 `f53d9b8ff910ff69a2dd44998706e5346b96843de29df6a3be990559299d3ac8`.
+  Root then sealed and ran exactly one candidate-only profile: normal6,
+  actual-GC6 and helper16, all with zero exits/empty diagnostics and recorded
+  clean direct capture/cleanup. Outer result SHA256
+  `976308d8641dc728ffa86bb2aa91310bc4e5b1021aba109585953aaf33daf19e`;
+  independent raw/argv/62-source/native/host/build review SHA256
+  `709ecd1b6cab88b0d4580308c5c6f3605474380e6c0ddb5018b31bbb770a2a47`.
+  No original unsafe runtime or completed native cohort was replayed.
+  Distribution prepares portable target regression/CI sources; stdlib prepares
+  only seven map-loop substitutions and a private kind-list constant to reduce
+  allocation in N017 without changing its workload, semantics or deadlines.
+  This is source-supported efficiency work, not a measured speedup or an
+  explanation of the original ASan timeout. Installed1544 and8h hold remain.
+
+- 2026-10-13: First28956f9 CI38346598689 finished6/8, with no job retry.
+  Windows source-check failure is a CRLF anchor mismatch; the reviewed
+  one-line normalization passed one focused source-only group/14 checks.
+  Result SHA256 `80b964d95d2d24aca19324719f7424f2b4013870131d918b653683df1172ab0b`.
+  Downloaded ASan diagnostics retain the normal10/0 pass and actual-GC5/1
+  three-second failure inside validation; later calls were never launched.
+  Read-only diagnosis SHA256 `2000fde97b2b49c510525d6b1f9352757cf0d575ab7cd3f509015652df795677`;
+  its first ANSI-summary checker and subsequent preservation-setup failure
+  are separately retained, with no native replay. R003's exact private C
+  delta/fixtures passed source peer; two distinct candidate builds completed
+  with empty diagnostics/capture/cleanup errors and no fixture execution.
+  Build record SHA256 `f01ca36edc709266cbd2a4698564b75f37bd1b0cd850d16dac10f7e9bb2d94e8`.
+  The original adapter remains rejected; a separate correction is in review.
+  Installed1544 and the human's eight-hour hold are unchanged.
 
 - 2026-10-13: N017/N019 are integrated for one fresh feature CI after the
   final corrected source/wiring peer. Private source6/native4 and new

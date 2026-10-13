@@ -485,7 +485,7 @@ class SourceOracleTests(unittest.TestCase):
             admit("\ud800", {"nodes": 0, "text": 0})
 
     def test_captured_helpers_intrinsics_and_no_effects_source(self):
-        source = read_bounded(SOURCE, 1048576).decode("utf-8")
+        source = read_bounded(SOURCE, 1048576).decode("utf-8").replace("\r\n", "\n")
         tasks = re.findall(r"^(?:private|public) task (\w+)\(", source, re.M)
         self.assertEqual(len(tasks), 13)
         for task in tasks:
