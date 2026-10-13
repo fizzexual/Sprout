@@ -20,19 +20,30 @@ task key(w):
     give b + "!"
 check("sort_by with a multi-statement key task", sort_by(["kilo", "echo", "alpha"], key), ["alpha", "echo", "kilo"])
 
+~ ---------- a key task that adds to the list it is sorting ----------
+~ the keys must grow with the list (not be written past the end of a fixed-size array)
+make xs = ["b", "a"]
+make grown = no
+task grow_key(w):
+    when grown == no:
+        set grown = yes
+        add(xs, "c")
+    give w
+check("sort_by when the key task adds an item", length(sort_by(xs, grow_key)), 3)
+
 ~ ---------- a big sort with NO stress mode ----------
-~ ~1 KB per key x 10,000 keys ~ 10 MB of keys, so ordinary collections run while the keys
+~ ~4 KB per key x 2,500 keys ~ 10 MB of keys, so ordinary collections run while the keys
 ~ are still being computed; a key the collector can't see gets freed, its memory reused by
-~ a later key, and the order comes out wrong.
+~ a later key, and the order comes out wrong. (Few, big keys keep it quick under stress.)
 make pad = "-"
-repeat 10 times:
+repeat 12 times:
     set pad = pad + pad
 make big = []
-for each i in 1 to 10000:
+for each i in 1 to 2500:
     add(big, "w" + ((i * 7919) % 100003))
 make want = sort(copy(big))
 make got = sort_by(big, task(w): upper(w) + pad)
-check("big sort_by keeps every item", length(got), 10000)
+check("big sort_by keeps every item", length(got), 2500)
 check("big sort_by is in the right order", got == want, yes)
 
 show "ok: sort_by keys survive collection"
