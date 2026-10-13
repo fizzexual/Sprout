@@ -15,6 +15,19 @@ All notable changes to **Sprout**. The format follows
 - VS Code extension 0.3.0: live error squiggles while you type (powered by `sprout check`) and
   autocomplete for keywords, builtins and the names defined in the file.
 
+### Fixed
+
+- **Garbage collector use-after-free** — values the interpreter held only for the length of one
+  call could be freed while that call was still running Sprout code: `sort_by`'s computed keys,
+  and the already-evaluated arguments of a method call or a `super` call. A big `sort_by` with
+  text keys could come back in the wrong order with no error (the GC reused a freed key's
+  memory), and under `SPROUT_GC_STRESS` + AddressSanitizer these crashed. Method and `super`
+  calls now bind each argument straight into the call's frame (as named task calls already
+  did), and `sort_by` keeps its keys in a collected list. Regression tests:
+  `tests/gc_sort_by_keys.sprout`, `tests/gc_method_args.sprout`, `tests/gc_super_args.sprout`.
+- `sort_by` no longer writes past the end of its key array when the key task adds items to the
+  list being sorted.
+
 ## [0.1.22] — Optional types & interfaces
 
 Opt-in type checking that stays out of your way until you want it — plus a review-driven
