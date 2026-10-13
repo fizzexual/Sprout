@@ -108,6 +108,9 @@ jobs:
           python src/tests/workflow_progress_test.py "$bin"
           python src/tests/utc_library_test.py
           python src/tests/utc_library_test.py "$bin" --report-dir "$RUNNER_TEMP/utc-native"
+          python src/tests/decision_library_test.py
+          python src/tests/decision_driver_test.py
+          python src/tests/decision_library_test.py "$bin" --report-dir "$RUNNER_TEMP/decision-native"
           python examples/adoption/order-quote/test_parity.py "$bin"
           python src/tests/ergonomics_test.py "$bin"
           python src/tests/embed_test.py "$bin"
@@ -154,6 +157,7 @@ jobs:
             ${{ runner.temp }}/service-recovery/
             ${{ runner.temp }}/installer-boundary/
             ${{ runner.temp }}/utc-native/
+            ${{ runner.temp }}/decision-native/
             soak-artifacts/
           if-no-files-found: ignore
 
@@ -346,6 +350,7 @@ jobs:
           env -u SPROUT_GC_STRESS python src/tests/api_contract_test.py "$PWD/src/sprout"
           env -u SPROUT_GC_STRESS python src/tests/workflow_progress_test.py "$PWD/src/sprout"
           env -u SPROUT_GC_STRESS python src/tests/utc_library_test.py "$PWD/src/sprout" --report-dir "$RUNNER_TEMP/utc-asan"
+          env -u SPROUT_GC_STRESS python src/tests/decision_library_test.py "$PWD/src/sprout" --report-dir "$RUNNER_TEMP/decision-asan"
           env -u SPROUT_GC_STRESS python examples/adoption/order-quote/test_parity.py "$PWD/src/sprout"
           "$PWD/src/sprout" test src/tests/validation_library_test.sprout --max-steps 3000000 --timeout-ms 5000
           "$PWD/src/sprout" test src/tests/intrinsic_builtin_test.sprout --max-steps 3000000 --timeout-ms 5000
@@ -359,7 +364,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: utc-failure-asan
-          path: ${{ runner.temp }}/utc-asan/
+          path: |
+            ${{ runner.temp }}/utc-asan/
+            ${{ runner.temp }}/decision-asan/
           if-no-files-found: ignore
 
   ubsan:
@@ -397,6 +404,7 @@ jobs:
           python src/tests/api_contract_test.py "$PWD/src/sprout"
           python src/tests/workflow_progress_test.py "$PWD/src/sprout"
           python src/tests/utc_library_test.py "$PWD/src/sprout" --report-dir "$RUNNER_TEMP/utc-ubsan"
+          python src/tests/decision_library_test.py "$PWD/src/sprout" --report-dir "$RUNNER_TEMP/decision-ubsan"
           python examples/adoption/order-quote/test_parity.py "$PWD/src/sprout"
 
       - name: Retain bounded UTC failure diagnostics
@@ -404,7 +412,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: utc-failure-ubsan
-          path: ${{ runner.temp }}/utc-ubsan/
+          path: |
+            ${{ runner.temp }}/utc-ubsan/
+            ${{ runner.temp }}/decision-ubsan/
           if-no-files-found: ignore
 
   playground:

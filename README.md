@@ -101,6 +101,10 @@ native operation identity when application names collide, with editor support.
 maps and CLI values with validation and winning-key provenance.
 [Exact UTC inputs](docs/utc-time.md) validate explicit offsets and calendar dates,
 retaining integer seconds and nanoseconds without sampling the system clock.
+[Ordered decision tables](docs/decision-tables.md) evaluate explicit exact-value
+conditions with missing-versus-null handling and detached selected outputs.
+The editor's [library snippets](vscode-extension/docs/library-snippets.md) help
+start validation, configuration and UTC handling with checked results.
 [Pure API contracts](docs/api-contracts.md) select literal routes and validate
 bounded responses; [workflow progress](docs/workflow-progress.md) reads recorded
 state without replaying jobs. The [Node SDK](integrations/node/README.md) provides

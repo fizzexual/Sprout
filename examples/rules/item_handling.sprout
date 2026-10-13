@@ -1,0 +1,28 @@
+~ Entirely synthetic bucket selection; no physical routing, effects or SLA.
+use "../../lib/decision.sprout"
+
+make table = {
+    schema: 1,
+    input_schema: {kind: "map", fields: {
+        category: {kind: "text", allowed: ["fragile", "ordinary"]},
+        member: {kind: "yes-no"},
+        weight: {kind: "decimal"},
+        age: {kind: "integer", required: no, nullable: yes}
+    }},
+    rules: [
+        {id: "manual", conditions: [{field: "category", op: "eq", value: "fragile"}], output: {bucket: "review"}},
+        {id: "small", conditions: [{field: "member", op: "eq", value: yes}, {field: "weight", op: "lte", value: builtin::decimal("2.50")}], output: {bucket: "small"}},
+        {id: "unknown-age", conditions: [{field: "age", op: "missing"}], output: {bucket: "unclassified"}}
+    ],
+    fallback: {bucket: "standard"}
+}
+make values = [
+    {category: "fragile", member: yes, weight: builtin::decimal("1.25")},
+    {category: "ordinary", member: yes, weight: builtin::decimal("2.500")},
+    {category: "ordinary", member: no, weight: builtin::decimal("3.00")},
+    {category: "ordinary", member: no, weight: builtin::decimal("3.00"), age: nothing}
+]
+make results = []
+for each value in values:
+    builtin::add(results, decision.evaluate(value, table))
+show builtin::json_encode(results)

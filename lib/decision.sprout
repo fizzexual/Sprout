@@ -1,0 +1,244 @@
+~ Pure ordered table selection. No callbacks, expression strings, I/O or effects.
+use "validate.sprout"
+private make d_validate = validate.check
+
+private task d_plain(value, kind):
+    give builtin::kind_of(value) == kind and not builtin::is_a(value, kind)
+
+private task d_fail(code):
+    make message = "The decision table is invalid."
+    when code == "table_limit":
+        set message = "The decision table exceeds the fixed limits."
+    orwhen code == "invalid_input":
+        set message = "The decision input is invalid."
+    orwhen code == "input_limit":
+        set message = "The decision input exceeds the fixed limits."
+    orwhen code == "output_limit":
+        set message = "The complete decision response exceeds the fixed output limit."
+    give {ok: no, matched: no, selection: nothing, output: nothing, error: {code: code, message: message}}
+
+private task d_stop(state, code):
+    when state.error == nothing:
+        set state.error = code
+    give no
+
+private task d_text(value, ceiling, state):
+    make size = builtin::length(value)
+    when size > ceiling or state.text + size > 65536:
+        give d_stop(state, "limit")
+    set state.text += size
+    try:
+        builtin::json_encode(value)
+    caught issue:
+        when issue.kind != "data":
+            fail issue
+        give d_stop(state, "invalid")
+    give yes
+
+private task d_admit(value, state, depth):
+    when state.error != nothing:
+        give no
+    when depth > 16 or state.nodes >= 4096:
+        give d_stop(state, "limit")
+    set state.nodes += 1
+    make kind = builtin::kind_of(value)
+    when builtin::is_a(value, kind) or not builtin::contains(["nothing", "text", "yes-no", "number", "integer", "decimal", "list", "map"], kind):
+        give d_stop(state, "invalid")
+    when kind == "number":
+        try:
+            when value - value != 0 or value < -9007199254740991 or value > 9007199254740991:
+                give d_stop(state, "invalid")
+        caught issue:
+            when issue.kind != "math":
+                fail issue
+            give d_stop(state, "invalid")
+    orwhen kind == "text":
+        give d_text(value, 1024, state)
+    orwhen kind == "list":
+        when builtin::length(value) > 256:
+            give d_stop(state, "limit")
+        for each item in value:
+            when not d_admit(item, state, depth + 1):
+                give no
+    orwhen kind == "map":
+        when builtin::length(value) > 128:
+            give d_stop(state, "limit")
+        when builtin::length(value) == 1 and (builtin::contains(value, "$sprout.integer") or builtin::contains(value, "$sprout.decimal") or builtin::contains(value, "$sprout.bytes")):
+            give d_stop(state, "invalid")
+        for each name in builtin::keys(value):
+            when not d_text(name, 128, state) or not d_admit(value[name], state, depth + 1):
+                give no
+    give yes
+
+private task d_keys(value, allowed, required):
+    when not d_plain(value, "map"):
+        give no
+    for each name in builtin::keys(value):
+        when not builtin::contains(allowed, name):
+            give no
+    for each name in required:
+        when not builtin::contains(value, name):
+            give no
+    give yes
+
+private task d_operand(value, schema):
+    when not builtin::contains(["text", "yes-no", "number", "integer", "decimal"], schema.kind):
+        give no
+    make kind = builtin::kind_of(value)
+    when kind == "nothing":
+        give builtin::contains(schema, "nullable") and schema.nullable == yes
+    give kind == schema.kind
+
+private task d_condition(condition, fields):
+    when not d_plain(condition, "map") or not builtin::contains(condition, "field") or not builtin::contains(condition, "op"):
+        give no
+    when not d_plain(condition.field, "text") or not d_plain(condition.op, "text") or not builtin::contains(fields, condition.field):
+        give no
+    make schema = fields[condition.field]
+    when condition.op == "exists" or condition.op == "missing":
+        give d_keys(condition, ["field", "op"], ["field", "op"])
+    when condition.op == "in":
+        when not d_keys(condition, ["field", "op", "values"], ["field", "op", "values"]) or not d_plain(condition.values, "list"):
+            give no
+        when builtin::length(condition.values) < 1 or builtin::length(condition.values) > 16:
+            give no
+        for each value in condition.values:
+            when not d_operand(value, schema):
+                give no
+        give yes
+    when not builtin::contains(["eq", "ne", "lt", "lte", "gt", "gte"], condition.op) or not d_keys(condition, ["field", "op", "value"], ["field", "op", "value"]):
+        give no
+    when not d_operand(condition.value, schema):
+        give no
+    when condition.op != "eq" and condition.op != "ne":
+        give builtin::kind_of(condition.value) != "nothing" and builtin::contains(["integer", "decimal"], schema.kind)
+    give yes
+
+private task d_equal(left, right):
+    when builtin::kind_of(left) != builtin::kind_of(right):
+        give no
+    give left == right
+
+private task d_matches(condition, input):
+    make present = builtin::contains(input, condition.field)
+    when condition.op == "exists":
+        give present
+    when condition.op == "missing":
+        give not present
+    when not present:
+        give no
+    make value = input[condition.field]
+    when condition.op == "eq":
+        give d_equal(value, condition.value)
+    when condition.op == "ne":
+        give not d_equal(value, condition.value)
+    when condition.op == "in":
+        for each candidate in condition.values:
+            when d_equal(value, candidate):
+                give yes
+        give no
+    when builtin::kind_of(value) == "nothing":
+        give no
+    when condition.op == "lt":
+        give value < condition.value
+    orwhen condition.op == "lte":
+        give value <= condition.value
+    orwhen condition.op == "gt":
+        give value > condition.value
+    give value >= condition.value
+
+private task d_copy(value):
+    ~ Only fully admitted table data reaches this helper; aliases expand by occurrence.
+    make kind = builtin::kind_of(value)
+    when kind == "list":
+        make result = []
+        for each item in value:
+            builtin::add(result, d_copy(item))
+        give result
+    when kind == "map":
+        make result = {}
+        for each name in builtin::keys(value):
+            set result[name] = d_copy(value[name])
+        give result
+    give value
+
+private task d_result(kind, index, id, output):
+    make result = {ok: yes, matched: kind == "rule", selection: {kind: kind, index: index, id: id}, output: d_copy(output), error: nothing}
+    make encoded = builtin::json_encode(result)
+    when builtin::length(builtin::bytes(encoded)) + 2 > 32768:
+        give d_fail("output_limit")
+    give result
+
+public task evaluate(input, table):
+    make state = {nodes: 0, text: 0, error: nothing}
+    when not d_admit(table, state, 0):
+        when state.error == "limit":
+            give d_fail("table_limit")
+        give d_fail("invalid_table")
+    when not d_keys(table, ["schema", "input_schema", "rules", "fallback"], ["schema", "input_schema", "rules"]) or not d_plain(table.schema, "number") or table.schema != 1:
+        give d_fail("invalid_table")
+    make checked = d_validate({}, table.input_schema)
+    when checked.schema_error != nothing or table.input_schema.kind != "map":
+        give d_fail("invalid_table")
+    when (builtin::contains(table.input_schema, "nullable") and table.input_schema.nullable == yes) or (builtin::contains(table.input_schema, "allow_unknown") and table.input_schema.allow_unknown == yes):
+        give d_fail("invalid_table")
+    make fields = {}
+    when builtin::contains(table.input_schema, "fields"):
+        set fields = table.input_schema.fields
+    when not d_plain(table.rules, "list"):
+        give d_fail("invalid_table")
+    when builtin::length(fields) > 32:
+        give d_fail("table_limit")
+    when builtin::length(table.rules) > 32:
+        give d_fail("table_limit")
+    make ids = []
+    for each rule in table.rules:
+        when not d_keys(rule, ["id", "conditions", "output"], ["id", "conditions", "output"]) or not d_plain(rule.id, "text") or not d_plain(rule.conditions, "list"):
+            give d_fail("invalid_table")
+        when builtin::length(rule.id) < 1 or builtin::length(rule.id) > 64 or builtin::contains(ids, rule.id):
+            give d_fail("invalid_table")
+        builtin::add(ids, rule.id)
+        when builtin::length(rule.conditions) < 1:
+            give d_fail("invalid_table")
+        when builtin::length(rule.conditions) > 8:
+            give d_fail("table_limit")
+        for each condition in rule.conditions:
+            when not d_condition(condition, fields):
+                give d_fail("invalid_table")
+    when not d_plain(input, "map"):
+        give d_fail("invalid_input")
+    when builtin::length(input) > 32:
+        give d_fail("input_limit")
+    when not d_admit(input, state, 0):
+        when state.error == "limit":
+            give d_fail("input_limit")
+        give d_fail("invalid_input")
+    when not d_validate(input, table.input_schema).ok:
+        give d_fail("invalid_input")
+    make index = 0
+    for each rule in table.rules:
+        set index += 1
+        make matched = yes
+        for each condition in rule.conditions:
+            when not d_matches(condition, input):
+                set matched = no
+                stop
+        when matched:
+            give d_result("rule", builtin::integer(index), rule.id, rule.output)
+    when builtin::contains(table, "fallback"):
+        give d_result("fallback", nothing, nothing, table.fallback)
+    give d_result("none", nothing, nothing, nothing)
+
+private make d_plain = d_plain
+private make d_fail = d_fail
+private make d_stop = d_stop
+private make d_text = d_text
+private make d_admit = d_admit
+private make d_keys = d_keys
+private make d_operand = d_operand
+private make d_condition = d_condition
+private make d_equal = d_equal
+private make d_matches = d_matches
+private make d_copy = d_copy
+private make d_result = d_result
+public make evaluate = evaluate

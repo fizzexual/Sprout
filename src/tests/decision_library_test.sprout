@@ -1,0 +1,162 @@
+~ Private shared corpus. No native call has run in this source-first freeze.
+use "../../lib/decision.sprout"
+
+make callbacks = []
+private task noted():
+    builtin::add(callbacks, "constructor")
+    give 0
+private make noted = noted
+
+private task fixture(kind, op, value):
+    give {schema: 1, input_schema: {kind: "map", fields: {x: {kind: kind}}}, rules: [{id: "first", conditions: [{field: "x", op: op, value: value}], output: {bucket: "selected"}}]}
+private make fixture = fixture
+
+test "priority and unreachable rules are fully validated before input":
+    make table = fixture("integer", "eq", builtin::integer("1"))
+    builtin::add(table.rules, {id: "second", conditions: [{field: "x", op: "eq", value: builtin::integer("1")}], output: "second"})
+    make result = decision.evaluate({x: builtin::integer("1")}, table)
+    expect result.ok and result.matched
+    expect result.selection == {kind: "rule", index: builtin::integer("1"), id: "first"}
+    set table.rules[1].conditions[0].op = "expression"
+    expect decision.evaluate(nothing, table).error.code == "invalid_table"
+    expect decision.evaluate({x: builtin::integer("1")}, table).output == nothing
+
+test "exact endpoints scales and strict scalar kinds preserve semantics":
+    expect decision.evaluate({x: builtin::integer("9223372036854775807")}, fixture("integer", "gt", builtin::integer("9223372036854775806"))).matched
+    expect decision.evaluate({x: builtin::integer("-9223372036854775808")}, fixture("integer", "lt", builtin::integer("-9223372036854775807"))).matched
+    expect decision.evaluate({x: builtin::decimal("2.500")}, fixture("decimal", "eq", builtin::decimal("2.50"))).matched
+    expect decision.evaluate({x: builtin::decimal("-0.000000000000000001")}, fixture("decimal", "lt", builtin::decimal("0.0"))).matched
+    expect decision.evaluate({x: yes}, fixture("number", "eq", 1)).error.code == "invalid_input"
+    expect decision.evaluate({x: builtin::integer("1")}, fixture("integer", "eq", builtin::decimal("1.0"))).error.code == "invalid_table"
+    expect decision.evaluate({x: 1}, fixture("integer", "eq", builtin::integer("1"))).error.code == "invalid_input"
+
+test "missing nullable nothing and membership do not collapse":
+    make table = {schema: 1, input_schema: {kind: "map", fields: {x: {kind: "text", required: no, nullable: yes}}}, rules: [{id: "exists", conditions: [{field: "x", op: "exists"}], output: "present"}]}
+    expect not decision.evaluate({}, table).matched
+    expect decision.evaluate({x: nothing}, table).matched
+    set table.rules[0].conditions[0] = {field: "x", op: "ne", value: "value"}
+    expect not decision.evaluate({}, table).matched
+    expect decision.evaluate({x: nothing}, table).matched
+    set table.rules[0].conditions[0] = {field: "x", op: "in", values: ["é🌱", nothing]}
+    expect decision.evaluate({x: "é🌱"}, table).matched
+    expect decision.evaluate({x: nothing}, table).matched
+    set table.rules[0].conditions[0] = {field: "x", op: "missing"}
+    expect decision.evaluate({}, table).matched
+    expect not decision.evaluate({x: nothing}, table).matched
+
+test "fallback null is explicit and root nullable schemas are invalid":
+    make table = {schema: 1, input_schema: {kind: "map"}, rules: []}
+    expect decision.evaluate({}, table).selection.kind == "none"
+    set table.fallback = nothing
+    make result = decision.evaluate({}, table)
+    expect result.ok and not result.matched
+    expect result.selection == {kind: "fallback", index: nothing, id: nothing}
+    expect result.output == nothing
+    expect decision.evaluate(nothing, table).error.code == "invalid_input"
+    set table.input_schema.nullable = yes
+    expect decision.evaluate(nothing, table).error.code == "invalid_table"
+
+test "schema rule metadata and unknown input reject without private diagnostics":
+    make table = fixture("text", "eq", "secret-value")
+    make failure = decision.evaluate({x: "secret-value", "private-key": "private-value"}, table)
+    expect failure.error.code == "invalid_input"
+    expect not builtin::contains(builtin::json_encode(failure), "private-")
+    expect not builtin::contains(builtin::json_encode(failure), "secret-value")
+    expect failure.selection == nothing and failure.output == nothing
+    expect builtin::length(builtin::bytes(builtin::json_encode(failure))) + 2 < 320
+    set table.rules[0].conditions = []
+    expect decision.evaluate({}, table).error.code == "invalid_table"
+    set table.schema = builtin::integer("1")
+    expect decision.evaluate({}, table).error.code == "invalid_table"
+
+test "selected output aliases detach without changing table input or schema":
+    make shared = [{name: "original"}]
+    make table = fixture("text", "eq", "selected")
+    set table.rules[0].output = {first: shared, second: shared, id: builtin::integer("9223372036854775807")}
+    make input = {x: "selected"}
+    make before = builtin::json_encode([table, input])
+    make result = decision.evaluate(input, table)
+    set result.output.first[0].name = "changed"
+    expect result.output.second[0].name == "original"
+    expect shared[0].name == "original"
+    expect before == builtin::json_encode([table, input])
+    set input.x = "later"
+    expect result.output.first[0].name == "changed"
+    expect builtin::kind_of(result.output.id) == "integer"
+
+test "cycles widths and whole response budget stop with fixed limit codes":
+    make loop = []
+    builtin::add(loop, loop)
+    make table = {schema: 1, input_schema: {kind: "map"}, rules: [], fallback: loop}
+    expect decision.evaluate({}, table).error.code == "table_limit"
+    expect builtin::length(loop) == 1
+    set table.fallback = ["x" * 1024] * 32
+    expect decision.evaluate({}, table).error.code == "output_limit"
+    set table.fallback = []
+    set table.rules = [{id: "unused", conditions: [{field: "x", op: "exists"}], output: nothing}] * 33
+    expect decision.evaluate({}, table).error.code == "table_limit"
+    set table.rules = []
+    set table.fallback = [0] * 257
+    expect decision.evaluate({}, table).error.code == "table_limit"
+
+test "unsupported objects tasks bytes and reserved singleton maps cannot dispatch":
+    make table = {schema: 1, input_schema: {kind: "map", fields: {x: {kind: "integer"}}}, rules: []}
+    make spoofed = integer(0)
+    make object = Sensitive()
+    set callbacks = []
+    expect decision.evaluate({x: spoofed}, table).error.code == "invalid_input"
+    expect decision.evaluate({x: object}, table).error.code == "invalid_input"
+    expect decision.evaluate({x: decision.evaluate}, table).error.code == "invalid_input"
+    expect decision.evaluate({x: builtin::bytes("x")}, table).error.code == "invalid_input"
+    expect decision.evaluate({x: {"$sprout.integer": "1"}}, table).error.code == "invalid_input"
+    expect callbacks == []
+
+test "container existence remains bounded without container equality or cloning input":
+    make table = {schema: 1, input_schema: {kind: "map", fields: {x: {kind: "list", items: {kind: "integer"}}}}, rules: [{id: "list", conditions: [{field: "x", op: "exists"}], output: "present"}]}
+    expect decision.evaluate({x: [builtin::integer("1")]}, table).matched
+    set table.rules[0].conditions[0] = {field: "x", op: "eq", value: []}
+    expect decision.evaluate({x: []}, table).error.code == "invalid_table"
+    set table.input_schema.fields.x.nullable = yes
+    set table.rules[0].conditions[0].value = nothing
+    expect decision.evaluate({x: nothing}, table).error.code == "invalid_table"
+    make cyclic = {}
+    set cyclic.x = cyclic
+    set table.rules[0].conditions[0] = {field: "x", op: "exists"}
+    expect decision.evaluate(cyclic, table).error.code == "input_limit"
+
+test "captured private public and native calls ignore caller constructor names":
+    set callbacks = []
+    make table = fixture("text", "eq", "safe")
+    make result = decision.evaluate({x: "safe"}, table)
+    expect result.ok and result.matched
+    expect decision.evaluate({x: "other"}, table).selection.kind == "none"
+    expect callbacks == []
+
+type d_admit:
+    make value
+    make state
+    make depth
+    make observed = noted()
+type evaluate:
+    make input
+    make table
+    make observed = noted()
+type kind_of:
+    make value
+    make observed = noted()
+type json_encode:
+    make value
+    make observed = noted()
+type integer:
+    make value
+    make observed = noted()
+    task text(self):
+        builtin::add(callbacks, "text")
+        fail "Do not format user objects."
+type Sensitive:
+    task equals(self, other):
+        builtin::add(callbacks, "equals")
+        fail "Do not compare user objects."
+    task text(self):
+        builtin::add(callbacks, "text")
+        fail "Do not format user objects."

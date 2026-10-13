@@ -53,5 +53,60 @@
     "prefix": "workflowplan",
     "body": ["use workflow", "make jobs = [{id: \"${1:report}\", argv: [\"${2:tool}\"]}]", "make plan = workflow.plan(jobs)", "show plan.layers", "${0}"],
     "description": "Validate a command DAG and view dependency layers without running commands"
+  },
+  "Validate explicit input": {
+    "prefix": "validatecheck",
+    "body": [
+      "use \"${1:lib/validate.sprout}\"",
+      "make ${2:schema} = {kind: \"map\", fields: {${3:name}: {kind: \"text\", min_length: 1, max_length: 80}}}",
+      "make ${4:input} = {${3}: \"${5:Ada}\"}",
+      "make ${6:checked} = validate.check(${4}, ${2})",
+      "when not ${6}.ok:",
+      "\tfail \"Input validation failed.\"",
+      "${0}"
+    ],
+    "description": "Validate an explicit plain input and schema; reject without logging input or field paths"
+  },
+  "Resolve explicit configuration layers": {
+    "prefix": "configresolve",
+    "body": [
+      "use \"${1:lib/config.sprout}\"",
+      "make ${2:schema} = {kind: \"map\", fields: {mode: {kind: \"text\", allowed: [\"preview\", \"apply\"]}}}",
+      "make ${3:defaults} = {mode: \"preview\"}",
+      "make ${4:layers} = [{name: \"example-layer\", values: {mode: \"apply\"}}]",
+      "make ${5:overrides} = {}",
+      "make ${6:resolved} = config.resolve(${3}, ${2}, ${4}, ${5})",
+      "when not ${6}.ok:",
+      "\tfail \"Configuration validation failed.\"",
+      "make ${7:settings} = ${6}.values",
+      "${0}"
+    ],
+    "description": "Resolve explicit in-memory defaults, named layers and overrides; no ambient file or environment reads"
+  },
+  "Parse an explicit UTC timestamp": {
+    "prefix": "utcparse",
+    "body": [
+      "use \"${1:lib/utc.sprout}\"",
+      "make ${2:timestamp} = \"${3:1970-01-01T00:00:00Z}\"",
+      "make ${4:parsed} = utc.parse(${2})",
+      "when not ${4}.ok:",
+      "\tfail \"Timestamp input is invalid.\"",
+      "make ${5:instant} = ${4}.instant",
+      "${0}"
+    ],
+    "description": "Parse supplied timestamp text into exact seconds/nanoseconds; no clock or timezone lookup"
+  },
+  "Format an exact UTC instant": {
+    "prefix": "utcformat",
+    "body": [
+      "use \"${1:lib/utc.sprout}\"",
+      "make ${2:instant} = {seconds: builtin::integer(\"${3:0}\"), nanoseconds: builtin::integer(\"${4:0}\")}",
+      "make ${5:formatted} = utc.format(${2})",
+      "when not ${5}.ok:",
+      "\tfail \"Timestamp instant is invalid.\"",
+      "make ${6:timestamp} = ${5}.text",
+      "${0}"
+    ],
+    "description": "Format explicit exact integer seconds/nanoseconds into canonical UTC text; no sampled clock"
   }
 }

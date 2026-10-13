@@ -5,13 +5,13 @@ const path = require('node:path');
 const createSprout = require(path.resolve(process.argv[2]));
 const unstyled = text => text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
 
-function assertUtcSummary(output) {
+function assertLibrarySummary(output, expected, label) {
   const clean = unstyled(output);
   assert.doesNotMatch(clean, /\b0*[1-9][0-9]*[ \t]+failed\b/);
   const summaries = clean.split(/\r?\n/).map(line =>
     line.match(/^[ \t]*([0-9]+) passed(?:,[ \t]*([0-9]+) failed)?[ \t]*$/)).filter(Boolean);
-  assert.equal(summaries.length, 1, 'UTC has exactly one complete test summary');
-  assert.equal(summaries[0][1], '10');
+  assert.equal(summaries.length, 1, label + ' has exactly one complete test summary');
+  assert.equal(summaries[0][1], String(expected));
   assert.ok(summaries[0][2] === undefined || summaries[0][2] === '0');
 }
 
@@ -146,7 +146,7 @@ async function run(source, expectedCode = 0, flags = [], sandbox = true, files =
   const utcContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'utc_library_test.sprout'), 'utf8');
   const utcOutput = await run(utcContracts, 0, ['--max-steps', '5000000', '--timeout-ms', '3000'], false,
     {'/lib/utc.sprout': utcLibrary}, 'test');
-  assertUtcSummary(utcOutput);
+  assertLibrarySummary(utcOutput, 10, 'UTC');
   const suppliedUtc = JSON.parse(await run(utcLibrary + '\n' +
     'show builtin::json_encode([parse("1969-12-31T23:59:59.5Z"), parse("1900-02-29T00:00:00Z")])\n',
     0, ['--max-steps', '5000000', '--timeout-ms', '3000']));
@@ -157,6 +157,28 @@ async function run(source, expectedCode = 0, flags = [], sandbox = true, files =
       error: {code: 'invalid_timestamp', message: 'The timestamp does not match the supported profile.'}},
   ]);
   console.log('ok: WASM exact UTC contracts and supplied-source sandbox');
+  const decisionLibrary = fs.readFileSync(path.join(__dirname, '..', '..', 'lib', 'decision.sprout'), 'utf8');
+  const decisionContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'decision_library_test.sprout'), 'utf8');
+  const decisionOutput = await run(decisionContracts, 0, ['--max-steps', '5000000', '--timeout-ms', '3000'], false,
+    {'/lib/validate.sprout': validationLibrary, '/lib/decision.sprout': decisionLibrary}, 'test');
+  assertLibrarySummary(decisionOutput, 10, 'Decision tables');
+  const suppliedDecisionLibrary = decisionLibrary.replace(
+    /^use "validate\.sprout"\r?\nprivate make d_validate = validate\.check\r?$/m,
+    'private make d_validate = check');
+  assert.notEqual(suppliedDecisionLibrary, decisionLibrary, 'inline decision helper captures the supplied validator');
+  const suppliedDecision = JSON.parse(await run(validationLibrary + '\n' + suppliedDecisionLibrary + '\n' +
+    '~ WASM decision supplied pair\n' +
+    'make table = {schema: 1, input_schema: {kind: "map", fields: {weight: {kind: "decimal", required: yes}, note: {kind: "text", required: no, nullable: yes}}}, rules: [' +
+    '{id: "oversize", conditions: [{field: "weight", op: "gte", value: builtin::decimal("2.50")}], output: {route: "review"}}, ' +
+    '{id: "missing-note", conditions: [{field: "note", op: "missing"}], output: {route: "queue"}}, ' +
+    '{id: "explicit-null", conditions: [{field: "note", op: "eq", value: nothing}], output: {route: "check"}}], fallback: {route: "standard"}}\n' +
+    'show builtin::json_encode([evaluate({weight: builtin::decimal("2.500")}, table), evaluate({weight: builtin::decimal("1.00"), note: nothing}, table)])\n',
+    0, ['--max-steps', '5000000', '--timeout-ms', '3000']));
+  assert.deepEqual(suppliedDecision, [
+    {ok: true, matched: true, selection: {kind: 'rule', index: {'$sprout.integer': '1'}, id: 'oversize'}, output: {route: 'review'}, error: null},
+    {ok: true, matched: true, selection: {kind: 'rule', index: {'$sprout.integer': '3'}, id: 'explicit-null'}, output: {route: 'check'}, error: null},
+  ]);
+  console.log('ok: WASM ordered decision contracts and supplied-source sandbox');
   const rootContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'gc_env_roots_test.sprout'), 'utf8');
   const rootOutput = await run(rootContracts, 0, ['--max-steps', '5000000', '--timeout-ms', '5000'], true, {}, 'test');
   assert.match(unstyled(rootOutput), /^\s*7 passed(?:,\s*0 failed)?\s*$/m);

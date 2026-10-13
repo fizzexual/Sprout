@@ -4,7 +4,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
 
-async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7, bufferCount = 6, metadataChange = null, utcCount = 10, utcSummary = null) {
+async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7, bufferCount = 6, metadataChange = null, utcCount = 10, utcSummary = null, decisionSummary = null, decisionChange = null, smokeSource = null) {
   const calls = [], filesystems = [], metadataCalls = [];
   const validationLibrary = fs.readFileSync(path.join(__dirname, '..', '..', 'lib', 'validate.sprout'), 'utf8');
   const validationContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'validation_library_test.sprout'), 'utf8');
@@ -17,6 +17,8 @@ async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7, bu
   const progressContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'workflow_progress_test.sprout'), 'utf8');
   const utcLibrary = fs.readFileSync(path.join(__dirname, '..', '..', 'lib', 'utc.sprout'), 'utf8');
   const utcContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'utc_library_test.sprout'), 'utf8');
+  const decisionLibrary = fs.readFileSync(path.join(__dirname, '..', '..', 'lib', 'decision.sprout'), 'utf8');
+  const decisionContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'decision_library_test.sprout'), 'utf8');
   const rootContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'gc_env_roots_test.sprout'), 'utf8');
   const bufferContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'argument_buffers_test.sprout'), 'utf8');
   const factory = async options => {
@@ -65,6 +67,11 @@ async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7, bu
             assert.equal(files.get('/lib/utc.sprout'), utcLibrary, 'actual UTC library is mounted');
             options.print('\x1b[1m' + (utcSummary ?? (utcCount + ' passed, 0 failed')) + '\x1b[0m'); return 0;
           }
+          if (source === decisionContracts) {
+            assert.equal(files.get('/lib/decision.sprout'), decisionLibrary, 'actual decision library is mounted');
+            assert.equal(files.get('/lib/validate.sprout'), validationLibrary, 'actual validator dependency is mounted');
+            options.print(decisionSummary ?? '10 passed, 0 failed'); return 0;
+          }
           if (source === rootContracts) {
             options.print('\x1b[1m' + rootCount + ' passed, 0 failed\x1b[0m'); return 0;
           }
@@ -73,6 +80,18 @@ async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7, bu
           }
           assert.equal(source, intrinsicContracts, 'actual shared intrinsic contracts reach the interpreter');
           options.print('10 passed, 0 failed'); return 0;
+        }
+        if (source.includes('\n~ WASM decision supplied pair\n')) {
+          assert.ok(source.startsWith(validationLibrary + '\n'));
+          assert.ok(source.includes('private make d_validate = check'));
+          assert.ok(!source.includes('use "validate.sprout"'));
+          assert.ok(source.includes('note: {kind: "text", required: no, nullable: yes}'), 'missing note must be admitted before priority matching');
+          const result = [
+            {ok: true, matched: true, selection: {kind: 'rule', index: {'$sprout.integer': '1'}, id: 'oversize'}, output: {route: 'review'}, error: null},
+            {ok: true, matched: true, selection: {kind: 'rule', index: {'$sprout.integer': '3'}, id: 'explicit-null'}, output: {route: 'check'}, error: null},
+          ];
+          if (decisionChange) decisionChange(result);
+          options.print(JSON.stringify(result)); return 0;
         }
         if (source.startsWith(validationLibrary + '\n')) {
           options.print(JSON.stringify({ok: true, errors: [], schema_error: null, truncated: false})); return 0;
@@ -108,7 +127,7 @@ async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7, bu
     process: { argv: ['node', 'wasm-smoke.js', mockPath], exitCode: 0 },
     __dirname, Buffer, console: { log() {}, error(error) { throw error; } },
   };
-  await vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'wasm-smoke.js'), 'utf8'), sandbox);
+  await vm.runInNewContext(smokeSource ?? fs.readFileSync(path.join(__dirname, 'wasm-smoke.js'), 'utf8'), sandbox);
   assert.deepEqual(metadataCalls.map(call => Array.from(call.args)), [
     ['--capabilities-json'], ['--capabilities-json', 'extra'],
     ['--capabilities-json', '--sandbox'], ['--capabilities-json', '--'],
@@ -120,8 +139,8 @@ async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7, bu
   const importedValidation = calls.filter(call => call.args[0] === 'test' && call.source === validationContracts);
   assert.equal(importedValidation.length, 1, 'one shared validation corpus runs');
   assert.equal(importedValidation[0].args.includes('--sandbox'), false, 'filesystem imports need normal mode');
-  assert.equal(calls.filter(call => !call.args.includes('--sandbox')).length, 6);
-  const suppliedValidation = calls.filter(call => call.source.startsWith(validationLibrary + '\n'));
+  assert.equal(calls.filter(call => !call.args.includes('--sandbox')).length, 7);
+  const suppliedValidation = calls.filter(call => call.source.startsWith(validationLibrary + '\n') && !call.source.includes('\n~ WASM decision supplied pair\n'));
   assert.equal(suppliedValidation.length, 1, 'host-supplied pure validation source runs');
   assert.ok(suppliedValidation[0].args.includes('--sandbox'), 'supplied source retains sandbox restrictions');
   assert.equal(suppliedValidation[0].files.has('/lib/validate.sprout'), false, 'supplied source does not need a filesystem import');
@@ -139,7 +158,7 @@ async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7, bu
   const config = calls.filter(call => call.args[0] === 'test' && call.source === configContracts);
   assert.equal(config.length, 1, 'shared configuration corpus runs exactly once');
   assert.equal(config[0].args.includes('--sandbox'), false, 'file-backed configuration imports need normal mode');
-  for (const source of [apiContracts, progressContracts, utcContracts]) {
+  for (const source of [apiContracts, progressContracts, utcContracts, decisionContracts]) {
     const imported = calls.filter(call => call.args[0] === 'test' && call.source === source);
     assert.equal(imported.length, 1, 'each new pure library corpus runs exactly once');
     assert.equal(imported[0].args.includes('--sandbox'), false, 'file-backed library imports need normal mode');
@@ -150,6 +169,12 @@ async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7, bu
   assert.equal(suppliedUtc.length, 1, 'one supplied UTC boundary pair runs');
   assert.ok(suppliedUtc[0].args.includes('--sandbox'));
   assert.equal(suppliedUtc[0].files.has('/lib/utc.sprout'), false, 'supplied source needs no file-backed import');
+  const decision = calls.find(call => call.args[0] === 'test' && call.source === decisionContracts);
+  assert.deepEqual(Array.from(decision.args.slice(-4)), ['--max-steps', '5000000', '--timeout-ms', '3000']);
+  const suppliedDecision = calls.filter(call => call.source.includes('\n~ WASM decision supplied pair\n'));
+  assert.equal(suppliedDecision.length, 1, 'one supplied decision boundary pair runs');
+  assert.ok(suppliedDecision[0].args.includes('--sandbox'));
+  assert.equal(suppliedDecision[0].files.size, 1, 'supplied decision source mounts only its program');
   assert.equal(new Set(filesystems).size, calls.length, 'each interpreter owns a fresh filesystem');
   for (const api of ['file_read', 'file_write', 'request', 'process', 'sql_open', 'remember',
     'workflow_inspect', 'workflow_run', 'sql_migrate', 'sql_migrations']) {
@@ -166,6 +191,24 @@ async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7, bu
 }
 
 test('WASM smoke isolates persistence and retains sandboxed native capability probes', () => exerciseSmoke());
+
+test('WASM decision optional note is explicit before priority matching', async () => {
+  const current = fs.readFileSync(path.join(__dirname, 'wasm-smoke.js'), 'utf8');
+  const accepted = 'note: {kind: "text", required: no, nullable: yes}';
+  assert.equal(current.split(accepted).length, 2);
+  const omitted = current.replace(accepted, 'note: {kind: "text", nullable: yes}');
+  await assert.rejects(exerciseSmoke(10, 6, 7, 6, null, 10, null, null, null, omitted), /missing note must be admitted/);
+  await exerciseSmoke();
+});
+
+test('WASM decision tables reject incomplete summaries and mistyped complete results', async () => {
+  for (const summary of ['9 passed', '10 passed\n9 passed', '9 passed\n10 passed', '10 passed, 1 failed']) {
+    await assert.rejects(exerciseSmoke(10, 6, 7, 6, null, 10, null, summary), assert.AssertionError);
+  }
+  for (const change of [result => { result[0].selection.index = 1; }, result => { result[1].output.extra = true; }]) {
+    await assert.rejects(exerciseSmoke(10, 6, 7, 6, null, 10, null, null, change), assert.AssertionError);
+  }
+});
 
 test('WASM UTC rejects mixed complete summaries while accepting one exact summary', async () => {
   await exerciseSmoke(10, 6, 7, 6, null, 10, '10 passed, 0 failed');

@@ -5,6 +5,9 @@ live diagnostics, and Run/Verify
 commands for the [Sprout](https://github.com/fizzexual/Sprout) programming language.
 Legacy Bloom files retain syntax highlighting.
 
+Four pure-library snippets help start validation, configuration and UTC handling.
+See the [snippet prefixes and editable inputs](docs/library-snippets.md).
+
 ## Set up the interpreter
 
 Build the current C interpreter from this checkout. On Windows, run
