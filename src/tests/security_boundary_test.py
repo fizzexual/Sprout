@@ -195,8 +195,11 @@ class SecurityBoundary(unittest.TestCase):
         for path, content in files:
             archive += struct.pack('<QQ', len(path), len(content)) + hashlib.sha256(content).digest() + path + content
         archive += trailing
-        bundle = self.project / ('fixture.exe' if os.name == 'nt' else 'fixture')
-        bundle.write_bytes(BINARY.read_bytes() + archive + b'SPROUT_BUNDLE_02' + struct.pack('<Q', len(archive)))
+        # Retain each crafted executable; an earlier pathname may still be held.
+        fixture_dir = pathlib.Path(tempfile.mkdtemp(prefix='crafted-bundle-', dir=self.project))
+        bundle = fixture_dir / ('fixture.exe' if os.name == 'nt' else 'fixture')
+        with bundle.open('xb') as stream:
+            stream.write(BINARY.read_bytes() + archive + b'SPROUT_BUNDLE_02' + struct.pack('<Q', len(archive)))
         bundle.chmod(0o755)
         return bundle
 

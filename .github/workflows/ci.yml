@@ -91,6 +91,7 @@ jobs:
           python src/tests/runtime_capabilities_test.py "$bin"
           python src/tests/stdlib_production_test.py "$bin"
           python src/tests/distribution_test.py "$bin"
+          python src/tests/security_bundle_fixture_test.py
           python src/tests/security_boundary_test.py "$bin"
           python src/tests/serialization_test.py "$bin"
           python src/tests/store_publication_test.py "$bin"
