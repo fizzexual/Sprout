@@ -8,9 +8,20 @@
 set -u
 
 # Per-run resource limits (the host/container should ALSO cap memory/cpu/pids via Docker).
-ulimit -t "${SPROUT_CPU_SECONDS:-5}"   2>/dev/null || true   # CPU seconds  (RLIMIT_CPU)
-ulimit -v "${SPROUT_VMEM_KB:-262144}"  2>/dev/null || true   # address space (~256 MB)
-ulimit -u "${SPROUT_PROCS:-64}"        2>/dev/null || true   # processes/threads (dash may ignore -u)
+# Every limit here MUST apply: if one can't be set (a bad value, or above a hard limit the
+# host imposed) the runner refuses to run instead of silently running without it.
+limit() {   # limit <ulimit flag> <value> <what it is>
+  ulimit "$1" "$2" 2>/dev/null \
+    || { echo "runner: could not apply the $3 (ulimit $1 $2) — refusing to run" >&2; exit 71; }
+}
+limit -t "${SPROUT_CPU_SECONDS:-5}"  "CPU-time limit"        # RLIMIT_CPU, seconds
+limit -v "${SPROUT_VMEM_KB:-262144}" "address-space limit"   # RLIMIT_AS, KB (~256 MB)
+# NOTE: deliberately NO per-run process limit. RLIMIT_NPROC (`ulimit -u`, which this image's
+# /bin/sh, dash, rejects — it spells it `-p`) counts EVERY process and thread of the uid, not
+# just this run: the web server's own threads and other containers running as uid 10001 all
+# count, so under load it would make this runner's own forks fail. The process cap is the
+# container's pids cgroup (`--pids-limit` / compose `pids_limit`), and under --sandbox sprout
+# can't start a process anyway (`system`, `get`, `explore` are off).
 # NOTE: deliberately NO `ulimit -f`. Output is bounded by piping through `head -c` below,
 # so a flood is truncated cleanly and the temp file never exceeds the cap. A hard
 # RLIMIT_FSIZE instead SIGXFSZ's the writer mid-output (core dump, lost output, and it can
@@ -42,5 +53,9 @@ trap 'rm -f "$out" "$rcf" $own_prog' EXIT INT TERM
 rc="$(cat "$rcf" 2>/dev/null || echo 0)"
 cat "$out"
 [ "$(wc -c < "$out" 2>/dev/null || echo 0)" -ge "$cap" ] && printf '\n…[output truncated at %s bytes]\n' "$cap"
-{ [ "$rc" = 124 ] || [ "$rc" = 137 ]; } && printf '\n[stopped: exceeded the %ss time limit]\n' "$wall"
+# 137 = SIGKILL: the wall-clock timeout, the CPU-time limit (dash sets soft = hard, so it is
+# a KILL, not SIGXCPU), or the container's memory cap. They look the same from here.
+{ [ "$rc" = 124 ] || [ "$rc" = 137 ]; } \
+  && printf '\n[stopped: exceeded the time limit (%ss wall clock, %ss CPU) or the memory limit]\n' \
+       "$wall" "${SPROUT_CPU_SECONDS:-5}"
 exit 0

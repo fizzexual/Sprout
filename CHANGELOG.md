@@ -17,6 +17,13 @@ All notable changes to **Sprout**. The format follows
 
 ### Fixed
 
+- Playground runner (`playground/run.sh`): a resource limit can no longer be skipped
+  silently. `ulimit -u 64` never worked (the image's `/bin/sh` is dash, which rejects `-u`, and
+  the error was hidden), so it is gone along with `SPROUT_PROCS`. Docker's `--pids-limit` /
+  `pids_limit` is the process cap. If the CPU-time or address-space limit can't be applied
+  (a bad value, or above a host hard limit), the runner now refuses to run and says why;
+  before, the program ran with no limit. The stop message now names the CPU and memory
+  limits too, not only the wall clock.
 - The sandbox probe (`src/tests/sandbox/probe.sprout`) now counts an op as blocked only when
   the error is the sandbox's own refusal. Before, any caught error counted, so a missing
   module made `use` look blocked even with the gate removed. It also now probes `env`, the

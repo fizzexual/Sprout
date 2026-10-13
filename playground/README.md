@@ -100,8 +100,8 @@ No single mechanism is trusted on its own:
 | `--network none` | any network egress — SSRF to internal services / the cloud metadata endpoint (also covered by the sandbox, but belt-and-suspenders) |
 | `--memory` / `--memory-swap` | RAM exhaustion (the GC keeps a run *bounded*, not *small*) |
 | `--cpus`, `SPROUT_WALL_SECONDS`, `ulimit -t` | infinite / busy loops — wall-clock **and** CPU timeouts |
-| `SPROUT_MAX_OUTPUT_BYTES` + `ulimit -f` | output floods (capped, and the temp file is size-limited) |
-| `--pids-limit`, `ulimit -u` | fork bombs (the shell is already blocked, so this is extra) |
+| `SPROUT_MAX_OUTPUT_BYTES` + `--tmpfs /tmp:size=…` | output floods: output is cut at the cap as it streams (`head -c`), so the temp file never grows past it, and the tmpfs size bounds disk. There is deliberately **no** `ulimit -f` — it would kill the program mid-write instead of truncating cleanly |
+| `--pids-limit` | fork bombs — this is **the** process cap (the shell is already blocked, so it's extra). `run.sh` sets no per-run `ulimit -u`: that limit counts every process of the uid, not one run |
 | `--read-only` + `--tmpfs /tmp` | a writable root filesystem; the only writable spot is a small, `noexec` tmpfs |
 | non-root `runner` user + `--cap-drop ALL` + `no-new-privileges` | privilege escalation and host-level capabilities |
 | `--rm` (ephemeral, one container per run) | state carrying between submissions |
@@ -116,7 +116,11 @@ Override the Dockerfile defaults per run with `-e`:
 | `SPROUT_CPU_SECONDS` | `5` | CPU-time limit (`ulimit -t`) |
 | `SPROUT_MAX_OUTPUT_BYTES` | `65536` | output cap |
 | `SPROUT_VMEM_KB` | `262144` | address-space limit (`ulimit -v`, ~256 MB) |
-| `SPROUT_PROCS` | `64` | process/thread limit (`ulimit -u`) |
+
+If the runner can't apply `SPROUT_CPU_SECONDS` or `SPROUT_VMEM_KB` (a value that isn't a
+number, or one above a hard limit set with `docker run --ulimit`), it prints
+`runner: could not apply the … limit` and refuses to run the program — a limit is never
+silently skipped.
 
 ```sh
 echo "$code" | docker run --rm -i -e SPROUT_WALL_SECONDS=3 --network none --memory 128m sprout-playground
