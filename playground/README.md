@@ -96,7 +96,7 @@ No single mechanism is trusted on its own:
 
 | Layer | What it stops |
 | --- | --- |
-| `--sandbox` (env `SPROUT_SANDBOX=1`, baked into the image) | the *language's* doors: `read`/`write`/`append`/`exists`, `remember`/`recall`/`forget`, `get`/`explore`, and the whole `system` shell module |
+| `--sandbox` (env `SPROUT_SANDBOX=1`, baked into the image) | the *language's* doors: `read`/`write`/`append`/`exists`, `remember`/`recall`/`forget`, `get`/`explore`, `env`, the whole `system` shell module, and `use <file>` |
 | `--network none` | any network egress — SSRF to internal services / the cloud metadata endpoint (also covered by the sandbox, but belt-and-suspenders) |
 | `--memory` / `--memory-swap` | RAM exhaustion (the GC keeps a run *bounded*, not *small*) |
 | `--cpus`, `SPROUT_WALL_SECONDS`, `ulimit -t` | infinite / busy loops — wall-clock **and** CPU timeouts |

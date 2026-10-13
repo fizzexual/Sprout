@@ -1,55 +1,57 @@
-~ Run this under SPROUT_SANDBOX=1 (or --sandbox): EVERY file/shell/network op must be
-~ blocked. It lives in tests/sandbox/ (not tests/) so the normal suite skips it; run.sh
-~ invokes it with the env var set. Blocks are catchable, so we count them.
+~ Run this under SPROUT_SANDBOX=1 (or --sandbox): EVERY file/store/network/env/shell/use
+~ op must be refused BY THE SANDBOX. It lives in tests/sandbox/ (not tests/) so the normal
+~ suite skips it; src/tests/run.sh invokes it with the env var set.
+~
+~ A caught error only counts as "blocked" when it is the sandbox's own refusal: kind "error"
+~ and a message naming the op and saying "turned off in sandbox mode" (the exact wording
+~ src/sprout.c raises). Any OTHER failure - a missing file, a missing module, no curl - is
+~ NOT a block, so it can't hide a regression that re-opens a door.
+~
+~ The list is every gate in src/sprout.c: the 10 builtins in builtin_blocked(), the whole
+~ `system` module (call_system), and the `use <file>` statement (S_USE).
+~ Do NOT run it without the sandbox outside a throwaway folder: the ops would really run.
 
 use system
-make blocked = 0
-make total = 11
+make total = 12
 
-try:
-    read("x")
-caught e:
-    set blocked += 1
-try:
-    write("x", "y")
-caught e:
-    set blocked += 1
-try:
-    append("x", "y")
-caught e:
-    set blocked += 1
-try:
-    exists("x")
-caught e:
-    set blocked += 1
-try:
-    remember("k", 1)
-caught e:
-    set blocked += 1
-try:
-    recall("k")
-caught e:
-    set blocked += 1
-try:
-    forget("k")
-caught e:
-    set blocked += 1
-try:
-    get("http://example.com")
-caught e:
-    set blocked += 1
-try:
-    explore("http://example.com")
-caught e:
-    set blocked += 1
-try:
-    system.run("echo hi")
-caught e:
-    set blocked += 1
+~ 1 if `e` is the sandbox refusing `op`, else 0 (and say why it is not a block)
+task refused(op, e):
+    when e["kind"] == "error" and ("'" + op + "'") in e["message"] and "turned off in sandbox mode" in e["message"]:
+        give 1
+    show "NOT blocked: " + op + " failed, but not by the sandbox: " + e["message"]
+    give 0
+
+~ run one op; 1 if the sandbox refused it, else 0
+task probe(op, action):
+    try:
+        action()
+    caught e:
+        give refused(op, e)
+    show "NOT blocked: " + op + " ran"
+    give 0
+
+make blocked = 0
+set blocked += probe("read", task(): read("x"))
+set blocked += probe("write", task(): write("x", "y"))
+set blocked += probe("append", task(): append("x", "y"))
+set blocked += probe("exists", task(): exists("x"))
+set blocked += probe("remember", task(): remember("k", 1))
+set blocked += probe("recall", task(): recall("k"))
+set blocked += probe("forget", task(): forget("k"))
+set blocked += probe("get", task(): get("http://example.com"))
+set blocked += probe("explore", task(): explore("http://example.com"))
+set blocked += probe("env", task(): env("HOME"))
+set blocked += probe("system", task(): system.run("echo hi"))
+
+~ `use` is a statement, not a call, so it can't go in a lambda
+make use_ran = yes
 try:
     use somefile            ~ loading another file from disk
 caught e:
-    set blocked += 1
+    set use_ran = no
+    set blocked += refused("use", e)
+when use_ran:
+    show "NOT blocked: use ran"
 
 when blocked == total:
     show "ok: all " + total + " dangerous ops blocked"

@@ -15,6 +15,13 @@ All notable changes to **Sprout**. The format follows
 - VS Code extension 0.3.0: live error squiggles while you type (powered by `sprout check`) and
   autocomplete for keywords, builtins and the names defined in the file.
 
+### Fixed
+
+- The sandbox probe (`src/tests/sandbox/probe.sprout`) now counts an op as blocked only when
+  the error is the sandbox's own refusal. Before, any caught error counted, so a missing
+  module made `use` look blocked even with the gate removed. It also now probes `env`, the
+  tenth gated builtin it never tested: 12 ops in all, and the docs list `env` too.
+
 ## [0.1.22] — Optional types & interfaces
 
 Opt-in type checking that stays out of your way until you want it — plus a review-driven

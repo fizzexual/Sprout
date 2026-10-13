@@ -59,7 +59,7 @@ The Docker playground does exactly this (`ENV SPROUT_SANDBOX=1` in the image).
 
 ## Exactly what gets turned off
 
-The sandbox blocks **11 outward operations**: nine builtins, one whole module, and one
+The sandbox blocks **12 outward operations**: ten builtins, one whole module, and one
 statement. Everything in this list is *off*; nothing else changes.
 
 | What | Operation(s) | Reach it removes |
@@ -67,6 +67,7 @@ statement. Everything in this list is *off*; nothing else changes.
 | **Filesystem** | [`read`](builtins-reference.md), `write`, `append`, `exists` | reading, writing, appending, and probing files on disk |
 | **On-disk store** | `remember`, `recall`, `forget` | the per-folder key/value store (`sprout.data.json`) |
 | **Network** | `get`, `explore` | fetching URLs / APIs — and the SSRF that comes with it |
+| **Host environment** | `env` | reading the server's environment variables (they can hold secrets) |
 | **The shell** | the whole **`system`** module (`system.run`) | running OS commands |
 | **Loading files** | the **`use <module>`** statement | pulling another `.sprout` file off disk into the program |
 
@@ -75,7 +76,7 @@ would otherwise sneak past a builtin-only filter. Loading a file from disk is a 
 read, so the sandbox shuts it too. (Note: `use system` is blocked by the module rule above;
 `use someFile` is blocked by this statement rule.)
 
-Each of the 11 is hard-wired in the interpreter; there's no allow-list to misconfigure.
+Each of the 12 is hard-wired in the interpreter; there's no allow-list to misconfigure.
 
 ## What still works
 
@@ -212,21 +213,37 @@ sprout --sandbox run helper.sprout
 ## The probe: proving every door is shut
 
 The repo ships a self-checking program, `src/tests/sandbox/probe.sprout`, that *tries* all
-11 dangerous operations inside `try`/`caught` and counts how many were blocked. It lives in
+12 dangerous operations and counts how many were refused **by the sandbox**. It lives in
 `tests/sandbox/` (not `tests/`) so the normal suite skips it — it only makes sense with the
-sandbox on. Here is the shape of it:
+sandbox on.
+
+A caught error only counts as a block when it is the sandbox's own refusal: `kind` is
+`error` and the message names the op and says *turned off in sandbox mode*. Any other
+failure — a missing file, a missing module — is reported as `NOT blocked`, so it can't hide
+a gate that stopped working. Here is the shape of it:
 
 ```sprout
 use system
-make blocked = 0
-make total = 11
+make total = 12
 
-try:
-    read("x")
-caught e:
-    set blocked += 1
-~ ... write, append, exists, remember, recall, forget,
-~     get, explore, system.run, and `use somefile` ...
+task refused(op, e):
+    when e["kind"] == "error" and ("'" + op + "'") in e["message"] and "turned off in sandbox mode" in e["message"]:
+        give 1
+    show "NOT blocked: " + op + " failed, but not by the sandbox: " + e["message"]
+    give 0
+
+task probe(op, action):
+    try:
+        action()
+    caught e:
+        give refused(op, e)
+    show "NOT blocked: " + op + " ran"
+    give 0
+
+make blocked = 0
+set blocked += probe("read", task(): read("x"))
+~ ... write, append, exists, remember, recall, forget, get, explore, env,
+~     system.run, and the `use somefile` statement ...
 
 when blocked == total:
     show "ok: all " + total + " dangerous ops blocked"
@@ -241,8 +258,12 @@ SPROUT_SANDBOX=1 sprout run src/tests/sandbox/probe.sprout
 ```
 
 ```
-ok: all 11 dangerous ops blocked
+ok: all 12 dangerous ops blocked
 ```
+
+Run it **without** the sandbox and every line comes back `NOT blocked`, ending in
+`FAIL: only 0 of 12 blocked` — that is how you know the probe can see a regression.
+(Only do that in a throwaway folder: without the sandbox the ops really run.)
 
 CI runs this probe on every job, so a regression that re-opens any door fails the build.
 
