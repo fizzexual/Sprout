@@ -1,0 +1,24 @@
+~ Entirely synthetic instant comparisons. No clock, schedule or storage.
+use "../../lib/validate.sprout"
+use "../../lib/utc.sprout"
+
+make schema = {kind: "map", fields: {deadline: {kind: "text", max_length: 35}, received: {kind: "text", max_length: 35}}}
+make requests = [
+    {deadline: "1970-01-01T01:00:00+01:00", received: "1970-01-01T00:00:00Z"},
+    {deadline: "1970-01-01T00:00:00Z", received: "1970-01-01T00:00:00.000000001Z"},
+    {deadline: "2000-02-29T23:59:59-00:00", received: "2000-03-01T00:00:00Z"},
+    {deadline: "1900-02-29T00:00:00Z", received: "1900-03-01T00:00:00Z"}
+]
+make results = []
+for each request in requests:
+    when not validate.check(request, schema).ok:
+        builtin::add(results, {ok: no, error: "invalid_request"})
+    otherwise:
+        make deadline = utc.parse(request.deadline)
+        make received = utc.parse(request.received)
+        when not deadline.ok or not received.ok:
+            builtin::add(results, {ok: no, error: "invalid_timestamp"})
+        otherwise:
+            make late = received.instant.seconds > deadline.instant.seconds or (received.instant.seconds == deadline.instant.seconds and received.instant.nanoseconds > deadline.instant.nanoseconds)
+            builtin::add(results, {ok: yes, deadline: deadline.text, received: received.text, late: late})
+show builtin::json_encode(results)

@@ -99,6 +99,8 @@ money before any import. [Explicit builtin calls](docs/intrinsics.md) preserve
 native operation identity when application names collide, with editor support.
 [Layered configuration](docs/configuration.md) combines explicit defaults, file
 maps and CLI values with validation and winning-key provenance.
+[Exact UTC inputs](docs/utc-time.md) validate explicit offsets and calendar dates,
+retaining integer seconds and nanoseconds without sampling the system clock.
 [Pure API contracts](docs/api-contracts.md) select literal routes and validate
 bounded responses; [workflow progress](docs/workflow-progress.md) reads recorded
 state without replaying jobs. The [Node SDK](integrations/node/README.md) provides

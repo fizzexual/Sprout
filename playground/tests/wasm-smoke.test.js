@@ -4,7 +4,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
 
-async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7, bufferCount = 6, metadataChange = null) {
+async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7, bufferCount = 6, metadataChange = null, utcCount = 10, utcSummary = null) {
   const calls = [], filesystems = [], metadataCalls = [];
   const validationLibrary = fs.readFileSync(path.join(__dirname, '..', '..', 'lib', 'validate.sprout'), 'utf8');
   const validationContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'validation_library_test.sprout'), 'utf8');
@@ -15,6 +15,8 @@ async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7, bu
   const apiContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'api_contract_test.sprout'), 'utf8');
   const progressLibrary = fs.readFileSync(path.join(__dirname, '..', '..', 'lib', 'workflow_progress.sprout'), 'utf8');
   const progressContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'workflow_progress_test.sprout'), 'utf8');
+  const utcLibrary = fs.readFileSync(path.join(__dirname, '..', '..', 'lib', 'utc.sprout'), 'utf8');
+  const utcContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'utc_library_test.sprout'), 'utf8');
   const rootContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'gc_env_roots_test.sprout'), 'utf8');
   const bufferContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'argument_buffers_test.sprout'), 'utf8');
   const factory = async options => {
@@ -59,6 +61,10 @@ async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7, bu
             assert.equal(files.get('/lib/workflow_progress.sprout'), progressLibrary, 'actual workflow-progress library is mounted');
             options.print('\x1b[1m' + progressCount + ' passed, 0 failed\x1b[0m'); return 0;
           }
+          if (source === utcContracts) {
+            assert.equal(files.get('/lib/utc.sprout'), utcLibrary, 'actual UTC library is mounted');
+            options.print('\x1b[1m' + (utcSummary ?? (utcCount + ' passed, 0 failed')) + '\x1b[0m'); return 0;
+          }
           if (source === rootContracts) {
             options.print('\x1b[1m' + rootCount + ' passed, 0 failed\x1b[0m'); return 0;
           }
@@ -70,6 +76,14 @@ async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7, bu
         }
         if (source.startsWith(validationLibrary + '\n')) {
           options.print(JSON.stringify({ok: true, errors: [], schema_error: null, truncated: false})); return 0;
+        }
+        if (source.startsWith(utcLibrary + '\n')) {
+          options.print(JSON.stringify([
+            {ok: true, instant: {seconds: {'$sprout.integer': '-1'}, nanoseconds: {'$sprout.integer': '500000000'}},
+              text: '1969-12-31T23:59:59.500000000Z', error: null},
+            {ok: false, instant: null, text: null,
+              error: {code: 'invalid_timestamp', message: 'The timestamp does not match the supported profile.'}},
+          ])); return 0;
         }
         if (/^show (?:builtin::)?(?:read|file_read|file_write|request|process|sql_open|remember|workflow_inspect|workflow_run|sql_migrate|sql_migrations)\(/.test(source)) {
           options.printErr('native access disabled in sandbox mode'); return 1;
@@ -106,7 +120,7 @@ async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7, bu
   const importedValidation = calls.filter(call => call.args[0] === 'test' && call.source === validationContracts);
   assert.equal(importedValidation.length, 1, 'one shared validation corpus runs');
   assert.equal(importedValidation[0].args.includes('--sandbox'), false, 'filesystem imports need normal mode');
-  assert.equal(calls.filter(call => !call.args.includes('--sandbox')).length, 5);
+  assert.equal(calls.filter(call => !call.args.includes('--sandbox')).length, 6);
   const suppliedValidation = calls.filter(call => call.source.startsWith(validationLibrary + '\n'));
   assert.equal(suppliedValidation.length, 1, 'host-supplied pure validation source runs');
   assert.ok(suppliedValidation[0].args.includes('--sandbox'), 'supplied source retains sandbox restrictions');
@@ -125,11 +139,17 @@ async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7, bu
   const config = calls.filter(call => call.args[0] === 'test' && call.source === configContracts);
   assert.equal(config.length, 1, 'shared configuration corpus runs exactly once');
   assert.equal(config[0].args.includes('--sandbox'), false, 'file-backed configuration imports need normal mode');
-  for (const source of [apiContracts, progressContracts]) {
+  for (const source of [apiContracts, progressContracts, utcContracts]) {
     const imported = calls.filter(call => call.args[0] === 'test' && call.source === source);
     assert.equal(imported.length, 1, 'each new pure library corpus runs exactly once');
     assert.equal(imported[0].args.includes('--sandbox'), false, 'file-backed library imports need normal mode');
   }
+  const utc = calls.find(call => call.args[0] === 'test' && call.source === utcContracts);
+  assert.deepEqual(Array.from(utc.args.slice(-4)), ['--max-steps', '5000000', '--timeout-ms', '3000']);
+  const suppliedUtc = calls.filter(call => call.source.startsWith(utcLibrary + '\n'));
+  assert.equal(suppliedUtc.length, 1, 'one supplied UTC boundary pair runs');
+  assert.ok(suppliedUtc[0].args.includes('--sandbox'));
+  assert.equal(suppliedUtc[0].files.has('/lib/utc.sprout'), false, 'supplied source needs no file-backed import');
   assert.equal(new Set(filesystems).size, calls.length, 'each interpreter owns a fresh filesystem');
   for (const api of ['file_read', 'file_write', 'request', 'process', 'sql_open', 'remember',
     'workflow_inspect', 'workflow_run', 'sql_migrate', 'sql_migrations']) {
@@ -146,6 +166,13 @@ async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7, bu
 }
 
 test('WASM smoke isolates persistence and retains sandboxed native capability probes', () => exerciseSmoke());
+
+test('WASM UTC rejects mixed complete summaries while accepting one exact summary', async () => {
+  await exerciseSmoke(10, 6, 7, 6, null, 10, '10 passed, 0 failed');
+  for (const summary of ['10 passed\n9 passed', '9 passed\n10 passed']) {
+    await assert.rejects(exerciseSmoke(10, 6, 7, 6, null, 10, summary), assert.AssertionError);
+  }
+});
 
 test('WASM metadata rejects incorrect compiled flags and target/ABI claims', async () => {
   for (const change of [metadata => { metadata.features.http_request_v1 = true; },
@@ -193,4 +220,5 @@ test('WASM summaries retain exact corpus counts with CLI colors', async () => {
   for (const wrong of [1, 5, 7, 60]) await assert.rejects(exerciseSmoke(10, wrong), assert.AssertionError);
   for (const wrong of [1, 6, 8, 70]) await assert.rejects(exerciseSmoke(10, 6, wrong), assert.AssertionError);
   for (const wrong of [1, 5, 7, 60]) await assert.rejects(exerciseSmoke(10, 6, 7, wrong), assert.AssertionError);
+  for (const wrong of [1, 9, 11, 100]) await assert.rejects(exerciseSmoke(10, 6, 7, 6, null, wrong), assert.AssertionError);
 });

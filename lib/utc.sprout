@@ -1,0 +1,184 @@
+~ Pure instant-only RFC3339 application profile. No ambient clock or timezone.
+private task u_plain(value, kind):
+    give builtin::kind_of(value) == kind and not builtin::is_a(value, kind)
+
+private task u_failure(code):
+    make message = "The timestamp does not match the supported profile."
+    when code == "invalid_type":
+        set message = "Provide a plain timestamp text value."
+    orwhen code == "input_limit":
+        set message = "The timestamp exceeds the fixed input limit."
+    orwhen code == "unsupported_precision":
+        set message = "Use at most nine fractional second digits."
+    orwhen code == "leap_second_unsupported":
+        set message = "Leap seconds are unsupported by this timestamp profile."
+    orwhen code == "out_of_range":
+        set message = "The UTC instant must remain in years 0001 through 9999."
+    orwhen code == "invalid_instant":
+        set message = "Provide exactly two exact integer instant fields."
+    give {ok: no, instant: nothing, text: nothing, error: {code: code, message: message}}
+
+private task u_digit(letter):
+    give builtin::length(letter) == 1 and builtin::index_of("0123456789", letter) != nothing
+
+private task u_digits(text, start, end):
+    make index = start
+    repeat while index < end:
+        when not u_digit(text[index]):
+            give no
+        set index += 1
+    give yes
+
+private task u_component(text, start, end):
+    give builtin::integer(builtin::slice(text, start, end))
+
+private task u_quotient(value, divisor):
+    give (value - value % divisor) / divisor
+
+private task u_before_year(year):
+    make previous = year - 1
+    give previous * 365 + u_quotient(previous, 4) - u_quotient(previous, 100) + u_quotient(previous, 400)
+
+private task u_month_days(year, month):
+    when month == 2:
+        when year % 4 == 0 and (year % 100 != 0 or year % 400 == 0):
+            give builtin::integer("29")
+        give builtin::integer("28")
+    when month == 4 or month == 6 or month == 9 or month == 11:
+        give builtin::integer("30")
+    give builtin::integer("31")
+
+private task u_day_index(year, month, day):
+    make total = u_before_year(year)
+    make index = builtin::integer("1")
+    repeat while index < month:
+        set total += u_month_days(year, index)
+        set index += 1
+    give total + day - 1
+
+private task u_pad(value, width):
+    ~ Only guarded/internal exact integer components reach native stringification.
+    make text = builtin::join([value], "")
+    repeat while builtin::length(text) < width:
+        set text = "0" + text
+    give text
+
+private task u_success(seconds, nanoseconds):
+    make remainder = seconds % 86400
+    when remainder < 0:
+        set remainder += 86400
+    make ordinal = (seconds - remainder) / 86400 + 719162
+    make low = builtin::integer("1")
+    make high = builtin::integer("9999")
+    repeat 14 times:
+        when low < high:
+            make middle = u_quotient(low + high + 1, 2)
+            when u_before_year(middle) <= ordinal:
+                set low = middle
+            otherwise:
+                set high = middle - 1
+    make year = low
+    make remaining = ordinal - u_before_year(year)
+    make month = builtin::integer("1")
+    repeat while month < 12 and remaining >= u_month_days(year, month):
+        set remaining -= u_month_days(year, month)
+        set month += 1
+    make day = remaining + 1
+    make hour = u_quotient(remainder, 3600)
+    make minute = u_quotient(remainder % 3600, 60)
+    make second = remainder % 60
+    make text = u_pad(year, 4) + "-" + u_pad(month, 2) + "-" + u_pad(day, 2) + "T"
+    set text += u_pad(hour, 2) + ":" + u_pad(minute, 2) + ":" + u_pad(second, 2) + "."
+    set text += u_pad(nanoseconds, 9) + "Z"
+    give {ok: yes, instant: {seconds: seconds, nanoseconds: nanoseconds}, text: text, error: nothing}
+
+public task parse(text):
+    when not u_plain(text, "text"):
+        give u_failure("invalid_type")
+    make size = builtin::length(text)
+    when size > 35:
+        give u_failure("input_limit")
+    when size < 20:
+        give u_failure("invalid_timestamp")
+    when text[4] != "-" or text[7] != "-" or not builtin::contains(["T", "t"], text[10]) or text[13] != ":" or text[16] != ":":
+        give u_failure("invalid_timestamp")
+    for each span in [[0, 4], [5, 7], [8, 10], [11, 13], [14, 16], [17, 19]]:
+        when not u_digits(text, span[0], span[1]):
+            give u_failure("invalid_timestamp")
+    make position = 19
+    make nanoseconds = builtin::integer("0")
+    make fraction_count = 0
+    when text[position] == ".":
+        set position += 1
+        make start = position
+        repeat while position < size and u_digit(text[position]):
+            set position += 1
+        set fraction_count = position - start
+        when fraction_count == 0:
+            give u_failure("invalid_timestamp")
+        when fraction_count <= 9:
+            set nanoseconds = u_component(text, start, position)
+            make padding = fraction_count
+            repeat while padding < 9:
+                set nanoseconds *= 10
+                set padding += 1
+    make offset = builtin::integer("0")
+    when position + 1 == size and builtin::contains(["Z", "z"], text[position]):
+        set offset = builtin::integer("0")
+    orwhen position + 6 == size and builtin::contains(["+", "-"], text[position]) and text[position + 3] == ":":
+        when not u_digits(text, position + 1, position + 3) or not u_digits(text, position + 4, position + 6):
+            give u_failure("invalid_timestamp")
+        make offset_hour = u_component(text, position + 1, position + 3)
+        make offset_minute = u_component(text, position + 4, position + 6)
+        when offset_hour > 23 or offset_minute > 59:
+            give u_failure("invalid_timestamp")
+        set offset = offset_hour * 60 + offset_minute
+        when text[position] == "-":
+            set offset = -offset
+    otherwise:
+        give u_failure("invalid_timestamp")
+    when fraction_count > 9:
+        give u_failure("unsupported_precision")
+    make year = u_component(text, 0, 4)
+    make month = u_component(text, 5, 7)
+    make day = u_component(text, 8, 10)
+    make hour = u_component(text, 11, 13)
+    make minute = u_component(text, 14, 16)
+    make second = u_component(text, 17, 19)
+    when year < 1 or year > 9999 or month < 1 or month > 12 or day < 1 or hour > 23 or minute > 59 or second > 60:
+        give u_failure("invalid_timestamp")
+    when day > u_month_days(year, month):
+        give u_failure("invalid_timestamp")
+    when second == 60:
+        give u_failure("leap_second_unsupported")
+    make seconds = (u_day_index(year, month, day) - 719162) * 86400 + hour * 3600 + minute * 60 + second - offset * 60
+    when seconds < -62135596800 or seconds > 253402300799:
+        give u_failure("out_of_range")
+    give u_success(seconds, nanoseconds)
+
+public task format(instant):
+    when not u_plain(instant, "map") or builtin::length(instant) != 2:
+        give u_failure("invalid_instant")
+    when not builtin::contains(instant, "seconds") or not builtin::contains(instant, "nanoseconds"):
+        give u_failure("invalid_instant")
+    when not u_plain(instant.seconds, "integer") or not u_plain(instant.nanoseconds, "integer"):
+        give u_failure("invalid_instant")
+    when instant.nanoseconds < 0 or instant.nanoseconds > 999999999:
+        give u_failure("invalid_instant")
+    when instant.seconds < -62135596800 or instant.seconds > 253402300799:
+        give u_failure("out_of_range")
+    give u_success(instant.seconds, instant.nanoseconds)
+
+private make u_plain = u_plain
+private make u_failure = u_failure
+private make u_digit = u_digit
+private make u_digits = u_digits
+private make u_component = u_component
+private make u_quotient = u_quotient
+private make u_before_year = u_before_year
+private make u_month_days = u_month_days
+private make u_day_index = u_day_index
+private make u_pad = u_pad
+private make u_success = u_success
+public make parse = parse
+public make format = format

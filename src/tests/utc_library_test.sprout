@@ -1,0 +1,134 @@
+~ Ten portable groups; native GC and supplied-source sandbox are separate gates.
+use "../../lib/utc.sprout"
+
+make callbacks = []
+task noted():
+    builtin::add(callbacks, "callback")
+    give nothing
+make noted = noted
+
+test "UTC seconds and fractions are exact and canonical":
+    make result = utc.parse("1970-01-01T00:00:00Z")
+    expect result.ok and result.error == nothing
+    expect builtin::kind_of(result.instant.seconds) == "integer"
+    expect builtin::kind_of(result.instant.nanoseconds) == "integer"
+    expect result.instant.seconds == builtin::integer("0")
+    expect result.text == "1970-01-01T00:00:00.000000000Z"
+    expect utc.parse("1970-01-01T00:00:00.000000001Z").instant.nanoseconds == builtin::integer("1")
+    expect utc.parse("1970-01-01T00:00:00.1Z").text == "1970-01-01T00:00:00.100000000Z"
+
+test "negative seconds use floor representation":
+    make result = utc.parse("1969-12-31T23:59:59.5Z")
+    expect result.instant.seconds == builtin::integer("-1")
+    expect result.instant.nanoseconds == builtin::integer("500000000")
+    expect utc.format(result.instant).text == "1969-12-31T23:59:59.500000000Z"
+
+test "explicit offsets lowercase and unknown local offset preserve the instant":
+    make expected = "1970-01-01T00:00:00.000000000Z"
+    expect utc.parse("1970-01-01T01:00:00+01:00").text == expected
+    expect utc.parse("1969-12-31T23:00:00-01:00").text == expected
+    expect utc.parse("1970-01-01t00:00:00z").text == expected
+    expect utc.parse("1970-01-01T00:00:00+00:00").text == expected
+    expect utc.parse("1970-01-01T00:00:00-00:00").text == expected
+
+test "Gregorian days are validated without normalization":
+    expect utc.parse("2000-02-29T12:00:00Z").ok
+    expect utc.parse("2400-02-29T12:00:00Z").ok
+    expect utc.parse("1900-02-29T12:00:00Z").error.code == "invalid_timestamp"
+    expect utc.parse("2026-04-31T12:00:00Z").error.code == "invalid_timestamp"
+    expect utc.parse("2026-13-01T00:00:00Z").error.code == "invalid_timestamp"
+
+test "year endpoints and offset crossing remain bounded":
+    expect utc.parse("0001-01-01T00:00:00Z").instant.seconds == builtin::integer("-62135596800")
+    expect utc.parse("9999-12-31T23:59:59.999999999Z").instant.seconds == builtin::integer("253402300799")
+    expect utc.parse("0001-01-01T00:00:00+00:01").error.code == "out_of_range"
+    expect utc.parse("9999-12-31T23:59:59-00:01").error.code == "out_of_range"
+    expect utc.parse("0000-01-01T00:00:00Z").error.code == "invalid_timestamp"
+
+test "grammar precision cap and leap policy are explicit":
+    expect utc.parse("1970-01-01 00:00:00Z").error.code == "invalid_timestamp"
+    expect utc.parse("1970-01-01T00:00:00").error.code == "invalid_timestamp"
+    expect utc.parse("1970-01-01T00:00:00.Z").error.code == "invalid_timestamp"
+    expect utc.parse("1970-01-01T00:00:00.1234567890Z").error.code == "unsupported_precision"
+    expect utc.parse("1970-01-01T00:00:00.1234567890X").error.code == "invalid_timestamp"
+    expect utc.parse("1970-01-01T00:00:00.1234567890+00:00").error.code == "input_limit"
+    expect utc.parse("2016-12-31T23:59:60Z").error.code == "leap_second_unsupported"
+    expect utc.parse("1970-01-01T24:00:00Z").error.code == "invalid_timestamp"
+    expect utc.parse("１９７０-01-01T00:00:00Z").error.code == "invalid_timestamp"
+
+test "format accepts only the exact two scalar fields":
+    expect utc.format({seconds: 0, nanoseconds: builtin::integer("0")}).error.code == "invalid_instant"
+    expect utc.format({seconds: builtin::decimal("0.0"), nanoseconds: builtin::integer("0")}).error.code == "invalid_instant"
+    expect utc.format({seconds: yes, nanoseconds: builtin::integer("0")}).error.code == "invalid_instant"
+    expect utc.format({seconds: builtin::integer("0")}).error.code == "invalid_instant"
+    expect utc.format({seconds: nothing, nanoseconds: builtin::integer("0")}).error.code == "invalid_instant"
+    expect utc.format({seconds: builtin::integer("0"), nanoseconds: builtin::integer("-1")}).error.code == "invalid_instant"
+    expect utc.format({seconds: builtin::integer("253402300800"), nanoseconds: builtin::integer("0")}).error.code == "out_of_range"
+
+test "cyclic values and unsupported kinds reject without traversal":
+    make value = {seconds: nothing, nanoseconds: builtin::integer("0")}
+    set value.seconds = value
+    expect utc.format(value).error.code == "invalid_instant"
+    expect utc.parse(nothing).error.code == "invalid_type"
+    expect utc.parse(builtin::bytes("x")).error.code == "invalid_type"
+    expect utc.parse(utc.parse).error.code == "invalid_type"
+    expect utc.format({seconds: {"$sprout.integer": "0"}, nanoseconds: builtin::integer("0")}).error.code == "invalid_instant"
+    make object = Sensitive()
+    make spoofed = integer(0)
+    set callbacks = []
+    expect utc.parse(object).error.code == "invalid_type"
+    expect utc.format({seconds: spoofed, nanoseconds: builtin::integer("0")}).error.code == "invalid_instant"
+    expect callbacks == []
+
+test "outputs are detached and diagnostics omit unknown names and input values":
+    make input = {seconds: builtin::integer("0"), nanoseconds: builtin::integer("1")}
+    make result = utc.format(input)
+    set input.seconds = builtin::integer("5")
+    expect result.instant.seconds == builtin::integer("0")
+    set result.instant.nanoseconds = builtin::integer("99")
+    expect input.nanoseconds == builtin::integer("1")
+    make failure = utc.format({seconds: builtin::integer("0"), private_name: "private-value"})
+    make wire = builtin::json_encode(failure)
+    expect not builtin::contains(wire, "private_name") and not builtin::contains(wire, "private-value")
+    expect builtin::length(builtin::bytes(wire)) + 2 <= 320
+    expect builtin::length(builtin::bytes(utc.parse("1970-01-01T00:00:00Z").text)) == 30
+
+test "native and helper constructor names cannot intercept the library":
+    set callbacks = []
+    expect utc.parse("1970-01-01T00:00:00Z").ok
+    expect utc.format({seconds: builtin::integer("0"), nanoseconds: builtin::integer("0")}).ok
+    expect utc.parse("1900-02-29T00:00:00Z").error.code == "invalid_timestamp"
+    expect callbacks == []
+
+type parse:
+    make value
+    make marker = noted()
+type format:
+    make value
+    make marker = noted()
+type u_digits:
+    make text
+    make start
+    make end
+    make marker = noted()
+type u_success:
+    make seconds
+    make nanoseconds
+    make marker = noted()
+type join:
+    make value
+    make separator
+    make marker = noted()
+type integer:
+    make value
+    make marker = noted()
+    task text(self):
+        builtin::add(callbacks, "text")
+        fail "Do not dispatch user formatting."
+type Sensitive:
+    task equals(self, other):
+        builtin::add(callbacks, "equals")
+        fail "Do not dispatch user equality."
+    task text(self):
+        builtin::add(callbacks, "text")
+        fail "Do not dispatch user formatting."

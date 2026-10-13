@@ -5,6 +5,16 @@ const path = require('node:path');
 const createSprout = require(path.resolve(process.argv[2]));
 const unstyled = text => text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
 
+function assertUtcSummary(output) {
+  const clean = unstyled(output);
+  assert.doesNotMatch(clean, /\b0*[1-9][0-9]*[ \t]+failed\b/);
+  const summaries = clean.split(/\r?\n/).map(line =>
+    line.match(/^[ \t]*([0-9]+) passed(?:,[ \t]*([0-9]+) failed)?[ \t]*$/)).filter(Boolean);
+  assert.equal(summaries.length, 1, 'UTC has exactly one complete test summary');
+  assert.equal(summaries[0][1], '10');
+  assert.ok(summaries[0][2] === undefined || summaries[0][2] === '0');
+}
+
 // Metadata must work before mounting source, importing a library or parsing
 // runtime flags. Each query owns a fresh instance, including rejected queries.
 async function queryCapabilities(args, expectedCode = 0) {
@@ -132,6 +142,21 @@ async function run(source, expectedCode = 0, flags = [], sandbox = true, files =
   assert.match(unstyled(progressOutput), /^\s*6 passed(?:,\s*0 failed)?\s*$/m);
   assert.doesNotMatch(unstyled(progressOutput), /[1-9][0-9]* failed/);
   console.log('ok: WASM recorded workflow progress contracts');
+  const utcLibrary = fs.readFileSync(path.join(__dirname, '..', '..', 'lib', 'utc.sprout'), 'utf8');
+  const utcContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'utc_library_test.sprout'), 'utf8');
+  const utcOutput = await run(utcContracts, 0, ['--max-steps', '5000000', '--timeout-ms', '3000'], false,
+    {'/lib/utc.sprout': utcLibrary}, 'test');
+  assertUtcSummary(utcOutput);
+  const suppliedUtc = JSON.parse(await run(utcLibrary + '\n' +
+    'show builtin::json_encode([parse("1969-12-31T23:59:59.5Z"), parse("1900-02-29T00:00:00Z")])\n',
+    0, ['--max-steps', '5000000', '--timeout-ms', '3000']));
+  assert.deepEqual(suppliedUtc, [
+    {ok: true, instant: {seconds: {'$sprout.integer': '-1'}, nanoseconds: {'$sprout.integer': '500000000'}},
+      text: '1969-12-31T23:59:59.500000000Z', error: null},
+    {ok: false, instant: null, text: null,
+      error: {code: 'invalid_timestamp', message: 'The timestamp does not match the supported profile.'}},
+  ]);
+  console.log('ok: WASM exact UTC contracts and supplied-source sandbox');
   const rootContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'gc_env_roots_test.sprout'), 'utf8');
   const rootOutput = await run(rootContracts, 0, ['--max-steps', '5000000', '--timeout-ms', '5000'], true, {}, 'test');
   assert.match(unstyled(rootOutput), /^\s*7 passed(?:,\s*0 failed)?\s*$/m);
