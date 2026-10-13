@@ -1551,19 +1551,25 @@ static void task_arity_check(TaskDef *t, int got, int line) {
     else snprintf(m, sizeof m, "the task '%s' wants %d to %d inputs, but got %d.", t->name, req, t->nparams, got);
     fail(line, m); }
 }
-/* call t with `npre` already-evaluated values first (a method's self), then the argument
-   expressions. Each value is bound into the frame the moment it exists, so the GC can reach it
-   (through the frame) while the NEXT argument is evaluated — that can run Sprout code, and a
-   fresh value held only in a malloc'd array would be invisible to the collector and freed. */
-static Value call_task_args(TaskDef *t, Value *pre, int npre, Expr **args, int nargs, Env *env, int line) {
-  task_arity_check(t, npre + nargs, line);
+static Value call_task_def(TaskDef *t, Expr *call, Env *env) {
+  task_arity_check(t, call->nargs, call->line);
   Env *frame = env_new(t->home);      /* a task sees its OWN file (privates + publics) + its locals */
-  for (int i = 0; i < npre + nargs; i++) { Value av = i < npre ? pre[i] : eval(args[i - npre], env); if (t->ptypes && t->ptypes[i]) { char w[96]; snprintf(w, sizeof w, "the input '%s'", t->params[i]); check_type(av, t->ptypes[i], line, w); } env_define(frame, t->params[i], av); }
-  for (int i = npre + nargs; i < t->nparams; i++) { Value av = eval(t->defaults[i], frame); if (t->ptypes && t->ptypes[i]) { char w[96]; snprintf(w, sizeof w, "the input '%s'", t->params[i]); check_type(av, t->ptypes[i], line, w); } env_define(frame, t->params[i], av); }   /* fill trailing defaults */
-  if (t->owner_type) env_define(frame, "__class__", vstr(t->owner_type));   /* a method: so `super` inside it finds the defining type's parent */
+  for (int i = 0; i < call->nargs; i++) { Value av = eval(call->args[i], env); if (t->ptypes && t->ptypes[i]) { char w[96]; snprintf(w, sizeof w, "the input '%s'", t->params[i]); check_type(av, t->ptypes[i], call->line, w); } env_define(frame, t->params[i], av); }
+  for (int i = call->nargs; i < t->nparams; i++) { Value av = eval(t->defaults[i], frame); if (t->ptypes && t->ptypes[i]) { char w[96]; snprintf(w, sizeof w, "the input '%s'", t->params[i]); check_type(av, t->ptypes[i], call->line, w); } env_define(frame, t->params[i], av); }   /* fill trailing defaults */
+  return run_task(t, frame, call->line);
+}
+/* call a METHOD: bind self, then evaluate each arg straight into the frame, as call_task_def does.
+   Binding a value the moment it exists keeps it reachable by the GC (through the frame) while
+   the NEXT arg is evaluated — that can run Sprout code and collect, and a fresh value held only
+   in a malloc'd array is invisible to the collector and gets freed. */
+static Value call_method_def(TaskDef *t, Value self, Expr **args, int nargs, Env *env, int line) {
+  task_arity_check(t, nargs + 1, line);
+  Env *frame = env_new(t->home);
+  for (int i = 0; i <= nargs; i++) { Value av = i ? eval(args[i - 1], env) : self; if (t->ptypes && t->ptypes[i]) { char w[96]; snprintf(w, sizeof w, "the input '%s'", t->params[i]); check_type(av, t->ptypes[i], line, w); } env_define(frame, t->params[i], av); }
+  for (int i = nargs + 1; i < t->nparams; i++) { Value av = eval(t->defaults[i], frame); if (t->ptypes && t->ptypes[i]) { char w[96]; snprintf(w, sizeof w, "the input '%s'", t->params[i]); check_type(av, t->ptypes[i], line, w); } env_define(frame, t->params[i], av); }   /* fill trailing defaults */
+  if (t->owner_type) env_define(frame, "__class__", vstr(t->owner_type));   /* so `super` inside a method finds the defining type's parent */
   return run_task(t, frame, line);
 }
-static Value call_task_def(TaskDef *t, Expr *call, Env *env) { return call_task_args(t, NULL, 0, call->args, call->nargs, env, call->line); }
 /* call a task VALUE with already-evaluated args (used by map/filter/reduce/each) */
 static Value call_task_v(TaskDef *t, Value *argv, int argc, int line) {
   task_arity_check(t, argc, line);
@@ -3156,7 +3162,7 @@ static Value type_method_call(Value recv, const char *name, Expr **args, int nar
     else snprintf(m, sizeof m, "a %s has no method called '%s'.", t->name, name);
     fail(line, m);
   }
-  return call_task_args(md, &recv, 1, args, nargs, env, line);   /* self, then each arg straight into the GC-visible frame */
+  return call_method_def(md, recv, args, nargs, env, line);   /* self, then each arg straight into the GC-visible frame */
 }
 /* register a freshly-parsed file's top-level tasks AND types before it runs. */
 static void register_top(Stmt *s, int fileid, Env *home) {
@@ -3179,8 +3185,7 @@ static Value eval_super_call(Expr *e, Env *env) {
   if (!pt) { char m[200]; snprintf(m, sizeof m, "super refers to unknown parent type '%s'.", cur->parent); fail(e->line, m); }
   TaskDef *md = type_method(pt, e->name);
   if (!md) { char m[220]; snprintf(m, sizeof m, "no parent method '%s' to call with super (looking up from '%s').", e->name, cur->parent); fail(e->line, m); }
-  Value self = *selfv;                               /* a copy: selfv points into env->vars, which can move */
-  return call_task_args(md, &self, 1, e->args, e->nargs, env, e->line);
+  return call_method_def(md, *selfv, e->args, e->nargs, env, e->line);
 }
 
 static Value call_module(Expr *e, Env *env) {
