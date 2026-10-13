@@ -206,8 +206,9 @@ sprout api <url>            # list every field an API returns
 If you host a playground where strangers run Sprout on **your** server, pass `--sandbox`
 (anywhere on the line) or set `SPROUT_SANDBOX=1`. It turns **off** every builtin that can
 reach outside the program — the filesystem (`read` `write` `append` `exists`), the on-disk
-store (`remember` `recall` `forget`), the network (`get` `explore`), and the **shell**
-(the whole `system` module). Each blocked call is a clear, catchable error; everything
+store (`remember` `recall` `forget`), the network (`get` `explore`), the host environment
+(`env`), the **shell** (the whole `system` module), and loading another file (`use <file>`).
+Each blocked call is a clear, catchable error; everything
 else (math, text, lists, maps, tasks, `match`, the pipe, …) works normally.
 
 ```

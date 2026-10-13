@@ -450,7 +450,8 @@ show x
 - **Sandbox** — a safe mode for running untrusted code (e.g. an online playground).
   The `--sandbox` flag (or `SPROUT_SANDBOX=1`) turns **off** the host-facing builtins:
   files (`read`/`write`/`append`/`exists`), persistence (`remember`/`recall`/`forget`),
-  network (`get`/`explore`), the `system` module, and `use` of a file. Safe builtins
+  network (`get`/`explore`), the host environment (`env`), the `system` module, and
+  `use` of a file. Safe builtins
   still work, and the block is a catchable error. The frozen language itself is
   unchanged. → [sandbox & playground](sandbox-and-playground.md)
 

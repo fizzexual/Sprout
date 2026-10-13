@@ -19,9 +19,11 @@ RUN useradd --no-create-home --shell /usr/sbin/nologin --uid 10001 runner
 COPY --from=build /sprout /usr/local/bin/sprout
 COPY playground/run.sh /usr/local/bin/run-sprout
 COPY playground/server.py /app/server.py
+# the edge relay docker-compose.yml runs in front (see playground/edge.py); unused otherwise
+COPY playground/edge.py /app/edge.py
 # strip any CR (in case the scripts were checked out with CRLF on Windows) + lock permissions
 RUN sed -i 's/\r$//' /usr/local/bin/run-sprout \
- && chmod 0555 /usr/local/bin/sprout /usr/local/bin/run-sprout /app/server.py
+ && chmod 0555 /usr/local/bin/sprout /usr/local/bin/run-sprout /app/server.py /app/edge.py
 # Sandbox ON by default (even if the entrypoint is bypassed) + runner/server resource defaults.
 ENV SPROUT_SANDBOX=1 \
     SPROUT_WALL_SECONDS=5 \
@@ -31,7 +33,6 @@ ENV SPROUT_SANDBOX=1 \
     SPROUT_MAX_CONCURRENT=4 \
     SPROUT_MAX_CONNECTIONS=64 \
     SPROUT_VMEM_KB=262144 \
-    SPROUT_PROCS=64 \
     PORT=8080 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1

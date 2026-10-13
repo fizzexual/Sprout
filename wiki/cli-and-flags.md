@@ -552,6 +552,7 @@ outside the program:
 - the filesystem — `read`, `write`, `append`, `exists`
 - the on-disk store — `remember`, `recall`, `forget`
 - the network — `get`, `explore`
+- the host environment — `env` (environment variables can hold secrets)
 - the shell — the whole [`system` module](modules-and-projects.md)
 - loading another file at runtime — `use <file>`
 
