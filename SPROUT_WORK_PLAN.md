@@ -49,6 +49,22 @@ Earlier
 batch sections retain the status at that time; their pending claims do not
 override this current status. The eight-hour gate remains held by the human.
 
+Latest pushed feature candidate: `f230fa2`. Its first
+[CI38355577465](https://github.com/fizzexual/Sprout/actions/runs/38355577465)
+finished **three of eight jobs passing**. Actual WebAssembly, Docker and Paper
+passed. All three native jobs and UBSan rejected the quote fixture's retained
+old validator source pin after the reviewed four map-loop substitutions.
+ASan's unchanged decision actual-GC corpus stopped during group9 in validation,
+with eight passed and one failed; its later two calls were unlaunched.
+This remains a failed candidate. Its separate text-stepping compile/normal6/
+actual-GC6/helper16 profiles passed ASan and UBSan; root checked saved raw hashes,
+typed results and all23 reported source identities against committed Git.
+The retained EF8 normal build matches all19 committed native inputs, but
+installation promotion awaits complete qualification. Root owns quote pin
+adoption; stdlib prepares a smaller source-supported validation allocation
+change, and distribution continues only private N018 source/fixture preparation.
+No workload replay, diagnostic-speed comparison or deadline increase is queued.
+
 ## Current rules
 
 - Work in the existing `codex/revive-sprout` branch. Read this ledger, the latest
@@ -293,14 +309,14 @@ remain separate; later passes do not establish their causes.
 | N007 attribution | Completed and verifieda3; original evidence retained | Exporter/data correction and fullCI passed; see Done. No new measurement or repeat audit is queued. |
 | N009 producer | Functionally verified and installed on1992; earlier failures retained | Original896 CI7/8 remains failed. Exact same19 runtime inputs passed separate1992 fullCI8/8 and normal1544 is now installed after bounded probes/complete exact quote. This opens N014's producer dependency; it does not explain the original seed timeout or qualify sustained deployment. |
 | Windows workflow diagnosis | Root/editor private observation complete; remote cause remains open | Original journal byte reviews verified seven before-image checksums and changed database pages, without SQLite recovery. One separately frozen instrumented local seed completed once under unchanged2000ms/15000ms/18s limits. Root read-only verification confirmed one exact effect, one application and two events in the new fixture. Local1544 differs from remote243; markers perturb timing, and this is not a failed-CI replacement or independent descendant-stop proof. No further seed/whole-soak run authorized. |
-| Integration | Root: queue, exact evidence and CI wiring | Last fully verified127ab6d/CI8 remains; first289 featureCI6/8 is preserved. Root accepted reviewed R003 C0D/public regressions and N017 E7E/5E80 libraries. Source peers, one changed-library four-call profile and one portable modeled three-control cohort passed. Commit/push this batch and dispatch one fresh complete CI; no local payload repeats. Installed1544/rollback4FF and human8h hold unchanged. |
+| Integration | Root: queue, exact evidence and CI wiring | Last fully verified127ab6d/CI8 remains; first289 featureCI6/8 and firstf230 combinedCI3/8 are preserved. Root verified saved f230 text profiles/source hashes and bound retained EF8 build to all19 committed inputs. No active CI or installation promotion. Review smallest remaining allocation proposal, adopt exact final validator pins and qualify one changed candidate with fresh full CI. Installed1544/rollback4FF and human8h hold unchanged. |
 | N014 explicit doctor | Completed and verifieda3; default behavior retained | Consumer/source/wiring peers and real diagnostic profile passed; see Done. No unchanged local tests or additional queries queued. |
 | N015 admission redesign | `/root/editor_tooling`: preserved failures and N018 source-only design; `/root/distribution` peer | The separately sealed clone-free refinement failed its first actual-GC call at the unchanged3s deadline, after five shared groups passed. Zero SDK calls; the other46 payloads were not launched. Capture/cleanup/finalization errors empty, all73 inputs unchanged. Original and isolated failures remain failed. No more quote payloads are authorized. Inspect a bounded native plain-data admission design before another implementation; no timer/cap relaxation or claim that the exact CPU cause is established. |
 | N016 exact UTC helper | Completed and verified127ab6d | See Done. Prior local fixture failure/source-review preimages and4f73 firstCI7/8 stay preserved; no unchanged local payloads or extra audits queued. |
-| N017 ordered decision tables | Root accepted changed libraries; source peers complete | First featureCI6/8 remains failed: Windows CRLF source assertion and ASan actual-GC3000ms deficit. Test-only normalization passed one new source group/14 checks. Seven direct-map loops and one private constant preserve guards/order/budgets/shared10/full42+4/actualGC/deadlines. One E7E/5E80 profile on EF8 passed all four original calls; independent complete-output review passed. No speedup or ASan qualification claim; fresh full target CI remains required. |
+| N017 ordered decision tables | Stdlib private further allocation proposal; root pin adoption | First289 CI6/8 remains failed. Seven map-loop substitutions/private constant passed the full local E7E/5E80 profile. Firstf230 CI3/8 retained stale quote validator pins, while ASan actual-GC stopped during group9 at3000ms with8/1. UBSan decision10/10/42/4 passed; root raw review completed. Source-only review of eager default containers, immutable key lists and helper-call allocation is active; preserve exact original bodies/order/caps and require peer/seal before any changed-candidate test. No CPU-cause or speedup claim. |
 | N019 library snippets | Distribution frozen handoff; root integrated28956f9 | Four useful prefixes for validation/configuration/UTC preserve all11 prior snippets. New source3/3 and root byte-inverse/API/placeholder review passed. First integrated featureCI6/8 is preserved; complete qualification remains pending. No actual VS Code expansion, VSIX publication or editor installation claim. |
-| N018 plain-data inspection | Distribution private source preparation after the N017 peer | Design, independent peer and root fixed error/count/writer clarifications are frozen. Private prototype/include/fixture preparation only, with no source sharing, imports/controls/build/native/quote or CI execution until separate review/seal. Original N015 failures remain failed. |
-| R003 native text bounds | Root integrated reviewed portable sources and target wiring | Source-approved C0D candidateEF8/helper0F31 built once, both historical images full-SQLite. One private normal6/actualGC6/helper16 profile passed with independent complete raw review. Portable source/wiring peer approved all36 pins; one new fake3 cohort passed six models and zero actual subject launches. Its failed outer CRLF assertion and separate accepted read-only analysis remain distinct. Public helper profile uses a separate minimal compile; native/ASan/UBSan/actual-WASM CI is pending. No vulnerable runtime replay or installed fix yet. |
+| N018 plain-data inspection | Distribution private source/fixtures; stdlib frozen checkpoint source peer complete | Immutable E012 WIP source peer approved11 checkpoint pins,19 base/16 unchanged native inputs and all three source inverses. Deadline tick reads the runtime clock; the scope excludes application timestamp effects, not all clock reads. Owner finishes a new private C0D-based source/fixture/plan handoff. No imports/models/controls/builds/native/quote/CI or shared implementation; execution remains held until target qualification and separate root peer/seal. Original N015 failures remain failed. |
+| R003 native text bounds | Integratedf230 source; root target evidence review | Source-approved C0D candidateEF8/helper0F31 built once, both historical images full-SQLite; one private6/6/16 passed. Public source/model controls passed, original failed outer CRLF assertion preserved. ActualWASM shared6 and separate ASan/UBSan minimal compile/normal6/actualGC6/helper16 passed firstf230 CI; raw and23-source/Git review completed. OverallCI3/8 remains failed, native3 halted before the explicit driver, installation1544 unchanged. No unsafe original-runtime replay. |
 
 Root owns this file. Agents own only their assigned private inputs until the
 reviewed patch is accepted for shared integration. Current passing CI does not
@@ -316,9 +332,9 @@ ownership before implementation; keep each item independently reviewable.
 | N015 | Bounded batching for pure quote/rule calls | Let hosts request multiple pure evaluations in one fresh worker call to reduce worker launches. First fix the interface and aggregate item/byte/time/step caps; preserve exact per-item Python/Node parity and private-safe errors, no hidden pool/retry/effects. Verify launch counts and mixed invalid/valid boundaries; make no speed claim without separately frozen measurements. |
 | N016 | Completed exact explicit-offset timestamps | Delivered and verified127ab6d; see Done. Existing local-time helpers retain their contracts. |
 | N017 | Bounded declarative decision tables | Public ordered-table API and detached-result contracts are integrated. Reviewed allocation reduction passed the unchanged four-call candidate profile; fresh combined full CI must qualify actual sanitizer/native/WASM targets before delivery is credited. Preserve original failures; no workload/deadline retuning. |
-| N018 | Bounded native plain-data inspection | Private design and independent design peer complete. Root has pinned fixed option errors, depth/occurrence/text failure-prefix counts and current JSON-writer byte parity in a separate private acceptance record; assign private implementation ownership after current handoffs. Fixed iterative walk, no copies/callbacks, budget cooperation and target parity; no implementation or speed claim. N015 remains failed, no quote retries. |
+| N018 | Bounded native plain-data inspection | Distribution finishes private source/fixtures/plan after approved immutable E012 source peer. Exact errors, occurrence/depth/text/writer prefix counts, zero mutation/callbacks and cleanup/source interactions are acceptance criteria. Root collects frozen handoff and independent fixture/driver peer before any execution seal; actual target qualification remains a dependency. N015 remains failed, no quote retries or speed claim. |
 | N019 | Useful editor snippets for application inputs | Four prefixes are integrated with all11 prior snippets preserved, source3 and API/placeholder peers complete. Their original feature CI remains6/8; qualification awaits the fresh combined candidate. No actual editor expansion or marketplace publication claim. |
-| R003 | Terminator-aware native text traversal | Public regression sources and native/ASan/UBSan/actual-WASM wiring are accepted in the combined candidate. Commit/push and run one fresh full CI. Bind all19 committed native inputs to the retained EF8 normal build before any installation promotion; no repeated local native profile or compile. |
+| R003 | Terminator-aware native text traversal | Public source/model coverage and first actualWASM/ASan/UBSan profiles passed, all19 retained normal-build inputs bound to committedf230. Preserve wholeCI3/8 failure, require the changed candidate's complete native3/full target qualification before installation promotion. No unchanged local native replay or compile. |
 | N012 | Explicit registered-type environment reachability | Normal files/modules have existing home roots. A type-only wizard file has a structural registry-home concern; bounded ordinary/stress probes passed and have not reproduced a runtime failure. Require a controlled collector reachability negative before proposing a shipping correction; nested task-local methods remain unsupported by the parser |
 
 As items complete, record their exact evidence below, move them to Done, and
@@ -334,8 +350,8 @@ order. Do not silently broaden an item into a public deployment or stable releas
 | New agreed sustained run | Freeze final native/source/header/SDK/harness inputs and fresh trusted review inputs before launch. Preserve v2 policy SHA256 `e0fa18931226ba2c181d2700dea0da3e91fc9cba878c551232298cb9342bd0ee`; independently verify exact clocks/raw duration, actual SQLite data, lifecycle/thread baselines, cadence and resource/storage limits. Never reuse the failed candidate's sealed trust. |
 | Actual supervisor/crash recovery and representative deployment | Finite cold recovery and compiled/adapter tests do not establish these platform-specific behaviors. Keep limits explicit and scope any future rehearsal separately. |
 | Native error cleanup | N011's measured array leaks are fixed and qualified on `6b8c724` with counted success/error/fault controls and fresh full CI. ENV/array evidence does not establish whole-heap cleanup or eliminate unrelated future findings. |
-| Legacy native text bounds (R003) | Independently source-confirmed requested-allocation failures in length/index/expression-slice traversal and a narrower index_of advance. Reviewed correction and portable coverage are integrated; local candidate-only normal6/actualGC6/helper16 and source/model controls passed. Fresh target/sanitizer/WASM qualification and exact committed-build binding remain pending. No original dynamic crash, exploitability or installed fix is credited. |
-| Decision-table stress deadline | First28956f9 ASan actual-GC profile stopped inside schema validation during group6 at the unchanged3000ms VM limit. Five groups passed; two later calls were unlaunched. No memory fault was reported in retained raw streams. Reviewed E7E/5E80 reduction passed one complete unchanged EF8 Windows profile; actual ASan/full target CI remains pending. Original cause and speed impact are not established; no splitting/retries/extended limits. |
+| Legacy native text bounds (R003) | Reviewed correction/portable coverage integrated. Local6/6/16, source/model controls, first actualWASM and separate ASan/UBSan6/6/16 passed; all19 committed inputs match retained normal build. Overallf230 CI remains3/8 with three explicit native profiles unlaunched after earlier fixture-pin failure. Installation promotion remains gated; no original crash or exploitability claim. |
+| Decision-table stress deadline | Preserve first289 ASan group6/5passed deficit and firstf230 ASan group9/8passed deficit, both unchanged3000ms with later2 calls unlaunched. E7E/5E80 passed full local EF8 and remote UBSan10/10/42/4; no memory fault reported in saved decision pipes. Stdlib source-only allocation proposal remains active. No timing-cause/speed claim, split/retry or extended limits. |
 | Windows installer CI observation | `437af0a` healthy PowerShell upgrade timed out at 15 seconds; original cause unknown. Driver isolation/diagnostics were corrected, with unchanged deadlines, and later full CI passed. Preserve the original failure. |
 | HTTP capacity teardown | `b39afb6` observed10053. Local late-write fixtures reproduced lost503; bounded teardown corrections and later full CI passed. Exact remote cause and bounded delivery limits remain explicit. |
 | macOS concurrent .NET worker startup | `479c59e` failed with Operation canceled after earlier cancellation/recovery passed. Bounded diagnostics and subsequent fresh full CI passed; the prior startup cause remains unknown. No repeated clean-result explanation or descendant cleanup claim. |
@@ -344,6 +360,24 @@ order. Do not silently broaden an item into a public deployment or stable releas
 | Live Paper and stable release | Live server use awaits the owner's EULA decision. No stable tag/public service/paid infrastructure is authorized. |
 
 ## Batch evidence log
+
+- 2026-10-13: Pushedf230fa2 and dispatched one fresh fullCI38355577465,
+  attempt1, completedfailed3/8. Native3/UBSan quote guard rejects the retained
+  validator2F522 pin against reviewed5E80; ASan decision actual-GC stops during
+  group9 at3000ms with8passed/1failed, normal10 passed, later2 calls unlaunched.
+  Both separate text-stepping sanitizer profiles passed compile/normal6/
+  actual-GC6/helper16; actualWASM passed shared6. Compiler warnings are retained.
+  Root checked raw bytes/hashes, complete oracles,23 reported source/Git
+  identities and19 retained build inputs. Independent review SHA256
+  `1d1380d4212eeb3ff37b377f06499a427885571b499e3b192f63fcf8b0b199a2`.
+  A failed read-only checker compared outputs with whole input/table/name/
+  expected rows; its5A7B preimage remains preserved. Correct expected-output
+  projection used the unchanged pinned42-case fixture, without payload replay.
+  Immutable N018 E012 source peer SHA256
+  `7d793609f692f9218d59ac70ca52b1f90df18e3d071d155d59caae9f79c1763f`
+  approved the starting private implementation with no execution. Distribution
+  finishes its new private fixture/plan freeze; stdlib prioritizes remaining
+  validation allocations. No active test/CI, installation1544 unchanged.
 
 - 2026-10-13: Root accepted the changed decision/validation libraries after
   independent source review SHA256 `893876c594a882572840204d5219d08f2d4aee1e77784988c87d986239e9546b`.

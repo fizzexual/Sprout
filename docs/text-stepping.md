@@ -8,7 +8,11 @@ Unicode-codepoint constructor. Invalid legacy text is compared as ASCII byte
 hex, never emitted as JSON text. Strict JSON rejection remains a checked case.
 
 The public package and wiring passed independent source review and three
-portable modeled controls; fresh integrated target/sanitizer/WASM CI is pending.
+portable modeled controls. The first integrated candidate passed actual WASM
+and both separate sanitizer profiles; its full CI failed on other fixture and
+decision stress gates. Three explicit native profiles and installation promotion
+remain pending complete qualification. Compiler warnings are retained in the
+minimal-build reports.
 The earlier private corrected candidate
 passed one normal6/actualGC6/helper16 profile; that evidence does not qualify this
 new portable driver or explain any earlier platform incident. Original failures
