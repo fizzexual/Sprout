@@ -6,8 +6,9 @@ while the eight-hour qualification is pending. Keep this file current at every
 handoff: record what changed, what was actually verified, who owns active files,
 what comes next, and what remains blocked. Planned work is not delivered work.
 
-Current verified code: `a3e11de`, all eight jobs passed on the first attempt in
-[CI 38319793595](https://github.com/fizzexual/Sprout/actions/runs/38319793595).
+Current verified code: `127ab6d`, all eight jobs passed on the first attempt in
+[CI 38340208597](https://github.com/fizzexual/Sprout/actions/runs/38340208597).
+This verifies the pure UTC helper and test-only crafted-bundle isolation correction.
 The installed normal Windows binary is `154415bb` (`0.2.0-dev`), bound to all19
 exact unchanged native Git inputs and its original full-SQLite build. Compiled metadata
 and reusable measurement tools are functionally verified. Prior capability
@@ -25,7 +26,8 @@ of eight jobs in [CI 38329986555](https://github.com/fizzexual/Sprout/actions/ru
 ASan stopped in the existing crafted-bundle fixture with `Text file busy`,
 before the explicit UTC driver. Its original result stays failed. A reviewed
 test-only change gives every crafted executable a fresh exclusive path; one
-inert-data model passed. A distinct corrected revision needs fresh full CI.
+inert-data model and all eight fresh127ab6d CI jobs passed. This does not explain
+the earlier OS pathname retention or qualify sustained deployment.
 Earlier
 batch sections retain the status at that time; their pending claims do not
 override this current status. The eight-hour gate remains held by the human.
@@ -77,6 +79,8 @@ override this current status. The eight-hour gate remains held by the human.
 | Current1544 Windows installation | SHA256 `154415bb5fc64ae0ddcb6a57e2ad4c6a245ee1df1541be1e35a74bbd261e4f05`; its retained36.578-second normal full-SQLite build had no warnings and all19 inputs were compared with current1992 Git. No repeated compile. Bounded staged version/metadata and installed metadata passed, followed by one installed stock Python exact quote matched against the complete independent Decimal oracle. Prior4FF rollback preserved, PATH unchanged, version remains `0.2.0-dev`. |
 | Explicit compiled-feature doctor preflight (N014) | Opt-in schema2, six bounded requirements and one trusted-runtime query; default schema1/no probe unchanged.24 original fake/Python controls and separate clock1, independent source/root peers, exactly two actual full/minimal diagnostics and fresha3 fullCI8/8 with25 controls per native platform. MissingSQLite blocks adoption; availability/effects/build identity/permissions stay distinct. |
 | Corrected historical observation export (N007 attribution) | SDK row labels retained by exporter and one new pure control. Independent exact-file/privacy review of additive5FD7 restores48 original host dimensions, with every other decoded value unchanged from preservedBE40. Original root3067 review remains incomplete. Fulla3 CI8/8 passed with40 tool controls per native platform; no measured workload rerun or current-runtime speed claim. |
+| Exact explicit-offset timestamps and UTC formatting (N016) | Pure parse/format with exact seconds/nanoseconds, range1–9999 and fixed privacy-safe errors. One corrected Windows normal10/actual-GC10/60 sandbox/four full example cohort, public default9/explicit4 and actual native3/WASM/sanitizers passed fresh127ab6d fullCI8/8. No system clock, timezone database, scheduler or ISO/RFC certification claim. |
+| Crafted-bundle test fixture isolation | Every executable uses a fresh exclusive path. Archive bytes, rejection cases and20s deadlines are unchanged. One inert-data model and fresh127ab6d fullCI8/8 passed; old4f73 ASan ETXTBSY failure remains failed and its OS retention cause unknown. |
 
 The earlier `eac6d5b` run [38233671926](https://github.com/fizzexual/Sprout/actions/runs/38233671926)
 failed its Windows link-spelling fixture, with seven jobs passing. The corrected
@@ -224,7 +228,7 @@ and Paper passed. Preserve all five failed logs and the exact original revision:
 | R005 | Root: `playground/tests/wasm-smoke.js` and mock controls; `/root/stdlib` peer | ANSI-aware exact summary counts, eight wrong-count negatives and two mock controls passed; no new actual-WASM claim |
 | N010 | `/root/distribution`: scoped precise GC environment roots in `src/sprout.c`, `src/ergonomics_calls.h` and dedicated regression fixtures; `/root/editor_tooling` independent peer | Frozen and peer approved: active/prepared/suspended scopes and normal/error recovery. Eleven Windows minimal-core controls, final five driver controls and independent byte-boundary oracles passed in separate runs. Linux sanitizer cohort remains failed; no combined16/full-SQLite claim. New canonical build/full CI required before installation; macOS cause remains unconfirmed |
 | N006 | `/root/stdlib`: new synthetic order-quote example, Python/Node baselines, parity fixtures and docs; root peer | Frozen and peer approved:58-case independent baselines, corrected portable pin controls and14 additional rational-oracle checks. Exact cents/IDs, explicit discount ties/rounding/shipping, no partial quote; fresh full CI required |
-| Integration | Root: CI wiring, source/build binding, readiness docs and this ledger | Preserve the installed native94 and both failed long-run reports. No sustained test, clock change or CI rerun; one fresh reviewed revision after the corrective batch is ready |
+| Integration | Root: queue, exact evidence and CI wiring | Fresh127ab6d fullCI8/8 firstattempt qualifies UTC and the test-only bundle fixture correction. Old4f73 firstCI7/8 remains failed; installed1544/rollback4FF are unchanged because all19 native Git inputs are unchanged. N017 remains a separate private feature pending public wiring/own CI. Eight-hour gate remains held. |
 
 N006's owner checks matched all58 synthetic cases against separate Python and
 Node baselines. Root's additional14 baskets matched an independent exact-rational
@@ -272,10 +276,10 @@ remain separate; later passes do not establish their causes.
 | N007 attribution | Completed and verifieda3; original evidence retained | Exporter/data correction and fullCI passed; see Done. No new measurement or repeat audit is queued. |
 | N009 producer | Functionally verified and installed on1992; earlier failures retained | Original896 CI7/8 remains failed. Exact same19 runtime inputs passed separate1992 fullCI8/8 and normal1544 is now installed after bounded probes/complete exact quote. This opens N014's producer dependency; it does not explain the original seed timeout or qualify sustained deployment. |
 | Windows workflow diagnosis | Root/editor private observation complete; remote cause remains open | Original journal byte reviews verified seven before-image checksums and changed database pages, without SQLite recovery. One separately frozen instrumented local seed completed once under unchanged2000ms/15000ms/18s limits. Root read-only verification confirmed one exact effect, one application and two events in the new fixture. Local1544 differs from remote243; markers perturb timing, and this is not a failed-CI replacement or independent descendant-stop proof. No further seed/whole-soak run authorized. |
-| Integration | Root: queue, evidence, source/build binding and CI/release wiring | Preserve896 CI7/8 unknown seed cause and74ea CI6/8 fixture spelling failures. Fresh1992 and nowa3 fullCI8/8 firstattempt are sealed; installed1544/rollback4FF unchanged because native19 inputs are unchanged. N015/N016 still require separate gates. No sustained test, clock change or repeated measurement. |
+| Integration | Root: queue, exact evidence and CI wiring | Fresh127ab6d fullCI8/8 firstattempt qualifies UTC and the test-only bundle fixture correction. Old4f73 firstCI7/8 remains failed; installed1544/rollback4FF are unchanged because all19 native Git inputs are unchanged. N017 remains a separate private feature pending public wiring/own CI. Eight-hour gate remains held. |
 | N014 explicit doctor | Completed and verifieda3; default behavior retained | Consumer/source/wiring peers and real diagnostic profile passed; see Done. No unchanged local tests or additional queries queued. |
 | N015 admission redesign | `/root/editor_tooling`: preserved failures and N018 source-only design; `/root/distribution` peer | The separately sealed clone-free refinement failed its first actual-GC call at the unchanged3s deadline, after five shared groups passed. Zero SDK calls; the other46 payloads were not launched. Capture/cleanup/finalization errors empty, all73 inputs unchanged. Original and isolated failures remain failed. No more quote payloads are authorized. Inspect a bounded native plain-data admission design before another implementation; no timer/cap relaxation or claim that the exact CPU cause is established. |
-| N016 exact UTC helper | Root: source integration and fresh CI | Corrected Windows four-call cohort passed normal10/actual-GC10/60 exact sandbox vectors/four full example outputs. Revision4f73 first CI passed native3, actual WASM, UBSan, Docker and Paper; ASan failed the existing bundle fixture before explicit UTC4. Its original7/8 result remains failed. Fresh-path test-only correction and one modeled group are reviewed; fresh complete CI required. No UTC/runtime source or deadline changed. |
+| N016 exact UTC helper | Completed and verified127ab6d | See Done. Prior local fixture failure/source-review preimages and4f73 firstCI7/8 stay preserved; no unchanged local payloads or extra audits queued. |
 
 Root owns this file. Agents own only their assigned private inputs until the
 reviewed patch is accepted for shared integration. Current passing CI does not
@@ -289,10 +293,10 @@ ownership before implementation; keep each item independently reviewable.
 | ID | Work | Why it helps / acceptance |
 | --- | --- | --- |
 | N015 | Bounded batching for pure quote/rule calls | Let hosts request multiple pure evaluations in one fresh worker call to reduce worker launches. First fix the interface and aggregate item/byte/time/step caps; preserve exact per-item Python/Node parity and private-safe errors, no hidden pool/retry/effects. Verify launch counts and mixed invalid/valid boundaries; make no speed claim without separately frozen measurements. |
-| N016 | Exact explicit-offset timestamps for application inputs | Small pure API for strict timestamps and UTC conversion, after confirming no existing adequate function. Require an explicit range/precision/error contract and independent boundary oracle; no system-time, timezone database or scheduling behavior. Design remains private. |
-| N017 | Bounded declarative decision tables | Five private source/example/docs/control files, six source/oracle groups and independent source peer are complete. The frozen four-call adapter and43 inputs await independent adapter/schedule review and root seal before any native invocation. Ordered exact predicates, missing-v-null and detached outputs; no effects, callbacks or expressions. No shared delivery yet. |
-| N018 | Bounded native plain-data inspection | Private source-only design specifies occurrences/depth/text/encoded bytes, alias/cycle limits, error order, no copies/callbacks, budget cooperation and native/WASM parity. Independent design review continues. N015 remains failed and no further quote payloads are authorized. No implementation or native performance claim. |
-| N019 | Useful editor snippets for application inputs | Queued private snippets for actual validation/configuration/UTC APIs, with unique prefixes, valid placeholders and bounded pure source controls. The existing tooling agent is currently unavailable after a service interruption; no preparation or result is credited. Peer and fresh CI before delivery. |
+| N016 | Completed exact explicit-offset timestamps | Delivered and verified127ab6d; see Done. Existing local-time helpers retain their contracts. |
+| N017 | Bounded declarative decision tables | Source-first six groups/source peer and one separately sealed Windows profile passed: normal10, actual-GC10, all42 complete sandbox cases and all4 example outputs. Root raw/43-input review passed without payload repeats. Stdlib prepares the portable public driver and up to3 new pure controls; distribution peer/root wiring and fresh own native/WASM/fullCI remain required. No shared delivery yet. |
+| N018 | Bounded native plain-data inspection | Private design and independent design peer complete. Root has pinned fixed option errors, depth/occurrence/text failure-prefix counts and current JSON-writer byte parity in a separate private acceptance record; assign private implementation ownership after current handoffs. Fixed iterative walk, no copies/callbacks, budget cooperation and target parity; no implementation or speed claim. N015 remains failed, no quote retries. |
+| N019 | Useful editor snippets for application inputs | Distribution prepares private validatecheck/configresolve/utcparse/utcformat snippets using actual exported APIs, preserving all11 old entries. Unique prefixes, valid placeholders and explicit synthetic arguments; up to3 new pure source controls. Peer/root integration and fresh CI before delivery; tooling agent remains unavailable. |
 | N012 | Explicit registered-type environment reachability | Normal files/modules have existing home roots. A type-only wizard file has a structural registry-home concern; bounded ordinary/stress probes passed and have not reproduced a runtime failure. Require a controlled collector reachability negative before proposing a shipping correction; nested task-local methods remain unsupported by the parser |
 
 As items complete, record their exact evidence below, move them to Done, and
@@ -316,6 +320,16 @@ order. Do not silently broaden an item into a public deployment or stable releas
 | Live Paper and stable release | Live server use awaits the owner's EULA decision. No stable tag/public service/paid infrastructure is authorized. |
 
 ## Batch evidence log
+
+- 2026-10-13: Test-only correction127ab6d passed all eight jobs on first
+  attempt in [CI38340208597](https://github.com/fizzexual/Sprout/actions/runs/38340208597).
+  UTC now has actual native/WASM/sanitizer target verification. Original
+  4f73 firstCI7/8 and its ETXTBSY log remain unchanged and failed. All19
+  native inputs match the existing1544 build; no compile/install repeat.
+  N017 separately passed its one freshly sealed four-call Windows profile;
+  root checked every complete output/raw hash/exit and all43 final inputs.
+  Public driver/fake controls/wiring/ownCI remain pending. N018 design peer
+  and N019 snippets provide the next concrete work while8h remains held.
 
 - 2026-10-13: UTC4f73 first CI38329986555 finished7/8. ASan failed the
   existing repeated crafted-executable path with `Errno26 Text file busy`;
