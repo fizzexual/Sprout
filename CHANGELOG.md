@@ -24,6 +24,13 @@ All notable changes to **Sprout**. The format follows
   (a bad value, or above a host hard limit), the runner now refuses to run and says why;
   before, the program ran with no limit. The stop message now names the CPU and memory
   limits too, not only the wall clock.
+- Web playground (`docker-compose.yml`): the container that runs submissions now has no
+  network egress, which the wiki already claimed it had. Before, it sat on Compose's default
+  network and could reach any internet host. Now it is attached only to an `internal: true`
+  network and publishes no port. A new `edge` service (`playground/edge.py`, a stdlib TCP
+  relay, same image) publishes port 8080 and forwards to it and nowhere else. The wiki and
+  playground README now describe this setup exactly; `--network none` stays the documented
+  flag for the one-container-per-submission model.
 - The sandbox probe (`src/tests/sandbox/probe.sprout`) now counts an op as blocked only when
   the error is the sandbox's own refusal. Before, any caught error counted, so a missing
   module made `use` look blocked even with the gate removed. It also now probes `env`, the

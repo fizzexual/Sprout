@@ -10,8 +10,11 @@
 # checkout instead? Replace the whole `dockerfile_inline:` block below with one line:
 #   dockerfile: playground/Dockerfile.web   — and run it from the repo root.)
 #
-# Untrusted code runs under `sprout --sandbox` (no files, shell, or network) inside this
-# locked-down container. See playground/README.md for the full threat model.
+# Untrusted code runs under `sprout --sandbox` (no files, shell, or network) inside a
+# locked-down container that has NO network egress: it sits only on the `sandbox` network,
+# which is `internal: true` (no route off the host). Browsers reach it through `edge`, a tiny
+# relay that publishes port 8080 and forwards to that one server and nothing else.
+# See playground/README.md for the full threat model.
 services:
   sprout-playground:
     build:
@@ -27,8 +30,9 @@ services:
         COPY --from=build /sprout /usr/local/bin/sprout
         ADD https://raw.githubusercontent.com/fizzexual/Sprout/main/playground/run.sh /usr/local/bin/run-sprout
         ADD https://raw.githubusercontent.com/fizzexual/Sprout/main/playground/server.py /app/server.py
+        ADD https://raw.githubusercontent.com/fizzexual/Sprout/main/playground/edge.py /app/edge.py
         RUN sed -i 's/\r$$//' /usr/local/bin/run-sprout \
-         && chmod 0555 /usr/local/bin/sprout /usr/local/bin/run-sprout /app/server.py
+         && chmod 0555 /usr/local/bin/sprout /usr/local/bin/run-sprout /app/server.py /app/edge.py
         # Sandbox ON by default even if the entrypoint is bypassed; also the runner/server defaults.
         ENV SPROUT_SANDBOX=1 SPROUT_WALL_SECONDS=5 SPROUT_CPU_SECONDS=5 \
             SPROUT_MAX_OUTPUT_BYTES=65536 SPROUT_MAX_INPUT_BYTES=65536 \
@@ -43,9 +47,9 @@ services:
         ENTRYPOINT ["python3", "/app/server.py"]
     image: sprout-playground-web:latest
     init: true                       # reap any stray child processes
-    ports:
-      - "8080:8080"
-    environment:                     # tunables (override the image defaults here)
+    networks:
+      - sandbox                      # internal-only: no egress. No `ports:` here; `edge` is the way in
+    environment:                    # tunables (override the image defaults here)
       SPROUT_SANDBOX: "1"            # the language's doors stay shut (also baked into the image)
       SPROUT_WALL_SECONDS: "5"       # per-run wall-clock timeout
       SPROUT_CPU_SECONDS: "5"        # per-run CPU-time limit (ulimit -t)
@@ -67,3 +71,33 @@ services:
     memswap_limit: 512m              # ...with no swap headroom
     cpus: 1.0                        # CPU ceiling
     restart: unless-stopped
+
+  # The one published port. Same image, but it runs playground/edge.py: a raw TCP relay to
+  # sprout-playground:8080 and nowhere else. It never runs submitted code.
+  edge:
+    image: sprout-playground-web:latest   # built by the service above
+    pull_policy: never                    # never look for it on a registry
+    entrypoint: ["python3", "/app/edge.py", "sprout-playground", "8080", "8080"]
+    depends_on:
+      sprout-playground:
+        condition: service_healthy
+    init: true
+    ports:
+      - "8080:8080"
+    networks:
+      - public                       # reachable from the host
+      - sandbox                      # ...and can reach the playground server
+    user: "10001:10001"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256                  # relay threads (capped at 128 connections) + headroom
+    mem_limit: 128m
+    restart: unless-stopped
+
+networks:
+  sandbox:
+    internal: true                   # no route off the host: the code-running container has no egress
+  public: {}

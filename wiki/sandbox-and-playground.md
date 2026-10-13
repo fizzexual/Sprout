@@ -307,12 +307,29 @@ That's the whole setup — you don't even need to clone the repo. The compose fi
 with a **Run** button comes up at `http://localhost:8080`. A tiny dependency-free Python
 server accepts code on `POST /run` and hands each submission to the same hardened runner.
 
+The compose file starts **two** containers from the one image:
+
+- **`sprout-playground`**: the server and the runner, the only place submitted code runs.
+  It is attached only to the `sandbox` network, which is `internal: true`, and it publishes
+  no port. Docker gives an internal network no route off the host, so this container has
+  **no network egress**: connecting to `1.1.1.1:80` or `169.254.169.254:80` fails with
+  *Network is unreachable*, and looking up `example.com` fails (*Temporary failure in name
+  resolution*).
+- **`edge`**: [`playground/edge.py`](../playground/edge.py), a small stdlib TCP relay. It
+  publishes port 8080 and forwards to `sprout-playground:8080` and nowhere else. It is
+  needed because a container that is only on an internal network can't publish a port. It
+  never runs submitted code.
+
+(It can't simply be `network_mode: none` / `--network none`: the server has to accept HTTP.
+The one-container-per-submission model below has no server, so it *does* use
+`--network none`.)
+
 Under the hood the compose file applies **defence in depth** — no single layer is trusted:
 
 | Layer | What it stops |
 | --- | --- |
-| `SPROUT_SANDBOX=1` (baked into the image) | the *language's* doors: file, store, network, `system`, `use` |
-| `--network none` / no egress | SSRF to internal services or the cloud metadata endpoint |
+| `SPROUT_SANDBOX=1` (baked into the image) | the *language's* doors: file, store, network, `env`, `system`, `use` |
+| internal-only `sandbox` network behind the `edge` relay | any network egress from the container that runs code: SSRF to internal services or the cloud metadata endpoint, even for code that got past the sandbox |
 | `mem_limit` / `memswap_limit` | RAM exhaustion (the GC bounds a run, doesn't make it small) |
 | CPU cap + wall-clock + CPU-time timeouts | infinite / busy loops |
 | output byte cap | output floods |

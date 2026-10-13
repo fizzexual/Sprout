@@ -36,6 +36,15 @@ dependency-free Python server (`server.py`) accepts code on `POST /run` and hand
 submission to the **same** runner (`run.sh`) used below. Output is capped, runs time out,
 and at most `SPROUT_MAX_CONCURRENT` run at once (excess requests get HTTP 429).
 
+**Network isolation.** The container that runs submissions (`sprout-playground`) is
+attached only to the `sandbox` network, which is `internal: true`, and publishes no port,
+so it has **no egress**: no internet, no cloud metadata endpoint, no outside DNS. The
+browser reaches it through a second container, `edge` (same image, running
+[`edge.py`](edge.py)), which publishes port 8080 and relays raw TCP to
+`sprout-playground:8080` and nowhere else. `--network none` can't be used here because the
+server must accept HTTP. A container on an internal network can't publish a port, so the
+relay is the one way in.
+
 > **Building from a local checkout instead?** If you're developing Sprout and want the
 > playground to run your working copy, replace the `dockerfile_inline:` block in
 > `docker-compose.yml` with a single line — `dockerfile: playground/Dockerfile.web` — and
@@ -97,7 +106,7 @@ No single mechanism is trusted on its own:
 | Layer | What it stops |
 | --- | --- |
 | `--sandbox` (env `SPROUT_SANDBOX=1`, baked into the image) | the *language's* doors: `read`/`write`/`append`/`exists`, `remember`/`recall`/`forget`, `get`/`explore`, `env`, the whole `system` shell module, and `use <file>` |
-| `--network none` | any network egress — SSRF to internal services / the cloud metadata endpoint (also covered by the sandbox, but belt-and-suspenders) |
+| `--network none` (per-submission) / internal-only `sandbox` network behind `edge` (compose) | any network egress — SSRF to internal services / the cloud metadata endpoint (also covered by the sandbox, but belt-and-suspenders) |
 | `--memory` / `--memory-swap` | RAM exhaustion (the GC keeps a run *bounded*, not *small*) |
 | `--cpus`, `SPROUT_WALL_SECONDS`, `ulimit -t` | infinite / busy loops — wall-clock **and** CPU timeouts |
 | `SPROUT_MAX_OUTPUT_BYTES` + `--tmpfs /tmp:size=…` | output floods: output is cut at the cap as it streams (`head -c`), so the temp file never grows past it, and the tmpfs size bounds disk. There is deliberately **no** `ulimit -f` — it would kill the program mid-write instead of truncating cleanly |
