@@ -1,0 +1,33 @@
+~ super.method(...) evaluates its arguments one by one before the parent's method runs.
+~ Each argument here is a fresh string nothing else holds, and computing the later ones runs
+~ Sprout code (so the GC may collect in between): the earlier arguments must stay alive.
+~ Run under SPROUT_GC_STRESS=1 (the asan CI job does), a missed one is freed at once and
+~ ASan aborts. Guarded script: prints "FAIL ..." on any wrong result.
+
+task check(label, got, want):
+    when got != want:
+        show "FAIL", label, "- got", got, "wanted", want
+
+~ several statements (several chances to collect), then a brand-new 28-character string
+task slow():
+    make t = upper("zz") + "q"
+    make u = [t + "1", t + "2", t + "3"]
+    make v = join(u, "") + lower("QQ")
+    give join([v, v], "")
+
+type Base:
+    make tag = "?"
+    task many(self, a, b, c, d, e, f, g):
+        give a + b + c + d + "|" + length(e + f + g)
+
+type Kid from Base:
+    task many(self, a, b, c, d, e, f, g):
+        give super.many(upper(a) + "1", upper(b) + "2", upper(c) + "3", upper(d) + "4", slow(), slow(), slow())
+
+make k = Kid("t")
+make r = ""
+repeat 20 times:
+    set r = k.many("a", "b", "c", "d", "e", "f", "g")
+check("super call, 7 fresh args", r, "A1B2C3D4|84")
+
+show "ok: super-call arguments survive collection"
