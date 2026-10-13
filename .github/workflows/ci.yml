@@ -86,6 +86,7 @@ jobs:
           export SPROUT_GC_ROOT_CC="$compiler"
           export SPROUT_ARGUMENT_BUFFER_CC="$compiler"
           export SPROUT_CAPABILITIES_CC="$compiler"
+          export SPROUT_TEXT_STEP_CC="$compiler"
           python src/tests/gc_env_roots_test.py "$bin"
           python src/tests/argument_buffers_test.py "$bin"
           python src/tests/runtime_capabilities_test.py "$bin"
@@ -108,6 +109,8 @@ jobs:
           python src/tests/workflow_progress_test.py "$bin"
           python src/tests/utc_library_test.py
           python src/tests/utc_library_test.py "$bin" --report-dir "$RUNNER_TEMP/utc-native"
+          python src/tests/text_stepping_driver_test.py
+          python src/tests/text_stepping_test.py "$bin" --report-dir "$RUNNER_TEMP/text-stepping-native"
           python src/tests/decision_library_test.py
           python src/tests/decision_driver_test.py
           python src/tests/decision_library_test.py "$bin" --report-dir "$RUNNER_TEMP/decision-native"
@@ -158,6 +161,7 @@ jobs:
             ${{ runner.temp }}/installer-boundary/
             ${{ runner.temp }}/utc-native/
             ${{ runner.temp }}/decision-native/
+            ${{ runner.temp }}/text-stepping-native/
             soak-artifacts/
           if-no-files-found: ignore
 
@@ -326,7 +330,9 @@ jobs:
           SPROUT_ARGUMENT_BUFFER_CC: cc
           SPROUT_ARGUMENT_BUFFER_CFLAGS: -O1 -g -fsanitize=address -fno-omit-frame-pointer
           SPROUT_CAPABILITIES_CC: cc
+          SPROUT_TEXT_STEP_CC: cc
           SPROUT_CAPABILITIES_CFLAGS: -O1 -g -fsanitize=address -fno-omit-frame-pointer
+          SPROUT_TEXT_STEP_CFLAGS: -O1 -g -fsanitize=address -fno-omit-frame-pointer
         run: |
           bash src/tests/run.sh
           python src/tests/gc_env_roots_test.py "$PWD/src/sprout"
@@ -350,6 +356,7 @@ jobs:
           env -u SPROUT_GC_STRESS python src/tests/api_contract_test.py "$PWD/src/sprout"
           env -u SPROUT_GC_STRESS python src/tests/workflow_progress_test.py "$PWD/src/sprout"
           env -u SPROUT_GC_STRESS python src/tests/utc_library_test.py "$PWD/src/sprout" --report-dir "$RUNNER_TEMP/utc-asan"
+          env -u SPROUT_GC_STRESS python src/tests/text_stepping_test.py "$PWD/src/sprout" --report-dir "$RUNNER_TEMP/text-stepping-asan"
           env -u SPROUT_GC_STRESS python src/tests/decision_library_test.py "$PWD/src/sprout" --report-dir "$RUNNER_TEMP/decision-asan"
           env -u SPROUT_GC_STRESS python examples/adoption/order-quote/test_parity.py "$PWD/src/sprout"
           "$PWD/src/sprout" test src/tests/validation_library_test.sprout --max-steps 3000000 --timeout-ms 5000
@@ -367,6 +374,7 @@ jobs:
           path: |
             ${{ runner.temp }}/utc-asan/
             ${{ runner.temp }}/decision-asan/
+            ${{ runner.temp }}/text-stepping-asan/
           if-no-files-found: ignore
 
   ubsan:
@@ -386,7 +394,9 @@ jobs:
           SPROUT_ARGUMENT_BUFFER_CC: cc
           SPROUT_ARGUMENT_BUFFER_CFLAGS: -O1 -g -fsanitize=undefined,float-cast-overflow -fno-sanitize-recover=all -fno-omit-frame-pointer
           SPROUT_CAPABILITIES_CC: cc
+          SPROUT_TEXT_STEP_CC: cc
           SPROUT_CAPABILITIES_CFLAGS: -O1 -g -fsanitize=undefined,float-cast-overflow -fno-sanitize-recover=all -fno-omit-frame-pointer
+          SPROUT_TEXT_STEP_CFLAGS: -O1 -g -fsanitize=undefined,float-cast-overflow -fno-sanitize-recover=all -fno-omit-frame-pointer
         run: |
           python src/tests/gc_env_roots_test.py "$PWD/src/sprout"
           python src/tests/argument_buffers_test.py "$PWD/src/sprout"
@@ -404,6 +414,7 @@ jobs:
           python src/tests/api_contract_test.py "$PWD/src/sprout"
           python src/tests/workflow_progress_test.py "$PWD/src/sprout"
           python src/tests/utc_library_test.py "$PWD/src/sprout" --report-dir "$RUNNER_TEMP/utc-ubsan"
+          python src/tests/text_stepping_test.py "$PWD/src/sprout" --report-dir "$RUNNER_TEMP/text-stepping-ubsan"
           python src/tests/decision_library_test.py "$PWD/src/sprout" --report-dir "$RUNNER_TEMP/decision-ubsan"
           python examples/adoption/order-quote/test_parity.py "$PWD/src/sprout"
 
@@ -415,6 +426,7 @@ jobs:
           path: |
             ${{ runner.temp }}/utc-ubsan/
             ${{ runner.temp }}/decision-ubsan/
+            ${{ runner.temp }}/text-stepping-ubsan/
           if-no-files-found: ignore
 
   playground:

@@ -4,7 +4,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
 
-async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7, bufferCount = 6, metadataChange = null, utcCount = 10, utcSummary = null, decisionSummary = null, decisionChange = null, smokeSource = null) {
+async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7, bufferCount = 6, metadataChange = null, utcCount = 10, utcSummary = null, decisionSummary = null, decisionChange = null, smokeSource = null, textStepSummary = null) {
   const calls = [], filesystems = [], metadataCalls = [];
   const validationLibrary = fs.readFileSync(path.join(__dirname, '..', '..', 'lib', 'validate.sprout'), 'utf8');
   const validationContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'validation_library_test.sprout'), 'utf8');
@@ -17,6 +17,7 @@ async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7, bu
   const progressContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'workflow_progress_test.sprout'), 'utf8');
   const utcLibrary = fs.readFileSync(path.join(__dirname, '..', '..', 'lib', 'utc.sprout'), 'utf8');
   const utcContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'utc_library_test.sprout'), 'utf8');
+  const textSteppingContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'text_stepping_test.sprout'), 'utf8');
   const decisionLibrary = fs.readFileSync(path.join(__dirname, '..', '..', 'lib', 'decision.sprout'), 'utf8');
   const decisionContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'decision_library_test.sprout'), 'utf8');
   const rootContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'gc_env_roots_test.sprout'), 'utf8');
@@ -66,6 +67,9 @@ async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7, bu
           if (source === utcContracts) {
             assert.equal(files.get('/lib/utc.sprout'), utcLibrary, 'actual UTC library is mounted');
             options.print('\x1b[1m' + (utcSummary ?? (utcCount + ' passed, 0 failed')) + '\x1b[0m'); return 0;
+          }
+          if (source === textSteppingContracts) {
+            options.print(textStepSummary ?? '6 passed, 0 failed'); return 0;
           }
           if (source === decisionContracts) {
             assert.equal(files.get('/lib/decision.sprout'), decisionLibrary, 'actual decision library is mounted');
@@ -169,6 +173,11 @@ async function exerciseSmoke(apiCount = 10, progressCount = 6, rootCount = 7, bu
   assert.equal(suppliedUtc.length, 1, 'one supplied UTC boundary pair runs');
   assert.ok(suppliedUtc[0].args.includes('--sandbox'));
   assert.equal(suppliedUtc[0].files.has('/lib/utc.sprout'), false, 'supplied source needs no file-backed import');
+  const textStepping = calls.filter(call => call.args[0] === 'test' && call.source === textSteppingContracts);
+  assert.equal(textStepping.length, 1, 'one exact six-group text stepping corpus runs');
+  assert.ok(textStepping[0].args.includes('--sandbox'));
+  assert.equal(textStepping[0].files.size, 1, 'text stepping mounts only its program');
+  assert.deepEqual(Array.from(textStepping[0].args.slice(-4)), ['--max-steps', '5000000', '--timeout-ms', '3000']);
   const decision = calls.find(call => call.args[0] === 'test' && call.source === decisionContracts);
   assert.deepEqual(Array.from(decision.args.slice(-4)), ['--max-steps', '5000000', '--timeout-ms', '3000']);
   const suppliedDecision = calls.filter(call => call.source.includes('\n~ WASM decision supplied pair\n'));
@@ -202,6 +211,9 @@ test('WASM decision optional note is explicit before priority matching', async (
 });
 
 test('WASM decision tables reject incomplete summaries and mistyped complete results', async () => {
+  for (const summary of ['5 passed', '6 passed\n5 passed', '5 passed\n6 passed', '6 passed, 1 failed']) {
+    await assert.rejects(exerciseSmoke(10, 6, 7, 6, null, 10, null, null, null, null, summary), assert.AssertionError);
+  }
   for (const summary of ['9 passed', '10 passed\n9 passed', '9 passed\n10 passed', '10 passed, 1 failed']) {
     await assert.rejects(exerciseSmoke(10, 6, 7, 6, null, 10, null, summary), assert.AssertionError);
   }

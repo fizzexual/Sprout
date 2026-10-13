@@ -88,6 +88,15 @@ static int utf8_clen(unsigned char c) {
   return 1;
 }
 
+/* Legacy nominal UTF-8 grouping, capped at the text terminator.
+   This does not validate continuation bytes or normalize byte text. */
+static int utf8_step_terminated(const char *p) {
+  int nominal = utf8_clen((unsigned char)p[0]);
+  int actual = 0;
+  while (actual < nominal && p[actual]) actual++;
+  return actual;
+}
+
 /* ------------------------------------------------------------------ values */
 typedef enum { V_NUM, V_STR, V_BOOL, V_NONE, V_LIST, V_MAP, V_TASK, V_INT, V_DECIMAL, V_BYTES } VType;
 typedef struct Value Value;
@@ -2577,7 +2586,7 @@ static Value call_builtin(Expr *call, Env *env) {
     if (a[0].type == V_BYTES) return vnum((double)a[0].length);
     if (a[0].type == V_LIST) return vnum(a[0].list ? a[0].list->n : 0);
     if (a[0].type == V_MAP)  return vnum(a[0].map ? a[0].map->n : 0);
-    if (a[0].type == V_STR)  { const char *p = a[0].str ? a[0].str : ""; long long c = 0; for (int i = 0; p[i]; i += utf8_clen((unsigned char)p[i])) c++; return vnum((double)c); }
+    if (a[0].type == V_STR)  { const char *p = a[0].str ? a[0].str : ""; long long c = 0; for (int i = 0; p[i]; i += utf8_step_terminated(p + i)) c++; return vnum((double)c); }
     arg_error(call->line, "length", 1, "a list, a map, or text", a[0], "length(items)");
   }
   if (!strcmp(name, "add")) {
@@ -2700,7 +2709,7 @@ static Value call_builtin(Expr *call, Env *env) {
       const char *h = a[0].str ? a[0].str : "", *needle = a[1].str ? a[1].str : "";
       const char *at = strstr(h, needle);
       if (!at) return vnone();
-      long long ci = 0; for (const char *p = h; p < at; ) { p += utf8_clen((unsigned char)*p); ci++; }   /* byte -> char index */
+      long long ci = 0; for (const char *p = h; p < at; ) { p += utf8_step_terminated(p); ci++; }   /* byte -> char index */
       return vnum((double)ci);
     }
     arg_error(call->line, "index_of", 1, "a list, or text (with text)", a[0], "index_of(items, x)  or  index_of(\"hello\", \"ll\")");
@@ -3767,7 +3776,7 @@ static Value eval(Expr *e, Env *env) {
         if (!num_whole_i64(ix.num)) { char m[160]; snprintf(m, sizeof m, "a text position must be a whole number within signed 64-bit range, but you used %g.", ix.num); fail_kind(e->line, "type", m); }
         long long want = (long long)ix.num, seek = want;   /* keep `want` as the ORIGINAL index for error messages */
         const char *p = c.str ? c.str : "";
-        if (want < 0) { long long n = 0; for (int j = 0; p[j]; j += utf8_clen((unsigned char)p[j])) n++; seek = want + n; }   /* "hi"[-1] is the last char */
+        if (want < 0) { long long n = 0; for (int j = 0; p[j]; j += utf8_step_terminated(p + j)) n++; seek = want + n; }   /* "hi"[-1] is the last char */
         long long idx = 0;
         for (int i = 0; p[i]; ) {
           int cl = utf8_clen((unsigned char)p[i]); int k = 0; char ch[5];
@@ -3805,11 +3814,11 @@ static Value eval(Expr *e, Env *env) {
       }
       if (c.type == V_STR) {                            /* char-aware (UTF-8), like text[i] */
         const char *p = c.str ? c.str : ""; long long n = 0;
-        for (int j = 0; p[j]; j += utf8_clen((unsigned char)p[j])) n++;
+        for (int j = 0; p[j]; j += utf8_step_terminated(p + j)) n++;
         long long a = have_s ? (s < 0 ? s + n : s) : 0, b = have_e ? (en < 0 ? en + n : en) : n;
         if (a < 0) { a = 0; } if (b > n) { b = n; } if (b < a) { b = a; }
         size_t cap = 0, len = 0; char *out = NULL; long long idx = 0;
-        for (int j = 0; p[j]; ) { int cl = utf8_clen((unsigned char)p[j]); if (idx >= a && idx < b) { char ch[5]; int k = 0; for (; k < cl && p[j + k]; k++) ch[k] = p[j + k]; ch[k] = 0; sb_add(&out, &cap, &len, ch); } idx++; j += cl ? cl : 1; }
+        for (int j = 0; p[j]; ) { int cl = utf8_step_terminated(p + j); if (idx >= a && idx < b) { char ch[5]; int k = 0; for (; k < cl && p[j + k]; k++) ch[k] = p[j + k]; ch[k] = 0; sb_add(&out, &cap, &len, ch); } idx++; j += cl ? cl : 1; }
         Value rv = vstr(out ? out : ""); free(out); return rv;
       }
       fail_kind(e->line, "type", "I can only slice a list or text with [a:b].");

@@ -1,6 +1,7 @@
 ~ Pure ordered table selection. No callbacks, expression strings, I/O or effects.
 use "validate.sprout"
 private make d_validate = validate.check
+private make d_admitted_kinds = ["nothing", "text", "yes-no", "number", "integer", "decimal", "list", "map"]
 
 private task d_plain(value, kind):
     give builtin::kind_of(value) == kind and not builtin::is_a(value, kind)
@@ -42,7 +43,7 @@ private task d_admit(value, state, depth):
         give d_stop(state, "limit")
     set state.nodes += 1
     make kind = builtin::kind_of(value)
-    when builtin::is_a(value, kind) or not builtin::contains(["nothing", "text", "yes-no", "number", "integer", "decimal", "list", "map"], kind):
+    when builtin::is_a(value, kind) or not builtin::contains(d_admitted_kinds, kind):
         give d_stop(state, "invalid")
     when kind == "number":
         try:
@@ -65,7 +66,7 @@ private task d_admit(value, state, depth):
             give d_stop(state, "limit")
         when builtin::length(value) == 1 and (builtin::contains(value, "$sprout.integer") or builtin::contains(value, "$sprout.decimal") or builtin::contains(value, "$sprout.bytes")):
             give d_stop(state, "invalid")
-        for each name in builtin::keys(value):
+        for each name in value:
             when not d_text(name, 128, state) or not d_admit(value[name], state, depth + 1):
                 give no
     give yes
@@ -73,7 +74,7 @@ private task d_admit(value, state, depth):
 private task d_keys(value, allowed, required):
     when not d_plain(value, "map"):
         give no
-    for each name in builtin::keys(value):
+    for each name in value:
         when not builtin::contains(allowed, name):
             give no
     for each name in required:
@@ -157,7 +158,7 @@ private task d_copy(value):
         give result
     when kind == "map":
         make result = {}
-        for each name in builtin::keys(value):
+        for each name in value:
             set result[name] = d_copy(value[name])
         give result
     give value

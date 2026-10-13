@@ -157,6 +157,10 @@ async function run(source, expectedCode = 0, flags = [], sandbox = true, files =
       error: {code: 'invalid_timestamp', message: 'The timestamp does not match the supported profile.'}},
   ]);
   console.log('ok: WASM exact UTC contracts and supplied-source sandbox');
+  const textSteppingContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'text_stepping_test.sprout'), 'utf8');
+  const textSteppingOutput = await run(textSteppingContracts, 0, ['--max-steps', '5000000', '--timeout-ms', '3000'], true, {}, 'test');
+  assertLibrarySummary(textSteppingOutput, 6, 'Text stepping');
+  console.log('ok: WASM bounded text stepping and byte-safe legacy tails');
   const decisionLibrary = fs.readFileSync(path.join(__dirname, '..', '..', 'lib', 'decision.sprout'), 'utf8');
   const decisionContracts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'decision_library_test.sprout'), 'utf8');
   const decisionOutput = await run(decisionContracts, 0, ['--max-steps', '5000000', '--timeout-ms', '3000'], false,

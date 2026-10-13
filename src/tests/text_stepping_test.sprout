@@ -1,0 +1,103 @@
+~ Candidate-only R003 contracts. Invalid legacy text is observed as byte hex,
+~ never emitted as JSON text. Six groups; no I/O or external callbacks.
+
+task raw(codes):
+    make value = ""
+    for each byte in codes:
+        set value = value + builtin::char(byte)
+    give value
+make raw = raw
+
+task hex(value):
+    give builtin::bytes_hex(builtin::bytes(value))
+make hex = hex
+
+test "valid text keeps existing codepoint positions and slices":
+    expect builtin::length("") == 0
+    expect builtin::length("ASCII") == 5
+    expect builtin::length("¢") == 1
+    expect builtin::length("€") == 1
+    expect builtin::length("🌱") == 1
+    make text = "a¢€🌱z"
+    expect builtin::length(text) == 5
+    expect text[0] == "a"
+    expect text[-1] == "z"
+    expect text[1] == "¢"
+    expect text[-2] == "🌱"
+    expect text[1:4] == "¢€🌱"
+    expect text[1:4] == builtin::slice(text, 1, 4)
+    expect text[:] == text
+    expect text[0:0] == ""
+    expect text[99:] == ""
+    expect ""[:] == ""
+
+test "single lead-byte tails reach the actual terminator":
+    for each byte in [194, 226, 240]:
+        make tail = raw([byte])
+        make expected = hex(tail)
+        expect builtin::length(tail) == 1
+        expect hex(tail[0]) == expected
+        expect hex(tail[-1]) == expected
+        expect hex(tail[:]) == expected
+        expect hex(tail[0:1]) == expected
+        expect tail[0:0] == ""
+        expect tail[1:] == ""
+        expect error "index":
+            make outside = tail[1]
+        expect error "index":
+            make outside = tail[-2]
+
+test "all incomplete widths preserve selected and excluded final groups":
+    for each codes in [[194], [226], [226, 130], [240], [240, 159], [240, 159, 140]]:
+        make tail = raw(codes)
+        make expected = hex(tail)
+        make text = "x" + tail
+        expect builtin::length(tail) == 1
+        expect builtin::length(text) == 2
+        expect hex(text[-1]) == expected
+        expect text[-2] == "x"
+        expect hex(text[1:2]) == expected
+        expect hex(text[-1:]) == expected
+        expect hex(text[:]) == "78" + expected
+        expect text[:1] == "x"
+        expect text[0:0] == ""
+        expect text[2:] == ""
+        expect hex(builtin::slice(text, 1, 2)) == expected
+
+test "nonleading bytes and complete malformed groups keep legacy grouping":
+    for each codes in [[128], [255], [194, 65], [226, 65, 66], [240, 65, 66, 67]]:
+        make text = raw(codes)
+        make expected = hex(text)
+        expect builtin::length(text) == 1
+        expect hex(text[0]) == expected
+        expect hex(text[-1]) == expected
+        expect hex(text[:]) == expected
+        expect text[1:] == ""
+        expect builtin::length("x" + text) == 2
+
+test "index_of keeps inside-group empty absent and valid-text results":
+    for each lead in [194, 226, 240]:
+        make text = raw([lead, 120])
+        expect builtin::index_of(text, "x") == 1
+        expect builtin::index_of(text, "") == 0
+        expect builtin::index_of(text, "missing") == nothing
+    expect builtin::index_of("a¢€🌱z", "€") == 2
+    expect builtin::index_of("a¢€🌱z", "missing") == nothing
+    expect builtin::index_of("", "") == 0
+
+test "already capped operations and strict JSON rejection stay unchanged":
+    for each codes in [[194], [226, 130], [240, 159, 140]]:
+        make text = raw(codes)
+        make expected = hex(text)
+        make split = builtin::split(text, "")
+        expect builtin::length(split) == 1
+        expect hex(split[0]) == expected
+        make comprehension = [hex(chunk) for each chunk in text]
+        expect comprehension == [expected]
+        make iterated = []
+        for each chunk in text:
+            builtin::add(iterated, hex(chunk))
+        expect iterated == [expected]
+        expect hex(builtin::slice(text, 0, 1)) == expected
+        expect error "data":
+            builtin::json_encode(text)

@@ -50,7 +50,7 @@ private task schema_problem(schema, path, depth, budget, field_node):
     make kind = field(schema, "kind", nothing)
     when builtin::kind_of(kind) != "text" or not builtin::contains(["text", "yes-no", "list", "map", "number", "integer", "decimal"], kind):
         give problem(path + ["kind"], "Kind must be text, yes-no, list, map, number, integer or decimal.")
-    for each name in builtin::keys(schema):
+    for each name in schema:
         make accepted = builtin::contains(["kind", "required", "nullable"], name)
         when kind == "text" or kind == "list":
             set accepted = accepted or builtin::contains(["min_length", "max_length"], name)
@@ -108,7 +108,7 @@ private task schema_problem(schema, path, depth, budget, field_node):
         make fields = field(schema, "fields", {})
         when not matches_kind(fields, "map") or builtin::length(fields) > 128:
             give problem(path + ["fields"], "Fields must be a map with at most 128 declared fields.")
-        for each name in builtin::keys(fields):
+        for each name in fields:
             when builtin::length(name) < 1 or builtin::length(name) > 128:
                 give problem(path + ["fields", segment(name)], "Field names must contain from 1 to 128 characters.")
             set budget.text += builtin::length(name)
@@ -169,7 +169,7 @@ private task visit(value, schema, path, depth, result):
             error(result, path, "limit", "A validated map may contain at most 128 fields.")
             give nothing
         make fields = field(schema, "fields", {})
-        for each name in builtin::keys(fields):
+        for each name in fields:
             when result.truncated:
                 give nothing
             when not builtin::contains(value, name):
@@ -178,7 +178,7 @@ private task visit(value, schema, path, depth, result):
             otherwise:
                 visit(value[name], fields[name], path + [name], depth + 1, result)
         when not field(schema, "allow_unknown", no):
-            for each name in builtin::keys(value):
+            for each name in value:
                 when result.truncated:
                     give nothing
                 when not builtin::contains(fields, name):
