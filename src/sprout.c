@@ -1551,13 +1551,19 @@ static void task_arity_check(TaskDef *t, int got, int line) {
     else snprintf(m, sizeof m, "the task '%s' wants %d to %d inputs, but got %d.", t->name, req, t->nparams, got);
     fail(line, m); }
 }
-static Value call_task_def(TaskDef *t, Expr *call, Env *env) {
-  task_arity_check(t, call->nargs, call->line);
+/* call t with `npre` already-evaluated values first (a method's self), then the argument
+   expressions. Each value is bound into the frame the moment it exists, so the GC can reach it
+   (through the frame) while the NEXT argument is evaluated — that can run Sprout code, and a
+   fresh value held only in a malloc'd array would be invisible to the collector and freed. */
+static Value call_task_args(TaskDef *t, Value *pre, int npre, Expr **args, int nargs, Env *env, int line) {
+  task_arity_check(t, npre + nargs, line);
   Env *frame = env_new(t->home);      /* a task sees its OWN file (privates + publics) + its locals */
-  for (int i = 0; i < call->nargs; i++) { Value av = eval(call->args[i], env); if (t->ptypes && t->ptypes[i]) { char w[96]; snprintf(w, sizeof w, "the input '%s'", t->params[i]); check_type(av, t->ptypes[i], call->line, w); } env_define(frame, t->params[i], av); }
-  for (int i = call->nargs; i < t->nparams; i++) { Value av = eval(t->defaults[i], frame); if (t->ptypes && t->ptypes[i]) { char w[96]; snprintf(w, sizeof w, "the input '%s'", t->params[i]); check_type(av, t->ptypes[i], call->line, w); } env_define(frame, t->params[i], av); }   /* fill trailing defaults */
-  return run_task(t, frame, call->line);
+  for (int i = 0; i < npre + nargs; i++) { Value av = i < npre ? pre[i] : eval(args[i - npre], env); if (t->ptypes && t->ptypes[i]) { char w[96]; snprintf(w, sizeof w, "the input '%s'", t->params[i]); check_type(av, t->ptypes[i], line, w); } env_define(frame, t->params[i], av); }
+  for (int i = npre + nargs; i < t->nparams; i++) { Value av = eval(t->defaults[i], frame); if (t->ptypes && t->ptypes[i]) { char w[96]; snprintf(w, sizeof w, "the input '%s'", t->params[i]); check_type(av, t->ptypes[i], line, w); } env_define(frame, t->params[i], av); }   /* fill trailing defaults */
+  if (t->owner_type) env_define(frame, "__class__", vstr(t->owner_type));   /* a method: so `super` inside it finds the defining type's parent */
+  return run_task(t, frame, line);
 }
+static Value call_task_def(TaskDef *t, Expr *call, Env *env) { return call_task_args(t, NULL, 0, call->args, call->nargs, env, call->line); }
 /* call a task VALUE with already-evaluated args (used by map/filter/reduce/each) */
 static Value call_task_v(TaskDef *t, Value *argv, int argc, int line) {
   task_arity_check(t, argc, line);
@@ -2323,11 +2329,16 @@ static Value call_builtin(Expr *call, Env *env) {
     want_task(call->line, "sort_by", 2, a[1], "sort_by(people, get_score)");
     SList *l = a[0].list;
     if (l && l->n > 1) {
-      Value *keys = (Value *)malloc((size_t)l->n * sizeof(Value));   /* each item's sort key, computed once */
-      for (int i = 0; i < l->n; i++) keys[i] = call_task_v(a[1].task, &l->items[i], 1, call->line);
+      /* each item's sort key, computed once. The keys live in a GC list held by this local (not
+         a malloc'd array the collector can't see): computing the NEXT key runs Sprout code that
+         may collect, and the earlier keys are often fresh values nothing else holds. The list
+         also grows if the key task adds to l, so keys can't be written past their end. */
+      SList *kl = list_new();
+      for (int i = 0; i < l->n; i++) list_push(kl, call_task_v(a[1].task, &l->items[i], 1, call->line));
+      Value *keys = kl->items;                       /* no Sprout code runs below, so this can't move or be freed */
       VType t = keys[0].type;
-      if (t != V_NUM && t != V_STR) { free(keys); fail_kind(call->line, "type", "sort_by's task must give a number or text to sort by."); }
-      for (int i = 1; i < l->n; i++) if (keys[i].type != t) { free(keys); fail_kind(call->line, "type", "sort_by's task must give the same kind of value for every item."); }
+      if (t != V_NUM && t != V_STR) fail_kind(call->line, "type", "sort_by's task must give a number or text to sort by.");
+      for (int i = 1; i < l->n; i++) if (keys[i].type != t) fail_kind(call->line, "type", "sort_by's task must give the same kind of value for every item.");
       for (int i = 1; i < l->n; i++) {               /* stable insertion sort, ascending, by key */
         Value ki = keys[i], vi = l->items[i]; int j = i - 1;
         while (j >= 0) {
@@ -2338,7 +2349,6 @@ static Value call_builtin(Expr *call, Env *env) {
         }
         keys[j + 1] = ki; l->items[j + 1] = vi;
       }
-      free(keys);
     }
     return a[0];                                     /* sorted in place (ascending); use reverse() for descending */
   }
@@ -3146,12 +3156,7 @@ static Value type_method_call(Value recv, const char *name, Expr **args, int nar
     else snprintf(m, sizeof m, "a %s has no method called '%s'.", t->name, name);
     fail(line, m);
   }
-  Value *argv = (Value *)malloc((size_t)(nargs + 1) * sizeof(Value));
-  argv[0] = recv;
-  for (int i = 0; i < nargs; i++) argv[i + 1] = eval(args[i], env);
-  Value r = call_task_v(md, argv, nargs + 1, line);
-  free(argv);
-  return r;
+  return call_task_args(md, &recv, 1, args, nargs, env, line);   /* self, then each arg straight into the GC-visible frame */
 }
 /* register a freshly-parsed file's top-level tasks AND types before it runs. */
 static void register_top(Stmt *s, int fileid, Env *home) {
@@ -3174,12 +3179,8 @@ static Value eval_super_call(Expr *e, Env *env) {
   if (!pt) { char m[200]; snprintf(m, sizeof m, "super refers to unknown parent type '%s'.", cur->parent); fail(e->line, m); }
   TaskDef *md = type_method(pt, e->name);
   if (!md) { char m[220]; snprintf(m, sizeof m, "no parent method '%s' to call with super (looking up from '%s').", e->name, cur->parent); fail(e->line, m); }
-  Value *argv = (Value *)malloc((size_t)(e->nargs + 1) * sizeof(Value));
-  argv[0] = *selfv;
-  for (int i = 0; i < e->nargs; i++) argv[i + 1] = eval(e->args[i], env);
-  Value r = call_task_v(md, argv, e->nargs + 1, e->line);
-  free(argv);
-  return r;
+  Value self = *selfv;                               /* a copy: selfv points into env->vars, which can move */
+  return call_task_args(md, &self, 1, e->args, e->nargs, env, e->line);
 }
 
 static Value call_module(Expr *e, Env *env) {
