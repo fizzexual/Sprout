@@ -17,6 +17,13 @@ All notable changes to **Sprout**. The format follows
 
 ### Fixed
 
+- Garbage collector: memory that lists, maps and environments grow into now counts toward
+  the 4 MB collection threshold. Their item, key, value, index and variable arrays grow with
+  `realloc`, outside `gc_alloc`, so that memory was invisible to the trigger: a loop building
+  big throwaway lists could reach hundreds of MB without one collection. Measured on Linux:
+  8 throwaway 1,000,000-item lists peaked at 439,904 kB before and 115,100 kB after. The
+  `fib` benchmark peaks at about 7 MB instead of 75 MB and runs in about 0.73 s instead of
+  1.39 s. New test: `src/tests/gc_list_growth.sprout`.
 - Playground runner (`playground/run.sh`): a resource limit can no longer be skipped
   silently. `ulimit -u 64` never worked (the image's `/bin/sh` is dash, which rejects `-u`, and
   the error was hidden), so it is gone along with `SPROUT_PROCS`. Docker's `--pids-limit` /

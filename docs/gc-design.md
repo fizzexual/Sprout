@@ -81,7 +81,9 @@ Two ways to capture the transient roots were evaluated:
 - **Sweep.** Free every registered object whose mark is clear; clear marks for the rest.
 - **Trigger.** Only at **safe points** (between top-level statements, and between
   statements inside any block — so long loops get collected), and only once
-  bytes-allocated-since-last-GC crosses a threshold. Conservative scanning makes these
+  bytes-allocated-since-last-GC crosses a threshold (4 MB). Those bytes include the arrays
+  an object owns as they grow (list items, map keys/values/index and key copies, env
+  vars), not only the `gc_alloc` headers. Conservative scanning makes these
   safe points sound automatically, because the enclosing frames' live `Value`s are on the
   stack.
 

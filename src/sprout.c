@@ -112,10 +112,12 @@ static Value vstr_take(char *owned) { Value v = vstr(owned ? owned : ""); free(o
 static SList *list_new(void) { return (SList *)gc_alloc(GC_LIST, sizeof(SList)); }
 static void list_push(SList *l, Value x) {
   if (l->n >= l->cap) {
+    int old = l->cap;
     l->cap = l->cap ? l->cap * 2 : 8;
     Value *ni = (Value *)realloc(l->items, l->cap * sizeof(Value));
     if (!ni) fail(0, "ran out of memory building a list.");
     l->items = ni;
+    gc_bytes += (size_t)(l->cap - old) * sizeof(Value);   /* growth counts toward the next collection */
   }
   l->items[l->n++] = x;
 }
@@ -147,8 +149,10 @@ static void map_idx_put(SMap *m, int pos) {          /* record keys[pos] -> pos 
 /* (re)build the index from keys[], sized to keep the load factor <= 1/2. Call after any
    change that shifts positions (e.g. remove), and to grow as the map fills. */
 static void map_reindex(SMap *m) {
+  int old = m->idx ? m->idxcap : 0;
   m->idxcap = m->idxcap ? m->idxcap : 16;
   while (m->idxcap < m->n * 2) m->idxcap *= 2;
+  gc_bytes += (size_t)(m->idxcap - old) * sizeof(int);
   m->idx = (int *)realloc(m->idx, (size_t)m->idxcap * sizeof(int));
   if (!m->idx) fail(0, "ran out of memory building a map.");
   memset(m->idx, 0, (size_t)m->idxcap * sizeof(int));
@@ -158,13 +162,16 @@ static void map_set(SMap *m, const char *k, Value x) {
   int i = map_index(m, k);
   if (i >= 0) { m->vals[i] = x; return; }
   if (m->n >= m->cap) {
+    int old = m->cap;
     m->cap = m->cap ? m->cap * 2 : 8;
     char **nk = (char **)realloc(m->keys, m->cap * sizeof(char *));
     Value *nv = (Value *)realloc(m->vals, m->cap * sizeof(Value));
     if (!nk || !nv) fail(0, "ran out of memory building a map.");
     m->keys = nk; m->vals = nv;
+    gc_bytes += (size_t)(m->cap - old) * (sizeof(char *) + sizeof(Value));
   }
   m->keys[m->n] = dup_str(k); m->vals[m->n] = x; m->n++;
+  gc_bytes += strlen(k) + 1;                         /* the key copy is freed with the map */
   if (m->idxcap < m->n * 2) map_reindex(m);          /* grow + rebuild (also builds it the first time) */
   else map_idx_put(m, m->n - 1);                     /* otherwise just index the new key */
 }
@@ -1269,7 +1276,7 @@ static Value *env_find(Env *e, const char *name) { for (; e; e = e->parent) { Va
 static void env_define(Env *e, const char *name, Value v) {
   Value *slot = env_local(e, name);
   if (slot) { *slot = v; return; }
-  if (e->n >= e->cap) { e->cap = e->cap ? e->cap * 2 : 8; e->vars = (Var *)realloc(e->vars, e->cap * sizeof(Var)); }
+  if (e->n >= e->cap) { int old = e->cap; e->cap = e->cap ? e->cap * 2 : 8; e->vars = (Var *)realloc(e->vars, e->cap * sizeof(Var)); gc_bytes += (size_t)(e->cap - old) * sizeof(Var); }
   /* Borrow the name — every caller passes a permanent string (an AST identifier: a task
      param, a `make`/`for each` target, a destructure name, …), so there's no need to copy
      it per definition. (This is hot: a recursive call binds its params on every call.) */

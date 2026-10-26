@@ -1,0 +1,35 @@
+~ The GC must count the memory a list grows into. A list's item array grows with realloc,
+~ outside gc_alloc; when that memory was not counted, a loop that kept building big
+~ throwaway lists never reached the collection threshold, so nothing was ever freed.
+~ Measures the interpreter's peak memory (VmHWM) on Linux; does nothing on other systems.
+~ (read() can't be used: /proc files report size 0, so the shell reads it for us.)
+~ Guarded script: prints "FAIL ..." on a wrong result.
+
+use system
+
+~ 8 throwaway lists of 1,000,000 items (~59 MB each): ~470 MB if never collected.
+~ GC stress mode collects on every statement, so there it runs a small version: still a
+~ use-after-free check, and peak memory says nothing when everything is collected anyway.
+make lists = 8
+make items = 1000000
+make stress = env("SPROUT_GC_STRESS", "") != ""
+when stress:
+    set lists = 2
+    set items = 20000
+
+when exists("/proc/version"):
+    repeat lists times:
+        make big = []
+        repeat items times:
+            add(big, 1)
+    make out = trim(system.run("grep VmHWM /proc/$PPID/status"))
+    make peak = 0
+    when contains(out, "VmHWM"):
+        set peak = number(split(trim(split(out, ":")[1]), " ")[0])
+    ~ Under AddressSanitizer freed memory sits in ASan's quarantine (256 MB by default), so
+    ~ peak memory can't show the frees there either.
+    when not stress and env("ASAN_OPTIONS", "") == "":
+        when peak == 0:
+            show "FAIL could not read VmHWM, got:", out
+        when peak > 300000:
+            show "FAIL list growth was not collected - peak memory", peak, "kB"
